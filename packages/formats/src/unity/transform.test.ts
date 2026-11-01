@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { multiplyMatrices, transformBounds, trsMatrix, unityEulerQuaternion } from './transform.ts';
+import {
+	multiplyMatrices,
+	multiplyQuaternions,
+	quaternionUnityEuler,
+	transformBounds,
+	trsMatrix,
+	unityEulerQuaternion,
+} from './transform.ts';
 
 const near = (actual: ArrayLike<number>, expected: number[]): void => {
 	assert.equal(actual.length, expected.length);
@@ -24,4 +31,17 @@ test('nested transforms preserve parent rotation and scale without mutating eith
 	near(bounds.center, [10, 0, -2]);
 	near(bounds.extents, [6, 4, 2]);
 	assert.deepEqual([parent, child], saved);
+});
+
+test('Unity Euler angles round-trip through a quaternion, and quaternions compose parent first', () => {
+	for (const angles of [
+		[10, 20, 30],
+		[-45, 170, 5],
+		[0, -90, 0],
+	]) {
+		near(quaternionUnityEuler(unityEulerQuaternion(angles)), angles);
+	}
+	// a child turned 30° about y under a parent turned 60° about y is turned 90°
+	const composed = multiplyQuaternions(unityEulerQuaternion([0, 60, 0]), unityEulerQuaternion([0, 30, 0]));
+	near(quaternionUnityEuler(composed), [0, 90, 0]);
 });

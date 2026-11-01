@@ -11,7 +11,12 @@ import {
 	type EnvironmentSectionName,
 } from '@endfield-noclip/formats/hg/environment-phase';
 
-import { composeEnvironment, resolveLevelEnvironment, type SceneVolumes } from './environment.ts';
+import {
+	composeEnvironment,
+	resolveLevelEnvironment,
+	type SceneEnvironmentVolume,
+	type SceneVolumes,
+} from './environment.ts';
 
 /** a polyline volume over the world rectangle `[x0, x1) × [z0, z1)` */
 const rect = (id: number, priority: number, [x0, z0, x1, z1]: number[]): EnvironmentVolume => ({
@@ -45,6 +50,16 @@ const globalVolume: EnvironmentVolume = {
 	shape: null,
 };
 
+/** a chunk volume of a level, loaded with any of `sceneStates` (always when empty) */
+const chunk = (tag: number, volume: EnvironmentVolume, sceneStates: number[]): SceneEnvironmentVolume => ({
+	tag,
+	sceneStates,
+	volume,
+	phaseObject: null,
+	condition: null,
+	loadedByDefault: true,
+});
+
 /** no scene state active */
 const none: ReadonlySet<number> = new Set();
 
@@ -67,10 +82,10 @@ test('the base is the broadest volume the level shows, not the one shown most', 
 	const foreign = rect(12, 400, [0, 0, 256, 128]);
 	const volumes: SceneVolumes = {
 		environment: [
-			{ tag: 0, sceneStates: [], volume: globalVolume },
-			{ tag: 3, sceneStates: [], volume: broad },
-			{ tag: 3, sceneStates: [], volume: local },
-			{ tag: 4, sceneStates: [], volume: foreign },
+			chunk(0, globalVolume, []),
+			chunk(3, broad, []),
+			chunk(3, local, []),
+			chunk(4, foreign, []),
 		],
 		post: [],
 	};
@@ -92,11 +107,7 @@ test('a volume that is never shown is skipped; without volumes the scene global 
 	// as broad, higher priority: hides the first everywhere
 	const overlay = rect(21, 300, [0, 0, 256, 128]);
 	const volumes: SceneVolumes = {
-		environment: [
-			{ tag: 0, sceneStates: [], volume: globalVolume },
-			{ tag: 3, sceneStates: [], volume: hidden },
-			{ tag: 3, sceneStates: [], volume: overlay },
-		],
+		environment: [chunk(0, globalVolume, []), chunk(3, hidden, []), chunk(3, overlay, [])],
 		post: [],
 	};
 	assert.equal(resolveLevelEnvironment(level, volumes, none).volume, overlay);
@@ -115,10 +126,10 @@ test('volumes of inactive scene states are not candidates', () => {
 	const hidden = rect(32, 250, [0, 0, 256, 128]);
 	const volumes: SceneVolumes = {
 		environment: [
-			{ tag: 0, sceneStates: [], volume: globalVolume },
-			{ tag: 3, sceneStates: [], volume: base },
-			{ tag: 3, sceneStates: [8], volume: night },
-			{ tag: 3, sceneStates: [7, 10], volume: hidden },
+			chunk(0, globalVolume, []),
+			chunk(3, base, []),
+			chunk(3, night, [8]),
+			chunk(3, hidden, [7, 10]),
 		],
 		post: [],
 	};
@@ -158,4 +169,21 @@ test('inactive sections come from the global phase, if active there', () => {
 		{ source: composed.cloudConfig.source, from: composed.cloudConfig.section.value.from },
 		{ source: 'inactive', from: 'level' },
 	);
+});
+
+test('a placed volume counts only when its placement loads by default', () => {
+	const art = rect(40, 200, [0, 0, 256, 128]);
+	// Power Plateau's overcast: placed by an entity whose gate passes once a mission is complete
+	const overcast = rect(41, 300, [0, 0, 256, 128]);
+	const placed = (loadedByDefault: boolean): SceneEnvironmentVolume => ({
+		...chunk(3, overcast, []),
+		condition: { alternatives: [[{ control: 'mission:e3m5', mask: 8 }]] },
+		loadedByDefault,
+	});
+	const volumes = (loadedByDefault: boolean): SceneVolumes => ({
+		environment: [chunk(0, globalVolume, []), chunk(3, art, []), placed(loadedByDefault)],
+		post: [],
+	});
+	assert.equal(resolveLevelEnvironment(level, volumes(true), none).volume, overcast);
+	assert.equal(resolveLevelEnvironment(level, volumes(false), none).volume, art);
 });

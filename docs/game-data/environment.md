@@ -104,6 +104,38 @@ states whose files hold it. the packer files the volume under a visibility group
 and that loading condition), and the viewer skips a volume whose group's condition the selected
 scene values don't satisfy. see [scene-states.md](scene-states.md).
 
+## prefab volumes
+
+some volumes sit in prefabs that DynamicStreaming entities place (model rows, see
+[assets.md](assets.md#payloads)), so the entity's load gates switch them with the story. the prefabs
+are named `P_lightingDeco_<entity id>_envvolume`, but the packer finds them by their components, not
+by name: an `HGEnvironmentVolume` MonoBehaviour on an active GameObject, serialized by Unity with
+the same fields as the chunk component (`_volumeType`, `_blendMode`, `_priority`, `_blendDistance`,
+`_fadeIn/OutDuration`, `_polyLineShape`, `_envPhase`). differences from chunk volumes:
+
+- the phase is a reference to an `HGEnvironmentPhase` object, often stored in the prefab's own
+  bundle, not a StringPathHash asset. phases embedded this way have names of their own and are
+  packed like the others.
+- a box takes its GameObject's transform under the placement. the polyline is stored in world
+  coordinates, as in chunk data (the GameObject's position doesn't move it), so a prism under a
+  placement that isn't the identity is rejected as unsupported.
+
+each volume belongs to its placement's level and loads with the placement's visibility (its gates,
+scene-state lists and script flag). the level base vote counts it only when that visibility holds
+under the default scene values ([defaults](scene-states.md#defaults)).
+
+Power Plateau (map01_lv007) is the example. its chunk volume is a sunset phase,
+`Env_map01_lv007_art`. two gated entities swap prefab volumes on mission `e3m5` (Undying Cinders):
+
+- before it completes, `…_2800000002_envvolume` adds two local boxes.
+- after, `…_2800000003_envvolume` adds a level-wide prism at priority 300 with
+  `Env_map01_lv007_art_overcast_brightness`, the grey overcast that players see once the story moves
+  on, plus local brightness boxes.
+
+the sky vortex's meshes switch on the same mission.
+
+`world env` reads chunk volumes only, so its vote leaves prefab volumes out.
+
 ## the level's base environment
 
 `resolveLevelEnvironment` picks one volume per level, used as `LevelInfo.environment` and as the

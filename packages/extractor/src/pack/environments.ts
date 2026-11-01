@@ -20,6 +20,7 @@ import type {
 	EnvironmentVolumeShape,
 	PostProfile,
 } from '@endfield-noclip/package-format/environment';
+import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import { getOrInsert, intern } from '../collections.ts';
 import type { Context } from '../context.ts';
@@ -31,11 +32,14 @@ import {
 	type LoadedPhase,
 	type LoadedVolumeProfile,
 	loadEnvironmentPhase,
+	loadEnvironmentPhaseObject,
 	loadLevelPhases,
 	loadSceneVolumes,
 	loadVolumeProfile,
 	resolveLevelEnvironment,
 	resolveLevelPost,
+	type SceneEnvironmentVolume,
+	type SceneVolumes,
 	type SectionSource,
 } from '../game/environment.ts';
 
@@ -87,8 +91,11 @@ export interface EnvironmentPlan {
 	phases: PendingPhase[];
 	/** owned; `group` is 0 until the packer interns {@link volumeOwners} */
 	volumes: EnvironmentVolumeInfo[];
-	/** per volume: its level's tag and the MapConfig scene state indices that load it, empty if always loaded */
-	volumeOwners: { levelTag: number; sceneStates: number[] }[];
+	/**
+	 * per volume: its level's tag, the MapConfig scene state indices that load it (empty if always loaded) and,
+	 * for prefab volumes, their placement's load condition
+	 */
+	volumeOwners: { levelTag: number; sceneStates: number[]; condition: ConditionalSetInfo | null }[];
 	/** textures the profiles and phases reference; slots index this list */
 	textures: ObjectRef[];
 	/** index into {@link textures} of the height fog's flow noise, or `null` if the install lacks it */
@@ -154,6 +161,7 @@ const findFlowNoise = async (
  * @param levels the scene's levels
  * @param enabled MapConfig scene state indices active by default; level base environments are chosen among
  *   the volumes they load
+ * @param placed volumes that placed prefabs carry (`loadPlacedVolumes`), alongside the chunk volumes
  * @returns the deduplicated profiles, per-level indices and the textures to convert
  */
 export const planEnvironments = async (
@@ -161,6 +169,7 @@ export const planEnvironments = async (
 	scene: string,
 	levels: readonly PartitionLevel[],
 	enabled: ReadonlySet<number>,
+	placed: readonly SceneEnvironmentVolume[],
 ): Promise<EnvironmentPlan> => {
 	const plan: EnvironmentPlan = {
 		levels: [],
@@ -175,20 +184,31 @@ export const planEnvironments = async (
 	if (levels.length === 0) {
 		return plan;
 	}
-	const [volumes, pathOf, resolver] = await Promise.all([
+	const [chunkVolumes, pathOf, resolver] = await Promise.all([
 		loadSceneVolumes(context.world, scene),
 		context.world.pathLookup(),
 		context.resolver(),
 	]);
+	const volumes: SceneVolumes = { ...chunkVolumes, environment: [...chunkVolumes.environment, ...placed] };
 	const flowNoise = await findFlowNoise(context, resolver);
 	if (flowNoise !== null) {
 		plan.flowNoise = plan.textures.push(flowNoise) - 1;
 	}
 
-	// levels mostly share phases and profiles, so loads are cached; they run for all levels at once
-	const phaseLoads = new Map<bigint, Promise<LoadedPhase>>();
-	const phase = (hash: bigint) =>
-		getOrInsert(phaseLoads, hash, () => loadEnvironmentPhase(resolver, hash, pathOf));
+	// levels mostly share phases and profiles, so loads are cached; they run for all levels at once. prefab
+	// volumes name their phase object, chunk volumes a StringPathHash asset
+	const phaseObjects = new Map(volumes.environment.map((entry) => [entry.volume, entry.phaseObject]));
+	const phaseLoads = new Map<string, Promise<LoadedPhase>>();
+	const phase = (volume: EnvironmentVolume): Promise<LoadedPhase> | null => {
+		const object = phaseObjects.get(volume) ?? null;
+		if (object !== null) {
+			return getOrInsert(phaseLoads, objectKey(object), () => loadEnvironmentPhaseObject(resolver, object));
+		}
+		const hash = volume.envPhase;
+		return hash === null
+			? null
+			: getOrInsert(phaseLoads, `hash:${hash}`, () => loadEnvironmentPhase(resolver, hash, pathOf));
+	};
 	const postLoads = new Map<bigint, Promise<LoadedVolumeProfile>>();
 	const postProfile = (hash: bigint) =>
 		getOrInsert(postLoads, hash, () => loadVolumeProfile(resolver, hash, pathOf));
@@ -256,11 +276,12 @@ export const planEnvironments = async (
 	// without one, which the viewer skips
 	const volumePhases = await Promise.all(
 		volumes.environment.map(async ({ volume }) => {
-			if (volume.envPhase === null) {
+			const load = phase(volume);
+			if (load === null) {
 				return null;
 			}
 			try {
-				const loadedPhase = await phase(volume.envPhase);
+				const loadedPhase = await load;
 				return { loaded: loadedPhase, textures: await resolvePhaseTextures(resolver, loadedPhase) };
 			} catch {
 				return null;
@@ -268,7 +289,7 @@ export const planEnvironments = async (
 		}),
 	);
 	const phaseIndex = new Map<string, number>();
-	for (const [i, { tag, sceneStates, volume }] of volumes.environment.entries()) {
+	for (const [i, { tag, sceneStates, condition, volume }] of volumes.environment.entries()) {
 		const shape = volumeShape(volume);
 		if (shape === null) {
 			continue;
@@ -292,7 +313,7 @@ export const planEnvironments = async (
 			phase: index,
 			activation: 'unknown',
 		});
-		plan.volumeOwners.push({ levelTag: tag, sceneStates });
+		plan.volumeOwners.push({ levelTag: tag, sceneStates, condition });
 	}
 	return plan;
 };

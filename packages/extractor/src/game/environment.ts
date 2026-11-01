@@ -25,6 +25,7 @@ import {
 import { type PlainObject, toPlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { arrayField, asPPtr, stringField } from '@endfield-noclip/formats/unity/values';
+import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import { mapPool } from '../pool.ts';
 
@@ -48,9 +49,22 @@ export interface TaggedVolume<T> {
 	volume: T;
 }
 
+/**
+ * an environment volume with its level tag and load conditions: a chunk object, or one a placed prefab
+ * carries (`prefab-environment.ts`)
+ */
+export interface SceneEnvironmentVolume extends TaggedVolume<EnvironmentVolume> {
+	/** a prefab volume's `HGEnvironmentPhase` object (its `envPhase` is `null`); `null` for chunk volumes */
+	phaseObject: ObjectRef | null;
+	/** a prefab volume's load condition (its placing entity's), `null` for chunk volumes */
+	condition: ConditionalSetInfo | null;
+	/** whether {@link condition} holds under the default scene values; true without one */
+	loadedByDefault: boolean;
+}
+
 /** every environment and post-processing volume of a scene's default stream area, in any scene state */
 export interface SceneVolumes {
-	environment: TaggedVolume<EnvironmentVolume>[];
+	environment: SceneEnvironmentVolume[];
 	post: TaggedVolume<PostVolume>[];
 }
 
@@ -97,7 +111,14 @@ export const loadSceneVolumes = async (world: WorldIndex, scene: string): Promis
 			const tag = levelTagOf(object.id);
 			// scene states are filled in below, once every file was seen
 			if (environment !== undefined) {
-				volumes.environment.push({ tag, sceneStates: [], volume: environment });
+				volumes.environment.push({
+					tag,
+					sceneStates: [],
+					volume: environment,
+					phaseObject: null,
+					condition: null,
+					loadedByDefault: true,
+				});
 			}
 			if (post !== undefined) {
 				volumes.post.push({ tag, sceneStates: [], volume: post });
@@ -158,8 +179,8 @@ export interface LevelEnvironmentChoice {
  * the level's cells, the one covering most points, the lower priority on a tie. a volume is shown where it
  * has the highest priority of those containing the point (the smaller footprint on equal priority, an
  * assumption). the scene's global volume stands in when the level has none. heights are ignored. volumes of
- * scene states outside `enabled` aren't loaded; every loaded volume is taken as enabled (level scripts can
- * toggle them)
+ * scene states outside `enabled`, and prefab volumes whose condition fails by default, aren't loaded; every
+ * loaded volume is taken as enabled (level scripts can toggle them)
  *
  * @param level the level
  * @param volumes the scene's volumes
@@ -171,7 +192,7 @@ export const resolveLevelEnvironment = (
 	volumes: SceneVolumes,
 	enabled: ReadonlySet<number>,
 ): LevelEnvironmentChoice => {
-	const loaded = volumes.environment.filter((entry) => volumeLoaded(entry, enabled));
+	const loaded = volumes.environment.filter((entry) => entry.loadedByDefault && volumeLoaded(entry, enabled));
 	const global =
 		loaded.find(({ tag, volume }) => tag === 0 && volume.volumeType === EnvironmentVolumeType.Global)
 			?.volume ?? null;
@@ -333,9 +354,22 @@ export const loadEnvironmentPhase = async (
 	hash: bigint,
 	pathOf: (hash: bigint) => string | undefined,
 ): Promise<LoadedPhase> => {
-	const ref = await findMonoBehaviour(resolver, hash, pathOf);
-	return { ref, phase: readEnvironmentPhase(ref.info.type.nodes, await resolver.read(ref)) };
+	return loadEnvironmentPhaseObject(resolver, await findMonoBehaviour(resolver, hash, pathOf));
 };
+
+/**
+ * @param resolver asset resolver
+ * @param ref an `HGEnvironmentPhase` MonoBehaviour, such as one a prefab volume references
+ * @returns the decoded phase
+ * @throws {Error} if the object can't be read as a phase
+ */
+export const loadEnvironmentPhaseObject = async (
+	resolver: AssetResolver,
+	ref: ObjectRef,
+): Promise<LoadedPhase> => ({
+	ref,
+	phase: readEnvironmentPhase(ref.info.type.nodes, await resolver.read(ref)),
+});
 
 /** where a composed section came from */
 export type SectionSource = 'level' | 'global' | 'inactive';
@@ -385,23 +419,24 @@ export interface LevelPhases {
  * loads the phases a level's choice names and stacks them
  *
  * @param choice the level's base environment
- * @param loadPhase loads a phase by StringPathHash key (callers cache: levels share phases)
+ * @param loadPhase loads a volume's phase, or returns `null` when it has none (callers cache: levels share
+ *   phases)
  * @returns the phases, or `null` if the base volume has no phase
  * @throws {Error} what `loadPhase` throws
  */
 export const loadLevelPhases = async (
 	choice: LevelEnvironmentChoice,
-	loadPhase: (hash: bigint) => Promise<LoadedPhase>,
+	loadPhase: (volume: EnvironmentVolume) => Promise<LoadedPhase> | null,
 ): Promise<LevelPhases | null> => {
-	const hash = choice.volume?.envPhase ?? null;
-	if (hash === null) {
+	const ownLoad = choice.volume === null ? null : loadPhase(choice.volume);
+	if (ownLoad === null) {
 		return null;
 	}
-	const globalHash = choice.global?.envPhase ?? null;
-	const [own, global] = await Promise.all([
-		loadPhase(hash),
-		globalHash === null || globalHash === hash ? null : loadPhase(globalHash),
-	]);
+	const sameAsOwn =
+		choice.global === choice.volume ||
+		(choice.global?.envPhase != null && choice.global.envPhase === choice.volume?.envPhase);
+	const globalLoad = choice.global === null || sameAsOwn ? null : loadPhase(choice.global);
+	const [own, global] = await Promise.all([ownLoad, globalLoad]);
 	return { own, global, composed: composeEnvironment(own.phase, global?.phase ?? null) };
 };
 

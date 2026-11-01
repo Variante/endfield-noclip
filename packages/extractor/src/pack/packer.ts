@@ -25,7 +25,7 @@ import {
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import { encodeBlobTable } from '@endfield-noclip/package-format/blob-table';
 import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs';
-import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
+import { conditionVisible, resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type {
 	EnvironmentPhaseInfo,
 	EnvironmentProfile,
@@ -87,8 +87,10 @@ import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import { loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
+import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
 import {
 	defaultSceneStates,
@@ -317,6 +319,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				options.scene,
 				scene.partition?.levels ?? [],
 				defaultSceneStates(scene.sceneStates, scene.game),
+				entities.placedVolumes,
 			),
 			planWater(context, options.scene, {
 				includes: (tag, x, z) => scene.subset.includesEntity(tag, x, z),
@@ -619,6 +622,8 @@ const collectEntities = async (
 	hlodNameMatches: number;
 	unsupportedInteractives: { path: string; reason: string }[];
 	unsupportedPrefabs: { path: string; reason: string }[];
+	/** environment volumes that placed prefabs carry */
+	placedVolumes: SceneEnvironmentVolume[];
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1075,6 +1080,15 @@ const collectEntities = async (
 			);
 		}
 	}
+	// environment volumes that placed prefabs carry, loading with their placement
+	const placed = await loadPlacedVolumes(
+		resolver,
+		[...dynamic.models, ...facilities.models, ...cabins.models],
+		defaultValues(scene, collected),
+	);
+	counts.prefabEnvironmentVolumes = placed.volumes.length;
+	const reported = new Set(unsupportedPrefabs.map(({ path }) => path));
+	unsupportedPrefabs.push(...placed.unsupported.filter(({ path }) => !reported.has(path)));
 	counts.unsupportedPrefabs = unsupportedPrefabs.length;
 	return {
 		collected,
@@ -1083,7 +1097,40 @@ const collectEntities = async (
 		hlodNameMatches,
 		unsupportedInteractives: facilities.unsupported,
 		unsupportedPrefabs,
+		placedVolumes: placed.volumes,
 	};
+};
+
+/**
+ * every control's default as the entity pass knows it: quests, missions and variables, MapConfig scene
+ * states, then script, logic, progression and facility controls, derived ones evaluated last. stream areas
+ * aren't included, so content that needs one doesn't count as loaded
+ */
+const defaultValues = (
+	scene: Pick<SceneIndex, 'sceneStates' | 'game'>,
+	collected: Collector,
+): Record<string, number> => {
+	const values = scene.game.defaults();
+	const enabled = defaultSceneStates(scene.sceneStates, scene.game);
+	for (const index of collected.sceneStates) {
+		values[sceneStateControl(index)] = Number(enabled.has(index));
+	}
+	for (const { index } of scene.sceneStates) {
+		values[sceneStateControl(index)] = Number(enabled.has(index));
+	}
+	const controls = [...collected.controls, ...collected.facilities];
+	for (const control of controls) {
+		if (control.derived === null) {
+			values[control.id] = control.default;
+		}
+	}
+	for (const control of controls) {
+		if (control.derived !== null) {
+			const formula = collected.conditions[control.derived];
+			values[control.id] = Number(formula !== undefined && conditionVisible(formula, values));
+		}
+	}
+	return values;
 };
 
 /**
@@ -1106,8 +1153,12 @@ const gateByScene = (
 	lights: LightCollector,
 ): LightsTable => {
 	for (const [i, volume] of environments.volumes.entries()) {
-		const { levelTag, sceneStates } = environments.volumeOwners[i];
-		volume.group = collected.groupOfStates(levelTag, sceneStates);
+		const { levelTag, sceneStates, condition } = environments.volumeOwners[i];
+		// a prefab volume loads with its placement; chunk volumes with the scene states of their files
+		volume.group =
+			condition === null
+				? collected.groupOfStates(levelTag, sceneStates)
+				: collected.group(levelTag, collected.condition(condition));
 	}
 	for (const [i, surface] of water.table.surfaces.entries()) {
 		const { levelTag, sources } = water.surfaceOwners[i];

@@ -95,7 +95,8 @@ be:
   in; any appearance in a state-0 file makes it unconditional
   ([`environment.ts`](../../packages/extractor/src/game/environment.ts)). each level's base
   environment is chosen among the volumes loaded under the default states (see
-  [environment.md](environment.md)).
+  [environment.md](environment.md)). volumes in prefabs that dynamic entities place load with their
+  placement instead ([prefab volumes](environment.md#prefab-volumes)).
 - **water surfaces**: same collection rule
   ([`water-source.ts`](../../packages/extractor/src/game/water-source.ts), see
   [water.md](water.md)).

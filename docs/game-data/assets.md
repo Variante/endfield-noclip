@@ -188,7 +188,9 @@ root; the caller supplies the root's placement.
 
 the packer resolves a prefab from its StringPathHash key, which must name exactly one manifest path.
 a prefab that fails with a `FormatError` is skipped and listed in the pack's unsupported-prefab
-report; other errors fail the pack.
+report; other errors fail the pack. a prefab's environment volumes are read separately
+([prefab-environment.ts](../../packages/extractor/src/game/prefab-environment.ts), see
+[environment.md](environment.md#prefab-volumes)).
 
 ### particle systems
 

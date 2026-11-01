@@ -54,6 +54,40 @@ export const unityEulerQuaternion = (angles: readonly number[]): [number, number
 };
 
 /**
+ * @param quaternion normalized rotation, xyzw
+ * @returns Unity Euler angles in degrees (Z then X then Y), the inverse of {@link unityEulerQuaternion}
+ */
+export const quaternionUnityEuler = (quaternion: readonly number[]): [number, number, number] => {
+	const [x, y, z, w] = quaternion;
+	const degrees = 180 / Math.PI;
+	const sinX = Math.min(Math.max(2 * (w * x - y * z), -1), 1);
+	return [
+		Math.asin(sinX) * degrees,
+		Math.atan2(2 * (x * z + w * y), 1 - 2 * (x * x + y * y)) * degrees,
+		Math.atan2(2 * (x * y + w * z), 1 - 2 * (x * x + z * z)) * degrees,
+	];
+};
+
+/**
+ * @param a xyzw quaternion
+ * @param b xyzw quaternion
+ * @returns `a · b`, the rotation `b` followed by `a`
+ */
+export const multiplyQuaternions = (
+	a: readonly number[],
+	b: readonly number[],
+): [number, number, number, number] => {
+	const [ax, ay, az, aw] = a;
+	const [bx, by, bz, bw] = b;
+	return [
+		aw * bx + ax * bw + ay * bz - az * by,
+		aw * by - ax * bz + ay * bw + az * bx,
+		aw * bz + ax * by - ay * bx + az * bw,
+		aw * bw - ax * bx - ay * by - az * bz,
+	];
+};
+
+/**
  * @param parent column-major parent matrix
  * @param local column-major local matrix
  * @returns their product; neither input is modified

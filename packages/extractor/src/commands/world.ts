@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 
+import type { EnvironmentVolume } from '@endfield-noclip/formats/endfield/environment-volume';
 import {
 	cellKey,
 	levelOfTag,
@@ -315,8 +316,10 @@ const showEnvironment = async (context: Context, target: string): Promise<void> 
 					.pop()
 					?.replace(/\.asset$/, '') ?? hashText(hash));
 	const phaseLoads = new Map<bigint, Promise<LoadedPhase>>();
-	const loadPhase = (hash: bigint) =>
-		getOrInsert(phaseLoads, hash, () => loadEnvironmentPhase(resolver, hash, pathOf));
+	const loadPhase = ({ envPhase }: EnvironmentVolume) =>
+		envPhase === null
+			? null
+			: getOrInsert(phaseLoads, envPhase, () => loadEnvironmentPhase(resolver, envPhase, pathOf));
 
 	const choices = levels.map((level) => resolveLevelEnvironment(level, volumes, enabled));
 	const phases = await Promise.all(choices.map((choice) => loadLevelPhases(choice, loadPhase)));
