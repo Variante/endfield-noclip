@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { InstanceBlock } from '@endfield-noclip/package-format/instances';
+import { type Chain, ChainFlags, type InstanceBlock } from '@endfield-noclip/package-format/instances';
 
 /** 32-bit words per row: transform (12), bounds centre + block slot (4), half extents + info (4) */
 export const ROW_WORDS = 20;
@@ -28,9 +28,10 @@ export const RowKind = {
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
 /**
- * a row's info word: its {@link RowKind} in bits 0–3, then the texture sheet tile its mesh's UVs are remapped
- * into (`sheet_uv` in frame.wgsl): tiles across − 1 in bits 4–9, down − 1 in bits 10–15, the tile in bits
- * 16–27, and which UV sets take it (bit 28 UV0, bit 29 UV1). a 1×1 sheet leaves the UVs as they are
+ * a row's info word: its {@link RowKind} in bits 0–2, {@link ROW_COLORED} in bit 3, then the texture sheet
+ * tile its mesh's UVs are remapped into (`sheet_uv` in frame.wgsl): tiles across − 1 in bits 4–9, down − 1 in
+ * bits 10–15, the tile in bits 16–27, and which UV sets take it (bit 28 UV0, bit 29 UV1). a 1×1 sheet leaves
+ * the UVs as they are. bits 30–31 hold the row's {@link RowBillboard}
  *
  * @param kind the row's kind
  * @param tiles tiles across and down, 1–64 each
@@ -56,7 +57,46 @@ export const rowInfo = (
  * frame.wgsl) that multiplies the mesh's vertex colours. only particle rows set it: their extents are equal,
  * so the other two keep the size
  */
-export const ROW_COLORED = 1 << 30;
+export const ROW_COLORED = 1 << 3;
+
+/**
+ * how a row turns towards the camera (`row_basis` in frame.wgsl), in bits 30–31 of its info word: its
+ * transform's rotation is relative to the camera's ({@link ChainFlags.BillboardFacing}), or to the camera's
+ * heading about the vertical ({@link ChainFlags.BillboardUpright})
+ */
+export const RowBillboard = {
+	None: 0,
+	Facing: 1,
+	Upright: 2,
+} as const;
+
+export type RowBillboard = (typeof RowBillboard)[keyof typeof RowBillboard];
+
+/**
+ * marks the rows of billboard chains in their info words, in place, by the block's chain runs
+ *
+ * @param built rows from {@link buildInstanceRows}; their info words are modified
+ * @param chains the package's chains
+ */
+export const markBillboardRows = (built: InstanceRows, chains: readonly Chain[]): void => {
+	const { runs, rows } = built;
+	for (let r = 0; r < runs.length; r += 3) {
+		const flags = chains[runs[r]]?.flags ?? 0;
+		let billboard: RowBillboard = RowBillboard.None;
+		if (flags & ChainFlags.BillboardFacing) {
+			billboard = RowBillboard.Facing;
+		} else if (flags & ChainFlags.BillboardUpright) {
+			billboard = RowBillboard.Upright;
+		}
+		if (billboard === RowBillboard.None) {
+			continue;
+		}
+		for (let i = runs[r + 1], end = i + runs[r + 2]; i < end; i++) {
+			const at = i * ROW_WORDS + 19;
+			rows[at] = ((rows[at] & ~(3 << 30)) | (billboard << 30)) >>> 0;
+		}
+	}
+};
 
 /**
  * @param rgba linear colour and alpha, 0–1

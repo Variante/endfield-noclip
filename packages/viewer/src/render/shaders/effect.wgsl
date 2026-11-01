@@ -156,11 +156,7 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	let uv1 = effect_draws[draw_id][3];
 	let p = offset.xyz + v.position.xyz * scale.xyz;
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + effect_blocks[row.block].xyz;
-	let m = mat3x3f(
-		vec3f(row.t0.x, row.t1.x, row.t2.x),
-		vec3f(row.t0.y, row.t1.y, row.t2.y),
-		vec3f(row.t0.z, row.t1.z, row.t2.z),
-	);
+	let m = row_basis(row.t0, row.t1, row.t2, row.info);
 	let inverse = transpose(inverse3(m));
 	let flags = bitcast<u32>(offset.w);
 	let uv = sheet_uv(row.info, vec4f(v.uv0 * uv0.xy + uv0.zw, v.uv1 * uv1.xy + uv1.zw));

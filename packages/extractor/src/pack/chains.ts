@@ -10,7 +10,7 @@ const bits = (value: number): number => {
 
 /**
  * LOD-chain templates, deduplicated by their ordered draws (geometry, material, submesh, LOD, role,
- * thresholds, source flags, particle system) and LOD count
+ * thresholds, source flags, particle system), LOD count and billboard mode
  */
 export class ChainTable {
 	readonly chains: Chain[] = [];
@@ -19,10 +19,11 @@ export class ChainTable {
 	/**
 	 * @param lodCount the renderer's LOD count
 	 * @param draws its draws in the game's order
+	 * @param billboard `ChainFlags.BillboardFacing` or `BillboardUpright` when the renderer turns to the camera
 	 * @returns the chain id; equal inputs return equal ids
 	 */
-	intern(lodCount: number, draws: readonly ChainDraw[]): number {
-		let key = `${lodCount}`;
+	intern(lodCount: number, draws: readonly ChainDraw[], billboard = 0): number {
+		let key = `${lodCount},${billboard}`;
 		for (const draw of draws) {
 			key += `|${draw.geometry},${draw.material},${draw.submesh},${draw.lod},${draw.role},${bits(draw.minSquared)},${bits(draw.maxSquared)},${draw.sourceFlags},${draw.particles}`;
 		}
@@ -31,7 +32,7 @@ export class ChainTable {
 			() =>
 				this.chains.push({
 					lodCount,
-					flags: chainFlags(draws),
+					flags: chainFlags(draws) | billboard,
 					draws: draws.map((draw) => ({ ...draw })),
 				}) - 1,
 		);

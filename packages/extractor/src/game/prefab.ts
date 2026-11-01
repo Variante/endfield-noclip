@@ -18,6 +18,7 @@ import {
 import type { ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
 
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
+import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import { frozenParticleMatrix, type LocalTransform, SCALING_SHAPE } from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
 
@@ -37,6 +38,11 @@ export interface PrefabRenderer {
 	 * then the system's frame and the bounds everywhere its particles reach
 	 */
 	particles: ParticleSystemInfo | null;
+	/**
+	 * the billboard on the renderer's GameObject or its nearest ancestor with one, `null` when nothing turns it
+	 * to the camera. skinned meshes and particle systems don't take it
+	 */
+	billboard: PrefabBillboard | null;
 }
 
 const xyz = (value: TypeTreeObject): [number, number, number] => [
@@ -65,6 +71,7 @@ export const readPrefabRenderers = async (
 		name: string;
 		mesh: ObjectRef;
 		particles: ParticleSystemInfo | null;
+		billboard: PrefabBillboard | null;
 	}[] = [];
 	const excluded = new Set<string>();
 	const firstLod = new Set<string>();
@@ -75,6 +82,7 @@ export const readPrefabRenderers = async (
 		parent: Float32Array,
 		isRoot: boolean,
 		active: boolean,
+		inherited: PrefabBillboard | null,
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -97,13 +105,19 @@ export const readPrefabRenderers = async (
 				]
 			: [UnityClass.Transform];
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
+		let board: TypeTreeObject | null = null;
 		for (const item of arrayField(data, 'm_Component')) {
 			if (!isObject(item)) {
 				throw new FormatError('prefab component is not an object');
 			}
 			const ref = await resolver.resolve(go, pptrField(item, 'component'));
-			if (ref !== null && wanted.includes(ref.info.classId)) {
+			if (ref === null) {
+				continue;
+			}
+			if (wanted.includes(ref.info.classId)) {
 				components.push({ ref, data: await resolver.read(ref) });
+			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
+				board = await resolver.read(ref);
 			}
 		}
 		const transform = components.find((component) => component.ref.info.classId === UnityClass.Transform);
@@ -124,6 +138,8 @@ export const readPrefabRenderers = async (
 			? parent
 			: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 		transforms.set(objectKey(transform.ref), matrix);
+		// a billboard sets its GameObject's world rotation, so the nearest one up the hierarchy wins
+		const billboard = (board && readBillboard(board, matrix)) ?? inherited;
 		for (const component of components) {
 			if (component.ref.info.classId !== 205 || !booleanField(component.data, 'm_Enabled')) {
 				continue;
@@ -150,7 +166,14 @@ export const readPrefabRenderers = async (
 			) {
 				const mesh = await resolver.resolve(component.ref, pptrField(component.data, 'm_Mesh'));
 				if (mesh !== null) {
-					candidates.push({ ...component, matrix, name: stringField(data, 'm_Name'), mesh, particles: null });
+					candidates.push({
+						...component,
+						matrix,
+						name: stringField(data, 'm_Name'),
+						mesh,
+						particles: null,
+						billboard: null,
+					});
 				}
 			}
 		}
@@ -169,6 +192,7 @@ export const readPrefabRenderers = async (
 							name: stringField(data, 'm_Name'),
 							mesh,
 							particles: null,
+							billboard,
 						});
 					}
 				}
@@ -191,6 +215,7 @@ export const readPrefabRenderers = async (
 						name: stringField(data, 'm_Name'),
 						mesh,
 						particles: null,
+						billboard: null,
 					});
 				}
 			} else {
@@ -209,6 +234,7 @@ export const readPrefabRenderers = async (
 								name: stringField(data, 'm_Name'),
 								mesh,
 								particles: { ...read.info, mesh: i },
+								billboard: null,
 							});
 						}
 					}
@@ -221,12 +247,12 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, drawn);
+					await visit(childGo, matrix, false, drawn, billboard);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, true);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, true, null);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
@@ -301,6 +327,7 @@ export const readPrefabRenderers = async (
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,
 			particles: candidate.particles,
+			billboard: candidate.billboard,
 		});
 	}
 	return result;

@@ -192,6 +192,16 @@ are streamed whole (`streamWholeTexture`).
 the output (a visible row list plus per-bucket ranges) has the shape a GPU cull pass would write
 next to indirect draw arguments ([open](#open)).
 
+### billboards
+
+rows of a billboard chain ([assets](game-data/assets.md#billboards)) turn to the camera on the GPU.
+when an instance block is uploaded, `markBillboardRows`
+([`render/instance-rows.ts`](../packages/viewer/src/render/instance-rows.ts)) sets their
+`RowBillboard` bits by chain run, and `row_basis` in `frame.wgsl` multiplies the stored rotation by
+the camera's (`Facing`) or by its heading about the vertical (`Upright`) in every mesh and effect
+vertex stage, shadows included. the cull and LOD tests use the stored bounds, which already hold
+every orientation.
+
 ### particles
 
 a chain draw that names a particle system ([package format](package-format.md#particles)) makes its

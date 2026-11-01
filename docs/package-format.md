@@ -217,7 +217,10 @@ draw shows while `minSquared < s² ≤ maxSquared`, `s` being Unity's LODGroup s
 a negative `minSquared` never culls by size. roles: `Lit`, `ShadowOnly` (shadow proxies), `Card`
 (foliage imposter `_cardmesh` geometry), `Hlod`. `sourceFlags` keeps the game's renderer flag word
 for bits not yet understood. `particles` indexes the [particles table](#particles) when the draw is
-a particle system's mesh, else it's `0xffffffff`.
+a particle system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has
+(`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`,
+`BillboardUpright`): their transform's rotation is then relative to the camera's, and their bounds
+hold every orientation ([assets](game-data/assets.md#billboards)).
 
 **irradiance cells** are keyed in the game's layout, and each cell is one `.iv` blob as the game's
 GPU reads it; [irradiance.md](game-data/irradiance.md#packing) covers both.

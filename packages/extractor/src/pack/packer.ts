@@ -86,6 +86,7 @@ import { mapDefined, unique } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
+import { billboardPlacement } from '../game/billboard.ts';
 import { loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
@@ -1034,8 +1035,16 @@ const collectEntities = async (
 		const rootMatrix = trsMatrix(model.position, unityEulerQuaternion(model.rotation), model.scale);
 		// oxlint-disable-next-line no-await-in-loop -- stable asset ids and bounded bundle cache
 		for (const renderer of await prefab) {
-			const matrix = multiplyMatrices(rootMatrix, renderer.matrix);
-			const bounds = transformBounds(renderer.bounds, matrix);
+			let matrix = multiplyMatrices(rootMatrix, renderer.matrix);
+			let bounds = transformBounds(renderer.bounds, matrix);
+			if (renderer.billboard !== null) {
+				({ matrix, bounds } = billboardPlacement(
+					matrix,
+					multiplyMatrices(rootMatrix, renderer.billboard.frame),
+					renderer.billboard.offset,
+					renderer.bounds,
+				));
+			}
 			if (!subset.includesEntity(levelTag, bounds.center[0], bounds.center[2])) {
 				continue;
 			}
@@ -1064,7 +1073,7 @@ const collectEntities = async (
 			}
 			addStructure(
 				{
-					chain: pack.chains.intern(1, draws),
+					chain: pack.chains.intern(1, draws, renderer.billboard?.flag ?? 0),
 					matrix,
 					bounds,
 					entityId: syntheticEntityId(levelTag, modelId++),

@@ -11,7 +11,7 @@ import frameWgsl from './shaders/frame.wgsl?raw';
 export const FRAME_WGSL = brdfWgsl + frameWgsl;
 
 /** byte size of `Frame` */
-export const FRAME_UNIFORM_BYTES = 880;
+export const FRAME_UNIFORM_BYTES = 912;
 
 /** float offsets of `Frame` fields */
 export const FrameOffsets = {
@@ -19,36 +19,38 @@ export const FrameOffsets = {
 	viewProj: 0,
 	eye: 16,
 	viewForward: 20,
-	viewport: 24,
-	renderSize: 28,
+	viewRight: 24,
+	viewUp: 28,
+	viewport: 32,
+	renderSize: 36,
 	// lighting
-	sun: 32,
-	sunColor: 36,
+	sun: 40,
+	sunColor: 44,
 	/** 7 vec4s */
-	sh: 40,
-	ambient: 68,
+	sh: 48,
+	ambient: 76,
 	/** three vec4s: irradiance clipmap centres, w = filled */
-	irradiance: 72,
+	irradiance: 80,
 	/** light count, tiles across and down, near plane */
-	localLights: 84,
+	localLights: 92,
 	// terrain and debug
-	terrain: 88,
+	terrain: 96,
 	/** u32 */
-	flags: 92,
-	params: 96,
+	flags: 100,
+	params: 104,
 	// shadows
 	/** four mat4s */
-	shadowMatrices: 100,
-	shadowFade: 164,
-	shadowPenumbra: 168,
+	shadowMatrices: 108,
+	shadowFade: 172,
+	shadowPenumbra: 176,
 	/** four vec4s */
-	shadowSpheres: 172,
-	shadowLook: 188,
+	shadowSpheres: 180,
+	shadowLook: 196,
 	// weather
 	/** four vec4s, see `Frame.cloud_shadow` */
-	cloudShadow: 192,
+	cloudShadow: 200,
 	/** three vec4s, see `Frame.wetness` */
-	wetness: 208,
+	wetness: 216,
 } as const;
 
 /**

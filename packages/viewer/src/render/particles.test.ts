@@ -165,7 +165,7 @@ describe('sheetTile', () => {
 
 	it('packs into the row info word next to the row kind', () => {
 		const info = rowInfo(RowKind.Detail, [8, 4], 63, 1);
-		assert.equal(info & 0xf, RowKind.Detail);
+		assert.equal(info & 7, RowKind.Detail);
 		assert.equal(((info >>> 4) & 63) + 1, 8);
 		assert.equal(((info >>> 10) & 63) + 1, 4);
 		assert.equal((info >>> 16) & 0xfff, 63);

@@ -175,11 +175,7 @@ fn vs_main(v: VertexIn, @builtin(instance_index) ii: u32) -> VertexOut {
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row.block].xyz;
 	// as vs_cutout_depth computes it, so alpha-tested depth matches exactly where they're shaded
 	let rel = instance_rel(v.position.xyz, ii, draw);
-	let m = mat3x3f(
-		vec3f(row.t0.x, row.t1.x, row.t2.x),
-		vec3f(row.t0.y, row.t1.y, row.t2.y),
-		vec3f(row.t0.z, row.t1.z, row.t2.z),
-	);
+	let m = row_basis(row.t0, row.t1, row.t2, row.info);
 	let flags = bitcast<u32>(draw.offset.w);
 	// no normals in the mesh: zero here, faceted in the fragment shader
 	var n = vec3f(0.0);
@@ -225,7 +221,7 @@ fn instance_rel(position: vec3f, ii: u32, draw: Draw) -> vec3f {
 	let row = rows[list[ii]];
 	let p = draw.offset.xyz + position * draw.scale.xyz;
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row.block].xyz;
-	return vec3f(dot(row.t0.xyz, p), dot(row.t1.xyz, p), dot(row.t2.xyz, p)) + origin;
+	return row_basis(row.t0, row.t1, row.t2, row.info) * p + origin;
 }
 
 @vertex

@@ -45,7 +45,7 @@ import {
 import { type Environment, deriveEnvironment } from './render/environment.ts';
 import { DEBUG_VIEWS, type DebugView, FRAME_UNIFORM_BYTES, FrameOffsets } from './render/frame-uniforms.ts';
 import { InstanceRenderer } from './render/instance-renderer.ts';
-import { RowKind, type RowKinds, type TierSpan } from './render/instance-rows.ts';
+import { markBillboardRows, RowKind, type RowKinds, type TierSpan } from './render/instance-rows.ts';
 import { IrradianceVolume } from './render/irradiance-volume.ts';
 import { lensFlareLook } from './render/lens-flare-layout.ts';
 import { LocalLights } from './render/local-lights.ts';
@@ -516,7 +516,11 @@ export class Viewer {
 				uploadSurface: (decoded) => this.#terrain.uploadSurface(decoded),
 				uploadDetail: (decoded) => this.#terrain.uploadDetail(decoded),
 				uploadLayer: (blob, decoded) => this.#terrain.uploadLayer(blob, decoded),
-				uploadInstances: (decoded) => this.#instances.upload(decoded),
+				uploadInstances: (decoded) => {
+					// the decode worker doesn't hold the chains
+					markBillboardRows(decoded, pkg.chains);
+					return this.#instances.upload(decoded);
+				},
 				uploadGeometry: (blob, decoded) => this.#meshes.upload(blob, decoded),
 				uploadTexture: (blob, decoded) => textures.upload(blob, decoded),
 				uploadIrradiance: (_blob, decoded) => irradiance.upload(decoded),
@@ -1818,6 +1822,8 @@ export class Viewer {
 			f32[at + 2] = lights.tilesY;
 			f32[at + 3] = camera.near;
 			f32.set(camera.forward(), FrameOffsets.viewForward);
+			f32.set(camera.right(), FrameOffsets.viewRight);
+			f32.set(camera.up(), FrameOffsets.viewUp);
 			f32[FrameOffsets.renderSize] = width;
 			f32[FrameOffsets.renderSize + 1] = height;
 		}

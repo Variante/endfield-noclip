@@ -31,6 +31,16 @@ export const ChainFlags = {
 	HasShadowOnly: 1 << 0,
 	Hlod: 1 << 1,
 	HasCard: 1 << 2,
+	/**
+	 * the instances face the camera: each frame their transform's rotation is the camera's rotation times the
+	 * stored one, about the stored translation
+	 */
+	BillboardFacing: 1 << 3,
+	/**
+	 * the instances turn about the world's vertical to face the camera: the stored rotation is relative to the
+	 * camera's heading (its forward projected onto the horizontal)
+	 */
+	BillboardUpright: 1 << 4,
 } as const;
 
 /** instance block flag bits */

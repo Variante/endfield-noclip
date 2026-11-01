@@ -241,6 +241,28 @@ rock meshes each) and the campfire flames (`fire01`/`fire02` in
 `P_fxmap_common_damagefire_small_2501`, one ring-buffered particle stepping through an 8×8 flipbook
 every loop) are such systems; [viewer](../viewer.md#particles) describes how they play.
 
+### billboards
+
+an enabled `VFXBillBoard` MonoBehaviour (HG's effect billboard, recognised by its `billboardMode`,
+`rotateInLateTick` and `rotation` fields) sets its GameObject's world rotation from the camera every
+frame, carrying everything under it along
+([billboard.ts](../../packages/extractor/src/game/billboard.ts)). by `billboardMode`:
+
+- 0: the camera's rotation times `rotation` (Euler degrees, the offset)
+- 1: the offset with the camera's heading (its Euler y) added to its y
+- 2: forward along the camera's forward with the part along the GameObject's initial up removed, up
+  along that axis; no offset
+- 3: as 2 about the parent's up axis, times the offset
+
+the nearest billboard up the hierarchy turns a mesh renderer; skinned meshes and particle systems
+under one stay as authored. the packer flags the chain `BillboardFacing` (mode 0) or
+`BillboardUpright` (the others, about the world's vertical, which is their axis on upright
+placements) and stores the offset times the renderer's rotation relative to the billboard, at the
+renderer's own position, with bounds that hold every orientation. a renderer away from the
+billboard's origin then turns in place rather than swinging around it. the snapshot points' yellow
+light column (`int_system_snapshot_postmodel`, in Dijiang) and the glare at the centre of the
+corroded planet seen from Dijiang's deck (`P_fxmap_base01_lv001_planetcorrode_01`) are billboards.
+
 ## dynamic structures
 
 the dynamic ECS scene (`Data/DynamicStreaming/PC/Scene/<scene>/`) holds scenery that appears,

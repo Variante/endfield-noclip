@@ -8,8 +8,10 @@ struct Frame {
 	view_proj: mat4x4f,
 	// camera world position (f32, for world-space lookups only), w = time (s)
 	eye: vec4f,
-	// the camera's unit forward vector, w unused
+	// the camera's unit forward, right and up vectors, w unused
 	view_forward: vec4f,
+	view_right: vec4f,
+	view_up: vec4f,
 	// output width, height (px), pixel factor (output px per metre at 1 m), minimum projected instance size (px)
 	viewport: vec4f,
 	// render width, height (px), z, w unused
@@ -823,5 +825,26 @@ fn sheet_uv(info: u32, uv: vec4f) -> vec4f {
 // an instance row's colour (`ROW_COLORED` in instance-rows.ts), which multiplies the mesh's vertex colours;
 // `extent_z` is the row's last half-extent word, which holds it
 fn instance_color(info: u32, extent_z: f32) -> vec4f {
-	return select(vec4f(1.0), unpack4x8unorm(bitcast<u32>(extent_z)), (info & (1u << 30u)) != 0u);
+	return select(vec4f(1.0), unpack4x8unorm(bitcast<u32>(extent_z)), (info & (1u << 3u)) != 0u);
+}
+
+// the 3×3 part of an instance row's transform (rows t0–t2). a billboard row's (`RowBillboard` in
+// instance-rows.ts, info bits 30–31) is relative to the camera's rotation (1), or to its heading about the
+// vertical (2), so it turns to face the camera about its origin
+fn row_basis(t0: vec4f, t1: vec4f, t2: vec4f, info: u32) -> mat3x3f {
+	let m = mat3x3f(vec3f(t0.x, t1.x, t2.x), vec3f(t0.y, t1.y, t2.y), vec3f(t0.z, t1.z, t2.z));
+	switch (info >> 30u) {
+		case 1u: {
+			return mat3x3f(frame.view_right.xyz, frame.view_up.xyz, frame.view_forward.xyz) * m;
+		}
+		case 2u: {
+			// the camera's right stays level and defined even looking straight down; Unity's forward is right × up
+			let right = normalize(vec3f(frame.view_right.x, 0.0, frame.view_right.z));
+			let up = vec3f(0.0, 1.0, 0.0);
+			return mat3x3f(right, up, cross(right, up)) * m;
+		}
+		default: {
+			return m;
+		}
+	}
 }
