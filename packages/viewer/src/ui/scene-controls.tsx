@@ -20,65 +20,65 @@ import type { Viewer } from '../viewer.ts';
 import { useViewerState } from './use-viewer.ts';
 
 /** panel sections in order, each listing the controls of its kinds */
-const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string; open: boolean }[] = [
+const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null; open: boolean }[] = [
 	{
 		kinds: ['sceneState'],
 		title: 'Scene states',
-		note: 'Each state follows the quests and variables its condition reads unless you pick a value. States without a condition are only set by dungeons and scripts.',
+		note: 'States without a condition are only set by dungeons and scripts.',
 		open: true,
 	},
 	{
 		kinds: ['quest', 'mission'],
 		title: 'Quests and missions',
-		note: 'The quest states scene states and quest-gated scenery read. Defaults assume the story is finished.',
+		note: 'Story finished by default.',
 		open: false,
 	},
 	{
 		kinds: ['mapVar', 'globalVar'],
 		title: 'Variables',
-		note: 'Server variables the viewer can’t read, by the ranges the scene tells apart. Each is assumed to hold the highest value the scene compares it against.',
+		note: 'Held by the server; each defaults to the highest value the scene checks.',
 		open: false,
 	},
 	{
 		kinds: ['settlement', 'poi', 'factoryRegion', 'facility', 'doodadGroups'],
 		title: 'Progression',
-		note: 'Outpost, facility and region levels, and visual forms; the initial appearance by default.',
+		note: null,
 		open: true,
 	},
 	{
 		kinds: ['controlNexus', 'cabin'],
 		title: 'Dijiang',
-		note: 'The Control Nexus level, which opens construction areas, and the cabins the player builds into Dijiang’s slots; level 1 and empty by default.',
+		note: null,
 		open: true,
 	},
 	{
 		kinds: ['door'],
 		title: 'Doors',
-		note: 'Interactive doors, closed by default: the player or the server opens them. A Dijiang cabin’s door opens once its cabin is built.',
+		note: null,
 		open: false,
 	},
 	{
 		kinds: ['area'],
 		title: 'Stream areas',
-		note: 'Interiors, caves and other places the game loads by where the camera is. Each follows the camera unless you pick a value.',
+		note: null,
 		open: false,
 	},
 	{
 		kinds: ['harvest'],
 		title: 'Harvest',
-		note: 'Trees the player fells; each tree’s state is the player’s, so one choice previews them all.',
+		note: 'One choice covers every tree.',
 		open: false,
 	},
 	{
 		kinds: ['script'],
 		title: 'Script / event scenery',
-		note: 'Shown and hidden by level scripts and the server; the authored load default by default, or what a script’s quest checks set when it runs.',
+		note: null,
 		open: false,
 	},
 	{
 		kinds: ['logic'],
 		title: 'Logic-gate previews',
-		note: 'Logic-state gates with no recovered controller.',
+		note: 'Gates with no recovered controller.',
 		open: false,
 	},
 ];
@@ -279,10 +279,7 @@ const StoryProgress = ({
 	);
 	return (
 		<label className="scene-choice">
-			<span>
-				{label}
-				<small className="muted">sets the quests below to that point; story finished by default</small>
-			</span>
+			<span>{label}</span>
 			<select
 				value={current}
 				onChange={(event) => {
@@ -477,7 +474,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 						<summary>
 							{title} ({listed.length})
 						</summary>
-						<p className="muted small">{note}</p>
+						{note !== null && <p className="muted small">{note}</p>}
 						{kinds.includes('quest') ? (
 							<StoryControls
 								viewer={viewer}
@@ -497,10 +494,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 			})}
 			<details>
 				<summary>Lighting / environment volumes ({volumes.length})</summary>
-				<p className="muted small">
-					Volumes follow the scene states that load them; ticking one here overrides that. Enabled volumes
-					still follow camera bounds and priority. A pinned phase overrides these choices.
-				</p>
+				<p className="muted small">A pinned phase overrides these.</p>
 				{volumes.map(({ volume, id, owner, condition }) => (
 					<label className="toggle scene-toggle" key={id}>
 						<input
