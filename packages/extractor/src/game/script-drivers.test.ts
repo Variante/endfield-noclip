@@ -129,6 +129,17 @@ test('derives what a group shows from the quest checks its scripts make when the
 			],
 			getters: [complete(9, 'm2_q#1', true)],
 		}),
+		// shown or hidden past check nodes that stop the path unless their value is true or false
+		script('4', 'lv1', {
+			headers: [node('ScriptEvent_OnScriptActive', { ID: 1, nextID: 2 })],
+			actions: [
+				node('CheckBoolIfTrue', { ID: 2, nextID: 3, value: getterRef(9) }),
+				decoration(3, 'checked', true, 4),
+				node('CheckBoolIfFalse', { ID: 4, nextID: 5, value: getterRef(8) }),
+				decoration(5, 'unchecked', false),
+			],
+			getters: [complete(9, 'm1', false), complete(8, 'm3', false)],
+		}),
 		// shown whenever the script runs, which the rule can't tell
 		script('3', 'lv1', {
 			headers: [node('ScriptEvent_OnScriptActive', { ID: 1, nextID: 2 })],
@@ -136,7 +147,7 @@ test('derives what a group shows from the quest checks its scripts make when the
 		}),
 	];
 	const { drivers, rules } = await linkScripts(scripts, {
-		entities: new Set(['open', 'closed', 'props', 'event']),
+		entities: new Set(['open', 'closed', 'props', 'checked', 'unchecked', 'event']),
 		ownLevels: new Set(['lv1']),
 		placements: new Map(),
 		missionsOf: new Map(),
@@ -149,6 +160,8 @@ test('derives what a group shows from the quest checks its scripts make when the
 		open: { show: [[m1]], hide: [] },
 		closed: { show: [], hide: [[m1]] },
 		props: { show: [[q1]], hide: [[{ ...q1, compare: 1 }]] },
+		checked: { show: [[m1]], hide: [] },
+		unchecked: { show: [], hide: [[m1, { kind: 'mission', id: 'm3', compare: 1, target: 3 }]] },
 	});
 	assert.deepEqual(drivers.get('props')?.[0], {
 		kind: 'quest',

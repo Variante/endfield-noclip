@@ -165,9 +165,16 @@ const PATHS_PER_NODE = 16;
 /** custom-event and script-start hops followed back */
 const MAX_DEPTH = 5;
 
+/** nodes that pass on to `nextID` only while their `value` is true or false, by the value they need */
+const CHECKS = new Map([
+	['CheckBoolIfTrue', true],
+	['CheckBoolIfFalse', false],
+]);
+
 /** @returns a node's outgoing edges and the condition each one passes */
 const edges = (script: Script, node: Node): { to: number; guard: Guard | undefined }[] => {
 	const out: { to: number; guard: Guard | undefined }[] = [];
+	const check = CHECKS.get(typeOf(node));
 	for (const [key, value] of Object.entries(node)) {
 		if (key === 'ID') {
 			continue;
@@ -182,6 +189,12 @@ const edges = (script: Script, node: Node): { to: number; guard: Guard | undefin
 				}
 				case 'defaultID': {
 					guard = { param: param(script, node.value), holds: null };
+					break;
+				}
+				case 'nextID': {
+					if (check !== undefined) {
+						guard = { param: param(script, node.value), holds: check };
+					}
 					break;
 				}
 				default: {

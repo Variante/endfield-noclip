@@ -364,11 +364,14 @@ level scripts (`Data/Json/LevelScriptData/<level>/<script id>.json`) show and hi
 `targetDynamicEntity` (the group's entity id) and a `visible` flag. the client shows a group at the
 value a script last set, else at its default-load flag. a script is a graph: `actionList` and
 `headerList` nodes by `ID`, linked by `nextID`, `IfElseAction.onTrueID`/`onFalseID` (the guard is
-its `condition` param), switch `caseIDList`/`defaultID` (guard `value`), branch `idList` and other
-`…ID` fields. a header fires only while its `validate` param holds, so a non-constant `validate` is
-a guard too. a param is a constant (`paramSource` 0), the current script (1002), a getter node
-(`CheckMissionOrQuestIsComplete`, `CompareQuestState`, …) named by `idRef` (`paramSource` -1), or a
-`$<id>@_<field>` path into another node's output. headers are the events:
+its `condition` param), `CheckBoolIfTrue`/`CheckBoolIfFalse`'s `nextID` (taken only while its
+`value` param is true or false, so it guards that edge), switch `caseIDList`/`defaultID` (guard
+`value`), branch `idList` and other `…ID` fields. Wuling City's dragon eye glow (map02_lv002,
+`script:22800080003`) is one: the script around it shows it on activation past a `CheckBoolIfTrue`
+on mission e10m4 being complete. a header fires only while its `validate` param holds, so a
+non-constant `validate` is a guard too. a param is a constant (`paramSource` 0), the current script
+(1002), a getter node (`CheckMissionOrQuestIsComplete`, `CompareQuestState`, …) named by `idRef`
+(`paramSource` -1), or a `$<id>@_<field>` path into another node's output. headers are the events:
 
 - `ScriptEvent_OnScriptActive` (`…OnScriptStart`, `…OnScriptPreActive`): the script running. the
   server sets script state by progress, and a script runs while the player is inside its start or
