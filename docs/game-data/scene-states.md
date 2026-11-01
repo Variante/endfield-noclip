@@ -169,9 +169,24 @@ pass.
   (e.g. a bridge raised or lowered in place), so it isn't listed as a gate and that presentation is
   not reproduced.
 
-variable keys are numeric client game-variable ids, not root strings. the table naming them isn't
-read, so controls show `#<key>`. a gate's variable is a [variable control](#variables) like a
-MapConfig one.
+variable keys are numeric client game-variable ids, not root strings. MapConfig's `mapVarName2NumId`
+names a map's variables, but it isn't read, so controls show `#<key>`. a gate's variable is a
+[variable control](#variables) like a MapConfig one.
+
+**outpost tiers.** some outposts' per-level scenery (Yinglung Pass's beacon beam, boards and screens
+at `stm_hongs_3`) follows the outpost's level through map variables rather than logic-state masks:
+one `ResourceWithIdControlByMapVar` owner per level, each loading while its variable equals 1
+(`judianEffect1`–`4` on map02). the game sets them from the outpost's level, which client data
+doesn't spell out, so as plain variables every tier would draw at once. `outpostTiers`
+([dynamic-structures.ts](../../packages/extractor/src/game/dynamic-structures.ts)) recognises them
+by layout: the outpost's owner id `u`, its factory region at `u + 1`, then at least two such owners
+at `u + 2`, `u + 3`, … on consecutive variable ids. tier `n` replaces its variable gate with the
+outpost's level `n`, so level 0 shows none.
+
+other server-set variable gates stay plain variable controls. Yinglung Pass's energy point towers
+switch between a red and a green set on map variable `defenceFnish` (#297, = 0 / = 1), presumably
+set when its defence encounter is cleared; no client quest, script or scene state reads it, so it
+has no link to story progress and follows its own control.
 
 `ActivityControlComp` (activity/event conditions) is not read; entities controlled only by it are
 not gated.
@@ -517,8 +532,9 @@ screen error threshold.
 - writers of condition-less states: presumably dungeons reusing the map (their own MapConfigs, e.g.
   `dung01_rdg010`, carry conditions) and level scripts setting or overriding states by name; not
   traced
-- variable names and offline values: the client game-variable id table isn't read, and the server
-  values are unavailable
+- variable names and offline values: MapConfig's `mapVarName2NumId` isn't read yet (it would let
+  gates and MapConfig conditions share a control), global variables have no known name table, and
+  the server values are unavailable
 - `ActivityControlComp` gates: on map01 and map02 every entity's component holds no conditions
   (compare type 255), and no level script reads activity state, so limited-time events reach the
   world only through missions and the scripts of event dungeons

@@ -151,8 +151,11 @@ packs or renders correctly.
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
 - irradiance scene-state bakes are not selected by the active scene states
-- variable ids are unnamed; variables that drive entity level or animator state (doors, bridges,
-  puzzles: `ModelViewStateControllerData` state machines) aren't controls yet
+- variable ids are unnamed (MapConfig's `mapVarName2NumId` names map variables but isn't read);
+  outpost tier variables are matched to their outpost's levels by layout, not by a recovered table
+  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
+  or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
+  controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`), LevelData rows created later
   (`createState` ≠ 0), script-driven water levels and map02's sprayable sludge aren't represented;
   the shop, depot and terminal level → visual form mapping, and the resource-node level's link to
