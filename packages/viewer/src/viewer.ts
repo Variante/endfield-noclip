@@ -113,7 +113,7 @@ export interface ViewerOptions {
 	cloudShadows: boolean;
 	/** sway how much fog surfaces get with the environment's drifting 3D noise, where it has one */
 	flowNoise: boolean;
-	/** animate flow noise and render continuously while it is active; disabling freezes its time */
+	/** animate flow noise on rendered frames; disabling freezes its time */
 	flowNoisePlaying: boolean;
 	water: boolean;
 	ao: boolean;
@@ -376,6 +376,8 @@ export class Viewer {
 	#viewProj = new Float32Array(16);
 	/** frames still to render so the temporal antialiasing settles after the view stopped changing */
 	#settleFrames = 0;
+	/** whether the last mesh selection drew particles, which frames of a still view re-evaluate */
+	#particlesShown = false;
 	/** whether the shadow layers need drawing: the casters changed, or they weren't drawn last frame */
 	#shadowsStale = true;
 	/** each shadow layer's render matrix when it was last drawn */
@@ -1399,38 +1401,45 @@ export class Viewer {
 		this.#span('controls');
 		const scene = this.scene;
 		const options = this.options;
-		// keep rendering while the exposure adapts; each frame also meters the next
+		// pipeline variants compile on first use (stencil effects), and draw once ready
+		const compiled = this.#pipelines.size !== this.#seenPipelines;
+		this.#seenPipelines = this.#pipelines.size;
+		const changed =
+			this.#dirty ||
+			moved ||
+			resized ||
+			options.continuous ||
+			compiled ||
+			(scene !== null && scene.stream.version !== this.#seenVersion);
+		this.#dirty = false;
+		// the temporal antialiasing converges over a few more jittered frames of the same view
+		let settling = false;
+		if (changed) {
+			this.#settleFrames = options.antialiasing ? SETTLE_FRAMES : 0;
+		} else if (this.#settleFrames > 0) {
+			this.#settleFrames--;
+			settling = true;
+		}
+		// keep rendering while the exposure adapts. it meters only while the view changes or settles: water and
+		// particles change what it meters every frame, so a meter that kept running would never let it settle
 		const post = this.#postSettings();
 		const adapting = this.#post.autoExposure.update(
 			post.autoExposure && post.debugView === 'lit' ? this.#environment.autoExposure : null,
 			dt,
+			{ metering: changed || settling },
 		);
-		// pipeline variants compile on first use (stencil effects), and draw once ready
-		const compiled = this.#pipelines.size !== this.#seenPipelines;
-		this.#seenPipelines = this.#pipelines.size;
-		let render = this.#dirty || moved || resized || options.continuous || adapting || compiled;
-		this.#dirty = false;
-		// with the view, the options and the resident content unchanged and nothing loading, the traversal
-		// would repeat the last frame's
-		const traverse =
-			scene !== null && (render || scene.stream.version !== this.#seenVersion || !scene.stream.idle);
+		const render = changed || settling || adapting;
+		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
+		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
+		// traversal would repeat the last frame's
+		const traverse = scene !== null && ((render && (changed || this.#particlesShown)) || !scene.stream.idle);
 		if (scene !== null && traverse) {
-			render ||= scene.stream.version !== this.#seenVersion;
 			this.#frame++;
 			this.#traverseAndPrepare(scene, { prepare: render });
 		}
-		// the temporal antialiasing converges over a few more jittered frames of the same view, which reuse the
-		// last frame's selection
-		if (render) {
-			this.#settleFrames = options.antialiasing ? SETTLE_FRAMES : 0;
-		} else if (this.#settleFrames > 0) {
-			this.#settleFrames--;
-			render = true;
-		}
-		// animate fog without repeating selection; paused fog retains its time
-		if (scene !== null && options.flowNoisePlaying && this.#post.drifts(post)) {
+		// the fog drifts on frames that render anyway; paused fog retains its time
+		if (render && scene !== null && options.flowNoisePlaying && this.#post.drifts(post)) {
 			this.#flowTime += dt;
-			render = true;
 		}
 		if (render) {
 			this.#lastDraws = this.#render(scene !== null);
@@ -1515,6 +1524,7 @@ export class Viewer {
 				},
 			});
 		}
+		this.#particlesShown = meshSelection?.particles ?? false;
 		this.#span('mesh select');
 		this.#updateSkyTextures(scene);
 		if (options.water) {

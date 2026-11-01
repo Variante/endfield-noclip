@@ -50,6 +50,8 @@ export interface MeshSelection {
 	buckets: MeshBucket[];
 	/** rows drawn as boxes (geometry pending or not converted) */
 	boxes: number[];
+	/** whether it draws emitters' particles, which move with the clock while the view holds still */
+	particles: boolean;
 }
 
 /** camera inputs */
@@ -182,7 +184,7 @@ const firstShadowLayer = (
 
 /** selects LODs and buckets instances */
 export class MeshSelector {
-	readonly selection: MeshSelection = { buckets: [], boxes: [] };
+	readonly selection: MeshSelection = { buckets: [], boxes: [], particles: false };
 	#chains: readonly Chain[];
 	#geometries: readonly GeometryEntry[];
 	/** by material id, then the look stand-ins draw with at {@link #standIn} */
@@ -235,6 +237,7 @@ export class MeshSelector {
 		const boxes = selection.boxes;
 		buckets.length = 0;
 		boxes.length = 0;
+		selection.particles = false;
 		const { eye, pixelFactor, viewportHeight, minPixels, casters, shadowLayers } = view;
 		const planes = this.#planes;
 		const planeFloats = Math.min(view.planes.length * 4, planes.length);
@@ -366,6 +369,7 @@ export class MeshSelector {
 							bucket.rows[group].push(row);
 						} else {
 							const particles = this.#particles.rows(instances, i, slot.particles, frame, view.particles);
+							selection.particles = true;
 							for (const particle of particles) {
 								bucket.rows[group].push(particle);
 							}

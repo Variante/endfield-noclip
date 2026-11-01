@@ -2,19 +2,23 @@
 
 - **redraw only when dirty.** `#tick` renders when the camera moved, the canvas resized, an option
   or scene value changed (`#dirty`), the stream's `version` changed, a pipeline finished compiling,
-  the auto exposure is still moving (or waiting on its first histogram), or `continuous` is on.
-  after any of those it renders 32 more frames of the same view (`SETTLE_FRAMES`, reusing the last
-  selection) so the temporal antialiasing converges, unless `antialiasing` is off. drifting fog
-  ([flow noise](../game-data/sky-and-fog.md#flow-noise)) also renders every frame, reusing the last
-  selection, while `flowNoisePlaying` is on and the environment has it; turning that off freezes its
-  time. it traverses without rendering while streaming is in progress (`!stream.idle`), and does
-  nothing at all when the view is still and streaming is idle. the environment re-blends only when
-  the eye, its settings or a fade changed.
+  or `continuous` is on. after any of those it renders 32 more frames of the same view
+  (`SETTLE_FRAMES`) so the temporal antialiasing converges, unless `antialiasing` is off. it also
+  renders while the auto exposure is still moving (or waiting on its first histogram), but meters
+  new histograms only while the view changes or settles, so it eases to a fixed target and stops
+  even though water and particles change what it would meter every frame. only loading keeps it
+  rendering indefinitely; animated content (scrolling textures, water, particles, drifting
+  [flow noise](../game-data/sky-and-fog.md#flow-noise)) moves on the frames that render anyway and
+  stops when they do. frames that only settle or adapt reuse the last selection, unless it drew
+  particles, which are re-evaluated so they keep moving until the view idles. it traverses without
+  rendering while streaming is in progress (`!stream.idle`), and does nothing at all when the view
+  is still and streaming is idle. the environment re-blends only when the eye, its settings or a
+  fade changed.
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
   panels don't re-render on a still view.
 - **one traversal, many passes.** selection runs once per frame; shadow layers reuse its buckets.
-  frames that reuse the last selection (settling the antialiasing, drifting fog) keep the shadow
-  layers from the frame that drew them, unless a layer's fit moved or pipelines were still
+  frames that reuse the last selection (settling the antialiasing, adapting the exposure) keep the
+  shadow layers from the frame that drew them, unless a layer's fit moved or pipelines were still
   compiling.
 - **few draws.** terrain is one draw; each mesh bucket is one instanced `drawIndexed` over its slice
   of the visible list. depth-writing draws are sorted by pipeline, then nearest first, which early

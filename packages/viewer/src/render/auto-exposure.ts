@@ -33,6 +33,8 @@ export class AutoExposure {
 	#metered: number | null = null;
 	/** jump straight to the next metered exposure instead of easing (a new level or a fresh start) */
 	#snap = true;
+	/** whether new histograms may move the target; see {@link update} */
+	#metering = true;
 
 	/** @param device the device */
 	constructor(device: GPUDevice) {
@@ -80,7 +82,7 @@ export class AutoExposure {
 		scene: { view: GPUTextureView; width: number; height: number },
 		settings: AutoExposureSettings,
 	): void {
-		if (settings.mode === 'manual') {
+		if (settings.mode === 'manual' || (!this.#metering && this.#metered !== null)) {
 			return;
 		}
 		const readback = this.#idle.pop();
@@ -144,10 +146,13 @@ export class AutoExposure {
 	 *
 	 * @param settings the exposure settings, or `null` to show the scene at exposure 1
 	 * @param dt seconds since the last step
+	 * @param options.metering whether this frame's histogram may move the target. off, the exposure eases to
+	 *   the target it has, so it settles even while animated content keeps changing what it would meter
 	 * @returns whether the exposure is still moving or waiting on its first histogram, so the caller keeps
 	 *   rendering
 	 */
-	update(settings: AutoExposureSettings | null, dt: number): boolean {
+	update(settings: AutoExposureSettings | null, dt: number, { metering }: { metering: boolean }): boolean {
+		this.#metering = metering;
 		if (settings === null) {
 			this.exposure = 1;
 			this.reset();
