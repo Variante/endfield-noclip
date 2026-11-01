@@ -256,17 +256,21 @@ test('prefab selection follows active hierarchy and LOD references, preserving m
 		null,
 		null,
 	);
-	assert.equal(rows.length, 2);
-	assert.equal(rows[1].pose?.[0][12], 10);
-	assert.equal(rows[1].matrix[12], 0);
-	assert.deepEqual(rows[1].bounds.center, [10, 0, 0]);
+	assert.equal(rows.length, 3);
+	assert.equal(rows[2].pose?.[0][12], 10);
+	assert.equal(rows[2].matrix[12], 0);
+	assert.deepEqual(rows[2].bounds.center, [10, 0, 0]);
 	assert.equal(rows[0].matrix[12], 10);
+	assert.equal(rows[0].unsupported, null);
 	assert.equal(rows[0].shadowOnly, true);
 	assert.equal(rows[0].materials[0], null);
 	assert.equal(rows[0].materials[1]?.info.pathId, 60n);
+	// the switched-off GameObject stands in rather than vanishing
+	assert.equal(rows[1].matrix[12], 30);
+	assert.notEqual(rows[1].unsupported, null);
 });
 
-test('skinned prefab meshes resolve bones under inactive GameObjects', async () => {
+test('skinned prefab meshes resolve bones under inactive GameObjects, whose renderers stand in', async () => {
 	const values = new Map<bigint, TypeTreeObject>();
 	const objects: ObjectInfo[] = [];
 	const add = (id: bigint, classId: number, data: TypeTreeObject): void => {
@@ -304,14 +308,21 @@ test('skinned prefab meshes resolve bones under inactive GameObjects', async () 
 		m_BlendShapeWeights: [],
 		m_Materials: [pointer(60n)],
 	});
-	// the inactive rig holds a bone and a renderer that must stay hidden
+	// the inactive rig holds a bone and a renderer that only stands in
 	add(20n, UnityClass.GameObject, {
 		m_Name: 'rig',
 		m_IsActive: false,
 		m_Component: [21n, 22n].map((id) => ({ component: pointer(id) })),
 	});
 	add(21n, UnityClass.Transform, transform(20n, 5, [31n]));
-	add(22n, UnityClass.SkinnedMeshRenderer, { m_Enabled: true });
+	add(22n, UnityClass.SkinnedMeshRenderer, {
+		m_Enabled: true,
+		m_CastShadows: 1,
+		m_Mesh: pointer(50n),
+		m_Bones: [pointer(31n)],
+		m_BlendShapeWeights: [],
+		m_Materials: [pointer(60n)],
+	});
 	add(30n, UnityClass.GameObject, {
 		m_Name: 'bone',
 		m_IsActive: true,
@@ -336,8 +347,11 @@ test('skinned prefab meshes resolve bones under inactive GameObjects', async () 
 		null,
 	);
 	assert.deepEqual(
-		rows.map((row) => row.name),
-		['skin'],
+		rows.map((row) => [row.name, row.unsupported !== null]),
+		[
+			['skin', false],
+			['rig', true],
+		],
 	);
 	assert.equal(rows[0].pose?.[0][12], 7);
 });

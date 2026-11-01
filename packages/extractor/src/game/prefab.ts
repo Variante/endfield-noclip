@@ -45,7 +45,8 @@ export interface PrefabRenderer {
 	/**
 	 * why the renderer can't draw as the game does, `null` when it can. it's then a stand-in: a particle system
 	 * the viewer can't play draws its mesh once at the emitter (turned to the camera for quads), and a skinned
-	 * mesh the reader can't pose draws unposed at its renderer, or posed without its blend shapes
+	 * mesh the reader can't pose draws unposed at its renderer, or posed without its blend shapes, and a
+	 * renderer under a switched-off GameObject draws as it would once switched on
 	 */
 	unsupported: string | null;
 	/**
@@ -53,6 +54,14 @@ export interface PrefabRenderer {
 	 * to the camera. skinned meshes and particle systems don't take it
 	 */
 	billboard: PrefabBillboard | null;
+}
+
+/**
+ * how a GameObject is switched off: `standIn` names why for a subtree drawn as stand-ins, and is `null` for
+ * one the pose switches off, which draws nothing
+ */
+interface SwitchedOff {
+	standIn: string | null;
 }
 
 /** a pose a prefab is drawn in instead of as saved: a view state's clip end pose and the nodes it switches */
@@ -82,7 +91,9 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
  * @param pose a pose to draw instead of the saved one, or `null`; the root's own Transform keeps the caller's
  *   placement
  * @param particleQuad the unit quad billboard particle systems draw, or `null` to skip them
- * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement
+ * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement. those
+ *   under GameObjects switched off as saved are stand-ins ({@link PrefabRenderer.unsupported}); those the
+ *   pose switches off are left out
  * @throws {FormatError} on malformed hierarchy, missing references or unsupported renderer dependencies
  */
 export const readPrefabRenderers = async (
@@ -109,7 +120,8 @@ export const readPrefabRenderers = async (
 		go: ObjectRef,
 		parent: Float32Array,
 		isRoot: boolean,
-		active: boolean,
+		/** how the parent is switched off, `null` when it's drawn */
+		parentOff: SwitchedOff | null,
 		inherited: PrefabBillboard | null,
 		/** the parent's path below the pose's Animator, `null` outside it */
 		above: string | null,
@@ -128,20 +140,32 @@ export const readPrefabRenderers = async (
 		} else if (pose !== null && (isRoot ? pose.animator === null : name === pose.animator)) {
 			below = '';
 		}
-		// inactive subtrees draw nothing, but active skinned meshes can still use their transforms as bones
-		const drawn = active && (pose?.active.get(name) ?? booleanField(data, 'm_IsActive'));
-		const wanted = drawn
-			? [
-					UnityClass.Transform,
-					UnityClass.MeshFilter,
-					UnityClass.MeshRenderer,
-					UnityClass.SkinnedMeshRenderer,
-					UnityClass.ParticleSystem,
-					UnityClass.ParticleSystemRenderer,
-					// LODGroup
-					205,
-				]
-			: [UnityClass.Transform];
+		// a switched-off subtree draws only stand-ins, since a script or view state can switch it on, unless the
+		// pose switched it off: that pose's other states are placed on their own. skinned meshes can still use its
+		// transforms as bones
+		let off = parentOff;
+		if (off === null) {
+			const posed = pose?.active.get(name);
+			if (posed === false) {
+				off = { standIn: null };
+			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
+				off = { standIn: 'switched off until a script or view state turns it on' };
+			}
+		}
+		const standIn = off?.standIn ?? null;
+		const wanted =
+			off === null || standIn !== null
+				? [
+						UnityClass.Transform,
+						UnityClass.MeshFilter,
+						UnityClass.MeshRenderer,
+						UnityClass.SkinnedMeshRenderer,
+						UnityClass.ParticleSystem,
+						UnityClass.ParticleSystemRenderer,
+						// LODGroup
+						205,
+					]
+				: [UnityClass.Transform];
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		let board: TypeTreeObject | null = null;
 		for (const item of arrayField(data, 'm_Component')) {
@@ -154,7 +178,7 @@ export const readPrefabRenderers = async (
 			}
 			if (wanted.includes(ref.info.classId)) {
 				components.push({ ref, data: await resolver.read(ref) });
-			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
+			} else if (wanted.length > 1 && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
 				board = await resolver.read(ref);
 			}
 		}
@@ -228,7 +252,7 @@ export const readPrefabRenderers = async (
 						name,
 						mesh,
 						particles: null,
-						unsupported: null,
+						unsupported: standIn,
 						billboard: null,
 					});
 				}
@@ -249,7 +273,7 @@ export const readPrefabRenderers = async (
 							name,
 							mesh,
 							particles: null,
-							unsupported: null,
+							unsupported: standIn,
 							billboard,
 						});
 					}
@@ -263,7 +287,8 @@ export const readPrefabRenderers = async (
 		);
 		const system = components.find((component) => component.ref.info.classId === UnityClass.ParticleSystem);
 		if (particles !== undefined && system !== undefined) {
-			const particle = frozenParticleMatrix(system.data, particles.data, local);
+			// a switched-off system stands in at its emitter whatever it would play
+			const particle = standIn === null ? frozenParticleMatrix(system.data, particles.data, local) : null;
 			if (particle !== null) {
 				const mesh = await resolver.resolve(particles.ref, pptrField(particles.data, 'm_Mesh'));
 				if (mesh !== null) {
@@ -283,10 +308,10 @@ export const readPrefabRenderers = async (
 				const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
 				const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
 				// a system a script starts is still there to see, so it gets a stand-in too
-				let reason: string | null = null;
-				if (read === null) {
+				let reason = standIn;
+				if (reason === null && read === null) {
 					reason = `doesn't play on awake`;
-				} else if ('reason' in read) {
+				} else if (reason === null && read !== null && 'reason' in read) {
 					reason = read.reason;
 				}
 				if (reason !== null) {
@@ -338,12 +363,12 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, drawn, billboard, below);
+					await visit(childGo, matrix, false, off, billboard, below);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, true, null, null);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, null);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
@@ -382,7 +407,7 @@ export const readPrefabRenderers = async (
 				matrix = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
 				// the mesh is baked without its blend shapes, so it isn't the shape the game draws
 				if (arrayField(candidate.data, 'm_BlendShapeWeights').some((weight) => weight !== 0)) {
-					unsupported = 'nonzero blend shape';
+					unsupported ??= 'nonzero blend shape';
 				}
 			}
 		}
