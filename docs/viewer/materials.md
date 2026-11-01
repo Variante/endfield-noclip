@@ -74,8 +74,10 @@ everything else, and they're held back until their texture is resident.
 
 ## unsupported materials
 
-a material the viewer can't draw shows as an unlit checker of magenta and black, in half-metre cells
-of world space, rather than hiding (`unsupportedLook` in
+a material the viewer can't draw can show as an unlit checker of magenta and black, in half-metre
+cells of world space, to mark where something is missing. the "unsupported stand-ins" setting shows
+it and is off by default, since the checker covers what lies behind; off, those draws are skipped
+during [mesh selection](../../packages/viewer/src/streaming/mesh-selection.ts) (`unsupportedLook` in
 [`render/materials.ts`](../../packages/viewer/src/render/materials.ts)). it shows both faces, casts
 no shadow and keeps its colour at any exposure. this covers effect shaders without a look of their
 own ([effects](effects.md)), effect materials using keywords, blend modes, stencil operations or

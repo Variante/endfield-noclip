@@ -82,6 +82,11 @@ export interface ViewerOptions {
 	wireframe: boolean;
 	/** draw stand-in boxes for instances with no resident mesh LOD, or every instance without geometry */
 	boxes: boolean;
+	/**
+	 * draw what the viewer can't render as the unsupported checker: meshes whose material it lacks and
+	 * stand-ins for particle systems it can't play. off draws neither
+	 */
+	unsupported: boolean;
 	/** instance refinement threshold, px */
 	maxSse: number;
 	/** terrain sample spacing target, px */
@@ -147,6 +152,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	hlodTiers: [true, true, true],
 	wireframe: false,
 	boxes: true,
+	unsupported: false,
 	maxSse: 12,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,
@@ -1513,6 +1519,7 @@ export class Viewer {
 				viewportHeight: this.#targets.outputHeight,
 				minPixels: options.minBoxPixels,
 				textureBias: options.textureBias,
+				unsupported: options.unsupported,
 				casters: view.casters,
 				shadowLayers: shadows ? this.#shadows.volumes : null,
 				// particles move by the clock the effects' shaders scroll by

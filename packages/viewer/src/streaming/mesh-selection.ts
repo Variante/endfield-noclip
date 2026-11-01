@@ -64,6 +64,8 @@ export interface MeshView {
 	minPixels: number;
 	/** mip levels coarser than needed to stream material textures at (0 for full detail; each halves their size) */
 	textureBias: number;
+	/** select draws in the unsupported look; off skips them as if their chains lacked them */
+	unsupported: boolean;
 	/** instances outside the view but in this volume are selected as shadow casters; `null` for none */
 	casters: CasterVolume | null;
 	/** the shadow layers instances are grouped by; `null` without shadows */
@@ -95,6 +97,8 @@ interface ChainSlot {
 	submesh: number;
 	material: number;
 	castsShadows: boolean;
+	/** whether the draw takes the unsupported look, which {@link MeshView.unsupported} can hide */
+	unsupported: boolean;
 	/** whether the draw is a shadow proxy, which only the shadow passes draw, even for instances in view */
 	shadowOnly: boolean;
 	/** the particle system the draw plays, whose particles stand in for the instance; `null` for a mesh */
@@ -311,7 +315,10 @@ export class MeshSelector {
 					let lod = -1;
 					for (let s = 0; s < slots.length; s++) {
 						const slot = slots[s];
-						if (!(squared > slot.minSquared && squared <= slot.maxSquared)) {
+						if (
+							(slot.unsupported && !view.unsupported) ||
+							!(squared > slot.minSquared && squared <= slot.maxSquared)
+						) {
 							continue;
 						}
 						lod = slot.lod;
@@ -329,7 +336,7 @@ export class MeshSelector {
 					}
 					const row = instances.alloc.start + i;
 					if (!ready) {
-						pendingCount = this.#residentLod(slots, lod, castOnly);
+						pendingCount = this.#residentLod(slots, lod, { castOnly, unsupported: view.unsupported });
 						if (pendingCount === 0) {
 							// an emitter's box spans everywhere its particles reach, so it doesn't stand in for them
 							if (
@@ -437,10 +444,15 @@ export class MeshSelector {
 	 * the LOD drawn before the switch, so the instance keeps its shape instead of dropping to its box.
 	 * stand-ins are kept in use but not requested, so they don't add to the streaming queue.
 	 *
-	 * @param castOnly whether only the shadow-casting slots are wanted
+	 * @param filter `castOnly` when only the shadow-casting slots are wanted, `unsupported` as in
+	 *   {@link MeshView}
 	 * @returns how many of the stand-in's slots were written to `#pending` (0 when no LOD is resident)
 	 */
-	#residentLod(slots: readonly ChainSlot[], wanted: number, castOnly: boolean): number {
+	#residentLod(
+		slots: readonly ChainSlot[],
+		wanted: number,
+		{ castOnly, unsupported }: { castOnly: boolean; unsupported: boolean },
+	): number {
 		let maxLod = 0;
 		for (const slot of slots) {
 			maxLod = Math.max(maxLod, slot.lod);
@@ -455,7 +467,7 @@ export class MeshSelector {
 				let count = 0;
 				let resident = true;
 				for (const slot of slots) {
-					if (slot.lod !== lod || (castOnly && !slot.castsShadows)) {
+					if (slot.lod !== lod || (castOnly && !slot.castsShadows) || (slot.unsupported && !unsupported)) {
 						continue;
 					}
 					if (!this.#geometryResident(slot.geometry)) {
@@ -509,6 +521,7 @@ export class MeshSelector {
 					submesh: draw.submesh,
 					material,
 					castsShadows: look.castsShadows,
+					unsupported: look.unsupported,
 					shadowOnly,
 					particles: draw.particles,
 					buckets: [null, null, null, null],
