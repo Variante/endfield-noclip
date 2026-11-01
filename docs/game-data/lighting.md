@@ -66,6 +66,10 @@ doesn't change a sphere's fit. casters are what the main pass draws that frame, 
 outside the view within 250 m whose shadows can reach it: the view frustum's planes are swept 250 m
 towards the sun, and instances inside the swept planes draw into the shadow layers only. off-screen
 casters smaller than 16 px (as if on screen) are skipped, and terrain outside the view doesn't cast.
+shadow-only renderers draw into the shadow layers only, in view or not: interiors rely on them, such
+as the plane roofing Dijiang (177 × 348 m at y 46) that keeps the sun off its corridors, since the
+walls they stand in for cull their back faces. they cull back faces like any material (no Dijiang
+material changes `_ShadowCullMode`), which is enough for that roof.
 
 - a point uses the first cascade sphere containing it, dithered with the next one over the outer
   tenth of the sphere's radius.

@@ -96,7 +96,7 @@ export interface MeshSelectorInit {
 	particles: ParticleField;
 }
 
-/** a drawn (non-shadow, visible-material) draw of a chain */
+/** a draw of a chain with a visible material, or a shadow-only draw of one that casts shadows */
 interface ChainSlot {
 	lod: number;
 	minSquared: number;
@@ -105,6 +105,8 @@ interface ChainSlot {
 	submesh: number;
 	material: number;
 	castsShadows: boolean;
+	/** whether the draw is a shadow proxy, which only the shadow passes draw, even for instances in view */
+	shadowOnly: boolean;
 	/** the particle system the draw plays, whose particles stand in for the instance; `null` for a mesh */
 	particles: number | null;
 	/** the slot's buckets, once they had rows, by {@link bucketIndex} */
@@ -336,7 +338,11 @@ export class MeshSelector {
 						pendingCount = this.#residentLod(slots, lod, castOnly);
 						if (pendingCount === 0) {
 							// an emitter's box spans everywhere its particles reach, so it doesn't stand in for them
-							if (!castOnly && !slots.some((slot) => slot.particles !== null)) {
+							if (
+								!castOnly &&
+								slots.some((slot) => !slot.shadowOnly) &&
+								!slots.some((slot) => slot.particles !== null)
+							) {
 								boxes.push(row);
 							}
 							continue;
@@ -354,8 +360,8 @@ export class MeshSelector {
 							: 0;
 					for (let p = 0; p < pendingCount; p++) {
 						const slot = pending[p];
-						const bucket =
-							slot.buckets[bucketIndex(mirrored, castOnly)] ?? this.#bucketOf(slot, mirrored, castOnly);
+						const cast = castOnly || slot.shadowOnly;
+						const bucket = slot.buckets[bucketIndex(mirrored, cast)] ?? this.#bucketOf(slot, mirrored, cast);
 						if (bucket.frame !== frame) {
 							bucket.frame = frame;
 							for (const rows of bucket.rows) {
@@ -494,7 +500,9 @@ export class MeshSelector {
 			slots = [];
 			for (const draw of this.#chains[chain].draws) {
 				const look = draw.material < this.#looks.length ? this.#looks[draw.material] : undefined;
-				if (draw.role === DrawRole.ShadowOnly || look?.drawn !== true) {
+				const shadowOnly = draw.role === DrawRole.ShadowOnly;
+				// a proxy's material is never seen, only whether it casts
+				if (look === undefined || (shadowOnly ? !look.castsShadows : !look.drawn)) {
 					continue;
 				}
 				slots.push({
@@ -505,6 +513,7 @@ export class MeshSelector {
 					submesh: draw.submesh,
 					material: draw.material,
 					castsShadows: look.castsShadows,
+					shadowOnly,
 					particles: draw.particles,
 					buckets: [null, null, null, null],
 				});

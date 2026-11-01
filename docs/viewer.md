@@ -183,11 +183,12 @@ and back swapped for mirrored buckets. each mesh phase, shadows included, has a 
 culling and UV format, and draws are sorted by both. the vertex shader dequantizes 16-bit UVs with
 per-draw transforms, so the fragment shader sees one kind of UV.
 
-shadow-only draws and materials that aren't drawn are dropped from the chain once, when it's first
-used. textures are then requested per bucket, coarse to fine, down to the mip that gives about one
-texel per pixel across the largest on-screen use, scaled by the UV tiling, then `textureBias` levels
-coarser (0 by default; each level quarters the textures' memory). sky, reflection and water textures
-are streamed whole (`streamWholeTexture`).
+materials that aren't drawn are dropped from the chain once, when it's first used, as are
+shadow-only draws whose material casts no shadow; the other shadow-only draws go to cast-only
+buckets even for instances in view. textures are then requested per bucket, coarse to fine, down to
+the mip that gives about one texel per pixel across the largest on-screen use, scaled by the UV
+tiling, then `textureBias` levels coarser (0 by default; each level quarters the textures' memory).
+sky, reflection and water textures are streamed whole (`streamWholeTexture`).
 
 the output (a visible row list plus per-bucket ranges) has the shape a GPU cull pass would write
 next to indirect draw arguments ([open](#open)).
