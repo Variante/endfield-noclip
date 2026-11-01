@@ -360,11 +360,12 @@ switches a GameObject by name on or off; others play effects, audio or navmesh c
 transitions that wait on blackboard keys. `clipAssetInfos` gives each clip's StringPathHash.
 
 a door is an interactive whose template has a door component (`InteractiveDoorCommonComponent`, or
-Dijiang's `SpaceshipRoomDoorSystem`) and whose model's states include exactly one settled state (a clip, and every transition waits
-on a condition) whose clip is an open idle (`…openidle…`). its closed state is where the open one
-returns to: its one transition, then any unconditional states, up to the next settled one. a Dijiang
-room door goes `built` → `built_to_unlocked` → `unlocked`; a Power Plateau gate `on_idle` →
-`on_to_off` → `off_idle`. models with no such state draw as before; an ambiguous one is reported.
+Dijiang's `SpaceshipRoomDoorSystem`) and whose model's states include exactly one settled state (a
+clip, and every transition waits on a condition) whose clip is an open idle (`…openidle…`). its
+closed state is where the open one returns to: its one transition, then any unconditional states, up
+to the next settled one. a Dijiang room door goes `built` → `built_to_unlocked` → `unlocked`; a
+Power Plateau gate `on_idle` → `on_to_off` → `off_idle`. models with no such state draw as before;
+an ambiguous one is reported.
 
 each pose is the state's clip end pose plus its `SetActive` switches. a generic clip's muscle clip
 stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
