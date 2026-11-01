@@ -2,39 +2,59 @@ import { FormatError } from '../binary/binary-reader.ts';
 import { ByteView } from '../binary/byte-view.ts';
 
 // SparkBuffer config tables (`Data/TableCfg/*.bytes`, Table group). layout recovered from MapIdTable,
-// LevelDescTable, I18nTextTable_* and SpaceshipAreaUnlockNeedCenterLvTable; only the value types those use are supported, and anything else fails
-// loudly rather than guessing.
+// LevelDescTable, I18nTextTable_*, SpaceshipAreaUnlockNeedCenterLvTable and SpaceshipGrowCabinLvTable; only
+// the value types those use are supported, and anything else fails loudly rather than guessing.
 //
 //   u32 typesOffset, u32 rootOffset, u32 dataOffset
-//   types: u32 count, count × { u8 kind (8 = bean), pad4, u32 hash, cstring name, pad4, u32 fieldCount,
-//          fieldCount × { cstring name, u8 type, [pad4, u32 typeHash if type = bean] } }
-//   root:  u8 0x0a (map), cstring name, u8 keyType, u8 valueType, [pad4, u32 typeHash]
+//   types: u32 count, count × { u8 kind (6 = enum, 8 = bean), pad4, u32 hash, cstring name, pad4, then
+//          bean: u32 fieldCount, fieldCount × { cstring name, type ref }
+//          enum: u32 valueCount, valueCount × { cstring name, pad4, i32 value } }
+//   type ref: u8 type, then [pad4, u32 typeHash] for beans and enums, or the element's type ref for arrays
+//   root:  u8 0x0a (map), cstring name, key type ref, value type ref
 //   data:  u32 slotCount, slotCount × (u32 entriesOffset, u32 entryCount); entries are `key ‖ value` packed
-//          with natural alignment. strings and beans are stored as u32 absolute offsets (0xFFFFFFFF = null);
-//          beans' fields follow the same packing.
+//          with natural alignment. enums are i32. strings, beans and arrays are stored as u32 absolute offsets
+//          (0xFFFFFFFF = null); a bean's fields follow the same packing, an array is `u32 count ‖ elements`.
 
 /** value type codes (the game's `SparkType`) */
 export const SparkType = {
 	Int: 2,
 	Long: 3,
+	Enum: 6,
 	String: 7,
 	Bean: 8,
+	Array: 9,
 	Map: 10,
 } as const;
 
-/** a decoded SparkBuffer value */
-export type SparkValue = number | bigint | string | null | { [field: string]: SparkValue };
+/** a decoded SparkBuffer value; enums decode to their numeric value */
+export type SparkValue = number | bigint | string | null | SparkValue[] | { [field: string]: SparkValue };
+
+/**
+ * @param value a decoded value
+ * @returns whether it's a bean (an object of fields), not null, a scalar or an array
+ */
+export const isSparkBean = (value: SparkValue | undefined): value is { [field: string]: SparkValue } =>
+	value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** a field's or element's type */
+interface TypeRef {
+	type: number;
+	/** the bean's type hash, for beans */
+	typeHash: number;
+	/** the element type, for arrays */
+	element: TypeRef | null;
+}
 
 interface BeanType {
 	name: string;
-	fields: { name: string; type: number; typeHash: number }[];
+	fields: { name: string; ref: TypeRef }[];
 }
 
 /** a decoded map table */
 export interface SparkTable {
 	name: string;
 	/** entries in storage order */
-	entries: [key: bigint | string, value: SparkValue][];
+	entries: [key: number | bigint | string, value: SparkValue][];
 }
 
 /**
@@ -50,6 +70,30 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 	const u8 = (at: number): number => view.u8(at);
 	const cString = (at: number): [string, number] => view.cString(at);
 
+	/** reads a type ref at `at`; returns it and the position after it */
+	const readRef = (at: number, where: string): [TypeRef, number] => {
+		const type = u8(at);
+		switch (type) {
+			case SparkType.Int:
+			case SparkType.Long:
+			case SparkType.String: {
+				return [{ type, typeHash: 0, element: null }, at + 1];
+			}
+			case SparkType.Enum:
+			case SparkType.Bean: {
+				const p = align(at + 1, 4);
+				return [{ type, typeHash: u32(p), element: null }, p + 4];
+			}
+			case SparkType.Array: {
+				const [element, after] = readRef(at + 1, where);
+				return [{ type, typeHash: 0, element }, after];
+			}
+			default: {
+				throw new FormatError(`unsupported spark type ${type} in ${where}`);
+			}
+		}
+	};
+
 	const types = new Map<number, BeanType>();
 	{
 		let at = u32(0);
@@ -57,51 +101,47 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		at += 4;
 		for (let t = 0; t < count; t++) {
 			const kind = u8(at);
-			if (kind !== SparkType.Bean) {
+			if (kind !== SparkType.Bean && kind !== SparkType.Enum) {
 				throw new FormatError(`unsupported spark type definition kind ${kind}`);
 			}
 			at = align(at + 1, 4);
 			const hash = u32(at);
 			const [name, afterName] = cString(at + 4);
 			at = align(afterName, 4);
-			const fieldCount = u32(at);
+			const memberCount = u32(at);
 			at += 4;
-			const fields: BeanType['fields'] = [];
-			for (let f = 0; f < fieldCount; f++) {
-				const [fieldName, afterField] = cString(at);
-				const type = u8(afterField);
-				at = afterField + 1;
-				let typeHash = 0;
-				if (type === SparkType.Bean) {
-					at = align(at, 4);
-					typeHash = u32(at);
-					at += 4;
-				} else if (type !== SparkType.Int && type !== SparkType.Long && type !== SparkType.String) {
-					throw new FormatError(`unsupported spark field type ${type} in ${name}.${fieldName}`);
+			if (kind === SparkType.Enum) {
+				// values are read as numbers, so the names aren't kept
+				for (let v = 0; v < memberCount; v++) {
+					at = align(cString(at)[1], 4) + 4;
 				}
-				fields.push({ name: fieldName, type, typeHash });
+				continue;
+			}
+			const fields: BeanType['fields'] = [];
+			for (let f = 0; f < memberCount; f++) {
+				const [fieldName, afterField] = cString(at);
+				const [ref, afterRef] = readRef(afterField, `${name}.${fieldName}`);
+				at = afterRef;
+				fields.push({ name: fieldName, ref });
 			}
 			types.set(hash, { name, fields });
 		}
 	}
 
-	let at = u32(4);
-	const rootKind = u8(at);
+	const rootAt = u32(4);
+	const rootKind = u8(rootAt);
 	if (rootKind !== SparkType.Map) {
 		throw new FormatError(`unsupported spark root kind ${rootKind}`);
 	}
-	const [name, afterName] = cString(at + 1);
-	const keyType = u8(afterName);
-	const valueType = u8(afterName + 1);
-	let valueBean = 0;
-	if (valueType === SparkType.Bean) {
-		valueBean = u32(align(afterName + 2, 4));
-	}
+	const [name, afterName] = cString(rootAt + 1);
+	const [keyRef, afterKeyRef] = readRef(afterName, `${name} key`);
+	const [valueRef] = readRef(afterKeyRef, `${name} value`);
 
-	/** reads a value of `type` packed at or after `pos`; returns it and the position after it */
-	const read = (type: number, typeHash: number, pos: number): [SparkValue, number] => {
-		switch (type) {
-			case SparkType.Int: {
+	/** reads a value of type `ref` packed at or after `pos`; returns it and the position after it */
+	const read = (ref: TypeRef, pos: number): [SparkValue, number] => {
+		switch (ref.type) {
+			case SparkType.Int:
+			case SparkType.Enum: {
 				const p = align(pos, 4);
 				return [view.i32(p), p + 4];
 			}
@@ -117,10 +157,25 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 			case SparkType.Bean: {
 				const p = align(pos, 4);
 				const offset = u32(p);
-				return [offset === 0xffffffff ? null : readBean(typeHash, offset), p + 4];
+				return [offset === 0xffffffff ? null : readBean(ref.typeHash, offset), p + 4];
+			}
+			case SparkType.Array: {
+				const p = align(pos, 4);
+				const offset = u32(p);
+				if (offset === 0xffffffff) {
+					return [null, p + 4];
+				}
+				const items: SparkValue[] = [];
+				let q = offset + 4;
+				for (let i = 0, count = u32(offset); i < count; i++) {
+					const [item, next] = read(ref.element!, q);
+					items.push(item);
+					q = next;
+				}
+				return [items, p + 4];
 			}
 			default: {
-				throw new FormatError(`unsupported spark value type ${type}`);
+				throw new FormatError(`unsupported spark value type ${ref.type}`);
 			}
 		}
 	};
@@ -132,15 +187,15 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		const out: { [field: string]: SparkValue } = {};
 		let p = pos;
 		for (const field of type.fields) {
-			const [value, next] = read(field.type, field.typeHash, p);
+			const [value, next] = read(field.ref, p);
 			out[field.name] = value;
 			p = next;
 		}
 		return out;
 	};
 
-	if (keyType !== SparkType.Long && keyType !== SparkType.String) {
-		throw new FormatError(`unsupported spark key type ${keyType}`);
+	if (keyRef.type !== SparkType.Int && keyRef.type !== SparkType.Long && keyRef.type !== SparkType.String) {
+		throw new FormatError(`unsupported spark key type ${keyRef.type}`);
 	}
 	const entries: SparkTable['entries'] = [];
 	const data = u32(8);
@@ -150,9 +205,9 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		const count = u32(data + 8 + s * 8);
 		let p = offset;
 		for (let i = 0; i < count; i++) {
-			const [key, afterKey] = read(keyType, 0, p);
-			const [value, afterValue] = read(valueType, valueBean, afterKey);
-			if (typeof key !== 'string' && typeof key !== 'bigint') {
+			const [key, afterKey] = read(keyRef, p);
+			const [value, afterValue] = read(valueRef, afterKey);
+			if (key === null || typeof key === 'object') {
 				throw new FormatError(`null spark key in ${name}`);
 			}
 			entries.push([key, value]);

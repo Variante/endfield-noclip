@@ -158,6 +158,53 @@ test('decodes a string-keyed int table', () => {
 	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [['construction_area_2', 3]]);
 });
 
+test('decodes an int-keyed bean table with enum and array fields', () => {
+	const b = new Buffer();
+	const header = [b.u32(12), b.u32(0), b.u32(0)];
+	// types: an enum (skipped), then a bean { roomType: enum, fields: int[] }
+	b.u32(2);
+	b.u8(SparkType.Enum);
+	b.u32(0xcccc);
+	b.cString('RoomType');
+	b.u32(2);
+	b.cString('ControlCenter');
+	b.u32(0);
+	b.cString('GrowCabin');
+	b.u32(2);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	b.cString('LevelData');
+	b.u32(2);
+	b.cString('roomType');
+	b.u8(SparkType.Enum);
+	b.u32(0xcccc);
+	b.cString('fields');
+	b.u8(SparkType.Array);
+	b.u8(SparkType.Int);
+	// root
+	b.patch(header[1], b.pos);
+	b.u8(SparkType.Map);
+	b.cString('LevelTable');
+	b.u8(SparkType.Int);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	// values
+	const array = b.u32(2);
+	b.u32(4);
+	b.u32(5);
+	const bean = b.u32(2);
+	b.u32(array);
+	// data
+	b.patch(header[2], b.pos);
+	b.u32(1);
+	const slot = b.u32(0);
+	b.u32(1);
+	b.patch(slot, b.pos);
+	b.u32(2);
+	b.u32(bean);
+	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [[2, { roomType: 2, fields: [4, 5] }]]);
+});
+
 test('rejects unsupported field types', () => {
-	assert.throws(() => parseSparkTable(buildBeanTable(42)), /unsupported spark field type 42/);
+	assert.throws(() => parseSparkTable(buildBeanTable(42)), /unsupported spark type 42 in LevelDescData\.id/);
 });

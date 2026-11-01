@@ -24,7 +24,7 @@ import { parseMissionRuntime, type MissionRuntime } from '@endfield-noclip/forma
 import { parseStreamAreas, type StreamAreaTable } from '@endfield-noclip/formats/endfield/stream-area';
 import type { BundleManifest } from '@endfield-noclip/formats/hg/bundle-manifest';
 import { unpackHgPayload } from '@endfield-noclip/formats/hg/payload';
-import { parseSparkTable, type SparkValue } from '@endfield-noclip/formats/hg/spark-buffer';
+import { isSparkBean, parseSparkTable, type SparkValue } from '@endfield-noclip/formats/hg/spark-buffer';
 import { StringPathHashTable } from '@endfield-noclip/formats/hg/string-path-hash';
 import { parseStringPoolBlock, StringPool } from '@endfield-noclip/formats/hg/string-pool';
 
@@ -270,12 +270,7 @@ export class WorldIndex {
 			for (const [key, value] of parseSparkTable(
 				await this.#read(VfsGroup.Table, 'Data/TableCfg/TextTable.bytes'),
 			).entries) {
-				if (
-					typeof key === 'string' &&
-					value !== null &&
-					typeof value === 'object' &&
-					typeof value.id === 'bigint'
-				) {
+				if (typeof key === 'string' && isSparkBean(value) && typeof value.id === 'bigint') {
 					ids.set(key, value.id);
 				}
 			}
@@ -520,11 +515,11 @@ const pivotOf = (entity: ChunkEntity): { x: number; y: number; z: number } | nul
 };
 
 const i18nText = (value: SparkValue, text: Map<bigint, string>): string | undefined => {
-	if (value === null || typeof value !== 'object') {
+	if (!isSparkBean(value)) {
 		return undefined;
 	}
 	const showName = value.showName;
-	if (showName === null || typeof showName !== 'object' || typeof showName.id !== 'bigint') {
+	if (!isSparkBean(showName) || typeof showName.id !== 'bigint') {
 		return undefined;
 	}
 	return text.get(showName.id);
