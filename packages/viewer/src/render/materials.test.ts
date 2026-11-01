@@ -400,8 +400,8 @@ test('erosion rock: its maps tile by their own properties on UV set 0, the ramp 
 	assert.equal(look.flags & (0x7f << UV1_SHIFT), 0);
 	assert.notEqual(look.flags & LookFlags.Erosion, 0);
 	assert.equal(look.uvScales[3], 0);
-	const uv = (slot: number) =>
-		Array.from(look.params.subarray(LookRow.uv + slot * 4, LookRow.uv + slot * 4 + 4));
+	const uv = (index: number) =>
+		Array.from(look.params.subarray(LookRow.uv + index * 4, LookRow.uv + index * 4 + 4));
 	assert.deepEqual(
 		[uv(1), uv(4), uv(5), uv(6)],
 		[
