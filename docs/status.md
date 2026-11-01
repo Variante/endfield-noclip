@@ -113,9 +113,11 @@ packs or renders correctly.
   sprite lists or speed timing), and all copies of one flipbook step in phase. Marker Stone's low
   mist banks over the valley are still missing; their source is unknown
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` draws without its emissive,
-  wetness, sludge, footprint, UV-noise and arc variants, normal- or roughness-only decals and the
-  game's draw order; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28),
-  `HGRP/DecalUnlit` and decals in dynamic structures aren't packed
+  wetness, sludge, footprint, UV-noise and arc variants and the game's draw order; decals that write
+  no albedo relight the surface from an estimate of its colour, as a dielectric, and leave its
+  screen-space reflections and ambient occlusion as they were; terrain decals
+  (`HGRP/TerrainDecalLit`, InitChunkData component 28), `HGRP/DecalUnlit` and decals in dynamic
+  structures aren't packed
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the

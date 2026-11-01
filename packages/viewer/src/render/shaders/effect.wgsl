@@ -1,6 +1,7 @@
 // scene effect meshes (effect-looks.ts, docs/game-data/effects.md), accumulated into the transparent pass's
 // targets like alpha-blended meshes: VFXBaseV2 surfaces and VFXWater sheets (`fs_effect`), VFXDecal boxes
-// (`fs_effect_decal`), FogSimple mist cards (`fs_mist_card`) and VFXFakeVolumeFog boxes (`fs_mist_volume`).
+// (`fs_effect_decal`), FogSimple mist cards (`fs_mist_card`) and VFXFakeVolumeFog boxes (`fs_mist_volume`); lit
+// decals that only change the surface add to the main pass's radiance instead (`fs_decal_relight`).
 // instances, draws and vertex streams are laid out as in mesh.wgsl; group 3 is this family's own.
 
 struct EffectRow {
@@ -37,6 +38,8 @@ struct EffectRow {
 // the main pass's depth (read-only in this pass) and its packed surfaces (`pack_reflection_surface`)
 @group(3) @binding(14) var fx_depth: texture_depth_2d;
 @group(3) @binding(15) var fx_surface: texture_2d<u32>;
+// the main pass's diffuse ambient and material occlusion (`Shaded.ambient` in frame.wgsl)
+@group(3) @binding(16) var fx_ambient: texture_2d<f32>;
 
 // rows of the look (`EffectRow` in effect-looks.ts, in vec4s)
 const FX_TINT = 0u;
@@ -707,11 +710,13 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 	// the decal's screen UVs are the pixel's position over the width, unlike VFXBaseV2's
 	let screen = floor(in.position.xy) / frame.render_size.x;
 	let bases = fx_bases(uv, uv, fx_polar(object_p.xz), screen);
+	let rel_dx = dpdx(rel);
+	let rel_dy = dpdy(rel);
 	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9) {
 		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
 	}
 	if (fx_row(id, FX_UNFOGGED).y == FX_KIND_LIT_DECAL) {
-		return fx_lit_decal(in, px, rel, uv, bases.dx[0], bases.dy[0]);
+		return fx_lit_decal(in, px, rel, rel_dx, rel_dy, uv, bases.dx[0], bases.dy[0]);
 	}
 	let combined = fx_combine(id, bases, fx_row(id, FX_TINT));
 	let soft = fx_row(id, FX_SOFT);
@@ -743,6 +748,9 @@ const LD_SURFACE = 17u;
 const LD_WRITES = 18u;
 const LD_PBR = 19u;
 const LD_CHANNELS = 20u;
+const LD_WATER = 21u;
+const LD_FLOW = 22u;
+const LD_FLOW_FADE = 23u;
 
 // one of four map channels by `_MetallicChannel`/`_OcclusionChannel`'s numbering, as the game blends them:
 // `offset` 1 for the occlusion's (R at 1, … A at 4) and 0 for the metallic's (R at 2, … A at 5)
@@ -751,68 +759,195 @@ fn ld_channel(p: vec4f, channel: f32, offset: f32) -> f32 {
 	return mix(mix(p.x, p.y, saturate(c - 2.0)), mix(p.z, p.w, saturate(c - 4.0)), saturate(c - 3.0));
 }
 
-// `HGRP/DecalLit` boxes (`decalLitLook` in effect-looks.ts): the base colour tinted by the placement's colour,
-// laid over the surface the box finds by its alpha (times the opacity, faded on surfaces facing away from the
-// box's y). where the material's colour masks let it, the PBR map's roughness, normal, metallic and occlusion
-// replace the surface's; the rest keeps the surface's normal and roughness, and the result is lit like the
-// surface. `uv` is the box's `local.xz + 0.5` with its screen gradients
-fn fx_lit_decal(in: EffectOut, px: vec2i, rel: vec3f, uv: vec2f, dx: vec2f, dy: vec2f) -> EffectAccumulated {
+// a decoded tangent-space normal map texel: RG · 2 − 1 with the game's dead zone, and the z that makes it unit
+fn ld_tangent_normal(rg: vec2f) -> vec3f {
+	var xy = rg * 2.0 - 1.0;
+	xy = select(xy, vec2f(0.0), abs(xy) < vec2f(0.012));
+	return vec3f(xy, max(1.0 / 2048.0, sqrt(saturate(1.0 - dot(xy, xy)))));
+}
+
+// what a lit decal makes of the surface beneath at one pixel
+struct LitDecal {
+	// how much of it shows, 0 to 1
+	alpha: f32,
+	// the decal's colour, which only laid-over decals use
+	albedo: vec3f,
+	normal: vec3f,
+	roughness: f32,
+	// metallic and occlusion where the decal writes them (`writes_metallic`, `writes_occlusion`)
+	metallic: f32,
+	occlusion: f32,
+	writes_metallic: bool,
+	writes_occlusion: bool,
+}
+
+// `HGRP/DecalLit` boxes (`decalLitLook` in effect-looks.ts) over a surface of normal `n` and roughness `roughness`
+// at camera-relative `rel` (with its screen gradients): the base colour tinted by the placement's colour, its
+// alpha times the opacity (faded on surfaces facing away from the box's y). where the material's colour masks
+// let it, the PBR map's roughness, normal, metallic and occlusion replace the surface's. `uv` is the box's
+// `local.xz + 0.5` with its screen gradients.
+//
+// with `_BLEND_WATER_FLOW` the normal and roughness come from two layers of a water normal map scrolling down
+// the world's y, each projected along x and z (at world zy and xy) and blended by how much the surface faces
+// either axis, its UVs pushed further down on steep walls by `_NormalFactor`; the decal fades in towards
+// vertical surfaces by `_AngleBlendFallOff2`, and its roughness is the first layer's B times `_WaterRoughness`
+fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, dx: vec2f, dy: vec2f, n: vec3f,
+	roughness: f32) -> LitDecal {
 	let id = in.draw;
 	let base_t = fx_row(id, FX_UV);
 	let base = textureSampleGrad(fx_tex0, fx_samp0, uv * base_t.xy + base_t.zw, dx * base_t.xy, dy * base_t.xy);
 	let pbr_t = fx_row(id, FX_UV + 1u);
-	let pbr = textureSampleGrad(fx_tex1, fx_samp1, uv * pbr_t.xy + pbr_t.zw, dx * pbr_t.xy, dy * pbr_t.xy);
 	let tint = fx_row(id, FX_TINT);
 	let surface_row = fx_row(id, LD_SURFACE);
 	let writes = fx_row(id, LD_WRITES);
 	let pbr_row = fx_row(id, LD_PBR);
 	let channels = fx_row(id, LD_CHANNELS);
+	let water = fx_row(id, LD_WATER);
 	// with `_BaseTexChannel` the base map is the PBR map, and the colour the placement's alone
 	let pbr_base = channels.x > 0.5;
-	let albedo = tint.rgb * select(base.rgb, vec3f(1.0), pbr_base);
-	let nro = select(pbr, base, pbr_base);
 
-	// the surface beneath: its normal and roughness from the main pass
-	var n = fx_surface_normal(px);
-	var roughness = f32(textureLoad(fx_surface, px, 0).x >> 24u) / 255.0;
-	if (all(n == vec3f(0.0))) {
-		n = in.up;
-		roughness = 1.0;
-	}
+	var d: LitDecal;
+	d.albedo = tint.rgb * select(base.rgb, vec3f(1.0), pbr_base);
+	d.normal = n;
+	d.roughness = roughness;
+	d.metallic = 0.0;
+	d.occlusion = 1.0;
+	d.writes_metallic = false;
+	d.writes_occlusion = false;
 	var alpha = base.a * tint.a;
 	if (surface_row.w > 0.0) {
 		alpha *= pow(max(saturate(dot(in.up, n)), 5.96e-8), surface_row.w);
 	}
-	alpha = saturate(alpha);
-	if (alpha <= 0.0) {
-		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
+
+	var tangent_n: vec3f;
+	var pbr: vec4f;
+	if (water.x > 0.5) {
+		let flow = fx_row(id, LD_FLOW);
+		let steep = pow(max(abs(1.0 - abs(n.y)), 5.96e-8), fx_row(id, LD_FLOW_FADE).x);
+		alpha *= steep;
+		let n2 = n * n;
+		let w = n2.xz / max(n2.x + n2.z, 1e-5);
+		let push = vec2f(0.0, steep * water.w);
+		let world = frame.eye.xyz + rel;
+		let scroll = vec2f(0.0, frame.eye.w);
+		let zy = world.zy * pbr_t.xy;
+		let xy = world.xy * pbr_t.xy;
+		let zy_dx = rel_dx.zy * pbr_t.xy;
+		let zy_dy = rel_dy.zy * pbr_t.xy;
+		let xy_dx = rel_dx.xy * pbr_t.xy;
+		let xy_dy = rel_dy.xy * pbr_t.xy;
+		let a_zy = textureSampleGrad(fx_tex1, fx_samp1, zy * flow.z + scroll * flow.x + push, zy_dx * flow.z, zy_dy * flow.z);
+		let a_xy = textureSampleGrad(fx_tex1, fx_samp1, xy * flow.z + scroll * flow.x + push, xy_dx * flow.z, xy_dy * flow.z);
+		let b_zy = textureSampleGrad(fx_tex1, fx_samp1, zy * flow.w + scroll * flow.y + push, zy_dx * flow.w, zy_dy * flow.w);
+		let b_xy = textureSampleGrad(fx_tex1, fx_samp1, xy * flow.w + scroll * flow.y + push, xy_dx * flow.w, xy_dy * flow.w);
+		let t = (ld_tangent_normal(a_zy.rg) + ld_tangent_normal(b_zy.rg)) * w.x +
+			(ld_tangent_normal(a_xy.rg) + ld_tangent_normal(b_xy.rg)) * w.y;
+		tangent_n = vec3f(t.xy * water.y, t.z);
+		pbr = vec4f(0.0, 0.0, (a_zy.b + a_xy.b) * 0.5, 0.0);
+		if (writes.y > 0.5) {
+			d.roughness = water.z * pbr.b;
+		}
+	} else {
+		let sampled = textureSampleGrad(fx_tex1, fx_samp1, uv * pbr_t.xy + pbr_t.zw, dx * pbr_t.xy, dy * pbr_t.xy);
+		pbr = select(sampled, base, pbr_base);
+		let t = ld_tangent_normal(pbr.rg);
+		tangent_n = vec3f(t.xy * surface_row.z, t.z);
+		if (writes.y > 0.5) {
+			d.roughness = mix(surface_row.x, surface_row.y, pbr.b);
+		}
 	}
-	if (writes.y > 0.5) {
-		roughness = mix(surface_row.x, surface_row.y, nro.b);
-	}
+	d.alpha = saturate(alpha);
 	if (writes.x > 0.5) {
-		var xy = nro.rg * 2.0 - 1.0;
-		xy = select(xy, vec2f(0.0), abs(xy) < vec2f(0.012));
-		let z = max(1.0 / 2048.0, sqrt(saturate(1.0 - dot(xy, xy))));
 		// the box's frame (x tangent, y normal), or the surface's by `_BlendSceneNormal`; the bitangent's sign is
-		// the game's −1
+		// the game's −1. the result turns from the surface's normal by `_AffectNormal`
 		let t = normalize(in.to_object0.xyz);
 		let frame_n = normalize(mix(in.up, n, writes.z));
 		let b = -mix(cross(in.up, t), cross(n, t), writes.z);
-		let scaled = xy * surface_row.z;
-		n = normalize(t * scaled.x + b * scaled.y + frame_n * z);
+		let decal_n = normalize(t * tangent_n.x + b * tangent_n.y + frame_n * tangent_n.z);
+		d.normal = normalize(mix(n, decal_n, channels.w));
 	}
-	var s = default_surface(albedo, n);
-	s.roughness = roughness;
 	if (pbr_row.x > 0.5) {
-		s.metallic = mix(pbr_row.z * saturate(channels.y), ld_channel(pbr, channels.y, 0.0), saturate(channels.y - 1.0));
+		d.writes_metallic = true;
+		d.metallic = mix(pbr_row.z * saturate(channels.y), ld_channel(pbr, channels.y, 0.0), saturate(channels.y - 1.0));
 	}
 	if (pbr_row.y > 0.5) {
+		d.writes_occlusion = true;
 		let occlusion = mix(1.0, ld_channel(pbr, channels.z, 1.0), saturate(channels.z));
-		s.occlusion = (1.0 - pbr_row.w) + occlusion * pbr_row.w;
+		d.occlusion = (1.0 - pbr_row.w) + occlusion * pbr_row.w;
+	}
+	return d;
+}
+
+// the main pass's roughness under a pixel (`pack_reflection_surface`)
+fn fx_surface_roughness(px: vec2i) -> f32 {
+	return f32(textureLoad(fx_surface, px, 0).x >> 24u) / 255.0;
+}
+
+// a lit decal laid over the surface by its alpha in the transparent pass, lit like any surface: the decals that
+// write albedo
+fn fx_lit_decal(in: EffectOut, px: vec2i, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, dx: vec2f,
+	dy: vec2f) -> EffectAccumulated {
+	var n = fx_surface_normal(px);
+	var roughness = fx_surface_roughness(px);
+	if (all(n == vec3f(0.0))) {
+		n = in.up;
+		roughness = 1.0;
+	}
+	let d = ld_decal(in, rel, rel_dx, rel_dy, uv, dx, dy, n, roughness);
+	if (d.alpha <= 0.0) {
+		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
+	}
+	var s = default_surface(d.albedo, d.normal);
+	s.roughness = d.roughness;
+	if (d.writes_metallic) {
+		s.metallic = d.metallic;
+	}
+	if (d.writes_occlusion) {
+		s.occlusion = d.occlusion;
 	}
 	let shaded = shade_surface(s, rel, in.position.xy);
-	return fx_accumulate(shaded.radiance.rgb * alpha, alpha, length(rel), 0.0);
+	return fx_accumulate(shaded.radiance.rgb * d.alpha, d.alpha, length(rel), 0.0);
+}
+
+// lit decals that write no albedo, only the normal, roughness or occlusion of the surface beneath, between the
+// main and the transparent pass: the viewer has no GBuffer to change, so each adds the difference between the
+// surface lit with and without its changes, times its alpha, to the radiance. the surface's colour is its
+// diffuse ambient over the ambient light at its normal (taken as a dielectric's); its emission, shadows and
+// everything else it was lit by stay as the main pass drew them
+@fragment
+fn fs_decal_relight(in: EffectOut) -> @location(0) vec4f {
+	let px = vec2i(in.position.xy);
+	let scene_depth = fx_scene_depth(px);
+	let rel = in.rel * (scene_depth / dot(in.rel, frame.view_forward.xyz));
+	let p = vec4f(rel, 1.0);
+	let object_p = vec3f(dot(in.to_object0, p), dot(in.to_object1, p), dot(in.to_object2, p));
+	let uv = object_p.xz + 0.5;
+	let dx = dpdx(uv);
+	let dy = dpdy(uv);
+	let rel_dx = dpdx(rel);
+	let rel_dy = dpdy(rel);
+	let n = fx_surface_normal(px);
+	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9 || all(n == vec3f(0.0))) {
+		return vec4f(0.0);
+	}
+	let d = ld_decal(in, rel, rel_dx, rel_dy, uv, dx, dy, n, fx_surface_roughness(px));
+	if (d.alpha <= 0.0) {
+		return vec4f(0.0);
+	}
+	let ambient = textureLoad(fx_ambient, px, 0);
+	let irradiance = ambient_irradiance(frame.eye.xyz + rel, n);
+	let diffuse = saturate(ambient.rgb / max(irradiance, vec3f(1e-4)));
+	var before = default_surface(diffuse, n);
+	before.roughness = fx_surface_roughness(px);
+	before.occlusion = ambient.a;
+	var after = before;
+	after.normal = d.normal;
+	after.roughness = d.roughness;
+	if (d.writes_occlusion) {
+		after.occlusion = d.occlusion;
+	}
+	let change = shade_surface(after, rel, in.position.xy).radiance.rgb - shade_surface(before, rel, in.position.xy).radiance.rgb;
+	return vec4f(change * d.alpha, 0.0);
 }
 
 // #endregion

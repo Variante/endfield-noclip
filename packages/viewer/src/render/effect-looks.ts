@@ -17,6 +17,7 @@ import {
 	DECAL_UV_PROPERTY,
 	type ReadyMaterial,
 	type ShaderEntry,
+	type TextureSlot,
 } from '@endfield-noclip/package-format/materials';
 
 import { linearRgb } from './color.ts';
@@ -641,47 +642,76 @@ export const DecalLitRow = {
 	pbr: 76,
 	/**
 	 * 1 when the base map is the PBR map and the colour is the placement's alone (`_BaseTexChannel`),
-	 * `_MetallicChannel`, `_OcclusionChannel`, 0
+	 * `_MetallicChannel`, `_OcclusionChannel`, `_AffectNormal`
 	 */
 	channels: 80,
+	/**
+	 * `_BLEND_WATER_FLOW`: 1 when on, `_WaterNormalScale`, `_WaterRoughness`, `_NormalFactor` (how far steep
+	 * walls push the flow's UVs)
+	 */
+	water: 84,
+	/** `_BLEND_WATER_FLOW`: `_UVMovement` (the two layers' scroll speeds, then their UV scales) */
+	flow: 88,
+	/** `_BLEND_WATER_FLOW`: `_AngleBlendFallOff2`, the power of the fade towards level surfaces, then 0, 0, 0 */
+	flowFade: 92,
 } as const;
 
-/** the slot of a lit decal's PBR map (`_SampleTex1`: normal RG, roughness B); its base colour is slot 0 */
+/**
+ * the slot of a lit decal's PBR map (`_SampleTex1`: normal RG, roughness B), or with `_BLEND_WATER_FLOW` its
+ * water normal map (`_WaterNormalTex`: normal RG, roughness B, at world positions); its base colour is slot
+ * 0
+ */
 export const DECAL_PBR_SLOT = 1;
 
 /** lit decal keywords that are drawn; the others change the surface in ways the viewer doesn't */
-const DECAL_LIT_KEYWORDS = new Set(['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND']);
+const DECAL_LIT_KEYWORDS = new Set(['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND', '_BLEND_WATER_FLOW']);
 
 /** Unity's `ColorWriteMask` bits */
 const WRITE_RED = 8;
 const WRITE_GREEN = 4;
 const WRITE_BLUE = 2;
 
+/** a lit decal's effect look, and how it's drawn */
+export interface LitDecalLook extends EffectLook {
+	/**
+	 * `true` when it writes no albedo, only the normal or roughness of the surface beneath: the decal relight
+	 * pass then adds the change in that surface's light to the main pass's radiance. `false` when it's laid
+	 * over the surface in the transparent pass
+	 */
+	relight: boolean;
+}
+
 /**
  * `HGRP/DecalLit`, the projected decals of the scenery (`docs/game-data/materials.md#decals`): the base
- * colour map tinted by the placement's colour, with the PBR map's roughness and normal, written over the
- * surface through the colour masks the material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2`
- * normal and roughness, `_ColorMask3` albedo).
+ * colour map tinted by the placement's colour, with the PBR map's roughness and normal (or with
+ * `_BLEND_WATER_FLOW` a scrolling water normal map's), written over the surface through the colour masks the
+ * material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2` normal and roughness, `_ColorMask3`
+ * albedo).
  *
  * @param entry a material of `HGRP/DecalLit`, a placement's copy with its colour and UV transform
  * @param shader its shader
- * @returns its effect look, or `null` when it uses features that aren't drawn or writes no albedo (the viewer
- *   can't relight the surface beneath)
+ * @returns its look, or `null` when it uses features that aren't drawn, lacks a placement, or writes neither
+ *   albedo, normal nor roughness
  */
-export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): LitDecalLook | null => {
 	if (entry.keywords.some((keyword) => !DECAL_LIT_KEYWORDS.has(keyword))) {
 		return null;
 	}
-	const { float } = readers(entry, shader);
+	const { float, color } = readers(entry, shader);
 	const placementColor = entry.colors[DECAL_COLOR_PROPERTY];
 	const placementUv = entry.vectors[DECAL_UV_PROPERTY];
-	const albedoMask = float('_ColorMask3', 0);
-	if (placementColor === undefined || placementUv === undefined || (albedoMask & WRITE_RED) === 0) {
+	if (placementColor === undefined || placementUv === undefined) {
+		return null;
+	}
+	const waterFlow = entry.keywords.includes('_BLEND_WATER_FLOW');
+	const relight = (float('_ColorMask3', 0) & WRITE_RED) === 0;
+	const surfaceMask = float('_ColorMask2', 0);
+	if (relight && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
 		return null;
 	}
 	const look = emptyEffect(7);
 	const params = look.params;
-	const pbrBase = float('_BaseTexChannel', 0) !== 0;
+	const pbrBase = !waterFlow && float('_BaseTexChannel', 0) !== 0;
 	const base = entry.slots['_BaseColorMap'];
 	if (base === undefined) {
 		return null;
@@ -689,12 +719,27 @@ export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	const placement = { scale: [placementUv[0], placementUv[1]], offset: [placementUv[2], placementUv[3]] };
 	const still = { speed: [0, 0], cos: 1, sin: 0 };
 	setSlot(look, 0, { texture: base.texture, ...placement }, still, ROLE_NONE);
-	const pbr = pbrBase ? base : entry.slots['_SampleTex1'];
-	if (pbr !== undefined) {
-		// its own `_ST` applies to the box's UVs only with `_SampleTex1UVSet`
-		const transform =
-			!pbrBase && float('_SampleTex1UVSet', 0) !== 0 ? { scale: pbr.scale, offset: pbr.offset } : placement;
-		setSlot(look, DECAL_PBR_SLOT, { texture: pbr.texture, ...transform }, still, ROLE_NONE);
+	let pbr: TextureSlot | undefined;
+	if (waterFlow) {
+		// the water's normal map projects at world positions; its `_ST` scale is per metre
+		pbr = entry.slots['_WaterNormalTex'];
+		if (pbr !== undefined) {
+			setSlot(
+				look,
+				DECAL_PBR_SLOT,
+				{ texture: pbr.texture, scale: pbr.scale, offset: [0, 0] },
+				still,
+				ROLE_NONE,
+			);
+		}
+	} else {
+		pbr = pbrBase ? base : entry.slots['_SampleTex1'];
+		if (pbr !== undefined) {
+			// its own `_ST` applies to the box's UVs only with `_SampleTex1UVSet`
+			const transform =
+				!pbrBase && float('_SampleTex1UVSet', 0) !== 0 ? { scale: pbr.scale, offset: pbr.offset } : placement;
+			setSlot(look, DECAL_PBR_SLOT, { texture: pbr.texture, ...transform }, still, ROLE_NONE);
+		}
 	}
 	params.set(
 		[placementColor[0], placementColor[1], placementColor[2], placementColor[3] * float('_DecalOpacity', 1)],
@@ -709,9 +754,12 @@ export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 		],
 		DecalLitRow.surface,
 	);
-	const surfaceMask = float('_ColorMask2', 0);
 	const pbrMask = float('_ColorMask1', 0);
 	const hasPbr = pbr !== undefined;
+	// a relit decal changes the surface only through the PBR map
+	if (relight && !hasPbr) {
+		return null;
+	}
 	params.set(
 		[
 			hasPbr && (surfaceMask & (WRITE_RED | WRITE_GREEN)) !== 0 ? 1 : 0,
@@ -730,11 +778,19 @@ export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 		DecalLitRow.pbr,
 	);
 	params.set(
-		[pbrBase ? 1 : 0, float('_MetallicChannel', 0), float('_OcclusionChannel', 0)],
+		[pbrBase ? 1 : 0, float('_MetallicChannel', 0), float('_OcclusionChannel', 0), float('_AffectNormal', 0)],
 		DecalLitRow.channels,
 	);
+	if (waterFlow) {
+		params.set(
+			[1, float('_WaterNormalScale', 1), float('_WaterRoughness', 0), float('_NormalFactor', 0)],
+			DecalLitRow.water,
+		);
+		params.set(color('_UVMovement') ?? [0, 0, 1, 1], DecalLitRow.flow);
+		params[DecalLitRow.flowFade] = Math.max(float('_AngleBlendFallOff2', 1), 1e-3);
+	}
 	params.set([0, EffectKind.LitDecal], EffectRow.unfogged);
-	return look;
+	return { ...look, relight };
 };
 
 // #endregion

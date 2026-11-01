@@ -353,6 +353,9 @@ what each post pass computes and which profile fields drive it is in
   WebGPU's default 32 bytes per sample; depth is stored for post. draw order: the opaque meshes'
   depth, terrain, meshes (opaque, then alpha-tested, then stencil-only portal masks), instance
   boxes, box outlines (boxes larger than `outlineMetres`), terrain wireframe.
+- **decal relight pass.** lit decals that change only a surface's normal, roughness or occlusion add
+  the change in its light to the radiance, reading the depth, packed surface and ambient targets
+  ([decals](game-data/materials.md#decals)).
 - **transparent pass.** alpha-blended meshes draw after the main pass, testing its depth without
   writing it (the stencil stays writable), into a weighted sum and a revealage that the composite
   resolves ([glass](game-data/materials.md#glass)). a third target, the glow, sums additively

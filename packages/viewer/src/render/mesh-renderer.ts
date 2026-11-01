@@ -15,7 +15,12 @@
 
 import type { BindLayouts } from '../gfx/bind-layouts.ts';
 import type { PipelineCache } from '../gfx/pipeline-cache.ts';
-import { DEPTH_COMPARE, type MainPassFormat, TRANSPARENT_TARGETS } from '../gfx/render-targets.ts';
+import {
+	DEPTH_COMPARE,
+	HDR_FORMAT,
+	type MainPassFormat,
+	TRANSPARENT_TARGETS,
+} from '../gfx/render-targets.ts';
 import type { DecodedGeometry } from '../package/decode-protocol.ts';
 import type { MeshBucket } from '../streaming/mesh-selection.ts';
 import type { ResidentGeometry } from '../streaming/stream-manager.ts';
@@ -127,7 +132,8 @@ type DrawRange =
 	| 'effect'
 	| 'effectDecal'
 	| 'mist'
-	| 'mistVolume';
+	| 'mistVolume'
+	| 'decalRelight';
 
 /**
  * the vertex streams a phase's pipelines read, in buffer slot order: every stream, positions alone (opaque
@@ -170,6 +176,14 @@ const TRANSPARENT_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/mist-volume', range: 'mistVolume', textured: true, shadow: false, streams: 'all' },
 ];
 
+/**
+ * lit decals that change only the surface's normal, roughness or occlusion, run between the main and the
+ * transparent pass: they add the change in the surface's light to the radiance
+ */
+const RELIGHT_PHASES: readonly DrawPhase[] = [
+	{ key: 'mesh/decal-relight', range: 'decalRelight', textured: true, shadow: false, streams: 'all' },
+];
+
 /** the shader stages that read an effect texture slot */
 const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
 	slot === OFFSET_SLOT ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : GPUShaderStage.FRAGMENT;
@@ -178,6 +192,8 @@ const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
 export interface EffectInputs {
 	depth: GPUTextureView;
 	reflectionSurface: GPUTextureView;
+	/** the diffuse ambient and material occlusion, from which relit decals recover the surface's colour */
+	ambient: GPUTextureView;
 	version: number;
 }
 
@@ -349,7 +365,11 @@ export class MeshRenderer {
 	#decalOrder: MeshBucket[] = [];
 	#mistOrder: MeshBucket[] = [];
 	#mistVolumeOrder: MeshBucket[] = [];
-	/** group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth and surfaces */
+	#relightOrder: MeshBucket[] = [];
+	/**
+	 * group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth, surfaces and
+	 * diffuse ambient
+	 */
 	#effectLayout: GPUBindGroupLayout;
 	/** effect bind groups by material id */
 	#effectBindings = new Map<number, MaterialBinding & { inputs: number }>();
@@ -357,6 +377,7 @@ export class MeshRenderer {
 	#decalStart = 0;
 	#mistStart = 0;
 	#mistVolumeStart = 0;
+	#relightStart = 0;
 	/** prepared draws in {@link DrawRange} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
@@ -551,6 +572,11 @@ export class MeshRenderer {
 					})),
 					{ binding: 14, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
 					{ binding: 15, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'uint' } },
+					{
+						binding: 16,
+						visibility: GPUShaderStage.FRAGMENT,
+						texture: { sampleType: 'unfilterable-float' },
+					},
 				],
 			});
 			const layout = device.createPipelineLayout({
@@ -575,6 +601,27 @@ export class MeshRenderer {
 					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare },
 				}));
 			}
+			// relit decals add the change in the surface's light to the radiance, leaving its alpha (the albedo's
+			// luminance) alone. they read the depth as a texture, so the pass has no depth attachment
+			describe(RELIGHT_PHASES[0].key, (cullMode, uvFormat) => ({
+				layout,
+				vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
+				primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
+				fragment: {
+					module: effectModule,
+					entryPoint: 'fs_decal_relight',
+					targets: [
+						{
+							format: HDR_FORMAT,
+							blend: {
+								color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+								alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+							},
+							writeMask: GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE,
+						},
+					],
+				},
+			}));
 		}
 		// #endregion
 	}
@@ -605,6 +652,7 @@ export class MeshRenderer {
 				})),
 				{ binding: 14, resource: inputs.depth },
 				{ binding: 15, resource: inputs.reflectionSurface },
+				{ binding: 16, resource: inputs.ambient },
 			],
 		});
 		this.#effectBindings.set(material, { versions, inputs: inputs.version, group });
@@ -765,6 +813,7 @@ export class MeshRenderer {
 		const decals = this.#decalOrder;
 		const mists = this.#mistOrder;
 		const mistVolumes = this.#mistVolumeOrder;
+		const relit = this.#relightOrder;
 		opaque.length = 0;
 		cutout.length = 0;
 		stencilMasks.length = 0;
@@ -773,6 +822,7 @@ export class MeshRenderer {
 		decals.length = 0;
 		mists.length = 0;
 		mistVolumes.length = 0;
+		relit.length = 0;
 		for (const bucket of buckets) {
 			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
@@ -800,6 +850,8 @@ export class MeshRenderer {
 					const decal = (look.flags & LookFlags.EffectDecal) !== 0;
 					if ((look.flags & LookFlags.EffectMist) !== 0) {
 						(decal ? mistVolumes : mists).push(bucket);
+					} else if (look.relight) {
+						relit.push(bucket);
 					} else {
 						(decal ? decals : effects).push(bucket);
 					}
@@ -823,6 +875,7 @@ export class MeshRenderer {
 		decals.sort(byBindings);
 		mists.sort(byBindings);
 		mistVolumes.sort(byBindings);
+		relit.sort(byBindings);
 		const cutoutFrom = opaque.length;
 		const stencilMaskFrom = cutoutFrom + cutout.length;
 		const transparentFrom = stencilMaskFrom + stencilMasks.length;
@@ -830,7 +883,8 @@ export class MeshRenderer {
 		const decalFrom = effectFrom + effects.length;
 		const mistFrom = decalFrom + decals.length;
 		const mistVolumeFrom = mistFrom + mists.length;
-		const bucketCount = mistVolumeFrom + mistVolumes.length;
+		const relightFrom = mistVolumeFrom + mistVolumes.length;
+		const bucketCount = relightFrom + relit.length;
 		const bucketAt = (b: number): MeshBucket => {
 			if (b < cutoutFrom) {
 				return opaque[b];
@@ -853,7 +907,10 @@ export class MeshRenderer {
 			if (b < mistVolumeFrom) {
 				return mists[b - mistFrom];
 			}
-			return mistVolumes[b - mistVolumeFrom];
+			if (b < relightFrom) {
+				return mistVolumes[b - mistVolumeFrom];
+			}
+			return relit[b - relightFrom];
 		};
 
 		const params = this.#paramData;
@@ -873,6 +930,7 @@ export class MeshRenderer {
 		this.#decalStart = 0;
 		this.#mistStart = 0;
 		this.#mistVolumeStart = 0;
+		this.#relightStart = 0;
 		for (let b = 0; b < bucketCount; b++) {
 			if (b === cutoutFrom) {
 				this.#cutoutStart = d;
@@ -894,6 +952,9 @@ export class MeshRenderer {
 			}
 			if (b === mistVolumeFrom) {
 				this.#mistVolumeStart = d;
+			}
+			if (b === relightFrom) {
+				this.#relightStart = d;
 			}
 			const bucket = bucketAt(b);
 			const resident = bucket.geometry.resident;
@@ -1013,6 +1074,9 @@ export class MeshRenderer {
 		if (mistVolumeFrom === bucketCount) {
 			this.#mistVolumeStart = d;
 		}
+		if (relightFrom === bucketCount) {
+			this.#relightStart = d;
+		}
 		this.#cutoutCastersEnd = Math.max(this.#cutoutCastersEnd, this.#cutoutStart);
 		this.#cutoutCastOnlyEnd = Math.max(this.#cutoutCastOnlyEnd, this.#cutoutStart);
 		if (d > 0) {
@@ -1068,13 +1132,31 @@ export class MeshRenderer {
 	 * @returns draw calls issued
 	 */
 	encodeTransparent(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		for (let i = this.#effectStart; i < this.#drawCount; i++) {
+		this.#bindEffects(this.#effectStart, this.#relightStart, inputs);
+		return this.#encode(pass, TRANSPARENT_PHASES);
+	}
+
+	/**
+	 * adds the light that relit decals change to the main pass's radiance. call between the main pass and
+	 * {@link encodeTransparent}.
+	 *
+	 * @param pass a pass whose only attachment is the main pass's radiance, kept (`load`), with group 0 bound
+	 * @param inputs the main pass's outputs, which the decals read
+	 * @returns draw calls issued
+	 */
+	encodeRelight(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
+		this.#bindEffects(this.#relightStart, this.#drawCount, inputs);
+		return this.#encode(pass, RELIGHT_PHASES);
+	}
+
+	/** builds the effect groups of the draws in [from, to), which bind the main pass's outputs */
+	#bindEffects(from: number, to: number, inputs: EffectInputs): void {
+		for (let i = from; i < to; i++) {
 			const draw = this.#draws[i];
 			if (draw.effect !== null) {
 				draw.material = this.#effectGroup(draw.effect.material, draw.effect.slots, inputs);
 			}
 		}
-		return this.#encode(pass, TRANSPARENT_PHASES);
 	}
 
 	/**
@@ -1147,6 +1229,11 @@ export class MeshRenderer {
 				}
 				case 'mistVolume': {
 					from = this.#mistVolumeStart;
+					to = this.#relightStart;
+					break;
+				}
+				case 'decalRelight': {
+					from = this.#relightStart;
 					to = this.#drawCount;
 					break;
 				}

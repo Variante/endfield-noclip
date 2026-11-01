@@ -1656,6 +1656,15 @@ export class Viewer {
 			}
 		}
 		pass.end();
+		if (hasScene) {
+			const relight = encoder.beginRenderPass({
+				label: 'decal relight',
+				colorAttachments: [{ view: this.#targets.scene.radiance, loadOp: 'load', storeOp: 'store' }],
+			});
+			relight.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+			draws += this.#meshes.encodeRelight(relight, this.#targets.scene);
+			relight.end();
+		}
 		// always run, so the composite reads cleared targets when nothing is transparent
 		{
 			const attachments = this.#targets.transparentPassAttachments();

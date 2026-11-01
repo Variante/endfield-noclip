@@ -169,6 +169,12 @@ export interface MaterialLook {
 	params: Float32Array;
 	/** the stencil test and write of effects that mask each other, or `null` for the rest */
 	stencil: LookStencil | null;
+	/**
+	 * with {@link LookFlags.EffectDecal}: a lit decal that changes only the normal, roughness or occlusion of
+	 * the surface beneath, drawn by the decal relight pass into the main pass's radiance rather than in the
+	 * transparent pass
+	 */
+	relight: boolean;
 }
 
 /**
@@ -282,6 +288,7 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 		flags: 0,
 		params,
 		stencil: null,
+		relight: false,
 	};
 };
 
@@ -444,6 +451,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 	let effect: EffectLook | null = null;
 	let flags = LookFlags.Effect;
 	let stencil: LookStencil | null = null;
+	let relight = false;
 	switch (shader.name) {
 		case 'HGRP/Effect/VFXBaseV2': {
 			const state = vfxBaseStencilOf(entry, shader);
@@ -460,7 +468,9 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 			break;
 		}
 		case 'HGRP/DecalLit': {
-			effect = decalLitLook(entry, shader);
+			const decal = decalLitLook(entry, shader);
+			effect = decal;
+			relight = decal?.relight ?? false;
 			flags |= LookFlags.EffectDecal;
 			break;
 		}
@@ -496,6 +506,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 		flags,
 		params: effect.params,
 		stencil,
+		relight,
 	};
 };
 

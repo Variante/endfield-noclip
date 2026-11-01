@@ -113,7 +113,7 @@ test('a lit decal placement draws its base and PBR maps through its UV transform
 		_AngleBlendFallOff: 2,
 		_RoughnessMin: 0.4,
 	};
-	const [look, normalOnly, unplaced] = materialLooks({
+	const [look, roughnessOnly, unplaced, waterFlow, sludge, bare] = materialLooks({
 		shaders: [shader('HGRP/DecalLit')],
 		entries: [
 			material({
@@ -130,6 +130,36 @@ test('a lit decal placement draws its base and PBR maps through its UV transform
 				...placement,
 			}),
 			material({ id: 2, slots: { _BaseColorMap: slot(1) }, floats }),
+			material({
+				id: 3,
+				keywords: ['_BLEND_WATER_FLOW'],
+				slots: { _BaseColorMap: slot(1), _WaterNormalTex: slot(3, [0.1, 0.2]) },
+				floats: {
+					...floats,
+					_ColorMask2: 14,
+					_ColorMask3: 0,
+					_WaterNormalScale: 0.4,
+					_WaterRoughness: 0.13,
+					_NormalFactor: 0.01,
+					_AngleBlendFallOff2: 0.1,
+				},
+				vectors: { ...placement.vectors, _UVMovement: [0.02, 0.05, 1, 1] },
+				colors: placement.colors,
+			}),
+			material({
+				id: 4,
+				keywords: ['_BLEND_SLUDGE_EROSION'],
+				slots: { _BaseColorMap: slot(1) },
+				floats,
+				...placement,
+			}),
+			// writes no albedo, and has no map to change the surface with
+			material({
+				id: 5,
+				slots: { _BaseColorMap: slot(1) },
+				floats: { ...floats, _ColorMask3: 0 },
+				...placement,
+			}),
 		],
 	});
 	assert.equal(look.flags, LookFlags.Effect | LookFlags.EffectDecal);
@@ -148,9 +178,36 @@ test('a lit decal placement draws its base and PBR maps through its UV transform
 	// roughness only: `_ColorMask2` 2 is blue
 	assert.deepEqual([...look.params.subarray(DecalLitRow.writes, DecalLitRow.writes + 2)], [0, 1]);
 	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.LitDecal);
-	// writing no albedo, or without a placement, it isn't drawn
-	assert.equal(normalOnly.drawn, false);
+	assert.equal(look.relight, false);
+	// writing no albedo, it relights the surface beneath
+	assert.equal(roughnessOnly.drawn, true);
+	assert.equal(roughnessOnly.relight, true);
+	// the water flow relights it with its world-projected normal map, its `_ST` scale per metre
+	assert.equal(waterFlow.relight, true);
+	assert.deepEqual(waterFlow.textures.slice(0, 2), [1, 3]);
+	assert.deepEqual(
+		[...waterFlow.params.subarray(EffectRow.uv + 4, EffectRow.uv + 6)].map(
+			(v) => Math.round(v * 1000) / 1000,
+		),
+		[0.1, 0.2],
+	);
+	assert.deepEqual([...waterFlow.params.subarray(DecalLitRow.writes, DecalLitRow.writes + 2)], [1, 1]);
+	assert.deepEqual(
+		[...waterFlow.params.subarray(DecalLitRow.water, DecalLitRow.water + 4)].map(
+			(v) => Math.round(v * 1000) / 1000,
+		),
+		[1, 0.4, 0.13, 0.01],
+	);
+	assert.deepEqual(
+		[...waterFlow.params.subarray(DecalLitRow.flow, DecalLitRow.flow + 4)].map(
+			(v) => Math.round(v * 1000) / 1000,
+		),
+		[0.02, 0.05, 1, 1],
+	);
+	// without a placement, with a variant the viewer lacks, or with nothing to change, it isn't drawn
 	assert.equal(unplaced.drawn, false);
+	assert.equal(sludge.drawn, false);
+	assert.equal(bare.drawn, false);
 });
 
 test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of that role', () => {

@@ -244,7 +244,23 @@ points inside the box take the decal, which projects down the box's y:
 each target blends by the alpha, and the material's colour masks pick what's written: `_ColorMask3`
 the albedo, `_ColorMask2` the normal (RG) and roughness (B), `_ColorMask1` metallic (R) and
 occlusion (G). the editor derives them from `_AffectNormal`, `_AffectRoughness` and the like; the
-moss writes albedo and roughness only.
+moss writes albedo and roughness only. some decals write no albedo at all: they roughen or bump the
+surface beneath (Wuling City's terraces), or make it look wet.
+
+`_BLEND_WATER_FLOW` is the wet rock beside waterfalls (Jingyu Valley's falls near unity −1075, 207,
+−1414). it writes only normal and roughness, from `_WaterNormalTex` sampled at world positions
+rather than the box's UVs:
+
+- the map is projected along x (at world zy) and along z (at world xy), each times its `_ST` scale,
+  and the two blend by the surface normal's squared x and z, normalized to sum to 1
+- two layers scroll down the world's y: UV scale `_UVMovement.z` with speed `.x`, and `.w` with `.y`
+  (in UVs per second); steep walls push both further by `steep · _NormalFactor`, where
+  `steep = (1 − |N.y|)^_AngleBlendFallOff2`
+- the four samples' normals (decoded like the PBR map's) sum, their xy times `_WaterNormalScale`,
+  into the box's or the surface's frame as above
+- roughness: `_WaterRoughness` × the mean of the first layer's two B samples
+- alpha: the base map's alpha × the colour's alpha × `_DecalOpacity` × `steep`, so level ground
+  stays dry
 
 the viewer has no GBuffer, so it draws a decal like the VFXDecal boxes
 ([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in the
@@ -256,10 +272,17 @@ carrying the placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DE
 the package's materials), and the box is the game's VFXDecal cube. overlapping decals blend without
 the game's `_DrawOrder`.
 
-not drawn: decals that write no albedo (they only change the normal or roughness of a surface the
-viewer can't relight), the `_FOOT_PRINT`, `_BLEND_EMISSIVE`, `_BLEND_WATER_FLOW`,
-`_BLEND_SLUDGE_EROSION`, `_UV_ARC`, `_UV_NOISE` and `_BLEND_WETNESS` variants, the surface's own
-occlusion and metallic under a decal that doesn't write them (taken as 1 and 0), `HGRP/DecalUnlit`,
+decals that write no albedo can't be laid over the surface, because the viewer's main pass has
+already lit it. a pass between the main and the transparent pass (`fs_decal_relight`) adds the
+change in the surface's light instead: it lights the surface twice, with its own normal, roughness
+and occlusion and with the decal's, and adds the difference times the decal's alpha to the radiance.
+the surface's colour comes from the main pass's diffuse ambient divided by the ambient light at its
+normal, taken as a dielectric's; its emission and everything else stay as drawn, but its
+screen-space reflections and ambient occlusion still see the old normal.
+
+not drawn: the `_FOOT_PRINT`, `_BLEND_EMISSIVE`, `_BLEND_SLUDGE_EROSION`, `_UV_ARC`, `_UV_NOISE` and
+`_BLEND_WETNESS` variants, metallic written by a decal without albedo, the surface's own occlusion
+and metallic under a laid-over decal that doesn't write them (taken as 1 and 0), `HGRP/DecalUnlit`,
 the terrain's decals (`HGRP/TerrainDecalLit`, component 28) and decals in dynamic structures.
 
 ## matte paintings
