@@ -12,6 +12,7 @@
  */
 
 import type { EnvironmentProfile, EnvironmentPhaseInfo, EnvironmentVolumeInfo } from './environment.ts';
+import type { IrradianceRegionInfo } from './irradiance.ts';
 import type { StatesInfo } from './states.ts';
 import type { TerrainInfo } from './terrain.ts';
 import type { TextureRef } from './textures.ts';
@@ -26,7 +27,7 @@ export const PACKAGE_FORMAT = 'endfield-noclip.package';
  * bumped on any incompatible change to the manifest or a table. binary encodings carry their own versions in
  * their headers
  */
-export const PACKAGE_VERSION = 25;
+export const PACKAGE_VERSION = 26;
 
 /** the archive every package has; the viewer opens it first */
 export const CORE_ARCHIVE = 'core.czar';
@@ -75,6 +76,8 @@ export interface PackageManifest {
 	environmentPhases: EnvironmentPhaseInfo[];
 	/** the scene's environment volumes, for blending at the camera */
 	environmentVolumes: EnvironmentVolumeInfo[];
+	/** rooms' own irradiance bakes, each applying while its group shows */
+	irradianceRegions: IrradianceRegionInfo[];
 	/** the 3D noise the height fog's flow noise samples (one channel), or `null` if the install lacks it */
 	heightFogFlowNoise?: TextureRef;
 	states: StatesInfo;

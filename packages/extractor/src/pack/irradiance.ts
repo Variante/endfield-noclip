@@ -8,9 +8,14 @@ import {
 	irradianceCellOrigin,
 	type IrradianceRecord,
 	parseIrradianceIndex,
+	parseIrradianceRegion,
 } from '@endfield-noclip/formats/hg/irradiance';
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
-import { type IrradianceTable, irradianceStem } from '@endfield-noclip/package-format/irradiance';
+import {
+	type IrradianceRegionInfo,
+	type IrradianceTable,
+	irradianceStem,
+} from '@endfield-noclip/package-format/irradiance';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
@@ -94,6 +99,92 @@ const convertCells = async (
 	}
 	return memo;
 };
+
+// #region region bakes
+
+/** a cabin slot, with the visibility group of its built cabin */
+export interface CabinRoomGroup {
+	/** index into `StatesInfo.groups` */
+	group: number;
+	position: [number, number, number];
+	/** the room type id of the slot's cabin, or `null` if the game has none for it */
+	roomType: number | null;
+}
+
+const REGION_FILE = /^regionIv_(.+)_(\d+)\.bytes$/;
+
+/**
+ * packs the bakes of Dijiang's rooms with their cabin built (docs/game-data/irradiance.md#region-bakes): per
+ * slot, the bake whose box holds the slot origin and whose room type is the slot's cabin's. each applies
+ * while its cabin shows
+ *
+ * @param vfs the game's VFS
+ * @param store where the probes go
+ * @param options the scene, and its cabin slots
+ * @returns the regions, in slot order
+ * @throws {Error} if a slot's box holds no bake of its room type, or several
+ */
+export const packIrradianceRegions = async (
+	vfs: Context['vfs'],
+	store: BlobStore,
+	options: { scene: string; rooms: readonly CabinRoomGroup[] },
+): Promise<IrradianceRegionInfo[]> => {
+	if (options.rooms.length === 0) {
+		return [];
+	}
+	const directory = `Data/IrradianceVolume/PC/${options.scene}/v3/`;
+	const names = [...(await vfs.group(IRRADIANCE_GROUP)).files.keys()].filter((name) =>
+		name.startsWith(directory),
+	);
+	const bakes = await Promise.all(
+		mapDefined(names, (path) => {
+			const name = path.slice(directory.length);
+			const match = REGION_FILE.exec(name);
+			if (match === null) {
+				return undefined;
+			}
+			return (async () => {
+				const file = await vfs.find(IRRADIANCE_GROUP, path);
+				if (file === undefined) {
+					throw new Error(`irradiance region ${name} is missing`);
+				}
+				const region = parseIrradianceRegion(await vfs.readVerified(file));
+				return { name: name.slice(0, -'.bytes'.length), roomType: Number(match[2]), region };
+			})();
+		}),
+	);
+	const regions: IrradianceRegionInfo[] = [];
+	for (const { group, position, roomType } of options.rooms) {
+		if (roomType === null) {
+			continue;
+		}
+		const matches = bakes.filter(
+			(bake) =>
+				bake.roomType === roomType &&
+				[0, 1, 2].every(
+					(axis) => position[axis] >= bake.region.min[axis] && position[axis] <= bake.region.max[axis],
+				),
+		);
+		if (matches.length !== 1) {
+			throw new Error(
+				`${matches.length} irradiance region bakes of room type ${roomType} hold the cabin slot at ${position.join(', ')}`,
+			);
+		}
+		const [{ name, region }] = matches;
+		const centre = (axis: number) => (region.min[axis] + region.max[axis]) / 2;
+		// oxlint-disable-next-line no-await-in-loop -- one per cabin slot
+		const prepared = await store.prepare(region.probes, {
+			kind: BlobKind.Irradiance,
+			compress: true,
+			zstdLevel: ZSTD_LEVEL,
+			stem: irradianceStem(centre(0), centre(2)),
+		});
+		regions.push({ name, group, origin: region.origin, size: region.size, blob: store.commit(prepared) });
+	}
+	return regions;
+};
+
+// #endregion
 
 /** @returns the stem of the archive over a cell's centre */
 const cellStem = (key: number): string => {

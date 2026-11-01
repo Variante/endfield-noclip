@@ -32,6 +32,23 @@ export interface IrradianceTable {
 	blobs: Uint32Array;
 }
 
+/**
+ * a room's own bake, which replaces the scene's finest probes inside its box while its group shows (Dijiang's
+ * cabins, baked with the cabin built). its blob is a {@link BlobKind.Irradiance} blob of `size` 16-byte probes
+ * laid out like a cell's, x fastest, then y, then z
+ */
+export interface IrradianceRegionInfo {
+	/** the bake's name in the game's files, e.g. `regionIv_room_b_1_2` */
+	name: string;
+	/** index into `StatesInfo.groups`: the owning level and the conditions under which the bake applies */
+	group: number;
+	/** the first probe's position in 0.5 m probe units with world 0 at 0: probe `i` is at `(origin + i) · 0.5` m */
+	origin: [x: number, y: number, z: number];
+	/** probes per axis */
+	size: [x: number, y: number, z: number];
+	blob: number;
+}
+
 /** 'EFIV' */
 const IRRADIANCE_HEADER: HeaderShape = {
 	magic: 0x56_49_46_45,

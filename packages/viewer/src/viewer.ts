@@ -428,7 +428,7 @@ export class Viewer {
 		this.#shadowRamp = this.#noShadowRamp;
 		this.#noCloudShadow = placeholderView(device, { label: 'no cloud shadow', dimension: '2d' });
 		this.#cloudShadow = this.#noCloudShadow;
-		this.#irradiance = new IrradianceVolume(device, EMPTY_IRRADIANCE);
+		this.#irradiance = new IrradianceVolume(device, EMPTY_IRRADIANCE, []);
 		this.#lights = new LocalLights(device);
 		[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
 		this.#profiler = new GpuProfiler(device, gfx.features.timestampQuery);
@@ -505,7 +505,7 @@ export class Viewer {
 		const textures = new TextureStore(this.#gfx.device, pkg.textures, {
 			bc: this.#gfx.features.textureCompressionBc,
 		});
-		const irradiance = new IrradianceVolume(this.#gfx.device, pkg.irradiance);
+		const irradiance = new IrradianceVolume(this.#gfx.device, pkg.irradiance, pkg.manifest.irradianceRegions);
 		this.#setIrradiance(irradiance);
 		const particles = new ParticleField(pkg.particles, this.#instances);
 		const stream = new StreamManager(
@@ -673,7 +673,7 @@ export class Viewer {
 		this.options.environmentEnabled = {};
 		this.options.environmentPin = null;
 		this.#fades.reset();
-		this.#setIrradiance(new IrradianceVolume(this.#gfx.device, EMPTY_IRRADIANCE));
+		this.#setIrradiance(new IrradianceVolume(this.#gfx.device, EMPTY_IRRADIANCE, []));
 		this.#water.setTable(null);
 		this.#lights.setLights([]);
 		this.#terrain.setSplat(null);
@@ -1307,6 +1307,7 @@ export class Viewer {
 		scene?.selector.setGroupsShown(shown);
 		this.#water.setGroupsShown(shown);
 		this.#lights.setGroupsShown(shown);
+		this.#irradiance.setGroupsShown(shown);
 		this.#dirty = true;
 	}
 

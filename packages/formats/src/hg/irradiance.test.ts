@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { FormatError } from '../binary/binary-reader.ts';
 
-import { IRRADIANCE_INDEX_MAGIC, parseIrradianceIndex } from './irradiance.ts';
+import { IRRADIANCE_INDEX_MAGIC, parseIrradianceIndex, parseIrradianceRegion } from './irradiance.ts';
 
 const fixture = () => {
 	const bytes: number[] = [];
@@ -126,4 +126,30 @@ test('irradiance requires the final table and exact EOF', () => {
 	const { bytes } = fixture();
 	assert.throws(() => parseIrradianceIndex(bytes.subarray(0, bytes.length - 4)), FormatError);
 	assert.throws(() => parseIrradianceIndex(Uint8Array.from([...bytes, 0])), FormatError);
+});
+
+const regionFixture = (size: [number, number, number], probes: number) => {
+	const view = new DataView(new ArrayBuffer(44 + probes * 16));
+	view.setUint32(0, 0x1000, true);
+	view.setUint32(4, 44, true);
+	// lattice points 1.0 … 2.0 on x (3), 0.5 on y (1), −1.5 … −1.0 on z (2)
+	for (const [i, value] of [0.8, 0.3, -1.7, 2.2, 0.9, -0.8].entries()) {
+		view.setFloat32(8 + i * 4, value, true);
+	}
+	for (const [i, value] of size.entries()) {
+		view.setUint32(32 + i * 4, value, true);
+	}
+	return new Uint8Array(view.buffer);
+};
+
+test('irradiance region places its grid on the probe lattice inside its box', () => {
+	const region = parseIrradianceRegion(regionFixture([3, 1, 2], 6));
+	assert.deepEqual(region.origin, [2, 1, -3]);
+	assert.deepEqual(region.size, [3, 1, 2]);
+	assert.equal(region.probes.length, 96);
+});
+
+test('irradiance region rejects a grid or length that disagrees with its box', () => {
+	assert.throws(() => parseIrradianceRegion(regionFixture([4, 1, 2], 8)), FormatError);
+	assert.throws(() => parseIrradianceRegion(regionFixture([3, 1, 2], 5)), FormatError);
 });

@@ -267,7 +267,8 @@ the largest cabin whose row pivots fit its box, else the smallest, which puts th
 the medium slot and manufacturing cabins in the small ones. one of the small slots has no door and
 no room-table row; it's offered like the others. each slot is a `cabin:<id>` control, empty by
 default. cabin levels (1–3) change no stored geometry (only the planting boxes' and machine's
-runtime state), so they aren't offered.
+runtime state), so they aren't offered. a built cabin's room is lit by its own irradiance bake
+([region bakes](irradiance.md#region-bakes)).
 
 ## Dijiang region walls
 

@@ -77,6 +77,21 @@ where a level has no probe (no cell, no block, or a clear mask bit), the clipmap
 next coarser level's filtered value at that position; at the coarsest level it is zero light with
 full validity. level 0 is sparse, so most of the finest clipmap comes from level 1.
 
+## region bakes
+
+Dijiang's cabin rooms each have their own bakes, one per room type the room can hold, lit with that
+cabin built: `regionIv_<room>_<roomType>.bytes` beside the index (e.g. `regionIv_room_b_1_2` is the
+growth chamber's room with type 2, GrowCabin; ManufacturingStation is 1). the index doesn't list
+them; the game streams one in over the scene's bake when a cabin is built in a slot. a growth
+chamber's bake is strongly yellow-green, which gives the room its colour. parser:
+`parseIrradianceRegion` in [`hg/irradiance.ts`](../../packages/formats/src/hg/irradiance.ts).
+
+a region bake is little-endian: `u32` 0x1000, `u32` header size (44), the room's world box as `f32`
+min and max corners, `u32` probes per axis, then a dense grid of 16-byte probes in the cells' probe
+layout, x fastest, then y, then z. the grid is the finest level's 0.5 m lattice inside the box:
+probe `i` on an axis sits at `(ceil(2 · min) + i) / 2` m, and the probe count per axis is the number
+of lattice points from `min` to `max`, which holds for every bake.
+
 ## packing
 
 [`pack/irradiance.ts`](../../packages/extractor/src/pack/irradiance.ts) stores every **base-bake**
@@ -84,6 +99,11 @@ cell (state group hash 0) whose centre the package covers as one decompressed `I
 zstd-compressed, in the 512 m archive `irradiance/<x>_<z>.czar` over it. `tables/irradiance.bin`
 lists cell keys ascending with their blob indices (see [package-format.md](../package-format.md)).
 cells stay in the game's GPU layout so the viewer uploads them unchanged.
+
+a cabin slot's region bake is the one whose box holds the slot origin and whose room type is the
+slot's cabin's ([Dijiang cabins](scene-states.md#dijiang-cabins)); the packer stores its probes as
+one blob and lists it in the manifest's `irradianceRegions` with the visibility group of the built
+cabin, so it applies exactly while the cabin shows.
 
 scene-state bakes (e.g. sunny, sunrise and night variants, or map01's damaged and overcast-rainy
 states) are not packed. map01's scene-state groups store full copies of base cells, with the same
@@ -100,14 +120,19 @@ with
 [`shaders/irradiance-update.wgsl`](../../packages/viewer/src/render/shaders/irradiance-update.wgsl)
 when the camera moves more than 4 texels from its centre or a cell arrives or leaves. levels refill
 coarse to fine, and a refilled level refills every finer one, because their probe-less texels copy
-it. the update pass looks cells up in that window instead of the game's top-level hash. the clipmaps
-are sampled toroidally in `ambient_irradiance`
+it. the update pass looks cells up in that window instead of the game's top-level hash. the finest
+level also takes the region bakes that show and overlap it: a texel inside a resident region's grid
+reads that region's probe instead of the cells', and the level refills when that set changes. the
+coarser levels keep the scene's bake, so a room seen from beyond the finest level's reach (about 29
+m) is lit as if empty. the clipmaps are sampled toroidally in `ambient_irradiance`
 ([`frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)).
 
 ## open
 
 - scene-state bakes: selecting them by the active scene states, and confirming they replace whole
   cells
+- region bakes: whether the game also applies them to the coarser levels, and how it blends their
+  edge with the scene's bake
 - the index's pair table and trailing rows, directory words 1, 7 (high bits) and 8, and the other
   index magics
 - the lookup's jitter and the game's forward-shifted clipmap centres

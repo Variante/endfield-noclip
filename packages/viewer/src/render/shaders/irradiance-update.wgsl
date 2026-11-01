@@ -9,8 +9,16 @@ struct Update {
 	center: vec4i,
 	// xyz: cell index (p >> (6 + level)) of the window's minimum corner, w: the window's first word in `windows`
 	window: vec4i,
-	// xyz: window size in cells
+	// xyz: window size in cells, w: how many of `regions` apply
 	window_size: vec4i,
+}
+
+// a room's own bake: a dense grid of probes on the finest level's lattice that replaces the cells' inside it
+struct Region {
+	// xyz: the first probe's index (0.5 m units, world 0 at 0), w: its first word in `cells`
+	origin: vec4i,
+	// xyz: probes per axis, x fastest in `cells`
+	size: vec4i,
 }
 
 @group(0) @binding(0) var<uniform> update: Update;
@@ -27,6 +35,8 @@ struct Update {
 @group(0) @binding(6) var coarse_b: texture_3d<f32>;
 @group(0) @binding(7) var coarse_repeat: sampler;
 @group(0) @binding(8) var coarse_clamp: sampler;
+// the region bakes that apply, resident in `cells`; only the finest level reads them
+@group(0) @binding(9) var<storage, read> regions: array<Region>;
 
 const SIZE = vec3i(128, 64, 128);
 const COARSEST = 2;
@@ -80,9 +90,17 @@ fn cs_update(@builtin(global_invocation_id) id: vec3u) {
 	let p = index * (1 << u32(2 * level)) + vec3i(ORIGIN);
 
 	var at = -1;
+	for (var i = 0; i < update.window_size.w; i++) {
+		let region = regions[i];
+		let local = index - region.origin.xyz;
+		if (all(local >= vec3i(0)) && all(local < region.size.xyz)) {
+			at = region.origin.w + 4 * (local.x + local.y * region.size.x + local.z * region.size.x * region.size.y);
+			break;
+		}
+	}
 	let w = (p >> vec3u(u32(6 + level))) - update.window.xyz;
 	let size = update.window_size.xyz;
-	if (all(p >= vec3i(0)) && all(w >= vec3i(0)) && all(w < size)) {
+	if (at < 0 && all(p >= vec3i(0)) && all(w >= vec3i(0)) && all(w < size)) {
 		let slot = windows[u32(update.window.w + w.x + w.y * size.x + w.z * size.x * size.y)];
 		if (slot != 0u) {
 			at = find_probe(slot - 1u, p, level);

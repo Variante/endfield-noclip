@@ -178,6 +178,70 @@ export const parseIrradianceIndex = (data: Uint8Array): IrradianceIndex => {
 export const decodeIrradianceCell = (stored: Uint8Array, record: IrradianceRecord): Uint8Array =>
 	record.storedLength === record.size ? stored : decodeInvertedLz4Block(stored, record.size);
 
+// #region region bakes
+
+/** world metres between a region bake's probes, the finest level's spacing */
+export const IRRADIANCE_REGION_SPACING = 0.5;
+
+/** the first word of a region bake */
+const REGION_VERSION = 0x1000;
+
+const REGION_HEADER_SIZE = 44;
+
+/** @returns the index of the probe lattice point at or above a world coordinate */
+const lattice = (value: number): number => Math.ceil(value / IRRADIANCE_REGION_SPACING);
+
+/** a parsed `regionIv_<room>_<roomType>.bytes`: one room's bake as a dense probe grid */
+export interface IrradianceRegion {
+	/** the room's world box (m) */
+	min: [number, number, number];
+	max: [number, number, number];
+	/**
+	 * the first probe's index on the game's probe lattice (world `index · 0.5` m): the lattice point at or
+	 * above {@link min} on each axis
+	 */
+	origin: [number, number, number];
+	/** probes per axis: every lattice point inside the box */
+	size: [number, number, number];
+	/** 16-byte probes laid out like a cell's (see {@link IrradianceCell}), x fastest, then y, then z */
+	probes: Uint8Array;
+}
+
+/**
+ * parses a region bake: the probes of one Dijiang room with a cabin built in it, which the game streams in
+ * over the scene's bake while that cabin stands (docs/game-data/irradiance.md#region-bakes)
+ *
+ * @param data the file
+ * @returns the room's box and probes; `probes` is a view of `data`
+ * @throws {FormatError} on an unknown version or header size, a grid that doesn't match the box, or a length
+ *   that doesn't match the grid
+ */
+export const parseIrradianceRegion = (data: Uint8Array): IrradianceRegion => {
+	const r = new BinaryReader(data, { littleEndian: true });
+	const version = r.u32();
+	const headerSize = r.u32();
+	if (version !== REGION_VERSION || headerSize !== REGION_HEADER_SIZE) {
+		throw new FormatError(`irradiance region: version 0x${version.toString(16)}, header ${headerSize}`);
+	}
+	const min: [number, number, number] = [r.f32(), r.f32(), r.f32()];
+	const max: [number, number, number] = [r.f32(), r.f32(), r.f32()];
+	const size: [number, number, number] = [r.u32(), r.u32(), r.u32()];
+	const origin: [number, number, number] = [lattice(min[0]), lattice(min[1]), lattice(min[2])];
+	for (let axis = 0; axis < 3; axis++) {
+		const last = Math.floor(max[axis] / IRRADIANCE_REGION_SPACING);
+		if (size[axis] === 0 || last - origin[axis] + 1 !== size[axis]) {
+			throw new FormatError('irradiance region: grid size disagrees with its box');
+		}
+	}
+	const probes = r.bytesView(r.remaining);
+	if (probes.length !== size[0] * size[1] * size[2] * 16) {
+		throw new FormatError('irradiance region: length disagrees with its grid');
+	}
+	return { min, max, origin, size, probes };
+};
+
+// #endregion
+
 /**
  * a decompressed cell, as the GPU reads it (all u32, little-endian): a perfect spatial hash over 4³-probe
  * blocks, `u32 T, u32 O`, `O³` offset words (byte triples), `T³` entries of `(key, probe offset, mask lo,

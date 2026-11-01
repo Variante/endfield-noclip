@@ -39,7 +39,11 @@ import {
 	DrawRole,
 	type InstanceBlock,
 } from '@endfield-noclip/package-format/instances';
-import { encodeIrradianceTable, type IrradianceTable } from '@endfield-noclip/package-format/irradiance';
+import {
+	encodeIrradianceTable,
+	type IrradianceRegionInfo,
+	type IrradianceTable,
+} from '@endfield-noclip/package-format/irradiance';
 import type { LightsTable } from '@endfield-noclip/package-format/lights';
 import {
 	type ArchiveInfo,
@@ -134,7 +138,12 @@ import {
 } from './environments.ts';
 import { mayBeClamped, resolveClampedHlodCell } from './hlod-cells.ts';
 import { type InstanceInput, InstanceBlockBuilder } from './instances.ts';
-import { type IrradianceReport, packIrradiance } from './irradiance.ts';
+import {
+	type CabinRoomGroup,
+	type IrradianceReport,
+	packIrradiance,
+	packIrradianceRegions,
+} from './irradiance.ts';
 import { LightCollector } from './lights.ts';
 import { type CacheReport, PackCache } from './pack-cache.ts';
 import { ParticleTable } from './particles.ts';
@@ -350,6 +359,10 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				scene.subset.info === null ||
 				scene.subset.includesTile(tileAt(scene.grid, scene.grid.cellLevel, x, z)),
 		});
+		const irradianceRegions = await packIrradianceRegions(context.vfs, store, {
+			scene: options.scene,
+			rooms: entities.cabinRooms,
+		});
 		timer.end('irradiance');
 
 		const extraTextures: PlacedTexture[][] = [
@@ -417,6 +430,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				water: finishWater(water, waterTextureIds),
 				lights,
 				irradiance: irradiance?.table ?? { keys: new Uint32Array(), blobs: new Uint32Array() },
+				irradianceRegions,
 				global: instances.global,
 				terrainLevels: terrainPacked.levels,
 				terrainSplat: terrainPacked.splat,
@@ -627,6 +641,8 @@ const collectEntities = async (
 	unsupportedPrefabs: { path: string; reason: string }[];
 	/** environment volumes that placed prefabs carry */
 	placedVolumes: SceneEnvironmentVolume[];
+	/** Dijiang's cabin slots, with the group that shows their built cabin */
+	cabinRooms: CabinRoomGroup[];
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1184,6 +1200,11 @@ const collectEntities = async (
 		unsupportedInteractives: facilities.unsupported,
 		unsupportedPrefabs,
 		placedVolumes: placed.volumes,
+		cabinRooms: cabins.rooms.map(({ control, levelTag, position, roomType }) => ({
+			group: collected.group(levelTag, collected.condition({ alternatives: [[{ control, mask: 2 }]] })),
+			position,
+			roomType,
+		})),
 	};
 };
 
@@ -1619,6 +1640,7 @@ const writePackage = async (
 		water: WaterTable;
 		lights: LightsTable;
 		irradiance: IrradianceTable;
+		irradianceRegions: IrradianceRegionInfo[];
 		global: ContentRef[];
 		terrainLevels: number[];
 		terrainSplat: TerrainSplatInfo | null;
@@ -1693,6 +1715,7 @@ const writePackage = async (
 		environments: states.environments,
 		environmentPhases: states.environmentPhases,
 		environmentVolumes: states.environmentVolumes,
+		irradianceRegions: states.irradianceRegions,
 		heightFogFlowNoise: states.heightFogFlowNoise,
 		states: {
 			controls: states.controls,

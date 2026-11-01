@@ -17,6 +17,23 @@ import type { StructureModel } from './dynamic-structures.ts';
 
 const CABIN_DATA = 'Data/Json/SpaceshipCabinData.json';
 
+/** the game's room type ids (`SpaceshipRoomTypeTable`) of the cabin types, which name their rooms' bakes */
+const ROOM_TYPES = new Map([
+	['ManufacturingStation', 1],
+	['GrowCabin', 2],
+]);
+
+/** a cabin slot as its built cabin needs it lit */
+export interface CabinRoom {
+	/** the slot's `cabin:<id>` control */
+	control: string;
+	levelTag: number;
+	/** the slot origin */
+	position: [number, number, number];
+	/** the room type id of the slot's cabin type, or `null` if the game has none for it */
+	roomType: number | null;
+}
+
 /** a cabin type and its placed rows in cabin space */
 interface Cabin {
 	type: string;
@@ -30,16 +47,17 @@ interface Cabin {
  * @param context install readers
  * @param slots the scene's cabin slots (see `DynamicStructures.slots`)
  * @param partition the scene's levels, for each slot's owner
- * @returns one control per slot, empty by default, and the cabin rows each built slot shows
+ * @returns one control per slot, empty by default, the cabin rows each built slot shows, and each slot's
+ * room
  * @throws {FormatError} if the cabin data is missing or names no scene for a cabin type
  */
 export const loadCabins = async (
 	context: Pick<Context, 'vfs'>,
 	slots: readonly { id: string; slot: ExtraSceneSlot }[],
 	partition: LevelPartition | undefined,
-): Promise<{ controls: SceneControl[]; models: StructureModel[] }> => {
+): Promise<{ controls: SceneControl[]; models: StructureModel[]; rooms: CabinRoom[] }> => {
 	if (slots.length === 0) {
-		return { controls: [], models: [] };
+		return { controls: [], models: [], rooms: [] };
 	}
 	const { vfs } = context;
 	const read = async (group: string, name: string): Promise<Uint8Array> => {
@@ -81,11 +99,12 @@ export const loadCabins = async (
 	const area = (cabin: Cabin) => (cabin.max[0] - cabin.min[0]) * (cabin.max[1] - cabin.min[1]);
 	const bySize = cabins.toSorted((a, b) => area(b) - area(a));
 	if (bySize.length === 0) {
-		return { controls: [], models: [] };
+		return { controls: [], models: [], rooms: [] };
 	}
 
 	const controls: SceneControl[] = [];
 	const placed: StructureModel[] = [];
+	const rooms: CabinRoom[] = [];
 	for (const { id, slot } of slots) {
 		const turns = slot.direction % 4;
 		const cabin = bySize.find((candidate) => fits(candidate, slot, turns)) ?? bySize.at(-1)!;
@@ -109,6 +128,12 @@ export const loadCabins = async (
 			default: 0,
 			derived: null,
 		});
+		rooms.push({
+			control,
+			levelTag,
+			position: [slot.position[0], slot.position[1], slot.position[2]],
+			roomType: ROOM_TYPES.get(cabin.type) ?? null,
+		});
 		for (const [index, model] of cabin.models.entries()) {
 			placed.push({
 				model: place(model, slot.position, turns),
@@ -119,7 +144,7 @@ export const loadCabins = async (
 			});
 		}
 	}
-	return { controls, models: placed };
+	return { controls, models: placed, rooms };
 };
 
 /**

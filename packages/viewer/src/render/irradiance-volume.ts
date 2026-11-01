@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { IrradianceTable } from '@endfield-noclip/package-format/irradiance';
+import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 
 import { GrowableBuffer } from '../gfx/growable-buffer.ts';
 import type { DecodedIrradiance } from '../package/decode-protocol.ts';
@@ -34,6 +34,10 @@ const PRIORITY = [1e6, 2e6, 3e6] as const;
 
 /** probe units (0.5 m) of `world`, with world 0 at this value */
 const ORIGIN = 8192;
+/** region bakes the finest level applies at once (Dijiang has four rooms) */
+const MAX_REGIONS = 8;
+/** words per region in the regions buffer: origin xyz, first cell word, size xyz, padding */
+const REGION_WORDS = 8;
 
 /** @returns `f` over the three axes */
 const vec3 = (f: (axis: number) => number): [number, number, number] => [f(0), f(1), f(2)];
@@ -66,6 +70,13 @@ export class IrradianceVolume {
 	/** the cell buffer version the level groups bind */
 	#bufferVersion = 0;
 	#windows: GPUBuffer;
+	/** the package's region bakes, and which visibility groups show */
+	#regions: readonly IrradianceRegionInfo[];
+	#groupsShown: readonly boolean[] = [];
+	/** the regions the finest level last applied, as written to {@link #regionBuffer} */
+	#applied = new Int32Array(MAX_REGIONS * REGION_WORDS);
+	#appliedCount = 0;
+	#regionBuffer: GPUBuffer;
 	#pipeline: GPUComputePipeline;
 	#levels: Level[];
 	readonly sampler: GPUSampler;
@@ -74,9 +85,17 @@ export class IrradianceVolume {
 	/**
 	 * @param device the device
 	 * @param table the package's cells (empty for none)
+	 * @param regions the package's region bakes, which apply while their groups show (see
+	 *   {@link setGroupsShown})
 	 */
-	constructor(device: GPUDevice, table: IrradianceTable) {
+	constructor(device: GPUDevice, table: IrradianceTable, regions: readonly IrradianceRegionInfo[]) {
 		this.#device = device;
+		this.#regions = regions;
+		this.#regionBuffer = device.createBuffer({
+			label: 'irradiance regions',
+			size: MAX_REGIONS * REGION_WORDS * 4,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
 		this.#cells = new Map();
 		for (let i = 0; i < table.keys.length; i++) {
 			this.#cells.set(table.keys[i], table.blobs[i]);
@@ -172,8 +191,14 @@ export class IrradianceVolume {
 				{ binding: 6, resource: level.coarse.b.createView() },
 				{ binding: 7, resource: this.sampler },
 				{ binding: 8, resource: this.clampSampler },
+				{ binding: 9, resource: { buffer: this.#regionBuffer } },
 			],
 		});
+	}
+
+	/** @param shown per visibility group, whether it shows; a region bake applies while its group does */
+	setGroupsShown(shown: readonly boolean[]): void {
+		this.#groupsShown = shown;
 	}
 
 	/** whether the package has a volume at all */
@@ -268,6 +293,42 @@ export class IrradianceVolume {
 				}
 			}
 		}
+		this.#prepareRegions(stream);
+	}
+
+	/** wants the shown region bakes the finest level overlaps, and marks it dirty when the resident set changes */
+	#prepareRegions(stream: StreamManager): void {
+		const finest = this.#levels[0];
+		const center = finest.center;
+		if (center === null) {
+			return;
+		}
+		const applied = new Int32Array(MAX_REGIONS * REGION_WORDS);
+		let count = 0;
+		for (const region of this.#regions) {
+			if (count === MAX_REGIONS || !(this.#groupsShown[region.group] ?? false)) {
+				continue;
+			}
+			const overlaps = [0, 1, 2].every(
+				(axis) =>
+					region.origin[axis] < center[axis] + SIZE[axis] / 2 &&
+					region.origin[axis] + region.size[axis] > center[axis] - SIZE[axis] / 2,
+			);
+			if (!overlaps) {
+				continue;
+			}
+			const item = stream.want(region.blob, PRIORITY[0]);
+			if (item?.resident?.kind !== 'irradiance') {
+				continue;
+			}
+			applied.set([...region.origin, item.resident.alloc.start, ...region.size, 0], count * REGION_WORDS);
+			count++;
+		}
+		if (count !== this.#appliedCount || applied.some((word, i) => word !== this.#applied[i])) {
+			this.#applied = applied;
+			this.#appliedCount = count;
+			finest.dirty = true;
+		}
 	}
 
 	/**
@@ -297,10 +358,14 @@ export class IrradianceVolume {
 			coarserChanged = true;
 			const [sx, sy, sz] = level.windowSize;
 			device.queue.writeBuffer(this.#windows, level.windowBase * 4, level.slots);
+			const regions = index === 0 ? this.#appliedCount : 0;
+			if (regions > 0) {
+				device.queue.writeBuffer(this.#regionBuffer, 0, this.#applied);
+			}
 			device.queue.writeBuffer(
 				level.uniforms,
 				0,
-				new Int32Array([...level.center, index, ...level.windowMin, level.windowBase, sx, sy, sz, 0]),
+				new Int32Array([...level.center, index, ...level.windowMin, level.windowBase, sx, sy, sz, regions]),
 			);
 			const pass = encoder.beginComputePass({ label: `irradiance update ${index}` });
 			pass.setPipeline(this.#pipeline);
@@ -314,6 +379,7 @@ export class IrradianceVolume {
 	destroy(): void {
 		this.#buffer.destroy();
 		this.#windows.destroy();
+		this.#regionBuffer.destroy();
 		for (const level of this.#levels) {
 			level.a.destroy();
 			level.b.destroy();

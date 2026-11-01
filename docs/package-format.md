@@ -223,7 +223,10 @@ a particle system's mesh, else it's `0xffffffff`. the chain flags mark which rol
 hold every orientation ([assets](game-data/assets.md#billboards)).
 
 **irradiance cells** are keyed in the game's layout, and each cell is one `.iv` blob as the game's
-GPU reads it; [irradiance.md](game-data/irradiance.md#packing) covers both.
+GPU reads it; [irradiance.md](game-data/irradiance.md#packing) covers both. the manifest's
+`irradianceRegions` lists rooms' own bakes (`IrradianceRegionInfo`: a visibility group, the probe
+grid's origin and size, and an `.iv` blob of its probes), which replace the finest probes inside
+their grid while their group shows ([region bakes](game-data/irradiance.md#region-bakes)).
 
 ### instance block (`.inst`, `EFIN`)
 
