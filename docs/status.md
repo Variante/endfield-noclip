@@ -79,9 +79,8 @@ packs or renders correctly.
   lets glass cast shadows
 - foliage ([foliage](game-data/materials.md#foliage)): wind, the grass's per-instance colour and
   terrain albedo blend, the card LOD's normal decoding, trunk ramps and vertex AO, sphere-shadow
-  proxies; decals, layered materials. grass and tree grids
-  ([world](game-data/world.md#foliage-grids)) draw every instance at the cluster's LOD, without the
-  game's sparsity thinning
+  proxies; layered materials. grass and tree grids ([world](game-data/world.md#foliage-grids)) draw
+  every instance at the cluster's LOD, without the game's sparsity thinning
 - Lit layers ([lit layers](game-data/materials.md#lit-layers)): tri-channel switch textures, the
   parallax glow's global highlight and its world-space, PBR and deform variants, the top layer's
   `_BaseHeightMap` and UV set 2, the noise and parallax mask blends, mask layers on emissive-mapped
@@ -112,8 +111,11 @@ packs or renders correctly.
   constant start colour tints its meshes, but random start colours and custom data never reach the
   shaders. texture sheets play in grid mode only (no sprite lists or speed timing), and all copies
   of one flipbook step in phase. Marker Stone's low mist banks over the valley are still missing;
-  their source is unknown. rect decals (`HGRP/DecalLit`, `HGRP/TerrainDecalLit`, InitChunkData
-  components 27 and 28) aren't packed
+  their source is unknown
+- decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` draws without its emissive,
+  wetness, sludge, footprint, UV-noise and arc variants, normal- or roughness-only decals and the
+  game's draw order; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28),
+  `HGRP/DecalUnlit` and decals in dynamic structures aren't packed
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the

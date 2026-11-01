@@ -8,7 +8,7 @@ import type { MaterialEntry, MaterialTable, ReadyMaterial } from '@endfield-nocl
 import { type TextureEntry, textureLevelLayout } from '@endfield-noclip/package-format/textures';
 
 import { failureReason } from '../errors.ts';
-import { loadMaterial } from '../game/asset-decode.ts';
+import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import {
 	type AssetRef,
 	type AssetResolver,
@@ -45,6 +45,7 @@ import { PhaseTimer } from './phase-timer.ts';
 export class AssetIds {
 	readonly assets: AssetRef[] = [];
 	readonly #ids = new Map<bigint, number>();
+	readonly #variants = new Map<string, number>();
 
 	/**
 	 * @param hash StringPathHash key
@@ -54,6 +55,22 @@ export class AssetIds {
 	intern(hash: bigint, resolve: (hash: bigint) => string | undefined): number {
 		return this.#ids.getOrInsertComputed(
 			hash,
+			() => this.assets.push({ hash, path: resolve(hash) ?? null }) - 1,
+		);
+	}
+
+	/**
+	 * interns a variant of an asset: the same asset under an id of its own, for uses that change some of its
+	 * values once it's converted (see {@link MaterialOverrides})
+	 *
+	 * @param hash StringPathHash key
+	 * @param variant tells variants of one asset apart
+	 * @param resolve looks up the path, called once per new variant
+	 * @returns the variant's id
+	 */
+	internVariant(hash: bigint, variant: string, resolve: (hash: bigint) => string | undefined): number {
+		return this.#variants.getOrInsertComputed(
+			`${hash}/${variant}`,
 			() => this.assets.push({ hash, path: resolve(hash) ?? null }) - 1,
 		);
 	}
@@ -113,6 +130,15 @@ export class AssetIds {
 
 // #region conversion
 
+/**
+ * properties a material variant ({@link AssetIds.internVariant}) adds to its converted entry, replacing any
+ * of the same name
+ */
+export interface MaterialOverrides {
+	colors: Record<string, [r: number, g: number, b: number, a: number]>;
+	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
+}
+
 /** what {@link convertAssets} needs */
 export interface AssetConversionInput {
 	resolver: AssetResolver;
@@ -123,6 +149,8 @@ export interface AssetConversionInput {
 	cache: PackCache | null;
 	geometries: readonly AssetRef[];
 	materials: readonly AssetRef[];
+	/** by material id, what its variant changes */
+	materialOverrides: ReadonlyMap<number, MaterialOverrides>;
 	chains: readonly Chain[];
 	/** per geometry and material id, where its uses are; see `AssetPlacement` */
 	places: { geometries: readonly Place[]; materials: readonly Place[] };
@@ -259,13 +287,16 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		}
 		return index;
 	};
+	// variants of one material share its load
+	const loads = new Map<bigint, Promise<{ ref: ObjectRef; loaded: LoadedMaterial }>>();
 	await orderedPool(
 		input.materials,
 		input.materialConcurrency,
-		async (asset) => {
-			const ref = await resolver.findUnique(asset, UnityClass.Material);
-			return { ref, loaded: await loadMaterial(resolver, ref) };
-		},
+		(asset) =>
+			loads.getOrInsertComputed(asset.hash, async () => {
+				const ref = await resolver.findUnique(asset, UnityClass.Material);
+				return { ref, loaded: await loadMaterial(resolver, ref) };
+			}),
 		(result, _asset, id) => {
 			if (result instanceof Error) {
 				materialEntries.push({ id, status: 'failed' });
@@ -283,7 +314,16 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 				}
 				return useTexture(target, place);
 			});
-			materialEntries.push({ id, status: 'ready', ...converted.material });
+			const overrides = input.materialOverrides.get(id);
+			const material =
+				overrides === undefined
+					? converted.material
+					: {
+							...converted.material,
+							colors: { ...converted.material.colors, ...overrides.colors },
+							vectors: { ...converted.material.vectors, ...overrides.vectors },
+						};
+			materialEntries.push({ id, status: 'ready', ...material });
 			materialDebug.push({
 				object: objectKey(ref),
 				name: loaded.record.name,

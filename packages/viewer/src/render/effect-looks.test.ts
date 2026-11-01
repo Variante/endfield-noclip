@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { ReadyMaterial, ShaderEntry, TextureSlot } from '@endfield-noclip/package-format/materials';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type ReadyMaterial,
+	type ShaderEntry,
+	type TextureSlot,
+} from '@endfield-noclip/package-format/materials';
 
 import {
+	DecalLitRow,
 	EffectKind,
 	EffectRole,
 	EffectRow,
@@ -92,6 +99,58 @@ test('a VFXDecal is a transparent, shadowless box drawn by its back faces, its d
 		[2, 0.5, 1, 0.4000000059604645],
 	);
 	assert.equal(look.params[EffectRow.decal + 1], 5);
+});
+
+test('a lit decal placement draws its base and PBR maps through its UV transform, writing what its masks allow', () => {
+	const placement = {
+		colors: { [DECAL_COLOR_PROPERTY]: [0.3, 0.6, 0.25, 0.9] as [number, number, number, number] },
+		vectors: { [DECAL_UV_PROPERTY]: [1, 0.5, 0, 0.25] as [number, number, number, number] },
+	};
+	const floats = {
+		_ColorMask2: 2,
+		_ColorMask3: 14,
+		_DecalOpacity: 0.5,
+		_AngleBlendFallOff: 2,
+		_RoughnessMin: 0.4,
+	};
+	const [look, normalOnly, unplaced] = materialLooks({
+		shaders: [shader('HGRP/DecalLit')],
+		entries: [
+			material({
+				id: 0,
+				keywords: ['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
+				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+				floats,
+				...placement,
+			}),
+			material({
+				id: 1,
+				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+				floats: { ...floats, _ColorMask3: 0 },
+				...placement,
+			}),
+			material({ id: 2, slots: { _BaseColorMap: slot(1) }, floats }),
+		],
+	});
+	assert.equal(look.flags, LookFlags.Effect | LookFlags.EffectDecal);
+	assert.equal(look.cull, 'front');
+	assert.deepEqual(look.textures.slice(0, 2), [1, 2]);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.uv, EffectRow.uv + 8)],
+		[1, 0.5, 0, 0.25, 1, 0.5, 0, 0.25],
+	);
+	// the placement's colour as stored, its alpha times the opacity
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)].map((v) => Math.round(v * 1000) / 1000),
+		[0.3, 0.6, 0.25, 0.45],
+	);
+	assert.equal(look.params[DecalLitRow.surface + 3], 2);
+	// roughness only: `_ColorMask2` 2 is blue
+	assert.deepEqual([...look.params.subarray(DecalLitRow.writes, DecalLitRow.writes + 2)], [0, 1]);
+	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.LitDecal);
+	// writing no albedo, or without a placement, it isn't drawn
+	assert.equal(normalOnly.drawn, false);
+	assert.equal(unplaced.drawn, false);
 });
 
 test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of that role', () => {

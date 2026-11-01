@@ -697,6 +697,9 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9) {
 		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
 	}
+	if (fx_row(id, FX_UNFOGGED).y == FX_KIND_LIT_DECAL) {
+		return fx_lit_decal(in, px, rel, uv, bases.dx[0], bases.dy[0]);
+	}
 	let combined = fx_combine(id, bases, fx_row(id, FX_TINT));
 	let soft = fx_row(id, FX_SOFT);
 	let color = clamp(combined.rgb, vec3f(0.0), vec3f(1000.0)) * mix(1.0, frame.ambient.y, soft.z);
@@ -717,6 +720,89 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 	// the game's decal premultiplies its colour by the alpha twice
 	return fx_accumulate(color * alpha * alpha, alpha, length(rel), fx_row(id, FX_UNFOGGED).x);
 }
+
+// #region lit decals
+
+// `EffectKind.LitDecal` (effect-looks.ts)
+const FX_KIND_LIT_DECAL = 2.0;
+// rows of a lit decal look (`DecalLitRow` in effect-looks.ts, in vec4s)
+const LD_SURFACE = 17u;
+const LD_WRITES = 18u;
+const LD_PBR = 19u;
+const LD_CHANNELS = 20u;
+
+// one of four map channels by `_MetallicChannel`/`_OcclusionChannel`'s numbering, as the game blends them:
+// `offset` 1 for the occlusion's (R at 1, … A at 4) and 0 for the metallic's (R at 2, … A at 5)
+fn ld_channel(p: vec4f, channel: f32, offset: f32) -> f32 {
+	let c = channel + offset;
+	return mix(mix(p.x, p.y, saturate(c - 2.0)), mix(p.z, p.w, saturate(c - 4.0)), saturate(c - 3.0));
+}
+
+// `HGRP/DecalLit` boxes (`decalLitLook` in effect-looks.ts): the base colour tinted by the placement's colour,
+// laid over the surface the box finds by its alpha (times the opacity, faded on surfaces facing away from the
+// box's y). where the material's colour masks let it, the PBR map's roughness, normal, metallic and occlusion
+// replace the surface's; the rest keeps the surface's normal and roughness, and the result is lit like the
+// surface. `uv` is the box's `local.xz + 0.5` with its screen gradients
+fn fx_lit_decal(in: EffectOut, px: vec2i, rel: vec3f, uv: vec2f, dx: vec2f, dy: vec2f) -> EffectAccumulated {
+	let id = in.draw;
+	let base_t = fx_row(id, FX_UV);
+	let base = textureSampleGrad(fx_tex0, fx_samp0, uv * base_t.xy + base_t.zw, dx * base_t.xy, dy * base_t.xy);
+	let pbr_t = fx_row(id, FX_UV + 1u);
+	let pbr = textureSampleGrad(fx_tex1, fx_samp1, uv * pbr_t.xy + pbr_t.zw, dx * pbr_t.xy, dy * pbr_t.xy);
+	let tint = fx_row(id, FX_TINT);
+	let surface_row = fx_row(id, LD_SURFACE);
+	let writes = fx_row(id, LD_WRITES);
+	let pbr_row = fx_row(id, LD_PBR);
+	let channels = fx_row(id, LD_CHANNELS);
+	// with `_BaseTexChannel` the base map is the PBR map, and the colour the placement's alone
+	let pbr_base = channels.x > 0.5;
+	let albedo = tint.rgb * select(base.rgb, vec3f(1.0), pbr_base);
+	let nro = select(pbr, base, pbr_base);
+
+	// the surface beneath: its normal and roughness from the main pass
+	var n = fx_surface_normal(px);
+	var roughness = f32(textureLoad(fx_surface, px, 0).x >> 24u) / 255.0;
+	if (all(n == vec3f(0.0))) {
+		n = in.up;
+		roughness = 1.0;
+	}
+	var alpha = base.a * tint.a;
+	if (surface_row.w > 0.0) {
+		alpha *= pow(max(saturate(dot(in.up, n)), 5.96e-8), surface_row.w);
+	}
+	alpha = saturate(alpha);
+	if (alpha <= 0.0) {
+		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
+	}
+	if (writes.y > 0.5) {
+		roughness = mix(surface_row.x, surface_row.y, nro.b);
+	}
+	if (writes.x > 0.5) {
+		var xy = nro.rg * 2.0 - 1.0;
+		xy = select(xy, vec2f(0.0), abs(xy) < vec2f(0.012));
+		let z = max(1.0 / 2048.0, sqrt(saturate(1.0 - dot(xy, xy))));
+		// the box's frame (x tangent, y normal), or the surface's by `_BlendSceneNormal`; the bitangent's sign is
+		// the game's −1
+		let t = normalize(in.to_object0.xyz);
+		let frame_n = normalize(mix(in.up, n, writes.z));
+		let b = -mix(cross(in.up, t), cross(n, t), writes.z);
+		let scaled = xy * surface_row.z;
+		n = normalize(t * scaled.x + b * scaled.y + frame_n * z);
+	}
+	var s = default_surface(albedo, n);
+	s.roughness = roughness;
+	if (pbr_row.x > 0.5) {
+		s.metallic = mix(pbr_row.z * saturate(channels.y), ld_channel(pbr, channels.y, 0.0), saturate(channels.y - 1.0));
+	}
+	if (pbr_row.y > 0.5) {
+		let occlusion = mix(1.0, ld_channel(pbr, channels.z, 1.0), saturate(channels.z));
+		s.occlusion = (1.0 - pbr_row.w) + occlusion * pbr_row.w;
+	}
+	let shaded = shade_surface(s, rel, in.position.xy);
+	return fx_accumulate(shaded.radiance.rgb * alpha, alpha, length(rel), 0.0);
+}
+
+// #endregion
 
 // #region mist
 

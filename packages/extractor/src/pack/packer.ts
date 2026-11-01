@@ -4,7 +4,11 @@ import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
-import { DrawFlags, type RendererDraw } from '@endfield-noclip/formats/endfield/init-chunk-data';
+import {
+	DrawFlags,
+	type RectDecal,
+	type RendererDraw,
+} from '@endfield-noclip/formats/endfield/init-chunk-data';
 import type { LevelPartition, PartitionLevel } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
 import {
@@ -57,7 +61,11 @@ import {
 	shardStem,
 	type SubsetInfo,
 } from '@endfield-noclip/package-format/manifest';
-import type { MaterialTable } from '@endfield-noclip/package-format/materials';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type MaterialTable,
+} from '@endfield-noclip/package-format/materials';
 import type {
 	ConditionalSetInfo,
 	SceneControl,
@@ -121,6 +129,7 @@ import {
 	type AssetDebug,
 	AssetIds,
 	convertAssets,
+	type MaterialOverrides,
 	pendingAssets,
 	type PlacedTexture,
 } from './assets.ts';
@@ -232,6 +241,16 @@ const MATERIAL_CONCURRENCY = 8;
 
 // #endregion
 
+/**
+ * the unit box the game's VFXDecal prefabs draw; rect decals have no mesh of their own (the game draws a
+ * box), so they take this one
+ */
+const DECAL_CUBE_PATH =
+	'assets/beyond/arts/effects/commonassets/arts/s_model/s_fx_particle_decal_cube.fbx##decalmesh';
+
+/** a rect decal's draw has no LOD range: up to the largest f32 */
+const DECAL_MAX_SQUARED = 3.4028234663852886e38;
+
 /** HLOD cluster entity names: `HLOD<tier>_<i>_<j>_Cluster_<hash>_<n>…`, `i`/`j` being the tier's grid cell */
 const HLOD_NAME = /^HLOD(\d)_(-?\d+)_(-?\d+)_Cluster_/;
 
@@ -313,6 +332,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			particles: new ParticleTable(),
 			geometries: new AssetIds(),
 			materials: new AssetIds(),
+			materialOverrides: new Map(),
 			uses: new AssetPlacement(scene.grid.shardLevel),
 			assetArchives: new AssetArchives(),
 			shardTiles: new Map(),
@@ -397,6 +417,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 					cache,
 					geometries: pack.geometries.assets,
 					materials: pack.materials.assets,
+					materialOverrides: pack.materialOverrides,
 					chains: pack.chains.chains,
 					places,
 					extraTextures,
@@ -562,6 +583,8 @@ interface PackState {
 	particles: ParticleTable;
 	geometries: AssetIds;
 	materials: AssetIds;
+	/** by material id, what a material variant changes (rect decal placements) */
+	materialOverrides: Map<number, MaterialOverrides>;
 	uses: AssetPlacement;
 	assetArchives: AssetArchives;
 	/** shard archive stem → its shard-level tile */
@@ -654,6 +677,7 @@ const collectEntities = async (
 		unique: 0,
 		noRenderer: 0,
 		decal: 0,
+		decalSkipped: 0,
 		noMatrix: 0,
 		excluded: 0,
 		packed: 0,
@@ -778,6 +802,42 @@ const collectEntities = async (
 		};
 	};
 
+	// rect decals draw the decal cube with a variant of their material carrying their placement's colour and UV
+	// transform (docs/game-data/materials.md#decals)
+	const [cubeHash] = await world.hashesOf(DECAL_CUBE_PATH);
+	const decalDraw = (decal: RectDecal, materialHash: bigint): ChainDraw | null => {
+		if (cubeHash === undefined) {
+			return null;
+		}
+		const color: MaterialOverrides['colors'][string] = [
+			decal.color[0] * decal.intensity,
+			decal.color[1] * decal.intensity,
+			decal.color[2] * decal.intensity,
+			decal.color[3],
+		];
+		const uv: MaterialOverrides['vectors'][string] = [...decal.uvScale, ...decal.uvOffset];
+		const material = pack.materials.internVariant(
+			materialHash,
+			`decal ${color.join(',')} ${uv.join(',')}`,
+			scene.pathOf,
+		);
+		pack.materialOverrides.set(material, {
+			colors: { [DECAL_COLOR_PROPERTY]: color },
+			vectors: { [DECAL_UV_PROPERTY]: uv },
+		});
+		return {
+			geometry: pack.geometries.intern(cubeHash, scene.pathOf),
+			material,
+			submesh: 0,
+			lod: 0,
+			role: DrawRole.Lit,
+			minSquared: 0,
+			maxSquared: DECAL_MAX_SQUARED,
+			sourceFlags: 0,
+			particles: null,
+		};
+	};
+
 	// files are settled in order, for a deterministic dedupe
 	await orderedPool(
 		scene.files,
@@ -800,12 +860,19 @@ const collectEntities = async (
 				}
 				seen.add(entity.id);
 				counts.unique++;
-				if (entity.renderer === null) {
-					counts.noRenderer++;
-					continue;
-				}
-				if (entity.decal) {
+				let draws: ChainDraw[] | null = null;
+				let lodCount = 1;
+				if (entity.decal !== null) {
+					const material = content.decalMaterials.get(entity.id);
+					const draw = material === undefined ? null : decalDraw(entity.decal, material);
+					if (draw === null) {
+						counts.decalSkipped++;
+						continue;
+					}
 					counts.decal++;
+					draws = [draw];
+				} else if (entity.renderer === null) {
+					counts.noRenderer++;
 					continue;
 				}
 				if (entity.matrix === null) {
@@ -824,9 +891,15 @@ const collectEntities = async (
 				counts.packed++;
 
 				const hlod = HLOD_NAME.exec(entity.name);
-				const draws = entity.renderer.draws.map((draw) => chainDraw(draw, hlod !== null));
+				if (entity.renderer !== null) {
+					draws = entity.renderer.draws.map((draw) => chainDraw(draw, hlod !== null));
+					lodCount = entity.renderer.lodCount;
+				}
+				if (draws === null) {
+					continue;
+				}
 				const row: InstanceInput = {
-					chain: pack.chains.intern(entity.renderer.lodCount, draws),
+					chain: pack.chains.intern(lodCount, draws),
 					matrix: entity.matrix,
 					bounds,
 					entityId: entity.id,
@@ -986,7 +1059,7 @@ const collectEntities = async (
 			entity.renderer === null ||
 			entity.matrix === null ||
 			entity.bounds === null ||
-			entity.decal
+			entity.decal !== null
 		) {
 			continue;
 		}

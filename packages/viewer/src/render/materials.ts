@@ -18,6 +18,7 @@ import type { Color } from '@endfield-noclip/package-format/values';
 
 import { linearRgb } from './color.ts';
 import {
+	decalLitLook,
 	type EffectLook,
 	fakeVolumeFogLook,
 	fogSimpleLook,
@@ -455,6 +456,11 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 		}
 		case 'HGRP/Effect/VFXDecal': {
 			effect = vfxDecalLook(entry, shader);
+			flags |= LookFlags.EffectDecal;
+			break;
+		}
+		case 'HGRP/DecalLit': {
+			effect = decalLitLook(entry, shader);
 			flags |= LookFlags.EffectDecal;
 			break;
 		}

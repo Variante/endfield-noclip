@@ -48,6 +48,9 @@ export interface StreamingChunk {
 
 // #endregion
 
+/** the property key of a rect decal entity's (InitChunkData component 27) material */
+export const RECT_DECAL_MATERIAL_KEY = 0xff010000;
+
 /**
  * parses a decoded StreamingChunkData FlatBuffer
  *

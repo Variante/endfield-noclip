@@ -19,9 +19,9 @@ const encoder = new TextEncoder();
 
 /**
  * builds a chunk with one object row per entity and one component group holding them, with components 0–5
- * (bounds), 18 (instance data), 21 (name), 67 (lod ranges), 9 + 69 (two draws)
+ * (bounds), 18 (instance data, or 27 with `decal`), 21 (name), 67 (lod ranges), 9 + 69 (two draws)
  */
-const buildChunk = (options: { version?: number; drawCount?: number } = {}): Uint8Array => {
+const buildChunk = (options: { version?: number; drawCount?: number; decal?: boolean } = {}): Uint8Array => {
 	const w = new Writer();
 	const ids = [(1 << 27) | 0x123, (2 << 27) | 0x456];
 	const names = ['P_rock#1_123', 'P_tree#2_456'];
@@ -74,7 +74,7 @@ const buildChunk = (options: { version?: number; drawCount?: number } = {}): Uin
 		[3, 4],
 		[4, 4],
 		[5, 4],
-		[Component.InstanceData, 256],
+		options.decal ? [Component.RectDecal, 160] : [Component.InstanceData, 256],
 		[Component.Name, 64],
 		[Component.LodRanges, 24],
 		[9, 4 + 32 * 2],
@@ -107,12 +107,19 @@ const buildChunk = (options: { version?: number; drawCount?: number } = {}): Uin
 					w.view.setFloat32(at, id + e * 10, true);
 					break;
 				}
-				case Component.InstanceData: {
+				case Component.InstanceData:
+				case Component.RectDecal: {
 					for (let k = 0; k < 16; k++) {
 						w.view.setFloat32(at + k * 4, k % 5 === 0 ? 1 : 0, true);
 					}
 					w.view.setFloat32(at + 48, 100 + e, true);
 					w.view.setFloat32(at + 56, -200 - e, true);
+					if (id === Component.RectDecal) {
+						[1, 0.25, 0, 0.75].forEach((v, k) => w.view.setFloat32(at + 128 + k * 4, v, true));
+						w.view.setUint32(at + 144, 0xff459f56, true);
+						w.view.setFloat32(at + 148, 2, true);
+						w.view.setFloat32(at + 152, 270, true);
+					}
 					break;
 				}
 				case Component.Name: {
@@ -188,6 +195,21 @@ test('readChunkEntities decodes transforms, bounds, names and draws', () => {
 		],
 	);
 	assert.equal(draws[1].flags & DrawFlags.ShadowOnly, DrawFlags.ShadowOnly);
+});
+
+test('readChunkEntities reads a rect decal’s matrix and placement values', () => {
+	const [plain] = readChunkEntities(parseInitChunk(buildChunk()));
+	assert.equal(plain.decal, null);
+	const [first] = readChunkEntities(parseInitChunk(buildChunk({ decal: true })));
+	assert.deepEqual([first.matrix?.[12], first.matrix?.[14]], [100, -200]);
+	assert.deepEqual(first.decal, {
+		uvScale: [1, 0.25],
+		uvOffset: [0, 0.75],
+		color: [0x56 / 255, 0x9f / 255, 0x45 / 255, 1],
+		intensity: 2,
+		sectorAngle: 270,
+		flags: 0,
+	});
 });
 
 test('parseInitChunk rejects unknown versions', () => {

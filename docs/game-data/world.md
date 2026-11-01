@@ -128,18 +128,18 @@ a component group is an ECS archetype stored column-major: a descriptor list of
 `(component id, stride)` and one blob of `count · Σ stride` bytes. component ids are anonymous
 column selectors; the ones with established meaning:
 
-| id    | content                                                                                                                                        |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0–5   | world AABB, centre xyz then extents xyz (f32 each)                                                                                             |
-| 8–14  | draw infos for capacity `2^(id − 8)`: count, 24-byte infos (the game's `RendererInfo`: submesh, `renderFlags`), then `(max², min²)` LOD bounds |
-| 18    | 256-byte instance constants starting with the object-to-world matrix                                                                           |
-| 21    | 64-byte name prefix (root object names win when present)                                                                                       |
-| 27    | rect decal constants; the decal's material is in StreamingChunkData                                                                            |
-| 28    | terrain decal constants in 27's layout (matrix, inverse, params, packed colour); material in StreamingChunkData, `HGRP/TerrainDecalLit`        |
-| 42    | a local light's runtime data, zero-filled in the file (244 bytes); the values are in the object row (below)                                    |
-| 63    | the same light's settings, zero-filled (448 bytes)                                                                                             |
-| 67    | LOD ranges: LOD count and cumulative draw count per LOD                                                                                        |
-| 68–74 | draw refs for capacity `2^(id − 68)`: `(u64 material hash, u64 mesh hash, …)`                                                                  |
+| id    | content                                                                                                                                                                                                |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0–5   | world AABB, centre xyz then extents xyz (f32 each)                                                                                                                                                     |
+| 8–14  | draw infos for capacity `2^(id − 8)`: count, 24-byte infos (the game's `RendererInfo`: submesh, `renderFlags`), then `(max², min²)` LOD bounds                                                         |
+| 18    | 256-byte instance constants starting with the object-to-world matrix                                                                                                                                   |
+| 21    | 64-byte name prefix (root object names win when present)                                                                                                                                               |
+| 27    | rect decal constants (160 bytes): matrix, inverse, UV scale and offset, RGBA8 colour, intensity, an angle, flags; material in StreamingChunkData under `0xff010000` ([materials](materials.md#decals)) |
+| 28    | terrain decal constants in 27's layout (matrix, inverse, params, packed colour); material in StreamingChunkData, `HGRP/TerrainDecalLit`                                                                |
+| 42    | a local light's runtime data, zero-filled in the file (244 bytes); the values are in the object row (below)                                                                                            |
+| 63    | the same light's settings, zero-filled (448 bytes)                                                                                                                                                     |
+| 67    | LOD ranges: LOD count and cumulative draw count per LOD                                                                                                                                                |
+| 68–74 | draw refs for capacity `2^(id − 68)`: `(u64 material hash, u64 mesh hash, …)`                                                                                                                          |
 
 `readChunkEntities` turns a group into `ChunkEntity` rows with id, tag, name, matrix, bounds, decal
 flag and a `StaticRenderer` (draws with mesh/material StringPathHash keys, submesh, flags and LOD
@@ -382,10 +382,11 @@ the entity pass ([packer.ts](../../packages/extractor/src/pack/packer.ts), `coll
 the scene's chunk files in a fixed order (always-loaded before scene-state files, the default area
 before stream areas, then by name). an entity first met in an always-loaded file of the default area
 stays unconditional; any other entity collects every file holding it and loads while any of them
-does: the file's scene state and stream area both on. entities without a renderer or matrix, and
-decals, are skipped. every row goes to a block of one visibility group (its level tag and the
-condition that loads it, see [package-format.md](../package-format.md#visibility-groups)), so a
-level, a scene state or a stream area can be shown or hidden as a whole:
+does: the file's scene state and stream area both on. entities without a renderer or matrix are
+skipped; rect decals draw the decal cube instead ([materials](materials.md#decals)). every row goes
+to a block of one visibility group (its level tag and the condition that loads it, see
+[package-format.md](../package-format.md#visibility-groups)), so a level, a scene state or a stream
+area can be shown or hidden as a whole:
 
 | destination | what goes there                                                                                                                                              | where it lives                           |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |

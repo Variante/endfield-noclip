@@ -501,4 +501,5 @@ provenance lives there rather than in the manifest, which only identifies the bu
 - **terrain cliffs**: the cliff-index pages and cone maps, which the game's cliff projection and
   parallax use, aren't packed.
 - **unsupported**: line and point topologies; skinned meshes are packed static or posed; the game's
-  packed tangent bits are undecoded (generated tangents replace them); rect decals are skipped.
+  packed tangent bits are undecoded (generated tangents replace them); terrain decals and decals in
+  dynamic structures are skipped.

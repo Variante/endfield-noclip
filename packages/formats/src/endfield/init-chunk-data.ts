@@ -112,10 +112,31 @@ export interface ChunkEntity {
 	/** world bounds, when present */
 	bounds: Aabb | null;
 	renderer: StaticRenderer | null;
-	/** the entity is a projected rect decal; its material lives in StreamingChunkData, not here */
-	decal: boolean;
+	/**
+	 * a projected rect decal's placement values, or `null` for other entities; its material lives in
+	 * StreamingChunkData, not here
+	 */
+	decal: RectDecal | null;
 	/** descriptor ids present on the entity */
 	components: number[];
+}
+
+/**
+ * a rect decal's own values (component 27 after its matrix and inverse). the decal projects down the local y
+ * of a unit box, whose matrix is the entity's
+ */
+export interface RectDecal {
+	/** the box's UVs, `local.xz + 0.5`, are scaled by this and then offset */
+	uvScale: [u: number, v: number];
+	uvOffset: [u: number, v: number];
+	/** RGBA8 as stored, 0–1: the colour multiplies the base colour as is, the alpha the opacity */
+	color: [r: number, g: number, b: number, a: number];
+	/** scales the colour */
+	intensity: number;
+	/** an angle in degrees the decal's shaders don't read (270 and 90 seen) */
+	sectorAngle: number;
+	/** flag word, 0 on every decal seen */
+	flags: number;
 }
 
 // #endregion
@@ -307,7 +328,8 @@ export const readChunkEntities = (chunk: InitChunk): ChunkEntity[] => {
 		const column = (id: number): ComponentColumn | undefined => groupColumn(group, id);
 
 		const boundsOf = groupBounds(group);
-		const matrixColumn = column(Component.InstanceData) ?? column(Component.RectDecal);
+		const decalColumn = column(Component.RectDecal);
+		const matrixColumn = column(Component.InstanceData) ?? decalColumn;
 		const nameOf = groupNames(group, names);
 		const lodColumn = column(Component.LodRanges);
 		const refColumns = group.columns.filter(
@@ -352,12 +374,38 @@ export const readChunkEntities = (chunk: InitChunk): ChunkEntity[] => {
 				matrix,
 				bounds,
 				renderer,
-				decal: ids.includes(Component.RectDecal),
+				decal: decalColumn === undefined ? null : readRectDecal(blobView, decalColumn, i, id),
 				components: ids,
 			});
 		}
 	}
 	return entities;
+};
+
+const RECT_DECAL_SIZE = 160;
+
+/** component 27 after the matrix and its inverse: UV scale, UV offset, RGBA8 colour, intensity, angle, flags */
+const readRectDecal = (
+	view: DataView,
+	column: ComponentColumn,
+	index: number,
+	entityId: number,
+): RectDecal => {
+	if (column.stride !== RECT_DECAL_SIZE) {
+		throw new FormatError(`entity ${entityId} has a ${column.stride}-byte rect decal`);
+	}
+	const at = column.offset + index * column.stride + 128;
+	const f = (k: number): number => view.getFloat32(at + k * 4, true);
+	const rgba = view.getUint32(at + 16, true);
+	const byte = (shift: number): number => ((rgba >>> shift) & 0xff) / 255;
+	return {
+		uvScale: [f(0), f(1)],
+		uvOffset: [f(2), f(3)],
+		color: [byte(0), byte(8), byte(16), byte(24)],
+		intensity: f(5),
+		sectorAngle: f(6),
+		flags: view.getUint32(at + 28, true),
+	};
 };
 
 /**

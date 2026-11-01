@@ -102,6 +102,18 @@ export interface ReadyMaterial {
 	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
 }
 
+/**
+ * a colour the packer adds to each rect decal placement's copy of its material: the placement's RGBA8 colour
+ * (0–1, used as stored, not gamma-decoded) with RGB times its intensity. it doesn't come from the material
+ */
+export const DECAL_COLOR_PROPERTY = '_DecalPlacementColor';
+
+/**
+ * a vector the packer adds beside {@link DECAL_COLOR_PROPERTY}: the placement's UV scale (xy) and offset
+ * (zw), which map the decal box's `local.xz + 0.5`
+ */
+export const DECAL_UV_PROPERTY = '_DecalPlacementUV';
+
 /** a texture bound to a material slot */
 export interface TextureSlot {
 	/** index into the texture table */

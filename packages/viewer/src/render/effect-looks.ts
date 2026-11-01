@@ -12,7 +12,12 @@
  * @module
  */
 
-import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type ReadyMaterial,
+	type ShaderEntry,
+} from '@endfield-noclip/package-format/materials';
 
 import { linearRgb } from './color.ts';
 
@@ -605,14 +610,136 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	return look;
 };
 
+// #region lit decals
+
+/**
+ * float offsets of an `HGRP/DecalLit` look's parameters, in place of {@link EffectRow}'s rows 17–20. the tint
+ * (the placement's colour; alpha times `_DecalOpacity`), the UV rows of slot 0 (`_BaseColorMap`) and 1
+ * (`_SampleTex1`) and the last row are shared
+ */
+export const DecalLitRow = {
+	/**
+	 * `_RoughnessMin`, `_RoughnessMax`, `_NormalScale`, the angle fade's power (0 without
+	 * `_NORMAL_ANGLE_BLEND`)
+	 */
+	surface: 68,
+	/**
+	 * 1 when the decal writes its normal over the surface's, 1 when it writes its roughness, then
+	 * `_BlendSceneNormal` (how much the decal's normal map takes the surface's frame instead of the box's), 0
+	 */
+	writes: 72,
+	/** 1 when it writes metallic, 1 when it writes occlusion, `_Metallic`, `_OcclusionStrength` */
+	pbr: 76,
+	/**
+	 * 1 when the base map is the PBR map and the colour is the placement's alone (`_BaseTexChannel`),
+	 * `_MetallicChannel`, `_OcclusionChannel`, 0
+	 */
+	channels: 80,
+} as const;
+
+/** the slot of a lit decal's PBR map (`_SampleTex1`: normal RG, roughness B); its base colour is slot 0 */
+export const DECAL_PBR_SLOT = 1;
+
+/** lit decal keywords that are drawn; the others change the surface in ways the viewer doesn't */
+const DECAL_LIT_KEYWORDS = new Set(['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND']);
+
+/** Unity's `ColorWriteMask` bits */
+const WRITE_RED = 8;
+const WRITE_GREEN = 4;
+const WRITE_BLUE = 2;
+
+/**
+ * `HGRP/DecalLit`, the projected decals of the scenery (`docs/game-data/materials.md#decals`): the base
+ * colour map tinted by the placement's colour, with the PBR map's roughness and normal, written over the
+ * surface through the colour masks the material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2`
+ * normal and roughness, `_ColorMask3` albedo).
+ *
+ * @param entry a material of `HGRP/DecalLit`, a placement's copy with its colour and UV transform
+ * @param shader its shader
+ * @returns its effect look, or `null` when it uses features that aren't drawn or writes no albedo (the viewer
+ *   can't relight the surface beneath)
+ */
+export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+	if (entry.keywords.some((keyword) => !DECAL_LIT_KEYWORDS.has(keyword))) {
+		return null;
+	}
+	const { float } = readers(entry, shader);
+	const placementColor = entry.colors[DECAL_COLOR_PROPERTY];
+	const placementUv = entry.vectors[DECAL_UV_PROPERTY];
+	const albedoMask = float('_ColorMask3', 0);
+	if (placementColor === undefined || placementUv === undefined || (albedoMask & WRITE_RED) === 0) {
+		return null;
+	}
+	const look = emptyEffect(7);
+	const params = look.params;
+	const pbrBase = float('_BaseTexChannel', 0) !== 0;
+	const base = entry.slots['_BaseColorMap'];
+	if (base === undefined) {
+		return null;
+	}
+	const placement = { scale: [placementUv[0], placementUv[1]], offset: [placementUv[2], placementUv[3]] };
+	const still = { speed: [0, 0], cos: 1, sin: 0 };
+	setSlot(look, 0, { texture: base.texture, ...placement }, still, ROLE_NONE);
+	const pbr = pbrBase ? base : entry.slots['_SampleTex1'];
+	if (pbr !== undefined) {
+		// its own `_ST` applies to the box's UVs only with `_SampleTex1UVSet`
+		const transform =
+			!pbrBase && float('_SampleTex1UVSet', 0) !== 0 ? { scale: pbr.scale, offset: pbr.offset } : placement;
+		setSlot(look, DECAL_PBR_SLOT, { texture: pbr.texture, ...transform }, still, ROLE_NONE);
+	}
+	params.set(
+		[placementColor[0], placementColor[1], placementColor[2], placementColor[3] * float('_DecalOpacity', 1)],
+		EffectRow.tint,
+	);
+	params.set(
+		[
+			float('_RoughnessMin', 0),
+			float('_RoughnessMax', 1),
+			float('_NormalScale', 1),
+			entry.keywords.includes('_NORMAL_ANGLE_BLEND') ? Math.max(float('_AngleBlendFallOff', 1), 1e-3) : 0,
+		],
+		DecalLitRow.surface,
+	);
+	const surfaceMask = float('_ColorMask2', 0);
+	const pbrMask = float('_ColorMask1', 0);
+	const hasPbr = pbr !== undefined;
+	params.set(
+		[
+			hasPbr && (surfaceMask & (WRITE_RED | WRITE_GREEN)) !== 0 ? 1 : 0,
+			hasPbr && (surfaceMask & WRITE_BLUE) !== 0 ? 1 : 0,
+			float('_BlendSceneNormal', 0),
+		],
+		DecalLitRow.writes,
+	);
+	params.set(
+		[
+			(pbrMask & WRITE_RED) !== 0 ? 1 : 0,
+			(pbrMask & WRITE_GREEN) !== 0 ? 1 : 0,
+			float('_Metallic', 0),
+			float('_OcclusionStrength', 1),
+		],
+		DecalLitRow.pbr,
+	);
+	params.set(
+		[pbrBase ? 1 : 0, float('_MetallicChannel', 0), float('_OcclusionChannel', 0)],
+		DecalLitRow.channels,
+	);
+	params.set([0, EffectKind.LitDecal], EffectRow.unfogged);
+	return look;
+};
+
+// #endregion
+
 // #region water sheets
 
-/** what `effect.wgsl`'s `fs_effect` draws a look as, in {@link EffectRow.unfogged}'s second float */
+/** what `effect.wgsl` draws a look as, in {@link EffectRow.unfogged}'s second float */
 export const EffectKind = {
 	/** VFXBaseV2 and VFXDecal's texture stack */
 	Stack: 0,
 	/** a VFXWater sheet ({@link WaterSheetRow}) */
 	WaterSheet: 1,
+	/** an `HGRP/DecalLit` box ({@link DecalLitRow}), drawn by the decal entry point */
+	LitDecal: 2,
 } as const;
 
 /**

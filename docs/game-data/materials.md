@@ -218,6 +218,50 @@ not drawn: refraction (`_GLASS_REFRACTION_SCENECOLOR`, `_RefractTex`, `_IoR`, �
 (`_UseFresnel`; off on every map01 material) and subsurface scattering. water draws after the
 composite, so glass in front of water is lost.
 
+## decals
+
+`HGRP/DecalLit` is the scenery's projected decal: moss, sand, stains, cracks and tyre tracks laid
+over floors and rocks (the green floor of Power Plateau's grass cave, map01_lv007 near unity −102,
+147, 524, is nine moss decals over grey concrete). each is a rect decal entity
+([world](world.md#initchunkdata-layout)): a box whose matrix maps a unit cube, the decal's material,
+and per placement a UV scale and offset, an RGBA8 colour and an intensity. the game draws the box
+into its GBuffer after the opaque scenery. each covered pixel finds the surface from depth, and only
+points inside the box take the decal, which projects down the box's y:
+
+- UV: `(local.xz + 0.5) · scale + offset`, for `_BaseColorMap` and `_SampleTex1` (the PBR map:
+  normal RG, roughness B; with `_SampleTex1UVSet` it takes its own `_ST` of the box's UVs instead)
+- albedo: the placement's colour as stored (not gamma-decoded) × its intensity × the base map's RGB;
+  with `_BaseTexChannel` the base map is the PBR map and the colour stands alone
+- alpha: the base map's alpha × the colour's alpha × `_DecalOpacity`, and with `_NORMAL_ANGLE_BLEND`
+  × `sat(y · N)^_AngleBlendFallOff` with `y` the box's axis and `N` the surface's normal, so walls
+  the box reaches stay clean
+- roughness: `mix(_RoughnessMin, _RoughnessMax, B)`
+- normal: the PBR map's RG × `_NormalScale` in the box's frame (x tangent, y normal), or towards the
+  surface's by `_BlendSceneNormal`; the result blends from the surface's normal by `_AffectNormal`
+- metallic and occlusion: `_Metallic` or a channel of `_SampleTex1` by `_MetallicChannel` (2–5 pick
+  R–A), occlusion a channel by `_OcclusionChannel` (1–4) applied by `_OcclusionStrength`
+
+each target blends by the alpha, and the material's colour masks pick what's written: `_ColorMask3`
+the albedo, `_ColorMask2` the normal (RG) and roughness (B), `_ColorMask1` metallic (R) and
+occlusion (G). the editor derives them from `_AffectNormal`, `_AffectRoughness` and the like; the
+moss writes albedo and roughness only.
+
+the viewer has no GBuffer, so it draws a decal like the VFXDecal boxes
+([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in the
+transparent pass ([`decalLitLook`](../../packages/viewer/src/render/effect-looks.ts), `fx_lit_decal`
+in [`effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). it takes the surface's
+normal and roughness from the main pass where the masks keep them, shades the decal like any
+surface, and lays it over by its alpha. the packer gives each placement a copy of its material
+carrying the placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPERTY` in
+the package's materials), and the box is the game's VFXDecal cube. overlapping decals blend without
+the game's `_DrawOrder`.
+
+not drawn: decals that write no albedo (they only change the normal or roughness of a surface the
+viewer can't relight), the `_FOOT_PRINT`, `_BLEND_EMISSIVE`, `_BLEND_WATER_FLOW`,
+`_BLEND_SLUDGE_EROSION`, `_UV_ARC`, `_UV_NOISE` and `_BLEND_WETNESS` variants, the surface's own
+occlusion and metallic under a decal that doesn't write them (taken as 1 and 0), `HGRP/DecalUnlit`,
+the terrain's decals (`HGRP/TerrainDecalLit`, component 28) and decals in dynamic structures.
+
 ## matte paintings
 
 `HGRP/MattePainting` draws the painted mountain ranges on the horizon: a few alpha-tested ring

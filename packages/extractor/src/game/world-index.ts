@@ -22,6 +22,11 @@ import {
 import { parseMapConfig, type MapConfig } from '@endfield-noclip/formats/endfield/map-config';
 import { parseMissionRuntime, type MissionRuntime } from '@endfield-noclip/formats/endfield/mission-runtime';
 import { parseStreamAreas, type StreamAreaTable } from '@endfield-noclip/formats/endfield/stream-area';
+import {
+	assetProperty,
+	parseStreamingChunk,
+	RECT_DECAL_MATERIAL_KEY,
+} from '@endfield-noclip/formats/endfield/streaming-chunk-data';
 import type { BundleManifest } from '@endfield-noclip/formats/hg/bundle-manifest';
 import { unpackHgPayload } from '@endfield-noclip/formats/hg/payload';
 import { isSparkBean, parseSparkTable, type SparkValue } from '@endfield-noclip/formats/hg/spark-buffer';
@@ -360,29 +365,46 @@ export class WorldIndex {
 	}
 
 	/**
-	 * like {@link readChunk}, with the chunk's local lights and foliage grids too
+	 * like {@link readChunk}, with the chunk's local lights, foliage grids and rect decal materials too
 	 *
 	 * @param file chunk file
 	 * @param partition the scene's partition, or `undefined` for scenes without levels
-	 * @returns its entities, lights and grass and tree grids
-	 * @throws {Error} if the chunk has foliage grids but no StreamingChunkData sibling
+	 * @returns its entities, lights, grass and tree grids, and each rect decal's material key by entity id
+	 * @throws {Error} if the chunk has foliage grids or decals but no StreamingChunkData sibling
 	 */
 	async readChunkContent(
 		file: ChunkFile,
 		partition: LevelPartition | undefined,
-	): Promise<{ entities: IndexedEntity[]; lights: ChunkLight[]; foliage: FoliageGrid[] }> {
+	): Promise<{
+		entities: IndexedEntity[];
+		lights: ChunkLight[];
+		foliage: FoliageGrid[];
+		decalMaterials: Map<number, bigint>;
+	}> {
 		const data = await this.readInitPayload(file);
 		const chunk = parseInitChunk(data);
 		const lights = readChunkLights(data, chunk);
-		let foliage: FoliageGrid[] = [];
-		if (hasFoliageGrids(data)) {
-			const streaming = await this.readStreamingPayload(file);
+		const entities = indexEntities(chunk, file, partition);
+		const foliaged = hasFoliageGrids(data);
+		const decals = entities.some((entity) => entity.decal !== null);
+		let streaming: Uint8Array | null = null;
+		if (foliaged || decals) {
+			streaming = await this.readStreamingPayload(file);
 			if (streaming === null) {
-				throw new Error(`${file.name} has foliage grids but no StreamingChunkData`);
+				throw new Error(`${file.name} has foliage grids or decals but no StreamingChunkData`);
 			}
-			foliage = readFoliageGrids(data, streaming);
 		}
-		return { entities: indexEntities(chunk, file, partition), lights, foliage };
+		const foliage = foliaged && streaming !== null ? readFoliageGrids(data, streaming) : [];
+		const decalMaterials = new Map<number, bigint>();
+		if (decals && streaming !== null) {
+			for (const record of parseStreamingChunk(streaming).records) {
+				const material = assetProperty(record, RECT_DECAL_MATERIAL_KEY);
+				if (material !== undefined) {
+					decalMaterials.set(record.id, material);
+				}
+			}
+		}
+		return { entities, lights, foliage, decalMaterials };
 	}
 
 	/**
