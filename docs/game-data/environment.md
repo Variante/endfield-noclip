@@ -1,11 +1,10 @@
 # environment
 
-how the game decides what a place looks like (sun, sky, fog, clouds, grading), what the packer
-stores for it, and how the viewer blends it at the camera. the game has no per-level environment
-setting: environment volumes placed in the world apply environment phases, blended by priority
-wherever the camera is. a level's "base" environment is something the extractor derives. weather
-sits in the same system: it is a section of a phase, not a separate timer. how the renderer turns a
-blended profile into pixels is in [lighting.md](lighting.md), [sky-and-fog.md](sky-and-fog.md) and
+how the game decides what a place looks like (sun, sky, fog, clouds, grading). the game has no
+per-level environment setting: environment volumes placed in the world apply environment phases,
+blended by priority wherever the camera is. weather sits in the same system: it is a section of a
+phase, not a separate timer. how the renderer turns a blended phase into pixels is in
+[lighting.md](lighting.md), [sky-and-fog.md](sky-and-fog.md) and
 [post-processing.md](post-processing.md).
 
 ## environment phases
@@ -16,56 +15,41 @@ whether the phase sets that section at all. an inactive section leaves whatever 
 lower-priority volume, or the scene's global phase) unchanged, even if its own fields hold plausible
 values. read sections only after checking `m_active`.
 
-the extractor reads these sections
-([`hg/environment-phase.ts`](../../packages/formats/src/hg/environment-phase.ts),
-`ENVIRONMENT_SECTIONS`), renamed in the package:
+| phase field           | holds                                                         |
+| --------------------- | ------------------------------------------------------------- |
+| `lightConfig`         | sun, exposure, ambient scale, effect directions               |
+| `skyConfig`           | ambient SH, reflection cubemap, sky distance, sun disc        |
+| `atmosphereConfig`    | sky LUTs, fog absorption                                      |
+| `fogConfig`           | atmosphere (distance) fog                                     |
+| `heightFogConfig`     | height fog                                                    |
+| `volumetricFogConfig` | volumetric fog, and its own height-fog set used while it's on |
+| `cloudConfig`         | cloud panorama, cloud shadows                                 |
+| `windConfig`          | wind                                                          |
+| `lightShaftConfig`    | sun shafts                                                    |
+| `colorGradingConfig`  | grading                                                       |
+| `autoExposureConfig`  | [auto exposure](post-processing.md#auto-exposure)             |
+| `shadowConfig`        | sun shadow softness, strength, penumbra ramp, sun-off         |
+| `celestialConfig`     | planets in the sky                                            |
+| `starConfig`          | star field and nebula                                         |
+| `rainConfig`          | rain, rain wetness ([wetness](#wetness))                      |
+| `lensFlareConfig`     | the sun's [lens flare](post-processing.md#lens-flare)         |
 
-| phase field           | package key     | used by the viewer                                            |
-| --------------------- | --------------- | ------------------------------------------------------------- |
-| `lightConfig`         | `light`         | sun, exposure, ambient scale, effect directions               |
-| `skyConfig`           | `sky`           | ambient SH, reflection cubemap, sky distance, sun disc        |
-| `atmosphereConfig`    | `atmosphere`    | sky LUTs, fog absorption                                      |
-| `fogConfig`           | `fog`           | atmosphere (distance) fog                                     |
-| `heightFogConfig`     | `heightFog`     | height fog                                                    |
-| `volumetricFogConfig` | `volumetricFog` | volumetric fog, and its own height-fog set used while it's on |
-| `cloudConfig`         | `cloud`         | cloud panorama, cloud shadows                                 |
-| `windConfig`          | `wind`          | packed, not used                                              |
-| `lightShaftConfig`    | `lightShaft`    | sun shafts                                                    |
-| `colorGradingConfig`  | `colorGrading`  | grading                                                       |
-| `autoExposureConfig`  | `autoExposure`  | [auto exposure](post-processing.md#auto-exposure)             |
-| `shadowConfig`        | `shadow`        | sun shadow softness, strength, penumbra ramp, sun-off         |
-| `celestialConfig`     | `celestial`     | planets in the sky                                            |
-| `starConfig`          | `star`          | star field and nebula                                         |
-| `rainConfig`          | `rain`          | rain wetness ([wetness](#wetness)); falling rain isn't drawn  |
-| `lensFlareConfig`     | `lensFlare`     | the sun's [lens flare](post-processing.md#lens-flare)         |
+the phase has other sections too (`snowConfig`, `volumetricCloudConfig`, …).
 
-other sections the phase has (`snowConfig`, `volumetricCloudConfig`, …) are not extracted. to add
-one, extend `ENVIRONMENT_SECTIONS` and `mapSections`, the `SECTION_KEYS` map in
-[`pack/environments.ts`](../../packages/extractor/src/pack/environments.ts), and the matching
-interface in
-[`package-format/src/environment.ts`](../../packages/package-format/src/environment.ts).
-
-section values keep the game's field names. colours stay raw (no sRGB decode; HDR colours exceed 1),
-because the game feeds them to its shaders raw. `SphericalHarmonicsL2` is 27 numbers, channel-major.
-colour curves, `m_*` editor fields and object references other than textures, materials and lens
-flare data are dropped; texture references become texture-table ids. material references (the
-celestial bodies' draw materials) become the material flattened: shader name, keywords, floats,
-colours as stored, texture-table ids and texture scale/offset per slot. the lens flare's
-`LensFlareDataSRP` reference becomes the flare's elements
-([lens flare](post-processing.md#lens-flare)), each image a texture-table id. the textures that
-resolve in practice are the sky reflection cubemap (BC6H), the cloud panorama, its flow map, the
-cloud-shadow texture and the flares' images. editor-only previews (`*ForEdit`) are skipped.
+colours are fed to the shaders raw (no sRGB decode; HDR colours exceed 1). `SphericalHarmonicsL2` is
+27 numbers, channel-major. sections reference textures (the sky reflection cubemap in BC6H, the
+cloud panorama, its flow map, the cloud-shadow texture), the celestial bodies' draw materials, and
+the lens flare's `LensFlareDataSRP`, whose elements carry images
+([lens flare](post-processing.md#lens-flare)). `*ForEdit` fields are editor-only previews.
 
 ## environment volumes
 
 volumes are tag-1 chunk objects (the mono-object rows of InitChunkData, with asset references in the
-paired StreamingChunkData; see [world.md](world.md)), not prefabs or LevelData. a volume is repeated
-in every cell chunk it overlaps; the extractor dedupes by object id
-([`game/environment.ts`](../../packages/extractor/src/game/environment.ts), `loadSceneVolumes`). the
-level tag of the entity id says which level owns it (0 = scene-wide).
+paired StreamingChunkData; see [world.md](world.md)), not prefabs or LevelData. a volume is
+repeated, under the same object id, in every cell chunk it overlaps. the level tag of the entity id
+says which level owns it (0 = scene-wide).
 
-`HGEnvironmentVolume` component fields
-([`endfield/environment-volume.ts`](../../packages/formats/src/endfield/environment-volume.ts)):
+`HGEnvironmentVolume` component fields:
 
 | field | type  | meaning                                                                            |
 | ----- | ----- | ---------------------------------------------------------------------------------- |
@@ -84,45 +68,41 @@ shapes:
   shape blob.
 - **prism** (`PolyArea`): the polyline blob is `u32 byteLength`, `f32×3` position, `f32×3` Euler
   rotation, `u32 n`, `n × (x, z)` relative to the position, an edge BVH, then `f32 height` and
-  `f32 baseHeightOffset` as the last eight bytes. points are rotated by the yaw and made absolute at
-  parse time. the prism spans `y ∈ [position.y + baseHeightOffset, + height]`; volumes are 3D, so a
-  cave volume under a hill doesn't apply on the hilltop.
+  `f32 baseHeightOffset` as the last eight bytes. the points are in the volume's frame: rotated by
+  the yaw and offset by the position, they're in world space. the prism spans
+  `y ∈ [position.y + baseHeightOffset, + height]`; volumes are 3D, so a cave volume under a hill
+  doesn't apply on the hilltop.
 
 each scene has one global volume (tag 0). each level typically has one broad polygon or box volume
 over most of its ground (usually priority 200, often named `*global*`), under dozens of smaller,
-higher-priority ones for caves, interiors and set pieces.
+higher-priority ones for caves, interiors and set pieces. neighbouring levels' volumes overlap a
+level's rectangle.
 
 Unity post-processing `Volume`s (component `Volume`: `isGlobal`, priority, blend distance, weight, a
 `VolumeProfile`) share the same rows; local ones carry a `BoxCollider`. every level has its own
-global post volume; local post volumes are read but unused.
+global post volume.
 
 ## scene states
 
-the extractor reads volumes from the default stream area's chunk files of every scene state. a
-volume present in state 0's files always loads; otherwise it loads with any of the MapConfig scene
-states whose files hold it. the packer files the volume under a visibility group (its owning level
-and that loading condition), and the viewer skips a volume whose group's condition the selected
-scene values don't satisfy. see [scene-states.md](scene-states.md).
+a volume present in scene state 0's chunk files always loads; otherwise it loads with any of the
+MapConfig scene states whose files hold it. see [scene-states.md](scene-states.md).
 
 ## prefab volumes
 
 some volumes sit in prefabs that DynamicStreaming entities place (model rows, see
 [assets.md](assets.md#payloads)), so the entity's load gates switch them with the story. the prefabs
-are named `P_lightingDeco_<entity id>_envvolume`, but the packer finds them by their components, not
-by name: an `HGEnvironmentVolume` MonoBehaviour on an active GameObject, serialized by Unity with
-the same fields as the chunk component (`_volumeType`, `_blendMode`, `_priority`, `_blendDistance`,
-`_fadeIn/OutDuration`, `_polyLineShape`, `_envPhase`). differences from chunk volumes:
+are named `P_lightingDeco_<entity id>_envvolume`. the volume is an `HGEnvironmentVolume`
+MonoBehaviour on an active GameObject, serialized by Unity with the same fields as the chunk
+component (`_volumeType`, `_blendMode`, `_priority`, `_blendDistance`, `_fadeIn/OutDuration`,
+`_polyLineShape`, `_envPhase`). differences from chunk volumes:
 
 - the phase is a reference to an `HGEnvironmentPhase` object, often stored in the prefab's own
-  bundle, not a StringPathHash asset. phases embedded this way have names of their own and are
-  packed like the others.
+  bundle, not a StringPathHash asset. phases embedded this way have names of their own.
 - a box takes its GameObject's transform under the placement. the polyline is stored in world
-  coordinates, as in chunk data (the GameObject's position doesn't move it), so a prism under a
-  placement that isn't the identity is rejected as unsupported.
+  coordinates, as in chunk data (the GameObject's position doesn't move it).
 
 each volume belongs to its placement's level and loads with the placement's visibility (its gates,
-scene-state lists and script flag). the level base vote counts it only when that visibility holds
-under the default scene values ([defaults](scene-states.md#defaults)).
+scene-state lists and script flag).
 
 Power Plateau (map01_lv007) is the example. its chunk volume is a sunset phase,
 `Env_map01_lv007_art`. two gated entities swap prefab volumes on mission `e3m5` (Undying Cinders):
@@ -134,98 +114,43 @@ Power Plateau (map01_lv007) is the example. its chunk volume is a sunset phase,
 
 the sky vortex's meshes switch on the same mission.
 
-`world env` reads chunk volumes only, so its vote leaves prefab volumes out.
-
-## the level's base environment
-
-`resolveLevelEnvironment` picks one volume per level, used as `LevelInfo.environment` and as the
-profile the viewer blends over. it samples a 32 m grid (4 × 4 per 128 m level cell) over the level's
-`levelGrids`, among volumes the level owns that load with the default scene states:
-
-1. at each sample, the volume shown is the highest-priority one containing it; on equal priority the
-   smaller footprint wins. that tie rule is an assumption; the viewer's blend orders equal
-   priorities by shape kind instead.
-2. the base is the volume covering the most samples among those shown at least once, the lower
-   priority on a tie. a volume always beaten everywhere can't be the level's look.
-3. without one, the scene's global volume stands in.
-
-heights are ignored here: the vote is 2D, on the volume's footprint. the base phase is then stacked
-over the scene's global phase per section (`composeEnvironment`): the level's section if active
-there, else the global's if active, else the level's own inactive values. the post profile is the
-level's own global `Volume`, else the scene's, highest priority first. its `Bloom`,
-`GTAmbientOcclusion`, `Vignette` and `ScreenSpaceReflectionVolume` components go into the profile's
-`post`.
-
-every loaded volume counts as enabled during this vote, which is wrong wherever level scripts switch
-volumes (see [activation](#activation)). the pack report lists each level's base volume, its
-coverage and where it's shown, and which sections were inherited; check it when a level looks wrong.
-
-## package contents
-
-the manifest carries three lists
-([`pack/environments.ts`](../../packages/extractor/src/pack/environments.ts)):
-
-- `environments`: composed base profiles (base phase over the global phase, plus the post profile),
-  deduplicated by phase and post-profile name. `LevelInfo.environment` indexes it.
-- `environmentPhases`: every phase a volume applies, uncomposed, with the list of sections it marks
-  active. deduplicated by name.
-- `environmentVolumes`: every volume with a shape the packer understands (global, box, prism): name
-  without its `#…` suffix, visibility `group` (owning level tag and loading condition), shape in
-  world coordinates, blend mode, priority, blend distance, fade durations, phase index (or `null`
-  when the phase can't be read; the viewer skips those), and `activation: 'unknown'`.
-
 ## blending at the camera
 
-[`render/environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts) follows the
-game's environment manager, which blends `HGEnvironmentPhase`s into an interpolated phase (a
-"profile" here is a phase plus the post profile, not a Unity `VolumeProfile`):
+the game's environment manager blends `HGEnvironmentPhase`s into an interpolated phase. it visits
+volumes in ascending priority; each that applies and contains the camera blends its phase's active
+sections in by a factor:
 
-- start from the shown level's base profile.
-- visit volumes in ascending priority, then shape kind (global, box, prism). each that applies and
-  contains the camera blends its phase's active sections in by a factor:
-  - **none (0)**: 1 inside.
-  - **distance (1)**: distance inside the shape over the blend distance, clamped to 1 (global
-    volumes: 1). for a prism the distance is the nearest of the 2D edge distance and the distances
-    to the top and bottom.
-  - **time (2)**: a per-camera factor that rises over the fade-in duration while inside and falls
-    over the fade-out duration after leaving
-    ([`EnvironmentFades`](../../packages/viewer/src/render/environment-blend.ts)). a camera move
-    over 5 m in one frame (teleports, level switches) snaps the fades, as the game does.
-  - **manual (3)**: the game drives the factor from scripts, which aren't recovered. these volumes
-    stay off unless ticked in the scene-conditions panel, which previews them at full strength.
-- a factor ≥ 1 copies the section. below that, numbers and colours lerp, mode/type fields and
-  references switch at ½, and the cloud panorama crossfades through `cloudFadeAlpha` (the old
-  texture fades out to ½, the new one in after), as the game's cloud lerp does. the height fog's
-  flow noise has its own rule ([flow noise](sky-and-fog.md#flow-noise)), as does the lens flare: a
-  flare on one side fades in by the factor with that side's settings, and two flares cross through
-  nothing at ½ without blending. the game's per-section lerps have more special cases (the
-  precipitation transitions, for one); the generic lerp is an approximation.
+- **none (0)**: 1 inside.
+- **distance (1)**: distance inside the shape over the blend distance, clamped to 1 (global volumes:
+  1). for a prism the distance is the nearest of the 2D edge distance and the distances to the top
+  and bottom (unverified).
+- **time (2)**: a factor that rises over the fade-in duration while inside and falls over the
+  fade-out duration after leaving. a camera move over 5 m in one frame (teleports, level switches)
+  snaps the fades (unverified).
+- **manual (3)**: scripts drive the factor.
 
-the "volumes at camera" toggle turns blending off (the base profile alone). a pinned phase replaces
-the volume blend with that one phase over the base. per-volume checkboxes override the scene-state
-decision either way. `eyeInLevelVolume` moves a level's initial viewpoint along its view line until
-the base volume holds it fully and no other level's volume does, because neighbours' volumes overlap
-a level's rectangle.
+the order among equal-priority volumes isn't known. the per-section lerps have special cases. the
+cloud lerp crossfades the cloud panorama through `cloudFadeAlpha`: the old texture fades out to ½,
+the new one in after. the height fog's flow noise has its own rule
+([flow noise](sky-and-fog.md#flow-noise)), as does the lens flare: a flare on one side fades in by
+the factor with that side's settings, and two flares cross through nothing at ½ without blending
+(unverified). the precipitation transitions are special cases too.
 
 ## activation
 
 nothing in the default chunk data says whether a volume starts enabled; the stored rows carry no
 enable field. level scripts toggle volumes at runtime (`EnvironmentEnable` actions), and quest-state
-volumes (night, battle, destroyed-town looks) sit in the same lists as permanent ones. the package
-therefore marks every volume `activation: 'unknown'`, and the viewer treats a loaded, non-manual
-volume as enabled and leaves the rest to the user's checkboxes and phase pin.
-
-keep it that way until script activation is recovered. filtering volumes by name (`night`,
-`zhandou`, `fight`, …) guesses wrong both ways, and showing an authored state as the default
-misrepresents the game more than an honest manual toggle does. examples where all-enabled is visibly
-wrong:
+volumes (night, battle, destroyed-town looks) sit in the same lists as permanent ones. their names
+(`night`, `zhandou`, `fight`, …) don't tell them apart: a name filter guesses wrong both ways.
+examples of story-state volumes that outrank a level's regular look:
 
 - map01's The Hub: a night volume covering the whole map and a destruction-state volume with the
-  exact outline of the level's regular volume both outrank it, so the regular look is never shown.
-- map02's Snowy Forest: a night-named whole-level volume at a higher priority than the level's
-  global one wins everywhere.
-- map02's Si's Painting is several disjoint painting worlds, each with its own priority-200 global
-  volume, so a single base profile fits only one of them.
+  exact outline of the level's regular volume both outrank it.
+- map02's Snowy Forest: a night-named whole-level volume has a higher priority than the level's
+  global one.
+
+map02's Si's Painting is several disjoint painting worlds, each with its own priority-200 global
+volume.
 
 ## weather
 
@@ -237,10 +162,10 @@ field rules, from the authored data:
 
 - `m_active` decides whether the section participates in blending. `enable` decides whether
   precipitation is on in that section. `intensity` is an authored 0–100 value. inactive sections can
-  hold `enable` = 1 and intensity 100, and disabled sections can keep a nonzero intensity, so
-  evaluate the three together.
-- wetness is separate (`enableWetness`, `wetness`) and can stay on in a dry section. render it apart
-  from falling rain.
+  hold `enable` = 1 and intensity 100, and disabled sections can keep a nonzero intensity, so only
+  the three together say whether it rains.
+- wetness is separate (`enableWetness`, `wetness`) and can stay on in a dry section, without falling
+  rain.
 - art-named phases carry weather too: Marker Stone's dam-area art phases include an enabled
   heavy-rain phase over the lake islet and dry, disabled-rain overrides at the outposts. a phase
   name is no evidence of what its sections hold.
@@ -251,22 +176,16 @@ weather appears in two ways:
   as the Marker Stone lake-islet rain or Snowy Forest's snow with drier cave overrides.
 - **dynamic volumes**: LevelData carries an environment-volume table (phase path, bounds and
   transform, priority, blend mode, fades) that `EnvironmentEnable` script actions load and unload.
-  these never appear in chunk data, so the packer doesn't see them. Marker Stone's outposts have
-  such quest-driven rain volumes at higher priority than the dry outpost phase.
-
-the viewer renders no precipitation, and the packer doesn't extract the snow section. the absence of
-rain in the viewer says nothing about whether the game's active phase is dry there.
+  these never appear in chunk data. Marker Stone's outposts have such quest-driven rain volumes at
+  higher priority than the dry outpost phase.
 
 ### wetness
 
 the game's deferred lighting wets every surface it shades (not forward-shaded glass or effects) from
-the blended rain section, whether or not rain falls; the viewer does the same in `rain_wet_surface`
-([`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl),
-[`render/wetness.ts`](../../packages/viewer/src/render/wetness.ts)):
+the blended rain section, whether or not rain falls:
 
 - **blend.** with `enableWetness` on both sides, the fields lerp. with it on one side only, the
-  result is wet with that side's settings and `wetness` fading in from 0
-  ([`environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts), `lerpRain`).
+  result is wet with that side's settings and `wetness` fading in from 0.
 - **coverage.** full out to the rain occlusion range around the camera (measured as the larger of
   the x and z distances), then fading to `farSceneWetnessValue` by `farSceneWetnessDistanceFactor`
   times that range. surfaces the rain can't reach take `baseWetnessLevel`, and vertical faces
@@ -280,21 +199,17 @@ the blended rain section, whether or not rain falls; the viewer does the same in
   tenth, a near mirror for the screen-space reflections. it fades out between 15 m and about 80 m of
   view depth, and needs the material occlusion to be high.
 
-not reproduced: the rain occlusion map (a depth map from above that keeps sheltered surfaces at
-`baseWetnessLevel`; the viewer treats everything as open to the sky), its range (the presetting
-asset holding it wasn't found; the viewer assumes 100 m), the jitter noise that breaks up the
-coverage edges, rain ripples and splashes, flowing water on walls, and the geometric-flatness test
-that also floods normal-mapped dips. Marker Stone's dam-side volumes keep wetness on at 0.5–1 in
-both dry and rainy phases, so its stone floors read wet even without rain.
+the game also keeps sheltered surfaces at `baseWetnessLevel` through a rain occlusion map, a depth
+map rendered from above, whose range sits in a presetting asset not yet found. it breaks up the
+coverage edges with jitter noise, adds rain ripples, splashes and water flowing down walls, and also
+floods normal-mapped dips through a geometric-flatness test. Marker Stone's dam-side volumes keep
+wetness on at 0.5–1 in both dry and rainy phases, so its stone floors read wet even without rain.
 
 ## open
 
 - script activation of chunk volumes, and the starting state of each; which volumes are permanent vs
   story state.
-- extraction of `snowConfig` and dynamic LevelData volumes, and a precipitation render (streaks,
-  splashes, ripples, snow) with the game's enable/disable transition rules.
-- `volumeType` 4 (cylinder; one map02 waterfall volume, no shape blob) and the game's equal-priority
-  order beyond shape kind.
-- scenes without levels (indoor and instance scenes) get no environment; their global volume could
-  serve.
-- local post `Volume`s are read but not applied.
+- the game's precipitation enable/disable transition rules.
+- where a `volumeType` 4 (cylinder) volume keeps its shape: map02's one, a waterfall volume, has no
+  shape blob.
+- the game's order among equal-priority volumes.

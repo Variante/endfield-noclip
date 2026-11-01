@@ -1,8 +1,8 @@
 /**
  * per-instance selection for packages with geometry: culling, LOD selection with the game's LODGroup
  * thresholds, and bucketing by (geometry, submesh, material, mirrored) for instanced draws, as
- * `docs/viewer.md#per-instance-lod` describes. instances outside the view whose shadows can reach it go to
- * cast-only buckets, which only the shadow passes draw.
+ * `docs/viewer/streaming.md#per-instance-lod` describes. instances outside the view whose shadows can reach
+ * it go to cast-only buckets, which only the shadow passes draw.
  *
  * the output (an instance list plus per-bucket ranges) has the shape a GPU cull pass would write next to
  * indirect draw arguments.

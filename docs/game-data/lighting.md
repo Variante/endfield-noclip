@@ -1,9 +1,8 @@
 # lighting
 
-how the viewer lights surfaces: the sun and its shadows, ambient and reflections, and local lights,
+how the game lights surfaces: the sun and its shadows, ambient and reflections, and local lights,
 with the environment-profile fields that drive each. the profile itself (phases, volumes, blending)
-is in [environment.md](environment.md), and the render frame's passes are in
-[viewer.md](../viewer.md#the-render-frame). the other rendering pages split by topic:
+is in [environment.md](environment.md). the other rendering pages split by topic:
 
 | page                                     | covers                                                        |
 | ---------------------------------------- | ------------------------------------------------------------- |
@@ -11,36 +10,29 @@ is in [environment.md](environment.md), and the render frame's passes are in
 | [effects.md](effects.md)                 | `HGRP/Effect/*`: VFX cards and decals, waterfalls, mist       |
 | [sky-and-fog.md](sky-and-fog.md)         | atmosphere, clouds, sun disc, celestial layers, fogs          |
 | [post-processing.md](post-processing.md) | auto exposure, light shafts, lens flare, bloom, GTAO, grading |
-| [irradiance.md](irradiance.md)           | the baked irradiance volume's format, packing and clipmaps    |
+| [irradiance.md](irradiance.md)           | the baked irradiance volume's files, cells and probes         |
 | [water.md](water.md)                     | water surfaces                                                |
 
 ## units
 
 the game (HGRP, a deferred PBR pipeline in Hypergryph's Unity fork) lights in physical units,
-pre-exposed by a fixed exposure from the profile. the viewer does the same:
-`preExposure = 1 / (1.2 · 2^directEV100)`, and the sun, ambient probe and fog colours are all
-pre-exposed, so shaded values reach the tonemapper around 0–2. emission is authored in those units
-already ([emission](materials.md#emission)); [auto exposure](post-processing.md#auto-exposure)
-adjusts on top.
-
-the game packs most profile fields into shader constants on the CPU. where that packing is known,
-the viewer follows it; where it isn't, the viewer substitutes and the gap is listed under
-[open](#open). [`render/environment.ts`](../../packages/viewer/src/render/environment.ts)
-(`deriveEnvironment`) turns a blended profile into the renderer's `Environment`; packages without
-profiles get a built-in default look.
+pre-exposed by a fixed exposure from the profile. emission is authored in those units already
+([emission](materials.md#emission)); [auto exposure](post-processing.md#auto-exposure) adjusts on
+top. the game packs most profile fields into shader constants on the CPU, in native engine code; the
+packings not yet known are listed under [open](#open).
 
 ## sun
 
-| input                                  | effect                                            |
-| -------------------------------------- | ------------------------------------------------- |
-| `light.directLux`, `light.directEV100` | pre-exposed illuminance `directLux · preExposure` |
-| `light.directColor`                    | sun colour (decoded from sRGB)                    |
-| `light.directPitchYaw`                 | direction of the shading and shadow-casting sun   |
-| `light.directSpecularIntensity`        | scales the sun's specular lobe                    |
+| input                                  | effect                                          |
+| -------------------------------------- | ----------------------------------------------- |
+| `light.directLux`, `light.directEV100` | the sun's illuminance and the exposure value    |
+| `light.directColor`                    | sun colour (stored as sRGB)                     |
+| `light.directPitchYaw`                 | direction of the shading and shadow-casting sun |
+| `light.directSpecularIntensity`        | scales the sun's specular lobe                  |
 
 the game gives every sun-drawn effect its own direction (`<effect>PitchYawMode` 0 follows the light,
 1 uses `<effect>PitchYaw`; the `rotation*` quaternions are the resolved results). art direction
-often moves these away from the light, so the viewer never substitutes the shading sun for them:
+often moves these away from the light:
 
 | direction                                  | used for                                            |
 | ------------------------------------------ | --------------------------------------------------- |
@@ -51,38 +43,28 @@ often moves these away from the light, so the viewer never substitutes the shadi
 | `rotationCloudShadow`                      | the [cloud shadows](#cloud-shadows)' skew           |
 | `rotationLightShaft`                       | the [light shafts](post-processing.md#light-shafts) |
 
-direct lighting is GGX with height-correlated Smith visibility and Lambert diffuse in
-[`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl); foliage takes the
-game's two-sided model ([foliage](materials.md#foliage)).
+the sun shades with the same lobe as the [local lights](#local-lights); foliage takes its two-sided
+model ([foliage](materials.md#foliage)).
 
 ## shadows
 
 the game's PC high layout: three sharp cascades out to 12, 30 and 80 m, then a coarse layer the game
-keeps as a cached, tiled shadow map out to 800 m (its ASM, `HGASMManager`, which the package's
-`asm*` shadow fields configure). the viewer draws all four as 2048² `depth32float` layers fitted to
-bounding spheres of frustum slices and snapped to world texels so edges don't crawl
-([`render/shadow-map.ts`](../../packages/viewer/src/render/shadow-map.ts)). turning the camera
-doesn't change a sphere's fit. casters are what the main pass draws that frame, plus instances
-outside the view within 250 m whose shadows can reach it: the view frustum's planes are swept 250 m
-towards the sun, and instances inside the swept planes draw into the shadow layers only. off-screen
-casters smaller than 16 px (as if on screen) are skipped, and terrain outside the view doesn't cast.
-shadow-only renderers draw into the shadow layers only, in view or not: interiors rely on them, such
-as the plane roofing Dijiang (177 × 348 m at y 46) that keeps the sun off its corridors, since the
-walls they stand in for cull their back faces. they cull back faces like any material (no Dijiang
-material changes `_ShadowCullMode`), which is enough for that roof.
+keeps as a cached, tiled shadow map out to 800 m (its ASM, `HGASMManager`, which the `asm*` shadow
+fields configure). shadow-only renderers cast into the shadow maps without drawing, and interiors
+rely on them: the plane roofing Dijiang (177 × 348 m at y 46) keeps the sun off its corridors, since
+the walls such renderers stand in for cull their back faces. no Dijiang material changes
+`_ShadowCullMode`.
 
-- a point uses the first cascade sphere containing it, dithered with the next one over the outer
-  tenth of the sphere's radius.
-- the sharp cascades filter like the game: 16 gathers (64 depths) on a Poisson disk rotated per 4×4
-  pixel cell, at a radius of `csmShadowSoftness / split` (splits 12, 30 and, as the game computes
-  it, 40 m) in the game's 2 × 2 atlas uv. the blocked fraction goes through a curve that hardens
-  edges where blockers are close in depth and leaves plain PCF where they're far.
-- the sharp cascades fade into the far layer between 64 and 80 m by squared distance to the camera.
-  the far layer is a 3×3 grid of bilinear comparisons, standing in for the game's tent-filtered
-  cached map.
-- against acne, receivers move along the normal by about a texel and casters take a slope-scaled
-  depth bias. the game instead pushes receivers towards the sun by its contact-shadow pass's clear
-  ray length, and biases casters in hardware.
+- the sharp cascades filter with 16 gathers (64 depths) on a Poisson disk rotated per 4×4 pixel
+  cell, at a radius of `csmShadowSoftness / split` (splits 12, 30 and, as the game computes it, 40
+  m) in the game's 2 × 2 atlas uv. the blocked fraction goes through a curve that hardens edges
+  where blockers are close in depth and leaves plain PCF where they're far.
+- unverified: a point uses the first cascade containing it, dithered with the next one over the
+  outer tenth of its bounding sphere's radius, and the sharp cascades fade into the far layer before
+  their 80 m reach.
+- the cached far map is tent-filtered.
+- against acne, the game pushes receivers towards the sun by its contact-shadow pass's clear ray
+  length, and biases casters in hardware.
 - the environment's `shadow` section (the phase's `shadowConfig`) sets the rest, blended across
   volumes like any other section. map02 has softness 0.01 and strength 1 everywhere:
 
@@ -94,10 +76,9 @@ material changes `_ShadowCullMode`), which is enough for that roof.
   | `csmRampTexture`                                   | penumbra tint: the sun times `1 − (1 − ramp(v)) · (1 − v)`, black if none |
 
   without a ramp the sun is multiplied by the visibility `v`. on map02, Yinglung Pass's phases tint
-  penumbrae purple, and ten cave and interior volumes keep the sun out entirely. the cached map's,
-  contact shadows' and other fields are packed but unused. contact shadows aren't drawn; the game's
-  are Bend Studio's screen-space shadows, on from PC low quality up, at intensity 0.5 in the open
-  world.
+  penumbrae purple, and ten cave and interior volumes keep the sun out entirely. the game's contact
+  shadows are Bend Studio's screen-space shadows, on from PC low quality up, at intensity 0.5 in the
+  open world.
 
 ### cloud shadows
 
@@ -118,53 +99,47 @@ terrain's contours.
 - the sun visibility is multiplied by `mix(1, red, cloudShadowAlpha)` before the sun-off override,
   strength and ramp above.
 
-no shipped phase enables the far texture set (`enableFarCloudShadowTexture`); the viewer ignores it.
-rain phases set high alphas: on Marker Stone 0.75–1 against 0.49–0.70 for its dry phases, which is
-most of what makes the rain look overcast. the volumetric fog takes the same cloud shadow on its
-sun; where a phase sets the alpha to 1, as Marker Stone's cave volumes do, fog under a dark patch
-gets no sun at all, and without it the haze over such places reads near-white.
+no shipped phase enables the far texture set (`enableFarCloudShadowTexture`). rain phases set high
+alphas: on Marker Stone 0.75–1 against 0.49–0.70 for its dry phases, which is most of what makes the
+rain look overcast. the volumetric fog takes the same cloud shadow on its sun; where a phase sets
+the alpha to 1, as Marker Stone's cave volumes do, fog under a dark patch gets no sun at all.
 
 ## ambient
 
-diffuse ambient comes from the irradiance volume where it reaches, and the **ambient probe**
-elsewhere.
+diffuse ambient comes from the [irradiance volume](irradiance.md) where it reaches, and the
+**ambient probe** elsewhere.
 
-- the ambient probe is `sky.skyAmbientSH` (Unity `SphericalHarmonicsL2`, 27 floats channel-major)
-  scaled by `light.indirectDiffuseFactor`, converted to Unity's `ShadeSH9` vectors (`shaderSh`). it
-  is stored pre-exposed.
-- the irradiance volume's L1 probes are sampled from three camera-centred clipmaps
-  ([irradiance](irradiance.md#the-viewers-clipmaps)), blended between levels near each level's edge.
-  the probes' validity decides how much of the ambient probe fills in, including the game's vertical
-  correction term at the volume's boundary. the game also jitters the lookup and shifts the clipmaps
-  along the view; the viewer does neither.
+- the ambient probe comes from `sky.skyAmbientSH` (Unity `SphericalHarmonicsL2`, 27 floats
+  channel-major). the profile also carries `light.indirectDiffuseFactor` and the irradiance volume's
+  default SH (`customIVDefaultSH`); how the CPU combines them is [open](#open).
+- the irradiance volume's L1 probes are sampled from camera-centred clipmaps filled from its cells
+  ([cells and probes](irradiance.md#cells-and-probes)). the probes' validity decides how much of the
+  ambient probe fills in, with a vertical correction term at the volume's boundary. the game jitters
+  the lookup and shifts the clipmaps along the view.
 - diffuse ambient is darkened by the lower of
   [ambient occlusion](post-processing.md#ambient-occlusion) and material occlusion, through
-  Jimenez's multi-bounce fit so bright surfaces darken less. the game fits per channel; the viewer
-  uses the albedo's luminance. with AO off, material occlusion applies alone and linearly, as in the
-  game.
-- specular ambient gets Lagarde's specular occlusion from material occlusion only; the game also
-  feeds GTAO into it.
+  Jimenez's multi-bounce fit per channel, so bright surfaces darken less. with AO off, material
+  occlusion applies alone and linearly.
+- specular ambient gets Lagarde's specular occlusion from material occlusion and GTAO.
 
 specular ambient samples `sky.reflectionMap` (a BC6H cubemap, prefiltered by roughness across its
-mips) along the roughness-bent reflection vector, or the ambient probe until the cubemap streams in;
-it's weighted by an analytic split-sum environment BRDF and `light.indirectSpecularFactor`. a
-profile's cubemap can be black: Dijiang's (`T_reflectionprobe_envdefault0`) is, so its metal
-reflects nothing without local reflection probes.
+mips) along the roughness-bent reflection vector, weighted by a split-sum environment BRDF and
+`light.indirectSpecularFactor`. a profile's cubemap can be black: Dijiang's
+(`T_reflectionprobe_envdefault0`) is, so its metal reflects nothing without local reflection probes.
 
-as in the game, the reflection is scaled by how the surface's diffuse light compares with the sky
-probe's: with `d` the luminance of the diffuse irradiance (above) and `p` the ambient probe's
-luminance L1 along the normal, the factor is `(2 · min(d / p, 1) + d) / (2 + p)`. that's about
-`d / p` under cover, so interiors don't mirror the bright sky, and about 1 in the open. the game's
-clustered local reflection probes (normalised the same way) are not implemented.
+the reflection is scaled by how the surface's diffuse light compares with the sky probe's: with `d`
+the luminance of the diffuse irradiance (above) and `p` the ambient probe's luminance L1 along the
+normal, the factor is `(2 · min(d / p, 1) + d) / (2 + p)`. that's about `d / p` under cover, so
+interiors don't mirror the bright sky, and about 1 in the open. the game's clustered local
+reflection probes are normalised the same way.
 
 ### screen-space reflections
 
-every lit surface, at any roughness, gets the game's screen-space reflections on top
-([`ssr.wgsl`](../../packages/viewer/src/render/shaders/ssr.wgsl),
-[`screen-space-reflections.ts`](../../packages/viewer/src/render/screen-space-reflections.ts)), as
-its PC high quality runs them. where a hit is found, its colour replaces the sky reflection by a
-fade: `specular = (hit · fade + sky · (1 − fade)) · environment BRDF · specular occlusion`, where
-only the sky term carries the normalisation above and the indirect specular factor.
+at PC high quality, every lit surface, at any roughness, gets screen-space reflections on top. where
+a hit is found, its colour replaces the sky reflection by a fade:
+`specular = (hit · fade + sky · (1 − fade)) · environment BRDF · specular occlusion`, where only the
+sky term carries the normalisation above and the indirect specular factor. where no hit is found,
+the sky reflection stays.
 
 - **march.** the mirror ray is projected to the screen and stretched to its edge, then stepped in
   equal steps of uv and device depth, 4 taps per loop: 32 steps (PC high quality's
@@ -191,32 +166,26 @@ only the sky term carries the normalisation above and the indirect specular fact
   pixels → `log2`. it blends the same depth-weighted binomial at the two mips around it (below a
   quarter mip, the filtered colour as is); the fade is read at the lower mip.
 
-the viewer runs these as fullscreen passes rather than the game's compute kernels, reprojects
-through the depth buffer and the previous camera instead of motion vectors (the scenery is static),
-and needs no rain-wetness variant: the game's variant re-derives the wet roughness the deferred
-wetness computes, which the viewer's surfaces already carry ([environment](environment.md#wetness)),
-plus rain ripple normals the viewer doesn't draw. off-screen reflections keep the sky reflection.
+the game runs these as compute kernels and reprojects through motion vectors. under rain it runs a
+variant that re-derives the wet roughness the deferred wetness computes
+([wetness](environment.md#wetness)) and adds rain ripple normals.
 
 ## local lights
 
 the scenes' point, spot and tube lights live in the chunk files
-([world.md](world.md#initchunkdata-layout)). the packer keeps the spot and point lights (a point
-with a positive length is a tube along its direction) in `tables/lights.json.zst`
-([`pack/lights.ts`](../../packages/extractor/src/pack/lights.ts)), with conditions from the scene
-states of the files holding them, like instances. dynamic structures' ECS groups hold lights in the
-same layout (map02: 466, such as the outposts' per-level lamps), which load under their structure's
-visibility ([assets.md](assets.md#dynamic-structures)); a light the chunk files also hold keeps its
-files' conditions. prefabs placed by model rows carry lights too, as Unity `Light` components with
-HG's additional light data on the same GameObject: a Dijiang cabin's lighting prefab
-(`lightingdeco_spaceship_*`) holds its room's only lights, six spots in the growth chamber. the
-packer reads the lights of every placed prefab with the same settings
-([`game/prefab-lights.ts`](../../packages/extractor/src/game/prefab-lights.ts)), deriving the colour
-the chunk files store precomputed: the sRGB colour made linear, times intensity and, when the light
-uses one, the colour temperature's tint from HDRP's published curve fit (pivot 6570 K), which
-reproduces every stored chunk colour. they load with their placement's visibility, and their culling
-boxes, authored in the prefab's axes, turn with the placement (unchecked against the game for turned
-cabins). directional lights, shadow-only lights (12 on map02) and character-only lights (none) are
-left out. both bake types on the maps, realtime and mixed, light directly, as in the game.
+([world.md](world.md#initchunkdata-layout)); a point with a positive length is a tube along its
+direction. dynamic structures' ECS groups hold lights in the same layout (map02: 466, such as the
+outposts' per-level lamps), which show with their structure
+([dynamic structures](assets.md#dynamic-structures)). prefabs placed by model rows carry lights too,
+as Unity `Light` components with HG's additional light data on the same GameObject: a Dijiang
+cabin's lighting prefab (`lightingdeco_spaceship_*`) holds its room's only lights, six spots in the
+growth chamber. a prefab light carries the same settings as a chunk light, but the chunk files store
+the colour precomputed: the sRGB colour made linear, times intensity and, when the light uses one,
+the colour temperature's tint from HDRP's published curve fit (pivot 6570 K), which reproduces every
+stored chunk colour. a prefab light's culling box is authored in the prefab's axes (unverified: that
+it turns with the placement, for turned cabins). the scenes also hold directional lights,
+shadow-only lights (12 on map02) and character-only lights (none on map02). both bake types on the
+maps, realtime and mixed, light directly.
 
 | input                                                         | effect                                                                                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -234,34 +203,23 @@ the game's lobe for these lights (and for its sun) is GGX with the height-correl
 visibility and Schlick Fresnel, but without the 1/π in the distribution and the Lambert term and
 without (1 − F) on diffuse, so a light adds
 `colour · attenuation · n·l · (diffuse colour + π · specular BRDF)`; the specular term is clamped to
-1000 and the sum of all lights to 255. the viewer follows that
-([`local_lighting` in `shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)),
-leaving out the game's multiple-scattering term. the viewer's sun divides diffuse by π with the
-colour taken as illuminance; which convention reproduces the game's sun brightness is open
-([open](#open)).
+1000 and the sum of all lights to 255, and a multiple-scattering term goes on top.
 
-each frame [`render/local-lights.ts`](../../packages/viewer/src/render/local-lights.ts) takes the
-shown level's lights (and tag 0's) whose condition holds, that are within their culling distance and
-in the view, sorts them by camera distance then priority and keeps the nearest 256, as the game's
-light list does. it bins them the game's way: 32 px screen tiles and 1 m view-depth slices from the
+each frame the game's light list takes the lights within their culling distance and in the view,
+sorts them by camera distance then priority, and keeps the nearest, up to a quality setting's cap
+(at most 256). compute shaders bin them into 32 px screen tiles and 1 m view-depth slices from the
 near plane (2048 of them), each a 256-bit mask; a pixel walks the lights set in both its tile's and
-its slice's mask. the viewer bins conservative bounding spheres on the CPU; the game does it in
-compute shaders. the volumetric fog lights each froxel with the same lists, through the fog's
-Henyey-Greenstein phase times each light's volumetric intensity.
+its slice's mask. the volumetric fog lights each froxel with the same lists, through the fog's
+Henyey-Greenstein phase times each light's volumetric scattering intensity.
 
-not drawn: local light shadows (972 map02 lights cast them in the game), shadow-only lights, cookies
-(no map02 light has one), the flicker component and light beams.
+972 map02 lights cast shadows. lights can also carry cookies (no map02 light has one), a flicker
+component and light beams.
 
 ## open
 
 - the CPU packing of the diffuse-ambient scale and the irradiance volume's default SH
-  (`skyAmbientSH` vs `customIVDefaultSH`). these live in native engine code; the viewer's ambient
-  brightness is an approximation.
-- not rendered: local reflection probes, local light shadows and light beams.
-- the sun's units: the game shades its sun with the same lobe as local lights (no 1/π on diffuse),
-  while the viewer treats the sun's colour as illuminance and divides diffuse by π. unless the CPU
-  folds a 1/π into the sun's colour, the viewer's sun is π too dark. unchecked against a shot.
-- the cap on local lights per frame comes from a quality setting that isn't recovered (the viewer
-  takes the hard maximum, 256).
-- interiors outside the game's sun-off volumes receive the outdoor sun wherever no drawn geometry
-  shadows them.
+  (`skyAmbientSH` vs `customIVDefaultSH`, and where `indirectDiffuseFactor` applies). these live in
+  native engine code.
+- the sun's units: the sun shades with the local lights' lobe (no 1/π on diffuse); whether the CPU
+  folds a 1/π into the sun's colour is unknown.
+- the quality setting that caps the local lights per frame isn't recovered.

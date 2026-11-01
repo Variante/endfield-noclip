@@ -1,8 +1,8 @@
 /**
  * the per-frame quadtree traversal. it decides what to draw (terrain patches, instance row ranges) from what
  * is resident, and tells the stream manager what it wants next, prioritised by screen-space error. the rules
- * are in `docs/viewer.md#instance-selection` (REPLACE refinement over HLOD) and
- * `docs/viewer.md#terrain-selection` (CDLOD).
+ * are in `docs/viewer/streaming.md#instance-selection` (REPLACE refinement over HLOD) and
+ * `docs/viewer/streaming.md#terrain-selection` (CDLOD).
  *
  * @module
  */
@@ -286,7 +286,7 @@ export class Selector {
 		const priority = this.#priority(node, sse, inView);
 		const hasHlod = this.#hasHlod(node, options);
 		const leaf = isLeaf(node);
-		// a leaf refines even without detail of its own (`docs/viewer.md#instance-selection`)
+		// a leaf refines even without detail of its own (`docs/viewer/streaming.md#instance-selection`)
 		const canRefine = !leaf || options.detail;
 		const refine = canRefine && (sse > options.maxSse || !hasHlod);
 

@@ -1,22 +1,19 @@
 # world: maps, levels, streaming and terrain
 
-how Endfield lays out its worlds and how the extractor reads them: streaming scenes and their
-coordinate frames, levels as exact sets of 128 m cells, entity level tags, the static and dynamic
-streaming files, stream areas, terrain tiles, and the game's LOD/HLOD data with the way the packer
-turns it into per-level blocks. which scenery a scene state, quest or variable switches on is
-covered in [scene-states.md](scene-states.md); the package layout these blocks land in is in
-[../package-format.md](../package-format.md).
+how Endfield lays out its worlds: streaming scenes and their coordinate frames, levels as exact sets
+of 128 m cells, entity level tags, the static and dynamic streaming files, stream areas, terrain
+tiles, and the game's LOD/HLOD data. which scenery a scene state, quest or variable switches on is
+covered in [scene-states.md](scene-states.md).
 
 ## scenes, maps and levels
 
-the game has three units, and this project names them the same way:
+the game has three units:
 
 - a **scene** is a streaming scene (`Data/Streaming/PC/<scene>/`, described by a
   `StreamingSceneConfig` asset): `map01`, `map02`, `base01_lv001` (Dijiang), `indie_dg007`, and
   about a hundred more. each scene has one Unity coordinate frame. LevelConfig rects, entity
   matrices, terrain tiles and MapRegion shapes are all in that frame, and nothing is relocated per
-  level. a package holds one scene. `world scenes` lists the scenes the client ships; a scene being
-  listed says nothing about whether it packs or renders.
+  level.
 - a **map** is a MapConfig (`mapIdStr`): the ownership grid and scene states of a playable space.
   the open-world maps `map01` and `map02` share their scene's name; their `domainName` (`domain_1`,
   `domain_2`) is the region the game shows as Valley IV and Wuling.
@@ -31,9 +28,8 @@ the game has three units, and this project names them the same way:
 ### LevelConfig
 
 `Data/Json/LevelConfig/<level>.json` is a binary MemoryPack-style payload with strings pooled in
-`Data/Json/StringPool/StringPool<n>.byte`, despite its extension. the decoder checks the member
-counts (18 at the root, 3 in `defaultState`) and that the payload ends exactly at EOF, so any layout
-change fails loudly. fields the project uses:
+`Data/Json/StringPool/StringPool<n>.byte`, despite its extension. the root has 18 members and
+`defaultState` 3, and the payload ends exactly at EOF. fields with known meaning:
 
 | field                                             | meaning                                                                                                                                 |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,9 +39,7 @@ change fails loudly. fields the project uses:
 | `defaultState.sourceSceneName`                    | the level's art sub-scene, e.g. `map02_lv001_art`                                                                                       |
 | `levelGrids`                                      | the 128 m cells the level owns                                                                                                          |
 | `levelDataPathHashes`                             | StringPathHash keys (stored as `levelDataPaths`) of the level's LevelData files (interactives, see [assets.md](assets.md#interactives)) |
-| `rectLeftBottom`, `rectRightTop`, `playerInitPos` | level rect and spawn point, used for the viewer's level list                                                                            |
-
-code: [level-config.ts](../../packages/formats/src/endfield/level-config.ts)
+| `rectLeftBottom`, `rectRightTop`, `playerInitPos` | the level's playable rect and the player's spawn point                                                                                  |
 
 ### MapConfig and the ownership grid
 
@@ -55,41 +49,33 @@ cell `(x, z) = (floor(worldX / 128), floor(worldZ / 128))` is at index `(z + N/2
 map02's grid is 32² (4096 m), map01's 16² (2048 m). MapConfig also carries `sceneStates` and
 `sceneStateConditions`, which [scene-states.md](scene-states.md) covers.
 
-code: [map-config.ts](../../packages/formats/src/endfield/map-config.ts)
-
 ### the level partition
 
-three sources describe level membership, and `buildLevelPartition` cross-checks them:
+three sources describe level membership:
 
 1. MapConfig `levelIds`: which level owns each cell
 2. LevelConfig `levelGrids`: the same cells, listed per level
 3. the entity id's top 5 bits (`id >>> 27`), the **level tag**: which level authored the entity
 
-the two cell sources agree exactly on map01 and map02; disagreements are collected as `issues`
-rather than thrown, and `world levels <map>` prints them.
+the two cell sources agree exactly on map01 and map02.
 
 the tag is the 1-based ordinal of the level among the map's grid-owning levels sorted by id, not the
 `lvNNN` number. in map02 these coincide because lv001–lv010 all exist; map01 has no lv004, so
 lv005–lv007 carry tags 4–6. tag 0 is a small map-wide shared set and tag 31 holds generated
 colliders. a single-level scene (a dungeon, Dijiang) tags everything 0, so there the one level owns
-tag 0. `world levels <map> --verify` checks the rule by a majority vote of where each tag's pivots
-fall; backdrop cells don't vote, since skyline props would outvote small levels.
+tag 0. a majority vote of the cells where each tag's entity pivots fall confirms the rule, with
+backdrop cells left out, since their skyline props would outvote small levels.
 
 **content ownership follows the tag, not position.** a level's scenery can sit in a neighbour's cell
 or in a cell no level owns (backdrop and skyline; map02 has more such cells than owned ones). border
 cells hold several levels' entities without duplicating them, and an entity spanning cells repeats
 by id in each cell's chunk. so:
 
-- select a level's content by tag. clipping by its cells or rect cuts real scenery
-- keep unowned cells; they are part of their tag's level
-- treat MapRegionTable polygons as UI overlays (mist, toasts). they don't tile the level and
-  overhang its cells, so using them as clip volumes cuts scenery
-
-`classifyEntity` returns a bucket (`level`, `shared` for tag 0, `unassigned`) and a placement
-relative to the grid (`own`, `neighbour`, `backdrop`, `unplaced`); `world members <level>` counts a
-level's entities by placement.
-
-code: [level-partition.ts](../../packages/formats/src/endfield/level-partition.ts)
+- a level's content is its tag's entities; its cells and rect don't bound it, and clipping by them
+  cuts real scenery
+- unowned cells hold content of their tag's level
+- MapRegionTable polygons are UI overlays (mist, toasts). they don't tile the level and overhang its
+  cells
 
 ## static scenery: InitChunkData and StreamingChunkData
 
@@ -111,18 +97,14 @@ calls the 128 m cell a grid.
   state `n − 1` is active (see [scene-states.md](scene-states.md)).
 - `<area>` is a stream-area id from `FBStreamArea` (below); 0 is the default area.
 
-`WorldIndex.chunkFiles()` parses these names; `world cells <level>` lists a level's files as
-`sceneState/area`, `world entities <scene> <x> <z>|global` dumps one cell.
-
-every file is the HG payload envelope (see [../extraction.md](../extraction.md)) around a
+every file is a u32 clear size and an inverted-LZ4 block (the HG payload envelope) around a
 FlatBuffer.
 
 ### InitChunkData layout
 
-the root table has 8 slots: version (47 and 49 are accepted; anything else throws), the chunk origin
-(`x·128, z·128`; Global stores `INT32_MAX, INT32_MIN`), the object rows (ids, union kinds and
-tables, each row's field 0 being the full object name), and parallel vectors of per-group entity ids
-and **component groups**.
+the root table has 8 slots: version (47 and 49 seen), the chunk origin (`x·128, z·128`; Global
+stores `INT32_MAX, INT32_MIN`), the object rows (ids, union kinds and tables, each row's field 0
+being the full object name), and parallel vectors of per-group entity ids and **component groups**.
 
 a component group is an ECS archetype stored column-major: a descriptor list of
 `(component id, stride)` and one blob of `count · Σ stride` bytes. component ids are anonymous
@@ -141,31 +123,22 @@ column selectors; the ones with established meaning:
 | 67    | LOD ranges: LOD count and cumulative draw count per LOD                                                                                                                                                |
 | 68–74 | draw refs for capacity `2^(id − 68)`: `(u64 material hash, u64 mesh hash, …)`                                                                                                                          |
 
-`readChunkEntities` turns a group into `ChunkEntity` rows with id, tag, name, matrix, bounds, decal
-flag and a `StaticRenderer` (draws with mesh/material StringPathHash keys, submesh, flags and LOD
-range). the decoder throws on any stride or count disagreement instead of skipping, so a format
-change can't silently drop draws.
-
 object row kinds by census: 1 = GameObjects the client rebuilds as MonoBehaviours (environment and
 post volumes, probes, water, terrain root), 2 = component-group entities, 3 = proxies: audio, grass
-and tree grids ([below](#foliage-grids)) and surface data. kind 1 is read by
-[mono-objects.ts](../../packages/formats/src/endfield/mono-objects.ts) and consumed by
-[environment.md](environment.md) and [water.md](water.md).
+and tree grids ([below](#foliage-grids)) and surface data. kind 1's volumes and water are described
+in [environment.md](environment.md) and [water.md](water.md).
 
 local lights are kind-2 entities in groups with columns 42 and 63. their row's slot 3 is a keyed
 property table in kind 1's layout, holding two blobs, a 236-byte runtime block and a 448-byte
-settings block, which [chunk-lights.ts](../../packages/formats/src/endfield/chunk-lights.ts) lays
-out. map01 has 1,025 and map02 2,153; [lighting.md](lighting.md#local-lights) covers how they shade.
+settings block. map01 has 1,025 and map02 2,153; [lighting.md](lighting.md#local-lights) covers how
+they shade.
 
 ### StreamingChunkData
 
 the sibling of each InitChunkData file. it shares the root layout and object ids and adds, per
 object, a keyed property table whose values point at assets by StringPathHash key. keys read as
-`component << 24 | field << 16 | index`. kind-1 objects merge their Init and Streaming rows per
-component.
-
-code: [init-chunk-data.ts](../../packages/formats/src/endfield/init-chunk-data.ts),
-[streaming-chunk-data.ts](../../packages/formats/src/endfield/streaming-chunk-data.ts)
+`component << 24 | field << 16 | index`. a kind-1 object's properties are split, per component,
+between its Init and Streaming rows.
 
 ### foliage grids
 
@@ -190,17 +163,14 @@ sparsity at 8 and the renderer flags at 12; tree draws carry the entry's index a
 at 16. there's no LOD-range column, so a draw's LOD is the rank of its upper threshold. instances
 are a column-major object-to-world matrix and two vec4 parameters (96 bytes): a grass entity is a
 cluster of nearby instances (column `37 + k`: a count and room for `4 · 2^k`), a tree entity one
-instance (column 80). column 6 (20 bytes) starts with a point and a squared size and column 7 (24
-bytes) is unread.
+instance (column 80). column 6 (20 bytes) starts with a point and a squared size; column 7 (24
+bytes) isn't identified.
 
 map02 holds about 981k grass and bush instances in 81k clusters and 17k trees, map01 376k grass
-instances and no tree grids. grids repeat in every file they overlap, under one id. the packer files
-each instance as an ordinary row with its cluster's bounds, so a cluster culls and changes LOD as a
-whole; the game's actual LOD measure for clusters (`rendererHalfSize`), the sparsity (the game thins
-grass by a quality setting) and the instance parameters aren't read; the second is the grass
-shader's per-instance colour ([materials](materials.md#foliage)).
-
-code: [foliage-grids.ts](../../packages/formats/src/endfield/foliage-grids.ts)
+instances and no tree grids. grids repeat in every file they overlap, under one id. the game
+measures a cluster's LOD by `rendererHalfSize` and thins grass by its sparsity at a quality setting;
+the second instance parameter is the grass shader's per-instance colour
+([materials](materials.md#foliage)).
 
 ## stream areas
 
@@ -209,25 +179,19 @@ visible by default (`RootVisible`), and trigger volumes: an XZ polygon with a bo
 per area. while the streaming centre is inside one or more triggers, the client shows the union of
 those areas' visible slices; otherwise it shows `RootVisible`. area ids are the `<area>` suffix of
 chunk file names and the visibility groups of DynamicStreaming entities. root slots 7–9
-(`HlodUnloadBounds`, `HlodUnloadTriggers`, `HlodUnloadPoints`), HLOD-unload trigger volumes in the
-same layout, are not decoded.
+(`HlodUnloadBounds`, `HlodUnloadTriggers`, `HlodUnloadPoints`) are HLOD-unload trigger volumes in
+the same layout.
 
 areas are not interiors only: a level can hold several versions of the same place's backdrop, each
 shown from its own zone. map02's Si's Painting has a cliff and floating-rock backdrop (area
-701638228 in one client build) that loads only inside a zone west of the inn, so drawing every area
-at once puts those rocks in front of the inn's view.
+701638228 in one client build) that loads only inside a zone west of the inn; shown everywhere,
+those rocks would stand in front of the inn's view.
 
-the packer gates non-default-area content by its areas (see
-[scene-states.md](scene-states.md#how-the-package-encodes-conditions)) and ships the table; the
-viewer runs the trigger test at the camera. of the scenes packed (map01, map02, base01_lv001,
-base01_lv002), only map02 has area content. DynamicStreaming entities carry areas too
-([scene-states.md](scene-states.md#where-states-are-referenced)), and are gated the same way: on
-map02, about 600 of their 11,504 area lists name one of 22 areas other than the default, among them
-the falls pouring over Si's Painting's backdrop cliff.
-
-code: [stream-area.ts](../../packages/formats/src/endfield/stream-area.ts) (parsing),
-[stream-areas.ts](../../packages/package-format/src/stream-areas.ts) (the packaged table and the
-trigger test)
+of map01, map02, base01_lv001 and base01_lv002, only map02 has static content in non-default areas.
+DynamicStreaming entities carry areas too
+([scene-states.md](scene-states.md#where-states-are-referenced)): on map02, about 600 of their
+11,504 area lists name one of 22 areas other than the default, among them the falls pouring over
+Si's Painting's backdrop cliff.
 
 ## dynamic streaming
 
@@ -248,8 +212,7 @@ Data/Terrain/PC/<scene>/Layers/LAYER_<D|N|C>_<index>.bytes
 
 each file is a u32 clear size and an inverted-LZ4 block (a few are stored raw), and the clear bytes
 are a 20-byte `TRET` header (magic, version 1, width, height, mip count, Unity `GraphicsFormat`,
-payload size) followed by one texture's mip chain. the parser checks the mip chain fills the payload
-exactly.
+payload size) followed by one texture's mip chain, which fills the payload exactly.
 
 tiles form a quadtree over the scene's terrain square: level `l` splits it into `2^l × 2^l` tiles,
 `x` along +X and `z` along +Z. the finest tiles are 64 m (map02's leaf is level 6, map01's level 5).
@@ -260,24 +223,22 @@ tiles form a quadtree over the scene's terrain square: level `l` splits it into 
 | `N`, `A` | baked normal and albedo pages, DXT5                                                                |
 | `T`      | tint page, DXT5 sRGB                                                                               |
 | `S`      | splat control, RGBA8                                                                               |
-| `C`      | 34² cliff index, R8G8                                                                              |
+| `C`      | 34² cliff index, R8G8, driving the cliff projection                                                |
 
 pages are 132² with a 2-texel border around a 128² core that covers the tile edge to edge, and have
 one level. every tile with a height page has all six channels, at every level. layers are per-scene
-material textures the renderer gathers into arrays by index: `D` diffuse (BC7 sRGB), `N` normal
-(BC7), `C` cone maps (R8).
+material textures addressed by index ([close-up layers](#close-up-layers)): `D` diffuse (BC7 sRGB),
+`N` normal (BC7), `C` cone maps for parallax (R8).
 
 the baked `A` and `N` pages are what the game draws where its close-up layer blend doesn't reach:
 
-| channel | r                   | g                   | b                    | a                                        |
-| ------- | ------------------- | ------------------- | -------------------- | ---------------------------------------- |
-| `A`     | albedo, linear      | albedo              | albedo               | subsurface curvature input (unused here) |
-| `N`     | world normal x ·2−1 | world normal z ·2−1 | perceptual roughness | occlusion                                |
+| channel | r                   | g                   | b                    | a                          |
+| ------- | ------------------- | ------------------- | -------------------- | -------------------------- |
+| `A`     | albedo, linear      | albedo              | albedo               | subsurface curvature input |
+| `N`     | world normal x ·2−1 | world normal z ·2−1 | perceptual roughness | occlusion                  |
 
 `A` is linear despite its UNorm format, and the normal's y is `√(1 − x² − z²)`. the normal's
-orientation was checked against normals from the height page (r = +X, g = +Z, rows along +Z). the
-packer stores both pages as one surface page per tile
-([package format](../package-format.md#surface-page-tsp-efts)).
+orientation was checked against normals from the height page (r = +X, g = +Z, rows along +Z).
 
 the terrain's placement isn't in the tiles. it comes from the scene's `HGTerrainSurfacesData`
 MonoBehaviour at
@@ -288,19 +249,13 @@ MonoBehaviour at
 - `heightScale`: metres spanned by the 15-bit height range
 - `terrainSize`: root edge length, a power-of-two multiple of 64 m
 - `nodeData`: a complete breadth-first quadtree (`index = (4^l − 1)/3 + z·2^l + x`) with per-node
-  min/max height and a `maxHeightError`. the packer stores `maxHeightError` with each height page,
-  but nothing reads it: a node's error is a placeholder ([below](#how-the-packer-files-instances))
+  min/max height and a `maxHeightError`
 - `layerData`: the close-up material layers by ordinal; see below
 - `sectorSplatInfo`: one u64 per 64 m sector, a bitmask of the layer ordinals the sector uses
-  (checked against the index map on map02); the packer doesn't need it
+  (checked against the index map on map02)
 
 world Y of a sample is `position.y + (h & 0x7fff) · heightScale / 32768`. bit 15 marks a hole; holes
-keep a plausible height in the low bits, which suits skirts and morphing but not drawing. a scene
-with terrain tiles but no `HGTerrainSurfacesData` fails the pack rather than guessing a placement.
-
-the packer aligns its tile tree with this quadtree (root = the terrain square, leaf = 64 m) so tree
-nodes never split the game's own units; scenes without terrain get a 4096 m tree centred on the
-origin.
+keep a plausible height in the low bits, which suits skirts and morphing but not drawing.
 
 ### close-up layers
 
@@ -309,7 +264,7 @@ near the camera the game draws a blend of tiling material layers instead of the 
 - **index**: `terrain/splatindexmap.tga`, an RGBA32 Texture2D of `terrainSize / 8` texels (row 0 at
   the minimum z), names 4 layer ordinals per 8 m cell, each stored times 4
 - **weights**: the leaf's `S` page; rgb weight the cell's slots 0–2, slot 3 gets `1 − r − g − b`.
-  its filtering stays half a texel inside the cell, since the weights belong to that cell's layers
+  the weights belong to that cell's layers
 - **layers** (`layerData`): `splatST` (x: repeats across the terrain square, y: texture index, zw:
   uv offset), `packedSplatInfo` (mean albedo, normal xy scale), `diffuseRemapScale` (rgb multiplier,
   height-blend border in w), `maskMapRemapScale`/`Offset` (scale and offset for occlusion in y,
@@ -322,8 +277,7 @@ near the camera the game draws a blend of tiling material layers instead of the 
   blended mean albedos. the blended tangent normal is oriented on the baked normal, with tangent
   `cross(n, +Z)`
 - **projection**: world position times the layer's repeats per metre, on the x, y and z planes. the
-  viewer blends the three by the baked normal's `|n|⁸` weights; the game picks one plane per pixel
-  at random
+  game picks one plane per pixel at random
 
 ### puddles
 
@@ -335,32 +289,17 @@ same `w` as above), far away a flat 0.5. with `w = sat((S.a − ground) / 0.46)`
 - roughness → 0 and occlusion × `1 − 0.1 w`
 - the normal bends towards straight up by `0.98 w`
 
-layers with parallax enabled use a parallax-weighted height instead of `Σ w · h` in the game; the
-viewer doesn't pack those settings, so it always uses the plain weighted height. the viewer only has
-leaf `S` pages, so puddles stop where splat pages stop loading. the reflections in the puddles come
-from the viewer's screen-space reflections ([lighting](lighting.md#screen-space-reflections)).
-
-not drawn: the cliff projection driven by the `C` page, parallax from the cone maps, and rain
-ripples on puddles.
-
-`terrain scenes|tiles|export-heights` inspects and exports the data.
-
-code: [terrain.ts](../../packages/formats/src/hg/terrain.ts),
-[terrain-source.ts](../../packages/extractor/src/game/terrain-source.ts),
-[commands/terrain.ts](../../packages/extractor/src/commands/terrain.ts)
+layers with parallax enabled use a parallax-weighted height instead of `Σ w · h`.
 
 ## LOD and HLOD
 
-the game ships a full far-field stack, and the packer reuses it rather than generating its own,
-since the game's clusters are exact, come with their own materials and atlases, and cover a whole
-level in very few triangles.
+the game ships a full far-field stack: its HLOD clusters are exact, come with their own materials
+and atlases, and cover a whole level in very few triangles.
 
 - **per-entity LOD chains.** every static draw carries its LOD index and a
   `(minSquared, maxSquared]` range of squared screen-relative height, as in Unity's LODGroup.
   `maxSquared` is `FLT_MAX` on the nearest LOD; a negative `minSquared` means never culled by size.
-  the packer keeps whole chains, thresholds included.
-- **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary far LODs; the packer
-  marks a draw as a card when its mesh path contains `_cardmesh`.
+- **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary far LODs.
 - **shadow proxies.** draws with `renderFlags` bit 10 only cast shadows.
 - **HLOD clusters.** auto-generated per-level clusters in three tiers, placed as ordinary entities
   named `HLOD<tier>_<i>_<j>_Cluster_<hash>…`, `i`/`j` being the tier's grid cell, with negative
@@ -371,47 +310,18 @@ level in very few triangles.
   Jingyu's tiers hold 469 meshes / 451k triangles (HLOD0), 177 / 226k (HLOD1) and 69 / 45k (HLOD2).
   the number after a cluster's hash (`_250`, `_600`) is its height rounded to 50 m, not a switch
   distance. HLOD0 cells are 64 m, doubling per tier: 93.9 % of map02 cluster centres (91.0 % of
-  Jingyu's) lie in the 64 m-based cell their name gives, the rest overhang. the pack report counts
-  how many cluster names agree with the tile computed from their position. a cluster named on cell 0
-  is filed under the cell, among those its bounds span at or below 0, whose detail instances it
-  contains most often ([hlod-cells.ts](../../packages/extractor/src/pack/hlod-cells.ts)).
+  Jingyu's) lie in the 64 m-based cell their name gives, the rest overhang.
 
-### how the packer files instances
-
-the entity pass ([packer.ts](../../packages/extractor/src/pack/packer.ts), `collectEntities`) reads
-the scene's chunk files in a fixed order (always-loaded before scene-state files, the default area
-before stream areas, then by name). an entity first met in an always-loaded file of the default area
-stays unconditional; any other entity collects every file holding it and loads while any of them
-does: the file's scene state and stream area both on. entities without a renderer or matrix are
-skipped; rect decals draw the decal cube instead ([materials](materials.md#decals)). every row goes
-to a block of one visibility group (its level tag and the condition that loads it, see
-[package-format.md](../package-format.md#visibility-groups)), so a level, a scene state or a stream
-area can be shown or hidden as a whole:
-
-| destination | what goes there                                                                                                                                              | where it lives                           |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| HLOD        | scene-state-0 entities whose name matches the HLOD pattern, gated by their stream areas; attached to the tile of tier `t` at tree level `leaf − t`           | one block per group, in the core archive |
-| global      | other entities of `Global` chunks, with their files' condition                                                                                               | one block per group, in the core archive |
-| detail      | other scene-state-0 entities, gated by their stream areas, filed under the 64 m leaf containing their bounds centre; HLOD clusters of the same area stand in | one block per (leaf, group)              |
-| conditional | entities of scene-state cell files, plus dynamic structures and facilities, with a visibility expression                                                     | one block per (leaf, group)              |
-
-HLOD clusters stand in for instances already counted, so they're left out of a level's instance
-count. with `--level`, the subset keeps entities with that level's tag and terrain tiles touching
-its cells.
-
-the game's HLOD switch distances are unknown, so a node's geometric error is a placeholder (1/16 of
-its edge, 4 m at the 64 m leaf) that the viewer's SSE threshold tunes. the game streams HLOD as the
-streaming layers `HLOD0`–`HLOD2`, each with its own load radius (`hlod0LayerLoadRadius`, …), and
-calls a tier an HLOD level; their values come from settings that aren't read.
+the game streams HLOD as the streaming layers `HLOD0`–`HLOD2`, each with its own load radius
+(`hlod0LayerLoadRadius`, …, set in its streaming settings), and calls a tier an HLOD level. the
+switch distances themselves are unknown.
 
 ## open
 
 - the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`
   beyond "never culled by size"
 - HLOD switch distances, and the HLOD generated-material channel layout
-- the cell size of `fb_main` grids; the levels are known from file names, the metric size is not
-  decoded
-- stream-area root slots 7–9 (HLOD-unload triggers)
+- the cell size of `fb_main` grids; the levels are known from file names, the metric size is unknown
 - `farmod` far-field assets: whether they form a layer outside HLOD
 - whether dungeon levels that reuse an open-world scene add content of their own beyond LevelData
   and DynamicStreaming

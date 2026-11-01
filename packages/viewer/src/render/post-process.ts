@@ -4,7 +4,7 @@
  * auto exposure, bloom and tonemapping into the swapchain. everything up to the temporal resolve runs at the
  * render size, everything after it at the output size. the passes this module owns are fullscreen triangles
  * with `auto` layouts, so each bind group holds exactly the bindings its pass reads. see
- * `docs/game-data/post-processing.md`.
+ * `docs/viewer/post-processing.md`.
  *
  * @module
  */

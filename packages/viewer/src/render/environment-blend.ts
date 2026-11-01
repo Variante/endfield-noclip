@@ -1,7 +1,7 @@
 /**
  * the environment at the camera: the game's environment volumes blended over the shown level's base profile
  * each frame, as the game's environment manager does. the blend modes, their factors and the per-section
- * lerps are in docs/game-data/environment.md#blending-at-the-camera.
+ * lerps are in docs/viewer/environment.md#blending-at-the-camera.
  *
  * volumes apply in ascending priority (then shape: global, box, prism) where they contain the camera, and
  * only to the sections their phase marks active. scripted volumes (mode 3) apply only when ticked, at full

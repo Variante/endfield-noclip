@@ -4,7 +4,7 @@
  * game's field names) or from defaults when a package has none.
  *
  * shading happens in pre-exposed units: `preExposure = 1 / (1.2 · 2^EV100)`, the sun's illuminance is
- * `directLux · preExposure`, and the ambient probe is stored pre-exposed (docs/game-data/lighting.md).
+ * `directLux · preExposure`, and the ambient probe is stored pre-exposed (docs/viewer/lighting.md#units).
  *
  * @module
  */

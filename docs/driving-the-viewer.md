@@ -1,8 +1,8 @@
 # driving the viewer
 
 how an agent opens the viewer in a browser, poses the camera, reads its state and profiles it. how
-the viewer works is in [viewer.md](viewer.md); its options and stats are `ViewerOptions` and
-`ViewerStats` in [`src/viewer.ts`](../packages/viewer/src/viewer.ts).
+the viewer works is in [viewer/index.md](viewer/index.md); its options and stats are `ViewerOptions`
+and `ViewerStats` in [`src/viewer.ts`](../packages/viewer/src/viewer.ts).
 
 ## opening it
 
@@ -14,14 +14,14 @@ pnpm run dev --port 5199 --strictPort
 agent-browser --webgpu open 'http://localhost:5199/?package=map02&level=map02_lv007'
 ```
 
-the URL takes the [`package` and `level` parameters](viewer.md#url-parameters).
+the URL takes the [`package` and `level` parameters](viewer/loading.md#url-parameters).
 
 - after `agent-browser close`, reopen with `--webgpu` again.
 - `agent-browser console` keeps lines from before a reload; read only what follows
   `[vite] connected`.
 - after re-packing, reload: an open page keeps the old core archive's offsets. it notices when a
   shard's size no longer matches its manifest, stops streaming and offers a reload (see
-  [sources](viewer.md#sources)), but a re-pack that keeps a shard's size goes unnoticed.
+  [sources](viewer/loading.md#sources)), but a re-pack that keeps a shard's size goes unnoticed.
 - wrap multi-statement `agent-browser eval` code in an IIFE: top-level `const` collides across
   evals.
 - give `agent-browser screenshot` an absolute path; relative paths land in agent-browser's own

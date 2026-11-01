@@ -2,8 +2,9 @@
  * how the viewer's mesh shader draws each package material: whether at all, which textures fill its slots
  * ({@link SLOTS}), and the draw parameters `mesh.wgsl` reads.
  *
- * the shading each look selects is in `docs/game-data/materials.md`; the Lit family's two texture layouts,
- * which decide the normal-map flags here, are in `docs/game-data/materials.md#texture-layouts`.
+ * the shading each look selects is in `docs/viewer/materials.md`, over the game's shaders in
+ * `docs/game-data/materials.md`; the Lit family's two texture layouts, which decide the normal-map flags
+ * here, are in `docs/game-data/materials.md#texture-layouts`.
  *
  * @module
  */
@@ -192,7 +193,7 @@ export interface MaterialLook {
 
 /**
  * a draw's stencil state and the depth test that goes with it, from its material's `_Stencil*` and `_ZTest`
- * properties, for VFXBaseV2 portals (`docs/game-data/effects.md#portals`)
+ * properties, for VFXBaseV2 portals (`docs/viewer/effects.md#portals`)
  */
 export interface LookStencil {
 	compare: GPUCompareFunction;

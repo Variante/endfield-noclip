@@ -18,7 +18,7 @@ import { groupBounds, groupColumn, groupNames, type InitChunk } from './init-chu
 import { levelTagOf } from './level-partition.ts';
 import { assetProperty, type StreamingChunk } from './streaming-chunk-data.ts';
 
-// open-world water (docs/game-data/water.md#game-data). three sources join here:
+// open-world water (docs/game-data/water.md). three sources join here:
 // - InitChunkData component 30 (104 bytes) places each water surface: `u32 render type mask, i32 runtime mesh
 //   id, f32×16 object-to-world, f32×4 param0, f32×4 param1`, beside bounds, name and an unread 24-byte
 //   column 7. every surface sits in a Global chunk.

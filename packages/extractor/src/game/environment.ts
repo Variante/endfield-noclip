@@ -36,7 +36,7 @@ import type { WorldIndex } from './world-index.ts';
 
 // which environment a level is lit by. the game has no per-level setting, only environment volumes blended by
 // priority at the camera, so a level's base environment is the volume that wins over most of the level's
-// cells (docs/game-data/environment.md#the-levels-base-environment); `world env <level>` shows the vote.
+// cells (docs/extraction.md#the-levels-base-environment); `world env <level>` shows the vote.
 
 // #region scene volumes
 

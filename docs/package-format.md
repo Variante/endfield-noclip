@@ -4,8 +4,8 @@ a package is what `pnpm -s extract pack <scene>` writes and the viewer streams: 
 (one world, one coordinate frame) as czar archives holding content-addressed blobs and a few tables.
 this page covers the layout on disk, every table and binary encoding, the versioning rule, and the
 design reasons behind them. how the packer gets there is in [extraction.md](extraction.md#pack), how
-the viewer opens and streams a package in [viewer.md](viewer.md#loading-a-package), and what the
-game data inside means in the [game-data](game-data/) pages.
+the viewer opens and streams a package in [viewer/index.md](viewer/loading.md), and what the game
+data inside means in the [game-data](game-data/) pages.
 
 the types are the contract: [package-format](../packages/package-format/src/) has one module per
 concern, each holding that concern's types and binary codec (`manifest`, `tiles`, `tree`,
@@ -124,10 +124,11 @@ block's origin, which keeps f32 precise anywhere in the world.
 ## tile tree
 
 `TreeInfo` describes a forest of quadtrees on one unbounded grid that coincides with the game's
-terrain quadtree: `origin` and `rootSize` are the terrain square's corner and edge (scenes without
-terrain get a 4096 m square centred on the origin). level `l` tiles are `rootSize / 2^l`;
-`(l, x, z)` may be negative or past `2^l − 1` for content off the terrain square, such as far
-skyline props. terrain page keys equal tree keys.
+[terrain](game-data/world.md#terrain) quadtree, so tree nodes never split the game's own units:
+`origin` and `rootSize` are the terrain square's corner and edge (scenes without terrain get a 4096
+m square centred on the origin). level `l` tiles are `rootSize / 2^l`; `(l, x, z)` may be negative
+or past `2^l − 1` for content off the terrain square, such as far skyline props. terrain page keys
+equal tree keys.
 
 | level           | role (map02: 4096 m root)                                          |
 | --------------- | ------------------------------------------------------------------ |
@@ -149,9 +150,12 @@ its screen-space error, `geometricError · viewportHeight / (2 · distance · ta
 within the threshold; otherwise it refines to its children, and a refined leaf draws its detail
 blocks. this is how the game swaps HLODs, seams included. per-instance LOD inside detail uses the
 chain thresholds. conditional blocks have no HLOD stand-in, so they draw by their tile's screen size
-regardless of refinement ([viewer.md](viewer.md#instance-selection)). `manifest.global` content (the
-game's Global chunk scenery) is drawn whenever its group shows and never replaced. `geometricError`
-is a placeholder, `edge / 16` (64 m leaf → 4 m), until the game's HLOD switch distances are known.
+regardless of refinement ([viewer/index.md](viewer/streaming.md#instance-selection)).
+`manifest.global` content (the game's Global chunk scenery) is drawn whenever its group shows and
+never replaced. `geometricError` is a placeholder, `edge / 16` (64 m leaf → 4 m), until the game's
+HLOD switch distances are known; the viewer's SSE threshold tunes it. which entities become HLOD,
+detail, global and conditional content is in
+[extraction.md](extraction.md#how-the-packer-files-instances).
 
 **content refs** (`ContentRef`, `ContentKind`):
 
@@ -184,8 +188,8 @@ map02, a third of the core):
 | `tree`                                                    | `TreeInfo` plus node and ref counts                                                                                                                                       |
 | `terrain`                                                 | position, `heightScale`, `terrainSize`, page size, hole bit, levels with pages, surface page size and border, close-up `splat`; `null` without terrain                    |
 | `levels`                                                  | every level of the scene, even in a subset: id, tag, name, rect, `playerInitPos`, owned cells at `cellLevel`, packed instance count and `contentBounds`, base environment |
-| `environments`, `environmentPhases`, `environmentVolumes` | see [environment.md](game-data/environment.md#package-contents)                                                                                                           |
-| `heightFogFlowNoise`                                      | texture id of the height fog's 3D flow noise, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                               |
+| `environments`, `environmentPhases`, `environmentVolumes` | see [environments](#environments)                                                                                                                                         |
+| `heightFogFlowNoise`                                      | texture id of the height fog's 3D flow noise, packed once, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                  |
 | `states`                                                  | scene controls, conditional sets, visibility groups, stream areas and missions; see [conditions](#conditions)                                                             |
 | `archives`                                                | `ArchiveInfo`: name, role, tile, size, `dataOffset`                                                                                                                       |
 | `global`                                                  | content refs drawn regardless of refinement                                                                                                                               |
@@ -193,7 +197,30 @@ map02, a third of the core):
 | `source`                                                  | the bundle manifest's build guid and content hash: identifies the game build                                                                                              |
 
 a viewer shows one level at a time: content whose group carries the level's tag or tag 0 (shared
-content), over the shared terrain. scenes without levels show everything.
+content), over the shared terrain. scenes without levels show everything. a level's rect and
+`playerInitPos` come from its [LevelConfig](game-data/world.md#levelconfig) (`rectLeftBottom`,
+`rectRightTop`, `playerInitPos`); the viewer lists levels with them and poses its first view of a
+level over the playable rectangle, falling back to the spawn height while coarse terrain loads
+([viewer.ts](../packages/viewer/src/viewer.ts)).
+
+### environments
+
+the manifest carries three lists
+([pack/environments.ts](../packages/extractor/src/pack/environments.ts); how the extractor reads
+them is in [extraction.md](extraction.md#environments)):
+
+- `environments`: composed base profiles (base phase over the global phase, plus the post profile;
+  see [the level's base environment](extraction.md#the-levels-base-environment)), deduplicated by
+  phase and post-profile name. `LevelInfo.environment` indexes it.
+- `environmentPhases`: every phase a volume applies, uncomposed, with the list of sections it marks
+  active. deduplicated by name.
+- `environmentVolumes`: every global, box and prism volume: name without its `#…` suffix, visibility
+  `group` (owning level tag and loading condition), shape in world coordinates, blend mode,
+  priority, blend distance, fade durations, phase index (or `null` when the phase can't be read; the
+  viewer skips those), and `activation: 'unknown'`.
+
+the package marks every volume `activation: 'unknown'` because nothing in the chunk data says
+whether a volume starts enabled ([activation](game-data/environment.md#activation)).
 
 ## binary encodings
 
@@ -220,13 +247,30 @@ for bits not yet understood. `particles` indexes the [particles table](#particle
 a particle system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has
 (`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`,
 `BillboardUpright`): their transform's rotation is then relative to the camera's, and their bounds
-hold every orientation ([assets](game-data/assets.md#billboards)).
+hold every orientation ([billboards](game-data/assets.md#billboards)). the nearest billboard up the
+hierarchy turns a mesh renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode
+0 flags the chain `BillboardFacing`, the others `BillboardUpright` (about the world's vertical,
+which is their axis on upright placements). the packer stores the offset times the renderer's
+rotation relative to the billboard, at the renderer's own position, so a renderer away from the
+billboard's origin turns in place rather than swinging around it.
 
-**irradiance cells** are keyed in the game's layout, and each cell is one `.iv` blob as the game's
-GPU reads it; [irradiance.md](game-data/irradiance.md#packing) covers both. the manifest's
-`irradianceRegions` lists rooms' own bakes (`IrradianceRegionInfo`: a visibility group, the probe
-grid's origin and size, and an `.iv` blob of its probes), which replace the finest probes inside
-their grid while their group shows ([region bakes](game-data/irradiance.md#region-bakes)).
+### irradiance cells
+
+[pack/irradiance.ts](../packages/extractor/src/pack/irradiance.ts) stores every **base-bake** cell
+(state group hash 0) whose centre the package covers as one decompressed `Irradiance` blob
+([cells and probes](game-data/irradiance.md#cells-and-probes)), zstd-compressed, in the 512 m
+archive `irradiance/<x>_<z>-<id>.czar` over it. `tables/irradiance.bin` lists the cell keys, in the
+game's layout moved to one origin ([parser](extraction.md#irradiance)), ascending with their blob
+indices. cells stay in the game's GPU layout so the viewer uploads them unchanged.
+
+the manifest's `irradianceRegions` lists rooms' own bakes (`IrradianceRegionInfo`: a visibility
+group, the probe grid's origin and size, and an `.iv` blob of its probes), which replace the finest
+probes inside their grid while their group shows
+([region bakes](game-data/irradiance.md#region-bakes)). a cabin slot's region bake is the one whose
+box holds the slot origin and whose room type is the slot's cabin's
+([Dijiang cabins](extraction.md#dijiang-cabins-and-region-walls)); the packer stores its probes as
+one blob and lists it with the visibility group of the built cabin, so it applies exactly while the
+cabin shows.
 
 ### instance block (`.inst`, `EFIN`)
 
@@ -248,8 +292,11 @@ as two byte planes (all low bytes, then all high bytes) of zigzag deltas. interi
 predicted by `left + above − aboveLeft`, the first row by its left neighbour, the first column by
 the sample above. arithmetic wraps at 16 bits so the hole bit survives. the gradient predictor beats
 left-only prediction by about 10 % after zstd. the packer ships every level of the game's pyramid,
-not only leaves, so the viewer can run CDLOD from native data. `terrainHeight` and `isTerrainHole`
-decode samples: `y = position.y + (h & 0x7fff) · heightScale / 32768`.
+not only leaves, so the viewer can run CDLOD from native data. each quadtree node's min/max height
+and `maxHeightError` (from `HGTerrainSurfacesData.nodeData`, [terrain](game-data/world.md#terrain))
+go with that node's height page, the error as its ref's `param`. a scene with terrain tiles but no
+`HGTerrainSurfacesData` fails the pack rather than guessing a placement. `terrainHeight` and
+`isTerrainHole` decode samples: `y = position.y + (h & 0x7fff) · heightScale / 32768`.
 
 ### surface page (`.tsp`, `EFTS`)
 
@@ -327,13 +374,85 @@ each is one zstd frame (level 9) around JSON. entry `i` has id `i`. an entry is 
 | `geometries` | `ReadyGeometry`: blob, local bounds, vertex/index/submesh counts, attribute bitmask, `tangentUv`                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `materials`  | `shaders`: each shader's declared properties and defaults (floats, colours as authored: gamma-encoded, or linear for HDR colours, vectors, texture built-in defaults, `[Normal]` slots) and its `ShaderFamily`. `entries`: `ReadyMaterial` with shader index, keywords, render queue, blend and blend factors, cull, `zWrite`, alpha clip threshold, `baseTextureMapCount`, bound `slots` (texture id, UV set, `_ST` scale/offset) and only the floats/colours/vectors that differ from the shader's defaults |
 | `textures`   | `ReadyTexture`: kind, WebGPU format, size, `depthOrArrayLayers`, mip count, sampler as `GPUSamplerDescriptor` fields plus Unity's `mipBias`, `pieces` coarse to fine                                                                                                                                                                                                                                                                                                                                          |
-| `water`      | see [water.md](game-data/water.md#package-tableswaterjsonzst)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `lights`     | `LightEntry`: kind (spot, point), entity id, visibility group, position, direction, final linear colour, range, cone angles, tube length, soft source radius, falloff exponent, specular and volumetric scattering intensity, priority, camera-distance fade, culling box as a rows3x4 inverse; see [lighting.md](game-data/lighting.md#local-lights)                                                                                                                                                         |
+| `water`      | see [water](#water)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `lights`     | `LightEntry`: kind (spot, point), entity id, visibility group, position, direction, final linear colour, range, cone angles, tube length, soft source radius, falloff exponent, specular and volumetric scattering intensity, priority, camera-distance fade, culling box as a rows3x4 inverse; see [lights](#lights)                                                                                                                                                                                         |
 | `particles`  | see [particles](#particles)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
-materials store overrides only because lit materials declare ~190 floats each; undeclared (stale)
-properties Unity keeps from earlier shaders are dropped
+### materials
+
+the packer copies each material's serialized state
+([material and shader](game-data/assets.md#material-and-shader), decoded as
+[extraction.md](extraction.md#asset-classes) describes) into the package; the viewer turns it into a
+look. materials store overrides only because lit materials declare ~190 floats each; undeclared
+(stale) properties Unity keeps from earlier shaders are dropped
 ([materials.ts](../packages/extractor/src/pack/materials.ts)).
+
+**decal copies**: the packer gives each rect decal placement a copy of its material carrying the
+placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPERTY` in the package's
+materials), and the box it draws is the game's VFXDecal cube
+([decals](game-data/materials.md#decals)).
+
+### lights
+
+the packer keeps the spot and point lights (a point with a positive length is a tube along its
+direction) in `tables/lights.json.zst` ([pack/lights.ts](../packages/extractor/src/pack/lights.ts)),
+with conditions from the scene states of the files holding them, like instances. lights in dynamic
+structures' ECS groups load under their structure's visibility; a light the chunk files also hold
+keeps its files' conditions. the packer reads the lights of every placed prefab with the same
+settings ([game/prefab-lights.ts](../packages/extractor/src/game/prefab-lights.ts)), deriving the
+colour the chunk files store precomputed (the sRGB colour made linear, times intensity and, when the
+light uses one, the colour temperature's tint; see
+[local lights](game-data/lighting.md#local-lights)). they load with their placement's visibility,
+and their culling boxes, authored in the prefab's axes, turn with the placement (unchecked against
+the game for turned cabins). directional, shadow-only and character-only lights aren't packed.
+
+### water
+
+`tables/water.json.zst` holds the [water](game-data/water.md) surfaces and the scene's global water
+data. [pack/water.ts](../packages/extractor/src/pack/water.ts) plans the table before asset
+conversion and fills in texture ids after it (`planWater` → `finishWater`, the same split as
+environments); the decoders it reads through are in [extraction.md](extraction.md#water). the types,
+with field-level JSDoc, are `WaterTable`, `WaterGlobal`, `WaterSector`, `WaterConfigEntry`,
+`WaterConfig` and `WaterSurfaceEntry` in [water.ts](../packages/package-format/src/water.ts).
+
+```
+WaterTable
+  global     WaterGlobal | null   null without water, or when the package holds no surface
+  configs    WaterConfigEntry[]   { name, values } deduplicated by asset key
+  surfaces   WaterSurfaceEntry[]  { id, group, geometry, transform, bounds, config,
+                                    renderTypeMask, param1 }
+WaterGlobal  { mapSize, sectorSize, center, flowmapPrecision,
+               flowMap, causticMap, normalMaps, rainMap, sectors: { x, z, texture }[] }
+```
+
+water is resident in the game (Global chunks only) and small, so the whole table ships in the core
+archive and every surface is always available to the viewer.
+
+packing rules:
+
+- **chunk files**: only Global files are read, since no cell file holds water.
+- **subset**: a surface is kept when the packer's `includesEntity(levelTag, centre x, centre z)`
+  accepts its bounds centre, the same rule as instances.
+- **configs**: loaded once per distinct asset key. every field `WaterConfig` names must be present
+  with its declared shape, so the viewer can read them as typed; a config failing that or failing to
+  load drops its surfaces. the remaining numeric fields ride along under their own names.
+- **meshes**: interned into the geometry table and placed in the common asset archive, because
+  surfaces are resident. no chain draws them, so no tangents are generated; polygon meshes come out
+  with position and normal only.
+- **transform**: the column-major matrix becomes rows3x4 like instance transforms, but absolute (no
+  block origin).
+- **visibility groups**: each surface's `group` indexes `StatesInfo.groups`, the owning level tag
+  and the scene states of the files holding it (`gateByScene` in
+  [packer.ts](../packages/extractor/src/pack/packer.ts)), shared with instances, lights and
+  environment volumes.
+- **global maps** go to the common archive. **sector tiles** go to the asset archive of the
+  shard-level tile under the sector's centre, so a region import carries the tiles it needs. full
+  packages keep every sector with data; subset packages keep the sectors overlapping a packed
+  surface's bounds.
+- **errors** (failed configs, missing global binding, unresolvable maps or sectors) go to
+  `debug/water.json` with per-surface rows (id, name, chunk file, mesh and config paths). they never
+  fail the pack.
+- surfaces aren't instances and don't count toward `LevelInfo.instances`.
 
 ### particles
 
@@ -349,6 +468,51 @@ ordinary instance row: its transform is the system's frame and its bounds cover 
 particle reaches, so the row culls like any other. a ring-buffered system's particles outlive their
 lifetime until replaced, held at their end or looping part of it; a texture sheet names the flipbook
 tile each particle's mesh UVs are remapped into.
+
+a `ParticleSystemRenderer` ([particle systems](game-data/assets.md#particle-systems)) whose
+`ParticleSystem` plays on awake is packed one of two ways. mesh-mode renderers draw their meshes;
+the others (billboard, stretched, horizontal, vertical) draw the render pipeline's unit quad
+(`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx`), which the packer
+looks up once per scene.
+
+**a frozen particle**, read as a plain mesh
+([particle-mesh.ts](../packages/extractor/src/game/particle-mesh.ts)): the system allows one
+particle and keeps it past its lifetime (`ringBufferMode` not 0), without a texture sheet. the
+particle takes the renderer's `m_Mesh` and materials at the shape's centre, oriented by world, local
+or (for a box shape, which emits along the emitter's forward axis) velocity alignment, then its
+start rotation (Euler, Z then X then Y) and start size, scaled by the emitter's local scale unless
+`scalingMode` is Shape. random ranges between two constants take their midpoint, since the game's
+draws can't be reproduced; curves and camera-facing alignments disqualify a system.
+
+**a played system**, mesh or quad, when a viewer can play it from the package alone
+([particle-system.ts](../packages/extractor/src/game/particle-system.ts)): the renderer becomes an
+emitter whose draw names a particles-table entry, its matrix the emitter's transform (with its local
+scale unless `scalingMode` is Shape) and its bounds a box around everywhere a particle can reach.
+the entry keeps:
+
+- the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
+  is `Shape`
+- the duration, looping, start delay, particle cap and simulation speed. a system that stores a cap
+  of 0 ([particle systems](game-data/assets.md#particle-systems)) gets the most one longest lifetime
+  of emission holds: the top rate times the lifetime, plus each loop's top burst counts times the
+  loops that lifetime spans
+- the start lifetime, speed, size and rotation, gravity modifier and emission rate as
+  `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s
+  (gradient key times are stored as 0–65535)
+- the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
+  angle, length, arc, placement and random-direction and -position amounts)
+- the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as
+  constants), and size and rotation over lifetime
+- the drag of a Limit Velocity module whose `dampen` is 0: its amount and whether it scales with the
+  particle's size and its speed squared
+- the render alignment (Facing is kept as View) and pivot
+- the ring buffer mode and `ringBufferLoopRange`
+- the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
+  random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
+  `startFrame`, both read as fractions of the frames, on the UV sets of `uvChannelMask`
+
+a renderer with several meshes (`m_Mesh` … `m_Mesh3`) becomes one emitter per mesh, its entry naming
+which.
 
 ### textures (`.tex`)
 
@@ -376,7 +540,7 @@ or uses under different root tiles
 therefore lives in the asset archives of that tile and its ancestors plus common, which suits a
 region import into OPFS or CDN grouping. the viewer itself range-reads single blobs and ignores the
 grouping. textures inherit the merged placement of the materials binding them; water and environment
-textures are placed explicitly (see [water.md](game-data/water.md)).
+textures are placed explicitly (see [water](#water)).
 
 an asset used on both sides of a quadrant border climbs to the coarse ancestor. first-use or
 majority placement would give smaller per-tile archives but lose the ancestor guarantee.
@@ -385,9 +549,10 @@ majority placement would give smaller per-tile archives but lose the ancestor gu
 
 `manifest.states` (`StatesInfo`, [states.ts](../packages/package-format/src/states.ts)) decides
 which placed content shows. what the controls mean, how the packer derives their conditions and how
-their defaults are chosen is in [scene-states.md](game-data/scene-states.md); this section covers
-the encoding and its evaluation, in [conditions.ts](../packages/package-format/src/conditions.ts)
-(`resolveSceneValues`, `conditionVisible`, `conditionResults`, `groupsShown`).
+their defaults are chosen is in [extraction.md](extraction.md#scene-controls), over the game's
+[scene states](game-data/scene-states.md); this section covers the encoding and its evaluation, in
+[conditions.ts](../packages/package-format/src/conditions.ts) (`resolveSceneValues`,
+`conditionVisible`, `conditionResults`, `groupsShown`).
 
 ### visibility groups
 
@@ -402,32 +567,59 @@ they hold the camera, whichever level owns them, so only their condition gates t
 
 ### conditional sets
 
-a `ConditionalSetInfo` is a list of alternatives, each a list of `{ control, mask }` requirements;
-the content is visible when any alternative has every requirement met, and a requirement is met when
-bit `value` of `mask` is set for the control's value. unknown controls fail closed. the packer
-interns equivalent expressions into one set.
+a `ConditionalSetInfo` is a list of alternatives (`alternatives: SceneRequirement[][]`, a
+disjunction of conjunctions), each a list of `{ control, mask }` requirements; the content is
+visible when any alternative has every requirement met (`conditionVisible`), and a requirement is
+met when bit `value` of `mask` is set for the control's value. a missing or out-of-range value
+fails, so a control absent from the manifest hides its content instead of showing it. groups store a
+`condition` index into `conditionalSets`, `null` when always loaded.
+
+- **masks**: an on/off requirement uses mask 2 (value 1); a quest or variable requirement the values
+  its test accepts; a progression requirement the group's `logicState`; a facility form `1 << form`,
+  a doodad form `1 << level`.
+- **combined conditions** become alternatives by distributing conjunctions over disjunctions, with
+  `reverse` pushed down to the tests (each test's mask complemented within its control's values);
+  requirements on one control in a conjunction merge, and impossible conjunctions drop.
+- **dynamic content**: one dynamic resource group yields the conjunction of its progression, logic
+  or harvest requirement, its script requirement, its gates' requirements, one state from each
+  visible-state list, and one `area:<id>` from each visible-area list without area 0. a model or ECS
+  group referenced by several resource groups collects all their alternatives, so any complete
+  alternative shows it.
+- **file-gated content**: static renderers, lights and water surfaces of scene-state or stream-area
+  files get one alternative per file holding them: the file's `sceneState:<index>` requirement, its
+  `area:<id>` requirement, or both. environment volumes come from default-area files only, so they
+  have state requirements alone.
+- **interning**: the packer canonicalises and deduplicates sets (`Collector.condition`), so
+  equivalent expressions share one index.
 
 ### controls
 
 a `SceneControl` holds one piece of game state: its `kind`, `id`, `name`, the selectable `values`
 (each below 32, with a label), a `default`, the `assumption` the default rests on, and the
 `levelTags` of the content it gates (directly or through a derived control), which a viewer uses to
-list a control only for the levels it matters to. only controls some group requires are listed.
+list a control only for the levels it matters to. a value is a quest's state, a variable's range, a
+progression's level or form index, or 0/1 for on/off controls. only controls some group requires,
+directly or through a derived scene state, are listed; a derived state passes its level tags on to
+the quests and variables it reads. quests, missions and variables come first in `controls`, then
+progressions, facilities, doodad groups, cabins and doors, stream areas, script, logic and harvest
+controls, then scene states.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
   `conditionalSets[derived]` holds, and its `rule` gives that condition in words. derived controls
   require only controls listed before them, so `resolveSceneValues` turns the user's picks into
-  every control's value in one pass, and a derived control's stored `default` is its value under no
-  picks.
+  every control's value in one pass (picks, then defaults, then derived controls from their
+  formulas), and a derived control's stored `default` is its value under no picks.
 - **story**: quest and mission controls of a known mission carry a `story` place (mission id,
   main-flow step), and `StatesInfo.missions` names those missions (`MissionInfo`: name, quest log
   category, chapter, episode, where it takes place), so a viewer can group them; the names are the
-  install's English text, extracted at pack time.
+  install's English text, extracted at pack time
+  ([quest and mission labels](extraction.md#quest-and-mission-labels)).
   [story.ts](../packages/package-format/src/story.ts) turns a point in an ordered mission list into
   consistent picks for all of them.
 - **drivers**: script controls carry `drivers`, what sets them in game according to the level
   scripts (`ControlDriver`: quests, a switch, a trigger area, the script's area, another level, the
-  server), each with the visibility it sets and a position where it has one.
+  server), each with the visibility it sets and a position where it has one
+  ([script groups](extraction.md#script-groups)).
 
 ### stream areas
 
@@ -436,8 +628,12 @@ area) holds the areas content requires, the root list, each zone's list, and the
 box, height range, XZ ring). content of an area requires its `area:<id>` control (value 0/1), which
 a viewer sets from the camera unless the user picks a value: `zonesAt` is the game's trigger test,
 `areasShownIn` turns zones into areas, and `streamAreaValues` gives every required area its control
-value ([stream-areas.ts](../packages/package-format/src/stream-areas.ts)). which content a stream
-area gates is in [world.md](game-data/world.md#how-the-packer-files-instances).
+value ([stream-areas.ts](../packages/package-format/src/stream-areas.ts), the packaged table and the
+trigger test). the stored default of an `area:<id>` control (shown) only holds without a camera. the
+packer gates non-default-area content by its areas and ships the table; the viewer runs the trigger
+test at the camera. which content a stream area gates is in
+[extraction.md](extraction.md#how-the-packer-files-instances), and the game's areas in
+[stream areas](game-data/world.md#stream-areas).
 
 ## versioning
 
@@ -463,7 +659,7 @@ binary tables and inflates the JSON ones. a non-core blob is the byte range
 coalesced; the archive's `size` from the manifest lets a reader notice an archive replaced by a
 re-pack. range reads skip czar's CRC; the blob's SHA-256 name is the integrity check when one is
 needed. the viewer's sources, decode workers and zstd decoder are in
-[viewer.md](viewer.md#loading-a-package).
+[viewer/index.md](viewer/loading.md).
 
 ## debug
 

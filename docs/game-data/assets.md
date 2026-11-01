@@ -1,37 +1,18 @@
 # assets: meshes, textures, materials and prefabs
 
-how the extractor finds and decodes the Unity assets that world data points at: the TypeTree reader,
-how a StringPathHash key or PPtr becomes exactly one object across bundles, the mesh, texture,
-material and transform decoders, how prefabs and the dynamic ECS scene become placed renderers, and
-where interactives' models come from. bundle decryption and the VFS are in
-[../extraction.md](../extraction.md); where entity data comes from is in [world.md](world.md); which
-structures a progression, quest or scene state shows is in [scene-states.md](scene-states.md); how
-materials shade is in [materials.md](materials.md).
+the Unity assets that world data points at: how a StringPathHash key or PPtr names exactly one
+object across bundles, the mesh, texture, material and transform classes, how prefabs and the
+dynamic ECS scene place renderers, and where interactives' models come from. where entity data comes
+from is in [world.md](world.md); which structures a progression, quest or scene state shows is in
+[scene-states.md](scene-states.md); how materials shade is in [materials.md](materials.md).
 
 ## Unity objects
 
-Endfield ships Unity 2021.3 SerializedFiles (format version 22) with TypeTrees embedded. the reader
-is TypeTree-driven, so no per-class layout code is needed and Hypergryph's added fields decode like
-any other. values map to JS as: integers up to 32 bits and floats → `number`, 64-bit integers
-(including `m_PathID`) → `bigint`, `bool` → `boolean`, byte arrays (`UInt8`, `TypelessData`,
-`SInt8`) → `Uint8Array` / `Int8Array` views without copying, other numeric arrays → aligned
-typed-array copies, `bool` arrays → plain arrays, classes → objects in serialized field order.
-`readTypeTreeField` materializes a single field, which the shader reader uses to read only
-`m_ParsedForm`.
-
-class decoders read fields through the narrowing accessors in `values.ts` (`numberField`,
-`pptrField`, `aabbField`, …), which throw a `FormatError` naming the field when the shape differs,
-so a layout change fails with a useful message instead of producing garbage. `toPlainObject`
-converts configuration objects (the environment's `HG*Config` sections) to plain JSON, with Unity
-math structs as arrays and `UInt8` bools as booleans.
+Endfield ships Unity 2021.3 SerializedFiles (format version 22) with TypeTrees embedded, so
+Hypergryph's added fields are described in each file like Unity's own.
 
 a `PPtr` is `(m_FileID, m_PathID)`: file 0 is the same SerializedFile, `n ≥ 1` is
 `externals[n − 1]`, path id 0 is null.
-
-code: [serialized-file.ts](../../packages/formats/src/unity/serialized-file.ts),
-[type-tree.ts](../../packages/formats/src/unity/type-tree.ts),
-[values.ts](../../packages/formats/src/unity/values.ts),
-[plain-object.ts](../../packages/formats/src/unity/plain-object.ts)
 
 ## resolving assets
 
@@ -42,225 +23,125 @@ world data names assets two ways:
   `<container path>` or, for a sub-asset of an FBX, `<container path>##<sub-asset name>`.
 - **PPtrs**, inside a prefab, material or renderer once an object has been reached.
 
+names don't identify objects: sub-asset names repeat across FBX containers, LOD meshes and collision
+meshes (`*_COL*`) sit beside render meshes with near-identical names, and prefab variants share
+renderer names. the identities the game uses are hash → bundle → container and PPtr → CAB → path id.
+
 ### lookup tables
 
 | file                                                                                        | maps                                                                                                                               |
 | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `Data/ExtendData/Main/StringPathHash.bin`, `Data/ExtendData/Initial/InitStringPathHash.bin` | hash → path; lookups try main, then initial                                                                                        |
+| `Data/ExtendData/Main/StringPathHash.bin`, `Data/ExtendData/Initial/InitStringPathHash.bin` | hash → path, in a main and an initial table                                                                                        |
 | `Data/Bundles/Windows/manifest.hgmmap`                                                      | hash → `AssetInfo` (bundle index, size, compressed path); bundle → name, direct dependencies and the transitive dependency closure |
 
-the game's path hash function isn't ported, so path → hash (`WorldIndex.hashesOf`) scans the
-StringPathHash tables, about a second per lookup. `world resolve <path|hash>` prints both directions
-plus the holding bundle and its dependencies.
+### how a reference reaches an object
 
-code: [string-path-hash.ts](../../packages/formats/src/hg/string-path-hash.ts),
-[bundle-manifest.ts](../../packages/formats/src/hg/bundle-manifest.ts),
-[world-index.ts](../../packages/extractor/src/game/world-index.ts)
+- **hash → bundle.** the manifest's `AssetInfo` rows for the hash give the bundles holding it.
+- **path → object.** in such a bundle, the `AssetBundle` object's container maps the lowercased
+  container path to a main-asset PPtr and a preload range. a sub-asset is the main asset or one of
+  the preload pointers, with the matching class and an `m_Name` equal to the sub-asset name
+  case-insensitively; it ships in its container's bundle, so the preloads that matter stay inside
+  that bundle.
+- **PPtr → object.** an external's CAB name (`archive:/CAB-<hex>/CAB-<hex>`) isn't derivable from
+  bundle names, but it's always inside the referencing bundle's dependency closure, and so is the
+  `m_StreamData` (`.resS`) file of an object. Unity's built-in resources (`library/…`,
+  `resources/…`) ship in the player rather than in a bundle.
 
-### the resolver
-
-`AssetResolver` ([assets.ts](../../packages/extractor/src/game/assets.ts)) turns a hash or a PPtr
-into an `ObjectRef` (bundle index, SerializedFile, object info):
-
-1. **hash → bundle.** the manifest's `AssetInfo` rows for the hash give the bundles holding it.
-2. **path → object.** in each such bundle, the `AssetBundle` object's container maps the lowercased
-   container path to a main-asset PPtr and a preload range. without a sub-asset name, the main asset
-   is the match. with one, candidates are the main asset plus preload pointers that stay inside the
-   same bundle (a sub-asset ships in its container's bundle, so preloads into dependency bundles are
-   skipped without opening them), kept when their class matches and their `m_Name` equals the
-   sub-asset name case-insensitively.
-3. **PPtr → object.** an external's CAB name (`archive:/CAB-<hex>/CAB-<hex>`) isn't derivable from
-   bundle names, but it's always inside the referencing bundle's dependency closure, so the resolver
-   opens that closure's directories in batches until the CAB turns up, and remembers every CAB it
-   sees. `m_StreamData` (`.resS`) is located the same way. PPtrs into Unity's built-in resources
-   (`library/…`, `resources/…`) fail, since those ship in the player rather than in a bundle.
-
-`findUnique` requires exactly one match. an `AssetRef` reached through a prefab carries an
-`ObjectLocator` (bundle, CAB, path id) and bypasses path lookup entirely. `objectKey`
-(`CAB-<hex>:<pathId>`) is the identity used for dedupe and caching.
-
-### exact lookups only
-
-every lookup is exact: a hash resolves through its manifest bundle and container entry, a PPtr
-through its file and path id, and anything else is a failure. the resolver never falls back to a
-bundle-wide class match, a same-named object elsewhere, or the first of several ambiguous matches,
-because:
-
-- names don't identify objects. sub-asset names repeat across FBX containers, LOD meshes and
-  collision meshes (`*_COL*`) sit beside render meshes with near-identical names, and prefab
-  variants share renderer names. a by-name pick draws a plausible but wrong mesh or material.
-- a substitute hides the defect. a failed lookup stays a `failed` entry in the pack's debug index
-  with its error, where it can be traced to the game data or a decoder bug; a substitute looks
-  finished and nobody revisits it.
-- the identities the game uses (hash → bundle → container, PPtr → CAB → path id) are available, so
-  exactness costs nothing but the explicit failure.
-
-the resolver's tests pin this down (missing containers and mismatched main assets never match by
-class; ambiguous sub-assets stay ambiguous; invalid preload ranges throw). keep failed lookups
-explicit when adding asset kinds, and fix the reference path instead of adding a fallback.
-
-## decoders
-
-the loaders in [asset-decode.ts](../../packages/extractor/src/game/asset-decode.ts) bind each
-decoder to the resolver so stream data and PPtrs are followed across bundles.
+## asset classes
 
 ### mesh
 
-[mesh.ts](../../packages/formats/src/unity/mesh.ts) decodes `Mesh` (class 43) vertex channels and
-streams, the index buffer and submeshes into typed arrays, reading vertex data from `m_StreamData`
-when present.
+`Mesh` (class 43) stores vertex channels and streams, the index buffer and submeshes, with vertex
+data in `m_StreamData` when present.
 
 - **packed normals.** most meshes pack the normal into one 32-bit word; the channel's dimension byte
   reads `0x31` (low nibble = real dimension 1, high nibble = packing flag 3). bits 0–19 are two
-  signed 10-bit octahedral coordinates (÷511), decoded by `unpackHgNormal`. bits 20–31 hold a third
-  signed 10-bit field (bits 20–29), a bit that is always set (30) and the bitangent sign (31), which
-  the game's vertex shader uses for the tangent frame; they aren't decoded, and the raw words are
-  kept as `packedNormals`.
-- **tangents.** meshes with plain f32 normals carry f32×4 tangents (w = bitangent sign), which are
-  used as is. for packed-normal meshes the packer generates MikkTSpace tangents from the UV set a
-  normal-mapped material draws the mesh with
-  ([geometry.ts](../../packages/extractor/src/pack/geometry.ts)).
+  signed 10-bit octahedral coordinates (÷511). bits 20–31 hold a third signed 10-bit field (bits
+  20–29), a bit that is always set (30) and the bitangent sign (31), which the game's vertex shader
+  uses for the tangent frame.
+- **tangents.** meshes with plain f32 normals carry f32×4 tangents (w = bitangent sign).
+  packed-normal meshes have no tangent channel of their own (unverified across the install); their
+  tangent frame comes from the packed word.
 - other channels seen: uv0/uv1 f32×2; vertex colour unorm8×4; uv2/uv3 snorm8×4 with dimension byte
   `0x24` (high nibble 2, meaning unknown).
-- **rejected.** collision-only meshes (`m_CollisionMeshBaked`) and meshes whose vertices live in
-  `m_CompressedMesh` throw. `m_MeshCompression` is only an import setting; a non-zero value with an
-  empty `m_CompressedMesh` decodes normally.
-- skinned meshes expose weights, bone indices and bind pose counts in `skin`.
-
-### skin pose
-
-[skin-pose.ts](../../packages/formats/src/unity/skin-pose.ts) bakes linear blend skinning into a new
-static mesh: positions, normals, tangents and bounds move into the space of the supplied pose (bone
-matrix × bind pose per bone). it throws on missing influences, bad bone indices or singular
-transforms. skinned prefab renderers are drawn in their authored pose this way; animation playback
-isn't implemented.
+- **compression.** `m_MeshCompression` is only an import setting: a mesh with a non-zero value and
+  an empty `m_CompressedMesh` keeps its vertices in the ordinary channels.
+- skinned meshes carry weights, bone indices and bind poses.
 
 ### texture
 
-[texture.ts](../../packages/formats/src/unity/texture.ts) handles `Texture2D`, `Cubemap`,
-`Texture2DArray`, `CubemapArray` and `Texture3D`. it reads format, colour space, sampler settings
-and the raw mip chain and regroups the data into KTX2's level-major order; pixel data isn't decoded,
-so BC blocks pass through unchanged. `Texture2D`-family classes name their format with
-`TextureFormat` and their colour space with `m_ColorSpace` (1 = sRGB); array and 3D classes use
-`GraphicsFormat`, which encodes sRGB itself. sRGB-ness comes from the texture, never from the
-material slot. scenery textures are overwhelmingly BC7 with full mip chains, plus BC5 normals, a few
-BC1 and RGBAHalf vertex-animation textures. alpha-only textures (`TextureFormat` Alpha8,
-`GraphicsFormat` 54, one byte per texel) are stored as `r8unorm`, so shaders read their alpha from
-red.
+the texture classes are `Texture2D`, `Cubemap`, `Texture2DArray`, `CubemapArray` and `Texture3D`.
+`Texture2D`-family classes name their format with `TextureFormat` and their colour space with
+`m_ColorSpace` (1 = sRGB); array and 3D classes use `GraphicsFormat`, which encodes sRGB itself.
+sRGB-ness belongs to the texture, not to the material slot. scenery textures are overwhelmingly BC7
+with full mip chains, plus BC5 normals, a few BC1 and RGBAHalf vertex-animation textures. alpha-only
+textures (`TextureFormat` Alpha8, `GraphicsFormat` 54) store one byte per texel.
 
 ### material and shader
 
-[material.ts](../../packages/formats/src/unity/material.ts) copies a `Material`'s serialized state
-(shader PPtr, keywords, custom queue, tags, texture slots with scale/offset and HGRP's per-slot
-`m_UVSetIndex`, floats, colours). the packer replaces `m_UVSetIndex` with the Lit shader's UV-set
-floats where it declares them ([lit layers](materials.md#lit-layers)). `summarizeShader` reads a
-shader's name, first-subshader tags and declared properties from `m_ParsedForm`.
-`classifyHgrpMaterial` derives the shader family (from the shader name), blend kind, queue,
-alpha-test threshold, cull mode and the Lit normal/MRO layout; Unity's queue boundaries (≥2450 alpha
-test, ≥3000 transparent) are refined by HGRP's own surface, blend, alpha-test and cull properties. a
-texture slot whose PPtr can't be followed is recorded with its error and left empty; the material
-still converts. the viewer maps families to shading in
-[render/materials.ts](../../packages/viewer/src/render/materials.ts).
+a `Material`'s serialized state holds its shader PPtr, keywords, custom queue, tags, texture slots
+with scale/offset and HGRP's per-slot `m_UVSetIndex`, floats and colours. the Lit shader declares
+UV-set floats of its own ([lit layers](materials.md#lit-layers)). a shader's name, first-subshader
+tags and declared properties are in its `m_ParsedForm`. besides Unity's queue boundaries (≥2450
+alpha test, ≥3000 transparent), HGRP materials carry their own surface, blend, alpha-test and cull
+properties.
 
 ### transform
 
-[transform.ts](../../packages/formats/src/unity/transform.ts) builds column-major TRS matrices.
 Unity Euler angles (degrees) apply Z, then X, then Y; dynamic model rows store rotations this way.
 
 ## prefabs
 
-`readPrefabRenderers` ([prefab.ts](../../packages/extractor/src/game/prefab.ts)) walks a prefab's
-GameObject hierarchy through exact PPtrs and returns its drawable renderers relative to the prefab
-root; the caller supplies the root's placement.
+a prefab is a GameObject hierarchy reached through PPtrs, placed by its root.
 
-- a GameObject draws only if it and all its ancestors are active. inactive subtrees are still walked
-  for their Transforms, because an active skinned mesh can use bones under an inactive GameObject.
-- enabled `MeshRenderer`s (with a `MeshFilter`'s mesh) and enabled `SkinnedMeshRenderer`s are
-  candidates, as are mesh particle systems ([below](#particle-systems)).
-- for an enabled `LODGroup` (class 205), only renderers of LOD 0 are kept. other LODs' renderers are
-  excluded by object identity, never by name.
+- a GameObject draws only if it and all its ancestors are active. an active skinned mesh can use
+  bones under an inactive GameObject.
+- enabled `MeshRenderer`s (with a `MeshFilter`'s mesh) and enabled `SkinnedMeshRenderer`s draw, as
+  do particle systems ([below](#particle-systems)).
+- an enabled `LODGroup` (class 205) picks one of its LODs' renderers at a time.
 - material slots keep their order: a null slot draws nothing for that submesh, and slots past the
   last submesh draw the last submesh again. `m_CastShadows` 3 or 4 (Unity's `ShadowsOnly`,
   `ShadowsOnlyTwoSided`) marks a shadow-only renderer.
-- a skinned renderer's pose is each bone's prefab-space matrix times its bind pose; bounds are the
-  union of the mesh bounds under every bone so weighted vertices stay inside. non-zero blend shape
-  weights throw, since baking ignores them.
+- a skinned renderer's pose is each bone's prefab-space matrix times its bind pose.
 
-the packer resolves a prefab from its StringPathHash key, which must name exactly one manifest path.
-a prefab that fails with a `FormatError` is skipped and listed in the pack's unsupported-prefab
-report; other errors fail the pack. a prefab's environment volumes are read separately
-([prefab-environment.ts](../../packages/extractor/src/game/prefab-environment.ts), see
-[environment.md](environment.md#prefab-volumes)).
+prefabs can also hold environment volumes ([environment.md](environment.md#prefab-volumes)).
 
 ### particle systems
 
-a `ParticleSystemRenderer` whose `ParticleSystem` plays on awake is packed one of two ways; systems
-that don't play on awake draw nothing. mesh-mode renderers (`m_RenderMode` 4) draw their meshes; the
-others (billboard 0, stretched 1, horizontal 2, vertical 3) draw the render pipeline's unit quad
-(`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx`), which the packer
-looks up once per scene.
+a `ParticleSystemRenderer`'s `m_RenderMode` is 4 for meshes, otherwise a quad: billboard 0,
+stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's effects set them:
 
-**a frozen particle**, read as a plain mesh
-([particle-mesh.ts](../../packages/extractor/src/game/particle-mesh.ts)): the system allows one
-particle and keeps it past its lifetime (`ringBufferMode` not 0), without a texture sheet. the
-particle takes the renderer's `m_Mesh` and materials at the shape's centre, oriented by world, local
-or (for a box shape, which emits along the emitter's forward axis) velocity alignment, then its
-start rotation (Euler, Z then X then Y) and start size, scaled by the emitter's local scale unless
-`scalingMode` is Shape. random ranges between two constants take their midpoint, since the game's
-draws can't be reproduced; curves and camera-facing alignments disqualify a system. the drift and
-spin over its lifetime and the start colour are dropped. Wuling City's threads swirling over the
-pillar array (`p_fxmap_lv002_fangyuzhenlie_*`) are such particles.
+- **cap.** some systems store a cap (`maxNumParticles`) of 0 yet show in game, such as the tilted
+  torch flames (`P_fxmap_common_tiltedflame_2501`), so the game must size them itself.
+- **scaling.** under `scalingMode` Shape the transform's scale moves particles but leaves their
+  size.
+- **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its
+  drag: an amount, optionally scaled by the particle's size and by its speed squared. the splashes
+  at the foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on
+  it to hang in the air rather than drop under their 2–6× gravity.
+- **ring buffer.** `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
+  replays `ringBufferLoopRange`.
+- **texture sheet.** `UVModule` in grid mode plays the whole sheet or one row (fixed, random or by
+  mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
+  `startFrame`, on the UV sets of `uvChannelMask`.
+- **meshes.** each particle draws one of up to four meshes (`m_Mesh` … `m_Mesh3`), evenly or by
+  `m_MeshWeighting*` when `m_MeshDistribution` is 1.
 
-**a played system**, mesh or quad, when a viewer can play it from the package alone
-([particle-system.ts](../../packages/extractor/src/game/particle-system.ts)): the renderer becomes
-an emitter whose draw names a particles-table entry
-([package format](../package-format.md#particles)), its matrix the emitter's transform (with its
-local scale unless `scalingMode` is Shape) and its bounds a box around everywhere a particle can
-reach. the entry keeps:
+examples:
 
-- the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
-  is `Shape` (the transform's scale moves particles but leaves their size)
-- the duration, looping, start delay, particle cap and simulation speed. some systems store a cap
-  (`maxNumParticles`) of 0 yet show in game, such as the tilted torch flames
-  (`P_fxmap_common_tiltedflame_2501`), so the game must size them itself. their cap becomes the most
-  one longest lifetime of emission holds: the top rate times the lifetime, plus each loop's top
-  burst counts times the loops that lifetime spans
-- the start lifetime, speed, size and rotation, gravity modifier and emission rate as
-  `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s
-  (gradient key times are stored as 0–65535)
-- the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
-  angle, length, arc, placement and random-direction and -position amounts)
-- the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as
-  constants), and size and rotation over lifetime
-- the drag of a Limit Velocity module whose `dampen` is 0, so its speed limit does nothing: its
-  amount and whether it scales with the particle's size and its speed squared. the splashes at the
-  foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on it to
-  hang in the air rather than drop under their 2–6× gravity
-- the render alignment (Facing is kept as View) and pivot
-- the ring buffer: `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
-  replays `ringBufferLoopRange`
-- the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
-  random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
-  `startFrame`, both read as fractions of the frames, on the UV sets of `uvChannelMask`
-
-each particle draws one of up to four meshes (`m_Mesh` … `m_Mesh3`), evenly or by `m_MeshWeighting*`
-when `m_MeshDistribution` is 1, so a renderer with several becomes one emitter per mesh, its entry
-naming which. a system is skipped when it enables a module whose effect the viewer doesn't evaluate
-(forces, noise, collision, triggers, sub-emitters, lights, trails, the by-speed modules, custom
-data), a speed limit that acts, or uses sprite sheets, sheets timed by speed, orbital, radial or
-rotation curves, a drag or rate curve, or velocity alignment. the floating rocks over Origin
-Lodespring's crater (`Rock02` in `P_fxmap_common_brokentree_01/02`, four rock meshes each), the
-campfire flames (`fire01`/`fire02` in `P_fxmap_common_damagefire_small_2501`, one ring-buffered
-particle stepping through an 8×8 flipbook every loop) and the spray and stretched mist cards at the
-foot of falls (`shuihua`, `shuiwu`) are such systems; [viewer](../viewer.md#particles) describes how
-they play.
+- Wuling City's threads swirling over the pillar array (`p_fxmap_lv002_fangyuzhenlie_*`) are single
+  particles kept past their lifetime by a ring buffer, without a texture sheet.
+- the floating rocks over Origin Lodespring's crater (`Rock02` in `P_fxmap_common_brokentree_01/02`)
+  draw four rock meshes each.
+- the campfire flames (`fire01`/`fire02` in `P_fxmap_common_damagefire_small_2501`) are one
+  ring-buffered particle stepping through an 8×8 flipbook every loop.
+- the spray and stretched mist cards at the foot of falls are `shuihua` and `shuiwu`.
 
 ### billboards
 
 an enabled `VFXBillBoard` MonoBehaviour (HG's effect billboard, recognised by its `billboardMode`,
 `rotateInLateTick` and `rotation` fields) sets its GameObject's world rotation from the camera every
-frame, carrying everything under it along
-([billboard.ts](../../packages/extractor/src/game/billboard.ts)). by `billboardMode`:
+frame, carrying everything under it along. by `billboardMode`:
 
 - 0: the camera's rotation times `rotation` (Euler degrees, the offset)
 - 1: the offset with the camera's heading (its Euler y) added to its y
@@ -268,14 +149,9 @@ frame, carrying everything under it along
   along that axis; no offset
 - 3: as 2 about the parent's up axis, times the offset
 
-the nearest billboard up the hierarchy turns a mesh renderer; skinned meshes and particle systems
-under one stay as authored. the packer flags the chain `BillboardFacing` (mode 0) or
-`BillboardUpright` (the others, about the world's vertical, which is their axis on upright
-placements) and stores the offset times the renderer's rotation relative to the billboard, at the
-renderer's own position, with bounds that hold every orientation. a renderer away from the
-billboard's origin then turns in place rather than swinging around it. the snapshot points' yellow
-light column (`int_system_snapshot_postmodel`, in Dijiang) and the glare at the centre of the
-corroded planet seen from Dijiang's deck (`P_fxmap_base01_lv001_planetcorrode_01`) are billboards.
+the snapshot points' yellow light column (`int_system_snapshot_postmodel`, in Dijiang) and the glare
+at the centre of the corroded planet seen from Dijiang's deck
+(`P_fxmap_base01_lv001_planetcorrode_01`) are billboards.
 
 ## dynamic structures
 
@@ -287,8 +163,8 @@ props.
 
 each `fb_main_<L>_<i>_<j>` file is a FlatBuffer of grids. a grid stores component vectors; an entity
 is a `RootComp` row whose component slice lists `DataIndex` entries `(type, grid, index)`.
-referenced rows may sit in another grid of the same file. the reader decodes the components that
-matter for visuals and selection:
+referenced rows may sit in another grid of the same file. the components with established meaning
+for visuals and selection:
 
 | component                                        | content                                                                                                                                                                             |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -300,70 +176,50 @@ matter for visuals and selection:
 | script control                                   | default load flag for script-enabled entities                                                                                                                                       |
 
 a resource group with `logicState` 0 ignores logic state; otherwise bit `n` shows it while the
-entity's logic state is `n`. the reader validates every slice and throws on a layout change (e.g. a
-resource slice not typed as resource groups) instead of truncating. how these masks, gates and
-scene-state lists combine into a visibility expression is in [scene-states.md](scene-states.md).
-
-code: [dynamic-scene.ts](../../packages/formats/src/endfield/dynamic-scene.ts),
-[dynamic-resources.ts](../../packages/formats/src/endfield/dynamic-resources.ts)
+entity's logic state is `n`. how these masks, gates and scene-state lists decide visibility is in
+[scene-states.md](scene-states.md).
 
 ### payloads
 
 - **model rows** (type 5, 96 bytes): prefab StringPathHash key, position, Unity Euler rotation and
-  scale. the packer resolves the prefab, reads its renderers, and places each one under the row's
-  TRS.
+  scale. the row places the prefab under that TRS.
 - **effect rows** (type 6, grid vector 8, 144 bytes): Unity position at +12, Euler rotation at +24,
   scale at +36 and the prefab's StringPathHash key at +48, followed by bounds and the position again
-  at +116, which the reader checks to confirm the stride. they're placed like model rows. on map02
-  all 8596 name prefabs, among them Wuling City's pillar-array threads.
+  at +116. they place their prefab like model rows. on map02 all 8596 name prefabs, among them
+  Wuling City's pillar-array threads.
 - **ECS rows** (type 7): `(sceneIndex, chunk, index)` naming component group `index` of the paired
-  `fb_init_<ss>_<chunk>` / `fb_streaming_<ss>_<chunk>` files. `fb_init` holds the component groups
-  and `fb_streaming` the matching entity ids; `parseDynamicChunk` reads them with the same group
-  decoder as InitChunkData.
+  `fb_init_<ss>_<chunk>` / `fb_streaming_<ss>_<chunk>` files. `fb_init` holds the component groups,
+  in InitChunkData's layout ([world.md](world.md#initchunkdata-layout)), and `fb_streaming` the
+  matching entity ids.
 
-`loadDynamicStructures`
-([dynamic-structures.ts](../../packages/extractor/src/game/dynamic-structures.ts)) deduplicates
-models and ECS entities by their stored reference, merging the visibility alternatives of every
-group that shows them. each structure keeps the level tag of its resource group's `levelNum`. prefab
-renderers have no game entity id, so the packer gives them a synthetic one: the level tag over an
-index counted down from the top of the 27-bit id space, away from the game's ids. ECS entities
-already present in static chunks keep their static copy. the local lights in the selected ECS groups
-are kept the same way ([lighting.md](lighting.md#local-lights)).
+one model or ECS group can be referenced by several resource groups, and some ECS entities also
+appear in static chunks.
 
 ## interactives
 
 interactives are the placed gameplay objects: switches, doors, chests, campfires, collectibles,
 harvestable plants, shops. their models come from four sources:
 
-1. LevelData files (from LevelConfig `levelDataPathHashes`) place them. `readLevelInteractives`
-   decodes the sequential prefix through the interactive list: interactive id, `createState`,
-   position, rotation, scale, `modelScale` (0 = no override), and the per-component parameters
-   (keyed by the game's interactive component type). only `createState` 0 (created with the level)
-   is drawn, once per id.
+1. LevelData files (from LevelConfig `levelDataPathHashes`) place them. the sequential prefix up to
+   the interactive list holds, per interactive: interactive id, `createState`, position, rotation,
+   scale, `modelScale` (0 = no override), and the per-component parameters (keyed by the game's
+   interactive component type). `createState` 0 means created with the level.
 2. `Data/Json/Interactive/InteractiveTable.json` maps each interactive id to a template and each
-   template to its data file (`readInteractiveTable`). many ids share one template: the Wuling
-   switch variants all instantiate `int_switch_wuling`.
+   template to its data file. many ids share one template: the Wuling switch variants all
+   instantiate `int_switch_wuling`.
 3. the template `Data/Json/Interactive/InteractiveData/data_<template>.json` (pooled MemoryPack).
-   its leading component is the model component (`readInteractiveBaseModel`: model id and scale).
-   its last members are the variant table, keyed by interactive id, whose entries can override the
-   model id (`readInteractiveVariantModels`).
+   its leading component is the model component (model id and scale). its last members are the
+   variant table, keyed by interactive id, whose entries can override the model id.
 4. `Data/Json/GameplayConfig/ModelTable.json` maps each model id to a prefab path and `scaleFactor`.
 
-a placement draws its variant's model, else the template's, always visible. templates without a
-model (triggers, logic) draw nothing; templates without a data file of their own are reported. a
-model that is a doodad-group shell draws nothing itself and places one form per group level instead
-([scene-states.md](scene-states.md#doodad-groups)).
+a placement's model is its variant's, else the template's. templates without a model (triggers,
+logic) have nothing to draw. a model that is a doodad-group shell draws nothing itself; one form per
+group level attaches to it instead ([scene-states.md](scene-states.md#doodad-groups)).
 
 four facility templates (`int_system_domain_shop`, `int_system_domain_depot`,
-`int_doodad_core_recycle`, `int_system_kite_station`) are decoded whole instead, through the
-MemoryPack schema, for their model-upgrade component (`InteractiveModelLevelUpComponentData`), which
-lists model ids in visual-form order and must contain the base model id. their placements are
-emitted one model per visual form, each visible under its form's bit of a per-facility control
-([scene-states.md](scene-states.md#facility-visual-forms)).
-
-code: [interactive-model.ts](../../packages/formats/src/endfield/interactive-model.ts),
-[level-interactives.ts](../../packages/formats/src/endfield/level-interactives.ts),
-[interactive-facilities.ts](../../packages/extractor/src/game/interactive-facilities.ts)
+`int_doodad_core_recycle`, `int_system_kite_station`) have a model-upgrade component
+(`InteractiveModelLevelUpComponentData`), which lists model ids in visual-form order and contains
+the base model id ([scene-states.md](scene-states.md#facility-visual-forms)).
 
 ### interactive doors
 
@@ -374,56 +230,38 @@ root) and layer, a state machine. each state names an AnimationClip, behaviours 
 switches a GameObject by name on or off; others play effects, audio or navmesh changes) and
 transitions that wait on blackboard keys. `clipAssetInfos` gives each clip's StringPathHash.
 
-a door is an interactive whose template has a door component (`InteractiveDoorCommonComponent`, or
-Dijiang's `SpaceshipRoomDoorSystem`) and whose model's states include exactly one settled state (a
-clip, and every transition waits on a condition) whose clip is an open idle (`…openidle…`). its
-closed state is where the open one returns to: its one transition, then any unconditional states, up
-to the next settled one. a Dijiang room door goes `built` → `built_to_unlocked` → `unlocked`; a
-Power Plateau gate `on_idle` → `on_to_off` → `off_idle`. models with no such state draw as before;
-an ambiguous one is reported.
+a door's template has a door component (`InteractiveDoorCommonComponent`, or Dijiang's
+`SpaceshipRoomDoorSystem`), and its model's states include a settled state (a clip, and every
+transition waits on a condition) whose clip is an open idle (`…openidle…`). its closed state is
+where the open one returns to: its one transition, then any unconditional states, up to the next
+settled one. a Dijiang room door goes `built` → `built_to_unlocked` → `unlocked`; a Power Plateau
+gate `on_idle` → `on_to_off` → `off_idle`.
 
-each pose is the state's clip end pose plus its `SetActive` switches. a generic clip's muscle clip
-stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
+a settled state's look is its clip's end pose plus its `SetActive` switches. a generic clip's muscle
+clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
 (`m_ClipBindingConstant.genericBindings`): three values per position or scale binding, four per
 rotation, one per other float, none per PPtr curve. a binding's `path` is the CRC32 of the
 GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
-GameObject. `readPrefabRenderers` takes the pose, sets the bound local transforms and switches while
-walking the hierarchy, so skinned door leaves follow their bones. the placement is emitted once per
-pose, under a door control ([scene-states.md](scene-states.md#doors)).
+GameObject.
 
-code: [animation-clip.ts](../../packages/formats/src/unity/animation-clip.ts),
-[door-poses.ts](../../packages/extractor/src/game/door-poses.ts),
-[prefab.ts](../../packages/extractor/src/game/prefab.ts)
+### the variant table
 
-### reading the variant table
+between the model component and the variant table sit hundreds of component and action-graph types.
+the table is followed only by the template's temporary properties and two flags, and its keys are
+exactly the InteractiveTable ids that name this template, other than the template's own id, which is
+never a key (this holds for every shipped template). variant entries are 14-member objects in name
+order; `Optional<T>` is an object of (enabled, value) for managed `T` and a raw struct (enabled,
+padding, value) for unmanaged `T`.
 
-between the model component and the variant table sit hundreds of component and action-graph types
-that aren't decoded, so the table is located from the end of the file: it is followed only by the
-template's temporary properties and two flags. a position frames the table when the parse ends
-exactly at the end of the file and its keys are exactly the InteractiveTable ids that name this
-template (other than the template's own id, which is never a key; this holds for every shipped
-template). zero or several such positions is an error, and that template is reported and skipped.
-variant entries are 14-member objects in name order; `Optional<T>` is an object of (enabled, value)
-for managed `T` and a raw struct (enabled, padding, value) for unmanaged `T`.
+### the LevelData format
 
-### reading LevelData
-
-LevelData is a sequential format: an unread field's length is unknown, so scanning past it would
-misframe every later row. the reader fails closed with `UnsupportedLevelData` on any populated field
-or condition it doesn't implement, and the whole file is omitted and listed in the pack's
-unsupported-interactives report; a partial file is never used. polymorphic fields are MemoryPack
-unions whose tag indexes the subclasses in name order, with each subclass's members also in name
-order. gameplay tags are unmanaged four-byte values. every map01 and map02 file decodes; the
-blackbox (factory puzzle) scenes' populated blackbox settings are unsupported.
+LevelData is a sequential format that stores no field lengths, so a field can only be passed by
+reading it, and misreading one misframes every later row. polymorphic fields are MemoryPack unions
+whose tag indexes the subclasses in name order, with each subclass's members also in name order.
+gameplay tags are unmanaged four-byte values.
 
 ## open
 
-- decoding the packed tangent frame in normal bits 20–31 (its layout is identified; tangents are
-  regenerated), and the meaning of the uv dimension byte's high nibble 2
-- animated poses other than door view states, and non-zero blend shapes
-- billboard particle systems, and mesh particle systems using modules the viewer doesn't evaluate
-- LevelData members after the interactive list, and populated blackbox settings
-- the path hash function, which would replace the StringPathHash table scans in path → hash lookups;
-  it diverges from XXH3 at 128 UTF-8 bytes (see AnimeStudio's `EndfieldVfsHash`)
-- the AIC buildable-grid data (`factorygrids/fbgrids_*.bytes`, a FlatBuffer of per-1 m column height
-  spans and buildable/water flags on the 128 m cells) has no decoder; the viewer doesn't use it
+- the meaning of the uv dimension byte's high nibble 2
+- the path hash function: it diverges from XXH3 at 128 UTF-8 bytes (see AnimeStudio's
+  `EndfieldVfsHash`)

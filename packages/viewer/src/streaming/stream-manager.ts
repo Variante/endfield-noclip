@@ -3,7 +3,7 @@
  * range read per blob, adjacent blobs of an archive coalesced into one request), decodes them on the worker
  * pool, uploads within a per-frame budget, and evicts the least recently used blobs when resident content
  * exceeds the memory budget. pinned blobs (the always-resident coarse layer) are never dropped. the limits
- * and why they're set so are in `docs/viewer.md#residency-and-budgets`.
+ * and why they're set so are in `docs/viewer/streaming.md#residency-and-budgets`.
  *
  * @module
  */

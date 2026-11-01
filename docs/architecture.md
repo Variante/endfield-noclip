@@ -6,24 +6,30 @@ install with the decoders in `formats` and writes a viewer package to disk in th
 this page covers what each package owns, how they depend on each other, and the decisions that shape
 the whole pipeline.
 
-| page                                                         | covers                                                                     |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| [extraction.md](extraction.md)                               | the extractor's commands, keys, container layers and `pack`                |
-| [package-format.md](package-format.md)                       | the package layout, tables and binary encodings                            |
-| [viewer.md](viewer.md)                                       | loading, streaming, the render frame and GPU resources                     |
-| [driving-the-viewer.md](driving-the-viewer.md)               | opening, posing, inspecting and profiling the viewer from an agent         |
-| [status.md](status.md)                                       | the index of known gaps                                                    |
-| [game-data/world.md](game-data/world.md)                     | scenes, maps, levels, chunk files, stream areas, terrain, LOD and HLOD     |
-| [game-data/assets.md](game-data/assets.md)                   | Unity objects, asset resolution, decoders, prefabs, dynamic structures     |
-| [game-data/scene-states.md](game-data/scene-states.md)       | scene states, load gates, progressions and how the package encodes them    |
-| [game-data/environment.md](game-data/environment.md)         | environment phases and volumes, blending, weather                          |
-| [game-data/lighting.md](game-data/lighting.md)               | sun, shadows, ambient, reflections, local lights; index of rendering pages |
-| [game-data/materials.md](game-data/materials.md)             | HGRP surface shaders                                                       |
-| [game-data/effects.md](game-data/effects.md)                 | `HGRP/Effect/*` scenery effects                                            |
-| [game-data/sky-and-fog.md](game-data/sky-and-fog.md)         | atmosphere, clouds, celestial layers, fogs                                 |
-| [game-data/post-processing.md](game-data/post-processing.md) | exposure, light shafts, lens flare, bloom, GTAO, grading                   |
-| [game-data/irradiance.md](game-data/irradiance.md)           | the baked irradiance volume                                                |
-| [game-data/water.md](game-data/water.md)                     | open-world water                                                           |
+| page                                                         | covers                                                                    |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| [extraction.md](extraction.md)                               | the extractor's commands, keys, container layers and `pack`               |
+| [package-format.md](package-format.md)                       | the package layout, tables and binary encodings                           |
+| [viewer/index.md](viewer/index.md)                           | the viewer: loading, streaming, the frame, and how it draws each topic    |
+| [driving-the-viewer.md](driving-the-viewer.md)               | opening, posing, inspecting and profiling the viewer from an agent        |
+| [status.md](status.md)                                       | the index of known gaps                                                   |
+| [game-data/world.md](game-data/world.md)                     | scenes, maps, levels, chunk files, stream areas, terrain, LOD and HLOD    |
+| [game-data/assets.md](game-data/assets.md)                   | Unity objects, asset resolution, decoders, prefabs, dynamic structures    |
+| [game-data/scene-states.md](game-data/scene-states.md)       | scene states, load gates, progressions and how the package encodes them   |
+| [game-data/environment.md](game-data/environment.md)         | environment phases and volumes, blending, weather                         |
+| [game-data/lighting.md](game-data/lighting.md)               | sun, shadows, ambient, reflections, local lights; index of game rendering |
+| [game-data/materials.md](game-data/materials.md)             | HGRP surface shaders                                                      |
+| [game-data/effects.md](game-data/effects.md)                 | `HGRP/Effect/*` scenery effects                                           |
+| [game-data/sky-and-fog.md](game-data/sky-and-fog.md)         | atmosphere, clouds, celestial layers, fogs                                |
+| [game-data/post-processing.md](game-data/post-processing.md) | exposure, light shafts, lens flare, bloom, GTAO, grading                  |
+| [game-data/irradiance.md](game-data/irradiance.md)           | the baked irradiance volume                                               |
+| [game-data/water.md](game-data/water.md)                     | open-world water                                                          |
+
+`game-data/` holds only what we know about the game: its formats, its shaders' behaviour and what it
+shows in game, with unchecked facts marked as such. how our code implements any of it lives in the
+[viewer](viewer/index.md) pages, [extraction.md](extraction.md) and
+[package-format.md](package-format.md), and what it lacks in [status.md](status.md). links run from
+those pages to game-data, never the reverse.
 
 ## data flow
 

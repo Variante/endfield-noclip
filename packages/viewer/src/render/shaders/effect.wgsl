@@ -505,7 +505,7 @@ fn ws_frame_offset(frame: f32, size: vec2f) -> vec2f {
 // VFXWater, the sheets of falling water (`vfxWaterLook`): the tinted main texture and mask, or a flipbook whose
 // frames blend along their motion vectors, distorted by a scrolling texture and eaten by a dissolve; lit by the
 // irradiance volume and the sun, with a glow through the sheet when the sun is behind it. the game's sun carries
-// no 1/π (docs/game-data/lighting.md#open); the viewer's does
+// no 1/π (docs/viewer/lighting.md#open); the viewer's does
 fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, rel_dy: vec3f) -> EffectAccumulated {
 	let id = in.draw;
 	let ws = fx_row(id, WS_FLAGS);
@@ -1007,7 +1007,7 @@ fn fs_mist_card(in: EffectOut) -> EffectAccumulated {
 	var alpha = ((1.0 - card.y) + noise.x * card.y) * main.x * base.a;
 	var color = base.rgb;
 	if (light.z != 0.0) {
-		// the game's sun colour carries no 1/π (docs/game-data/lighting.md#open); the viewer's does
+		// the game's sun colour carries no 1/π (docs/viewer/lighting.md#open); the viewer's does
 		let n = normalize(in.normal) * select(-1.0, 1.0, dot(in.normal, -in.rel) >= 0.0);
 		let lit = (1.0 - light.w) + max(dot(n, frame.sun.xyz), 0.0) * light.w;
 		let sun = frame.sun_color.rgb * (frame.sun.w / PI);

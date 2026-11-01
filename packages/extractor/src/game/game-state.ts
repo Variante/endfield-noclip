@@ -10,7 +10,7 @@ import type {
 // the game state that MapConfig conditions and dynamic load gates read, as one control per quest, mission and
 // variable, so conditions that read the same quest stay consistent with each other. a condition becomes a
 // disjunction of conjunctions of required control values. defaults are those of a player who finished the
-// story: see docs/game-data/scene-states.md#defaults and docs/game-data/scene-states.md#variables.
+// story: see docs/extraction.md#defaults and docs/game-data/scene-states.md#variables.
 
 // #region conditions
 

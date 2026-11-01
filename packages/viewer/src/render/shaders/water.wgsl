@@ -2,7 +2,7 @@
 // sun shadow, irradiance volume and sky reflection), with the game's water lighting: flowing wave normals that
 // fade with distance, foam, the water column's absorption and scattering, caustics on the ground below, a
 // distortion of the view through it, and reflections from the screen-space march or the sky. see
-// docs/game-data/water.md. needs frame.wgsl, then post-common.wgsl (its uniforms at group 3), atmosphere.wgsl,
+// docs/viewer/water.md. needs frame.wgsl, then post-common.wgsl (its uniforms at group 3), atmosphere.wgsl,
 // sky.wgsl and ssr-trace.wgsl.
 
 struct WaterSurface {
@@ -269,7 +269,7 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 
 	// the sun on the surface: a highlight off a flattened normal, which widens the glitter path, plus the foam's
 	// diffuse and see-through light. divided by π like every sun term here; the game's isn't
-	// (docs/game-data/lighting.md#open)
+	// (docs/viewer/lighting.md#open)
 	var direct = vec3f(0.0);
 	{
 		let ns = normalize(vec3f(n.x, n.y * c.layers.z, n.z));

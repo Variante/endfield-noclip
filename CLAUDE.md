@@ -14,7 +14,8 @@ Last verified: 2026-10-31
 - `docs/`: how the game data and our code work. read the page for the area you're changing before
   changing it, and update it in the same commit when behavior changes, because these pages are the
   only durable record of the findings. start at [docs/architecture.md](docs/architecture.md); known
-  gaps are in [docs/status.md](docs/status.md)
+  gaps are in [docs/status.md](docs/status.md). `docs/game-data/` is only what we know about the
+  game; how our code implements it goes in `docs/viewer/`, `extraction.md` or `package-format.md`
 
 ## development notes
 

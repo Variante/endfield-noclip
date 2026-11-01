@@ -1,11 +1,9 @@
 # materials
 
-how the viewer shades the game's HGRP surface shaders: Lit and its optional layers, alpha testing,
-emission, foliage, glass, matte paintings and erosion rock. the packer copies each material's
-serialized state ([assets.md](assets.md#material-and-shader)); the viewer turns it into a look in
-[`render/materials.ts`](../../packages/viewer/src/render/materials.ts) and shades it in
-[`shaders/mesh.wgsl`](../../packages/viewer/src/render/shaders/mesh.wgsl). the light they receive is
-in [lighting.md](lighting.md); `HGRP/Effect/*` shaders are in [effects.md](effects.md).
+the game's HGRP surface shaders: Lit and its optional layers, alpha testing, emission, foliage,
+glass, decals, matte paintings and erosion rock. a material's serialized state is in
+[assets.md](assets.md#material-and-shader), the light the surfaces receive in
+[lighting.md](lighting.md), and the `HGRP/Effect/*` shaders in [effects.md](effects.md).
 
 ## texture layouts
 
@@ -46,18 +44,15 @@ grid still visible.
 | ----------------- | --------------------------------------------------------------------------------------- |
 | `_EMISSIVE_MAP`   | the colour times `_EmissiveMap`'s R channel                                             |
 | `_EMISSIVE_MASK`  | the colour times a channel of the material's own maps, picked by `_EmissiveMaskChannel` |
-| `_EMISSIVE_NOMAP` | only ships with the sweep animation (`_EMISSIVE_ANIM_SWEEP`); not drawn                 |
+| `_EMISSIVE_NOMAP` | only ships with the sweep animation (`_EMISSIVE_ANIM_SWEEP`)                            |
 
 the mask channel is 0 for no emission, 1 for the base colour's alpha, 2 for the normal map's B
 (two-basemap layout) or the base alpha (MRO layout), and 3 or more for the normal map's alpha
 (two-basemap) or the MRO map's alpha; the channel is remapped by `saturate((m − 0.05) / 0.9)`. the
 Hub's ceiling panels use mask channel 3. emission is multiplied by the albedo unless
 `_AlbedoAffectEmissive` is 1. `_IgnorePostExposure` emitters (nearly all) divide out the post
-exposure (the [auto exposure](post-processing.md#auto-exposure) times the viewer's exposure option),
-so they keep their brightness however the exposure adapts.
-
-not drawn: the animated variants' motion (they're drawn still), `_EmissiveType`'s extra G/B/A
-colours, the Fresnel term, and per-instance emission overrides.
+exposure ([auto exposure](post-processing.md#auto-exposure)), so they keep their brightness however
+the exposure adapts.
 
 ## lit layers
 
@@ -72,10 +67,10 @@ detail map tile ×5 over UV set 1.
   weight `saturate(s/2 + mix(−s, 1, m + offset)) · _MaskAlbedo*.a`, with contrast `s` from
   `_Mask*Scale` and the offset from `_Mask*Offset`. albedo, roughness and metallic then blend toward
   `_MaskAlbedo*` (an LDR colour, linearized), `_MaskRoghness*` and `_MaskMetallic*`, B first and R
-  last. the originium crystals are grey rock tinted brown at strength 0.5 where R is set. the mask
-  shares the MRO map's slot, so the few MRO-layout materials with a mask go untinted. the
-  `_TRI_CHANNEL_MASK_SWITCH_TEXTURE*` variants take G and B from extra textures, so only R blends
-  there.
+  last. the originium crystals are grey rock tinted brown at strength 0.5 where R is set. the
+  `_TRI_CHANNEL_MASK_SWITCH_TEXTURE*` variants take G and B from extra textures.
+  `_UseMaskRUVSetAndTilingScale` samples the mask's R from `_MaskRUVSet` tiled by
+  `_MaskRTilingScale`; no map01 material sets it.
 - **`_DETAIL_MAP`**: a weight from `_DetailMaskMode` (1, the detail's alpha, the base colour's
   alpha, or the normal map's B or A) fades out with view depth between `_DetailFalloffStart` and
   `…End`. the detail normal (`× _DetailNormalIntensity`) is reoriented onto the base normal.
@@ -91,13 +86,12 @@ detail map tile ×5 over UV set 1.
   (`_ParallaxMaskChannel`, numbered like the emission mask minus one), times `N·V` to the power
   `floor(_ParallaxFresnelStrength)`, and times a pulse
   `cos(0.05 · _ParallaxAnimSpeed · t + _ParallaxAnimRandom · (x + y + z))` remapped to
-  `[_ParallaxMinBrightness, 1]`, where `x + y + z` is the object's world position. the pulse moves
-  only while frames render (the `continuous` option). with `_ParallaxCharPos` set,
-  `_ParallaxBrightStrength` times a smoothstep from `_ParallaxBrightOuterRadius` down to
-  `…InnerRadius` of the distance to the player is added to the pulse; the viewer puts the player at
-  the camera. on map01 seven crystal materials use it, mostly with strength 20 within 3–25 m; one
-  stores a glow colour of only 0.75, so it glows almost only near the player.
-  `_ParallaxIgnorePostExposure` divides out the post exposure as emission does.
+  `[_ParallaxMinBrightness, 1]`, where `x + y + z` is the object's world position. with
+  `_ParallaxCharPos` set, `_ParallaxBrightStrength` times a smoothstep from
+  `_ParallaxBrightOuterRadius` down to `…InnerRadius` of the distance to the player is added to the
+  pulse. on map01 seven crystal materials use it, mostly with strength 20 within 3–25 m; one stores
+  a glow colour of only 0.75, so it glows almost only near the player. `_ParallaxIgnorePostExposure`
+  divides out the post exposure as emission does.
 - **`_LAYERBLEND_TOP`** (moss and sand on rock tops; ~220 map02 materials, 33 on map01): a second
   material covers the surface by `saturate((up − _TopBlendThreshold) / _TopBlendSmoothness)`, where
   `up` is the world Y of the vertex normal, blended toward the normal-mapped one by
@@ -113,16 +107,12 @@ detail map tile ×5 over UV set 1.
   `_LayerBlendUVType` (UV set 0, world XZ, or UV set 2), times `_Layer1Tilling` plus
   `_Layer1Offset`, ignoring their `_ST`. no mesh map02 draws with a UV-set-2 layer has that set, and
   the game reads a missing UV set as set 0 (an in-game shot of a Jingyu moss rock shows the moss
-  tiling over UV set 0), so the viewer samples UV set 0 for them and binds set 0 in place of a
-  missing set 1. two all-moss rock materials have no base colour map, so their base is white and the
-  layer is all they show. the layer takes the parallax slots, so `_BaseHeightMap` has none and reads
-  as the shader's grey default.
+  tiling over UV set 0; see [open](#open)). two all-moss rock materials have no base colour map, so
+  their base is white and the layer is all they show.
 - **`_LAYERBLEND_MASK`** (~200 map02 materials): the same layer, covering by a mask instead of
   facing up: `_LayerBlendMaskMap`'s R, sampled untiled from UV set 0 (UV set 1 when
   `_LayerBlendMaskUVType` is 0, whatever the slot's own set), or with `_LayerBlendMaskType` 1 to 4
-  the layer bump map's alpha, the base colour's alpha, the normal map's alpha, or 1. the mask map
-  sits in the emissive slot, so the few materials with both an emissive map and a mask map draw
-  without the layer.
+  the layer bump map's alpha, the base colour's alpha, the normal map's alpha, or 1.
 - **`_LAYERBLEND_MOSS`** (with either layer; the rabbit-hole resource mounds): shades the layer as
   moss. with `f = 1 − N·V` of the blended normal and the raw coverage `c` (the mask, or the top
   coverage before the height blend), the edge term
@@ -132,19 +122,11 @@ detail map tile ×5 over UV set 1.
   silhouette by `_Layer1FuzzyEdgeBrightness` times twice its luma, by `f^_Layer1FuzzyBrightPower`
   (both powers at least 0.1). the world normal tips down by `e · _Layer1FuzzyNormalStrength`.
 
-not drawn: `_UseMaskRUVSetAndTilingScale`, which samples the mask's R from `_MaskRUVSet` tiled by
-`_MaskRTilingScale` (no map01 material sets it); the parallax glow's global highlight term around a
-point on the ground, its separate mask texture (`_UseParallaxMask`; such materials don't glow), and
-its `_PARALLAX_MAP_WORLDSPACE`, `_PBR` and `_DEFORM` variants; the `_LAYERBLEND_NOISEBLEND` and
-`_LAYERBLEND_MASK_PARALLAX_PBR` variants, which draw without the layer.
-
 ## foliage
 
 the game lights foliage with its own deferred model, fed by what each foliage shader writes into the
-GBuffer: a sun shadow term, the diffuse N·L, a transmission amount and a subsurface amount. the
-viewer evaluates the same model per pixel (`foliage_sun` in
-[`frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)). per unit of the sun's
-illuminance, before the shadow map and cloud shadow:
+GBuffer: a sun shadow term, the diffuse N·L, a transmission amount and a subsurface amount. per unit
+of the sun's illuminance, before the shadow map and cloud shadow:
 
 - diffuse: albedo × the stored N·L / π, with no `(1 − F)`
 - specular: the usual GGX, times `mix(sat(n·v + 0.2) · sat(sat(v·l) + 0.5), 1, sat(v·l + 1))`, which
@@ -155,9 +137,8 @@ illuminance, before the shadow map and cloud shadow:
 - wrap: albedo × `(sat(n·l + subsurface) − sat(n·l))` / π
 - all four are multiplied by the sun shadow term
 
-`HGRP/Foliage/Leaf` fills the inputs from its material
-([`leafParams`](../../packages/viewer/src/render/materials.ts)) and the mesh's vertex colours (R
-ambient occlusion, A height in the canopy):
+`HGRP/Foliage/Leaf` fills the inputs from its material and the mesh's vertex colours (R ambient
+occlusion, A height in the canopy):
 
 | input                                                        | effect                                                                                                                                                                                   |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -174,10 +155,9 @@ ambient occlusion, A height in the canopy):
 on the cherry trees of Marker Stone's pits, whose phases ship an 80–100 klx sun, this is what keeps
 the blossoms from blowing out.
 
-`HGRP/Foliage/Grass` and its card LOD `HGRP/Foliage/Grass Cardmesh Lod` fill the same inputs
-([`grassParams`](../../packages/viewer/src/render/materials.ts)). `h` is the vertex's object-space
-height (the game measures from a point tens of metres below the root, which over a blade comes to
-the same):
+`HGRP/Foliage/Grass` and its card LOD `HGRP/Foliage/Grass Cardmesh Lod` fill the same inputs. `h` is
+the vertex's height, measured from a point tens of metres below the root, which over a blade comes
+to the same as its object-space height:
 
 | input                                                       | effect                                                                                                                                                                          |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -190,33 +170,16 @@ the same):
 | `_SubsurfaceIntensity`                                      | the wrap amount                                                                                                                                                                 |
 | `_USE_CAMERA_BASED_TILLING`: `_CameraBasedTillingIntensity` | each vertex moves `h` × intensity metres along the camera's up vector flattened onto the ground: blades lean away from the camera and cover more ground seen from above         |
 
-both write a reflectance of 4/7. the card LOD decodes its normal map differently and masks by its B,
-so it takes neither the bend nor the masks. not drawn: wind, the per-instance colour the grass grids
-carry ([world](world.md#foliage-grids): the second parameter vector's RGB, covering the albedo by
-its A), `_BLEND_TERRAIN_ALBEDO`, the card LOD's own normal decoding, trunk ramps and vertex AO
-(`_EnableTrunkRamp`, `_TrunkVertexAoStrength`; trunks otherwise shade as Lit), sphere-shadow proxies
-(`_UseSphereShadowProxy`), the vertical-normal AO boost, broadleaf indirect transmission, contact
-shadows on foliage, and the per-instance tint some leaves get.
+both write a reflectance of 4/7. the card LOD decodes its normal map differently and masks by its B.
+the grass grids also carry a per-instance colour ([world](world.md#foliage-grids)): the second
+parameter vector's RGB, covering the albedo by its A.
 
 ## glass
 
 `HGRP/LitTransparent` is the glass shader (16 materials on map01: windows and glass walls such as
 the Originium Science Park offices). its materials alpha-blend (`_EnableAlphaBlend`, source alpha
-over one minus source alpha, queue 3000, no depth write) and use Lit's texture layouts. the viewer
-shades them like Lit and takes the opacity from the alpha `_AlphaMaskChannel` picks, times
-`_BaseColor.a`; with the map still streaming, the tint's alpha alone. they cast no shadows.
-
-the transparent pass draws them after the main pass, tested against its depth, with weighted blended
-order-independent transparency (McGuire and Bavoil 2013): one target sums each layer's premultiplied
-radiance and alpha, both times a weight that falls off gently with distance so nearer panes show
-more, and another multiplies `1 − alpha` into the revealage. the composite lays the layers' mean
-colour over the opaque scene by `1 − revealage` before the atmosphere and height fog, which treat
-the glass as if it lay at the opaque surface behind it, and doesn't fog glass in front of the sky. a
-single layer resolves exactly; overlapping panes blend without sorting.
-
-not drawn: refraction (`_GLASS_REFRACTION_SCENECOLOR`, `_RefractTex`, `_IoR`, …), Fresnel opacity
-(`_UseFresnel`; off on every map01 material) and subsurface scattering. water draws after the
-composite, so glass in front of water is lost.
+over one minus source alpha, queue 3000, no depth write) and use Lit's texture layouts. Fresnel
+opacity (`_UseFresnel`) is off on every map01 material.
 
 ## decals
 
@@ -225,8 +188,9 @@ over floors and rocks (the green floor of Power Plateau's grass cave, map01_lv00
 147, 524, is nine moss decals over grey concrete). each is a rect decal entity
 ([world](world.md#initchunkdata-layout)): a box whose matrix maps a unit cube, the decal's material,
 and per placement a UV scale and offset, an RGBA8 colour and an intensity. the game draws the box
-into its GBuffer after the opaque scenery. each covered pixel finds the surface from depth, and only
-points inside the box take the decal, which projects down the box's y:
+into its GBuffer after the opaque scenery, overlapping decals in their `_DrawOrder`. each covered
+pixel finds the surface from depth, and only points inside the box take the decal, which projects
+down the box's y:
 
 - UV: `(local.xz + 0.5) · scale + offset`, for `_BaseColorMap` and `_SampleTex1` (the PBR map:
   normal RG, roughness B; with `_SampleTex1UVSet` it takes its own `_ST` of the box's UVs instead)
@@ -262,48 +226,20 @@ rather than the box's UVs:
 - alpha: the base map's alpha × the colour's alpha × `_DecalOpacity` × `steep`, so level ground
   stays dry
 
-the viewer has no GBuffer, so it draws a decal like the VFXDecal boxes
-([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in the
-transparent pass ([`decalLitLook`](../../packages/viewer/src/render/effect-looks.ts), `fx_lit_decal`
-in [`effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). it takes the surface's
-normal and roughness from the main pass where the masks keep them, shades the decal like any
-surface, and lays it over by its alpha. the packer gives each placement a copy of its material
-carrying the placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPERTY` in
-the package's materials), and the box is the game's VFXDecal cube. overlapping decals blend without
-the game's `_DrawOrder`.
-
-decals that write no albedo can't be laid over the surface, because the viewer's main pass has
-already lit it. a pass between the main and the transparent pass (`fs_decal_relight`) adds the
-change in the surface's light instead: it lights the surface twice, with its own normal, roughness
-and occlusion and with the decal's, and adds the difference times the decal's alpha to the radiance.
-the surface's colour comes from the main pass's diffuse ambient divided by the ambient light at its
-normal, taken as a dielectric's; its emission and everything else stay as drawn, but its
-screen-space reflections and ambient occlusion still see the old normal.
-
-not drawn: the `_FOOT_PRINT`, `_BLEND_EMISSIVE`, `_BLEND_SLUDGE_EROSION`, `_UV_ARC`, `_UV_NOISE` and
-`_BLEND_WETNESS` variants, metallic written by a decal without albedo, the surface's own occlusion
-and metallic under a laid-over decal that doesn't write them (taken as 1 and 0), `HGRP/DecalUnlit`,
-the terrain's decals (`HGRP/TerrainDecalLit`, component 28) and decals in dynamic structures.
-
 ## matte paintings
 
 `HGRP/MattePainting` draws the painted mountain ranges on the horizon: a few alpha-tested ring
 segments, 600–1000 m from their origin and 1000 m tall, carrying one wide texture (map01's is
-4096×512). they're unlit ([`mattePaintingLook`](../../packages/viewer/src/render/materials.ts)): the
-colour is `_MainTex` times `_TintColor · _TintColorIntensity`, plus `_ExpIntensity` times whatever
-exceeds `_ExpThreshold`, in pre-exposed units unless `_IgnorePostExposure` is set. alpha is the
-texture's times `_TintColor.a · _TintColorAlpha`, clamped to 1 and tested against
-`_AlphaClipThreshold`; the viewer folds the scale into the threshold so the shared alpha-test depth
-pass still applies. fog comes from the composite like everything else. the shader has no shadow
-pass, so they don't cast shadows, and the viewer holds them back until their texture is resident.
-`_UseMainTexAsAlpha` isn't read; no map01 material sets it.
+4096×512). they're unlit: the colour is `_MainTex` times `_TintColor · _TintColorIntensity`, plus
+`_ExpIntensity` times whatever exceeds `_ExpThreshold`, in pre-exposed units unless
+`_IgnorePostExposure` is set. alpha is the texture's times `_TintColor.a · _TintColorAlpha`, clamped
+to 1 and tested against `_AlphaClipThreshold`. the shader has no shadow pass, so they don't cast
+shadows.
 
 ## erosion
 
 `HGRP/Erosion` draws the dark blight rock that grows over the Originium Science Park and other map01
-areas. it has no base colour map; the colour comes from its other maps
-([`erosionLook`](../../packages/viewer/src/render/materials.ts), `erosion_surface` in
-`shaders/mesh.wgsl`):
+areas. it has no base colour map; the colour comes from its other maps:
 
 - `_MetalMixMap` R is 0 where the surface is metal. there the colour becomes `_MetallicColor`, the
   roughness 0.01 and the metallic `_Metallic · (metal − _MetallicOffset)`; elsewhere it's
@@ -323,14 +259,12 @@ areas. it has no base colour map; the colour comes from its other maps
   component.
 
 every map samples UV set 0 and tiles by its own `*Tilling` property rather than its `_ST`. the
-metal, noise and flow colours are HDR and used as stored, like `_EmissiveColor`. not drawn: the soft
-blend into whatever lies behind (`_ObjectBlend*`, which reads the scene depth) and
-`_FakeTranslucency`.
+metal, noise and flow colours are HDR and used as stored, like `_EmissiveColor`. the shader also
+blends softly into whatever lies behind (`_ObjectBlend*`, which reads the scene depth).
 
-`HGRP/ErosionDynamic` (animated, glowing) isn't drawn either. it's used only by the
-`P_erosion_map01_dynamic…` prefabs, the erosion patches the player clears. their load gate shows
-them while a map variable is not 2, and the finished-story defaults hide them
-([variable gates](scene-states.md)), so they draw only when that gate is flipped, as a flat tint.
+`HGRP/ErosionDynamic` (animated, glowing) is used only by the `P_erosion_map01_dynamic…` prefabs,
+the erosion patches the player clears. their load gate shows them while a map variable is not 2, and
+the finished-story defaults hide them ([variable gates](scene-states.md)).
 
 ## open
 

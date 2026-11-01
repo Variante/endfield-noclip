@@ -166,7 +166,7 @@ fn far_shadow(rel: vec3f, normal: vec3f) -> f32 {
 
 // the sun's visibility at a camera-relative position. as in the game: sharp cascades out to a reach, dithered
 // between neighbours over the outer tenth of each one's sphere, fading into the coarse far layer before the reach
-// (docs/game-data/lighting.md#shadows)
+// (docs/viewer/lighting.md#shadows)
 fn sun_shadow(rel: vec3f, normal: vec3f, px: vec2f) -> f32 {
 	if (frame.shadow_fade.w < 0.5) {
 		return 1.0;
@@ -405,7 +405,7 @@ fn irradiance_outside(d: vec3f, h: vec2f, fade: f32) -> f32 {
 
 // diffuse ambient: the irradiance volume's L1 probes blended over the clipmap levels, with the ambient probe
 // where they don't reach or are invalid, as the game's deferred indirect lighting does without its jitter
-// (docs/game-data/lighting.md#ambient)
+// (docs/viewer/lighting.md#ambient)
 fn ambient_irradiance(world: vec3f, n: vec3f) -> vec3f {
 	let base = ambient_probe(n);
 	if (frame.irradiance[2].w < 0.5) {
