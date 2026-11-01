@@ -206,9 +206,17 @@ with a positive length is a tube along its direction) in `tables/lights.json.zst
 states of the files holding them, like instances. dynamic structures' ECS groups hold lights in the
 same layout (map02: 466, such as the outposts' per-level lamps), which load under their structure's
 visibility ([assets.md](assets.md#dynamic-structures)); a light the chunk files also hold keeps its
-files' conditions. directional lights, shadow-only lights (12 on map02) and character-only lights
-(none) are left out. both bake types on the maps, realtime and mixed, light directly, as in the
-game.
+files' conditions. prefabs placed by model rows carry lights too, as Unity `Light` components with
+HG's additional light data on the same GameObject: a Dijiang cabin's lighting prefab
+(`lightingdeco_spaceship_*`) holds its room's only lights, six spots in the growth chamber. the
+packer reads the lights of every placed prefab with the same settings
+([`game/prefab-lights.ts`](../../packages/extractor/src/game/prefab-lights.ts)), deriving the colour
+the chunk files store precomputed: the sRGB colour made linear, times intensity and, when the light
+uses one, the colour temperature's tint from HDRP's published curve fit (pivot 6570 K), which
+reproduces every stored chunk colour. they load with their placement's visibility, and their culling
+boxes, authored in the prefab's axes, turn with the placement (unchecked against the game for turned
+cabins). directional lights, shadow-only lights (12 on map02) and character-only lights (none) are
+left out. both bake types on the maps, realtime and mixed, light directly, as in the game.
 
 | input                                                         | effect                                                                                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -93,6 +93,7 @@ import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
+import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
 import {
 	defaultSceneStates,
@@ -1029,6 +1030,9 @@ const collectEntities = async (
 	const resolver = await context.resolver();
 	// by prefab and pose
 	const prefabs = new Map<string, Promise<PrefabRenderer[]>>();
+	const prefabLights = new Map<bigint, Promise<PrefabLight[]>>();
+	const unsupportedLights: { path: string; reason: string }[] = [];
+	counts.prefabLights = 0;
 	const unsupportedPrefabs: { path: string; reason: string }[] = [];
 	let modelId = 0;
 	for (const placement of [...dynamic.models, ...facilities.models, ...cabins.models]) {
@@ -1064,7 +1068,45 @@ const collectEntities = async (
 				return [];
 			});
 		});
-		const rootMatrix = trsMatrix(model.position, unityEulerQuaternion(model.rotation), model.scale);
+		const rotation = unityEulerQuaternion(model.rotation);
+		{
+			// the prefab's own lights load with the placement too
+			const read = prefabLights.getOrInsertComputed(model.pathHash, () => {
+				const paths = unique(
+					resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
+				);
+				if (paths.length !== 1) {
+					// reported with the renderers
+					return Promise.resolve([]);
+				}
+				return (async () => {
+					const root = await resolver.findUnique(
+						{ hash: model.pathHash, path: paths[0] },
+						UnityClass.GameObject,
+					);
+					return readPrefabLights(resolver, root);
+				})().catch((error: unknown): PrefabLight[] => {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					unsupportedLights.push({ path: paths[0], reason: error.message });
+					return [];
+				});
+			});
+			// oxlint-disable-next-line no-await-in-loop -- stable synthetic ids
+			for (const prefabLight of await read) {
+				const light = placePrefabLight(
+					prefabLight,
+					{ position: model.position, rotation, scale: model.scale },
+					syntheticEntityId(levelTag, modelId++),
+				);
+				if (subset.includesEntity(levelTag, light.position[0], light.position[2])) {
+					lights.addConditional(light, placement.visibility);
+					counts.prefabLights++;
+				}
+			}
+		}
+		const rootMatrix = trsMatrix(model.position, rotation, model.scale);
 		// oxlint-disable-next-line no-await-in-loop -- stable asset ids and bounded bundle cache
 		for (const renderer of await prefab) {
 			let matrix = multiplyMatrices(rootMatrix, renderer.matrix);
@@ -1123,8 +1165,16 @@ const collectEntities = async (
 		defaultValues(scene, collected),
 	);
 	counts.prefabEnvironmentVolumes = placed.volumes.length;
-	const reported = new Set(unsupportedPrefabs.map(({ path }) => path));
-	unsupportedPrefabs.push(...placed.unsupported.filter(({ path }) => !reported.has(path)));
+	{
+		// a prefab that fails in several readers is reported once
+		const reported = new Set(unsupportedPrefabs.map(({ path }) => path));
+		for (const failure of [...unsupportedLights, ...placed.unsupported]) {
+			if (!reported.has(failure.path)) {
+				reported.add(failure.path);
+				unsupportedPrefabs.push(failure);
+			}
+		}
+	}
 	counts.unsupportedPrefabs = unsupportedPrefabs.length;
 	return {
 		collected,

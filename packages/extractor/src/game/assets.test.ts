@@ -10,6 +10,7 @@ import { BundleAssetFile } from '../hg/bundles.ts';
 import { Vfs } from '../hg/vfs.ts';
 
 import { AssetResolver, objectKey } from './assets.ts';
+import { readPrefabLights } from './prefab-lights.ts';
 import { readPrefabRenderers } from './prefab.ts';
 
 const object = (pathId: bigint, classId: number): ObjectInfo => ({
@@ -337,4 +338,85 @@ test('skinned prefab meshes resolve bones under inactive GameObjects', async () 
 		['skin'],
 	);
 	assert.equal(rows[0].pose?.[0][12], 7);
+});
+
+test('prefab lights read the enabled lights of active GameObjects with their HG light data', async () => {
+	const values = new Map<bigint, TypeTreeObject>();
+	const objects: ObjectInfo[] = [];
+	const add = (id: bigint, classId: number, data: TypeTreeObject): void => {
+		objects.push(object(id, classId));
+		values.set(id, data);
+	};
+	const vector = (x: number, y: number, z: number) => ({ x, y, z });
+	const transform = (go: bigint, x: number, children: bigint[]) => ({
+		m_GameObject: pointer(go),
+		m_LocalPosition: vector(x, 0, 0),
+		m_LocalRotation: { x: 0, y: 0, z: 0, w: 1 },
+		m_LocalScale: vector(1, 1, 1),
+		m_Children: children.map((id) => pointer(id)),
+	});
+	const light = (enabled: boolean) => ({
+		m_Enabled: enabled,
+		m_Type: 0,
+		m_Color: { r: 1, g: 1, b: 1, a: 1 },
+		m_Intensity: 2,
+		m_UseColorTemperature: false,
+		m_ColorTemperature: 6570,
+		m_Range: 10,
+		m_SpotAngle: 90,
+		m_InnerSpotAngle: 30,
+		m_BakingOutput: { lightmapBakeMode: { lightmapBakeType: 4 } },
+		m_SpecularIntensity: 1,
+		m_ShadowOnly: false,
+		m_LinearLightLength: -1,
+		m_SoftSourceRadius: 0,
+		m_LightPriority: 0,
+		m_UseCullingDistance: true,
+		m_FalloffDistance: 20,
+		m_CullingDistance: 25,
+		m_EnableOBBCullingBox: false,
+		m_CullingBoxRelativePosition: vector(0, 0, 0),
+		m_CullingBoxHalfExtents: vector(1, 1, 1),
+		m_CullingBoxOrientation: vector(0, 0, 0),
+		m_CullingBoxFalloffThreshold: 0.8,
+		m_Shadows: { m_PlatformSpecificType: { defaultParam: 2 }, m_Strength: 1 },
+	});
+	const additional = {
+		m_LightCharacterOnly: 0,
+		m_volumetricScatteringIntensity: 0.5,
+		m_falloffExponent: -1,
+	};
+	add(1n, UnityClass.GameObject, {
+		m_Name: 'root',
+		m_IsActive: true,
+		m_Component: [{ component: pointer(2n) }],
+	});
+	add(2n, UnityClass.Transform, transform(1n, 999, [11n, 21n, 31n]));
+	// lit, disabled, and under an inactive GameObject
+	for (const [id, active, enabled] of [
+		[10n, true, true],
+		[20n, true, false],
+		[30n, false, true],
+	] as const) {
+		add(id, UnityClass.GameObject, {
+			m_Name: `light ${id}`,
+			m_IsActive: active,
+			m_Component: [id + 1n, id + 2n, id + 3n].map((componentId) => ({ component: pointer(componentId) })),
+		});
+		add(id + 1n, UnityClass.Transform, transform(id, 4, []));
+		add(id + 2n, UnityClass.Light, light(enabled));
+		add(id + 3n, UnityClass.MonoBehaviour, additional);
+	}
+	const owner = file('CAB-prefab', objects, values);
+	const lights = await readPrefabLights(resolver([owner]), { bundleIndex: 0, file: owner, info: objects[0] });
+	assert.deepEqual(
+		lights.map(({ name }) => name),
+		['light 10'],
+	);
+	// the root's own transform is the placement's
+	assert.equal(lights[0].matrix[12], 4);
+	assert.deepEqual(lights[0].light.color, [2, 2, 2]);
+	assert.deepEqual(lights[0].light.distanceFade, { falloff: 20, culling: 25 });
+	assert.equal(lights[0].light.volumetricScatteringIntensity, 0.5);
+	assert.equal(lights[0].light.tubeLength, 0);
 });

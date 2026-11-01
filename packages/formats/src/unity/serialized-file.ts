@@ -116,6 +116,7 @@ export const UnityClass = {
 	Shader: 48,
 	AnimationClip: 74,
 	Cubemap: 89,
+	Light: 108,
 	MonoBehaviour: 114,
 	Texture3D: 117,
 	AssetBundle: 142,
