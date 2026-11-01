@@ -71,7 +71,9 @@ const ROLE_DISSOLVE = 5u;
 const ROLE_NONE = 7u;
 const SLOT_DISTURBED = 8u;
 const SLOT_RED_ALPHA = 16u;
-const SLOT_UV1 = 32u;
+// two bits of `SlotSource` (effect-looks.ts): UV0, UV1, polar, screen
+const SLOT_SOURCE_SHIFT = 5u;
+const SLOT_NO_BASE = 128u;
 
 const FX_HAS_COLORS = 67108864u;
 
@@ -97,6 +99,8 @@ struct EffectOut {
 	@location(7) @interpolate(flat) to_object2: vec4f,
 	// the object's unit y axis in world space: the decal's projection direction, reversed
 	@location(8) @interpolate(flat) up: vec3f,
+	// the object origin's view depth, which scales VFXBaseV2's screen UVs
+	@location(9) @interpolate(flat) origin_depth: f32,
 }
 
 // the transparent pass's outputs (`TRANSPARENT_TARGETS` in render-targets.ts), as in mesh.wgsl
@@ -177,7 +181,45 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	out.to_object1 = vec4f(inverse[1], -dot(inverse[1], origin));
 	out.to_object2 = vec4f(inverse[2], -dot(inverse[2], origin));
 	out.up = normalize(m[1]);
+	out.origin_depth = dot(origin, frame.view_forward.xyz);
 	return out;
+}
+
+// polar UVs of a point about the centre: the angle from +y as a fraction of a turn, and twice the distance
+fn fx_polar(centred: vec2f) -> vec2f {
+	return vec2f((atan2(centred.x, centred.y) + PI) / (2.0 * PI), 2.0 * length(centred));
+}
+
+// the UVs a texture slot can start from (`SlotSource` in effect-looks.ts), with their screen gradients
+struct FxBases {
+	uv: array<vec2f, 4>,
+	dx: array<vec2f, 4>,
+	dy: array<vec2f, 4>,
+}
+
+// call in uniform control flow. the polar angle's gradient wraps, so its seam doesn't read as a whole turn and
+// pick the smallest mip
+fn fx_bases(uv0: vec2f, uv1: vec2f, polar: vec2f, screen: vec2f) -> FxBases {
+	var pdx = dpdx(polar);
+	var pdy = dpdy(polar);
+	pdx.x -= round(pdx.x);
+	pdy.x -= round(pdy.x);
+	var b: FxBases;
+	b.uv = array(uv0, uv1, polar, screen);
+	b.dx = array(dpdx(uv0), dpdx(uv1), pdx, dpdx(screen));
+	b.dy = array(dpdy(uv0), dpdy(uv1), pdy, dpdy(screen));
+	return b;
+}
+
+// a slot's base UV and its gradients by its bits, zero when its source isn't computed
+fn fx_slot_base(bases: FxBases, bits: u32) -> array<vec2f, 3> {
+	if ((bits & SLOT_NO_BASE) != 0u) {
+		return array(vec2f(0.0), vec2f(0.0), vec2f(0.0));
+	}
+	// arrays in a value can't be indexed by a variable
+	var b = bases;
+	let source = (bits >> SLOT_SOURCE_SHIFT) & 3u;
+	return array(b.uv[source], b.dx[source], b.dy[source]);
 }
 
 // a slot's UVs: scrolled, rotated about the texture's centre, then its `_ST`
@@ -225,7 +267,7 @@ fn fx_sample(slot: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
 
 // the texture stack: the distortion and weight run through the slots in order, then the main texture, its mask,
 // the blend layer and the dissolve. returns the colour (before exposure) and alpha
-fn fx_combine(id: u32, uv0: vec2f, uv1: vec2f, dx: vec2f, dy: vec2f, tint: vec4f) -> vec4f {
+fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 	let weight_row = fx_row(id, FX_WEIGHT);
 	let disturb = fx_row(id, FX_DISTURB);
 	let distorting = fx_row(id, FX_MISC).w != 0.0;
@@ -243,12 +285,17 @@ fn fx_combine(id: u32, uv0: vec2f, uv1: vec2f, dx: vec2f, dy: vec2f, tint: vec4f
 		if (role == ROLE_NONE) {
 			continue;
 		}
-		let base = select(uv0, uv1, (bits & SLOT_UV1) != 0u);
-		var uv = fx_slot_coords(id, slot, base);
+		let base = fx_slot_base(bases, bits);
+		var uv = fx_slot_coords(id, slot, base[0]);
 		if ((bits & SLOT_DISTURBED) != 0u) {
 			uv += offset;
 		}
-		var t = fx_sample(slot, uv, fx_slot_gradient(id, slot, dx) * bias, fx_slot_gradient(id, slot, dy) * bias);
+		var t = fx_sample(
+			slot,
+			uv,
+			fx_slot_gradient(id, slot, base[1]) * bias,
+			fx_slot_gradient(id, slot, base[2]) * bias,
+		);
 		if ((bits & SLOT_RED_ALPHA) != 0u) {
 			t = vec4f(1.0, 1.0, 1.0, t.r);
 		}
@@ -277,11 +324,17 @@ fn fx_combine(id: u32, uv0: vec2f, uv1: vec2f, dx: vec2f, dy: vec2f, tint: vec4f
 		}
 	}
 	let bits = fx_slot_bits(id, 0u);
-	var uv = fx_slot_coords(id, 0u, select(uv0, uv1, (bits & SLOT_UV1) != 0u));
+	let base = fx_slot_base(bases, bits);
+	var uv = fx_slot_coords(id, 0u, base[0]);
 	if ((bits & SLOT_DISTURBED) != 0u) {
 		uv += offset;
 	}
-	var main_sample = fx_sample(0u, uv, fx_slot_gradient(id, 0u, dx) * bias, fx_slot_gradient(id, 0u, dy) * bias);
+	var main_sample = fx_sample(
+		0u,
+		uv,
+		fx_slot_gradient(id, 0u, base[1]) * bias,
+		fx_slot_gradient(id, 0u, base[2]) * bias,
+	);
 	if ((bits & SLOT_RED_ALPHA) != 0u) {
 		main_sample = vec4f(1.0, 1.0, 1.0, main_sample.r);
 	}
@@ -338,13 +391,23 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let dy = dpdy(in.uv);
 	let rel_dx = dpdx(in.rel);
 	let rel_dy = dpdy(in.rel);
-	if (fx_row(id, FX_UNFOGGED).y == FX_KIND_WATER_SHEET) {
+	let kind = fx_row(id, FX_UNFOGGED);
+	// screen UVs: the pixel's position, centred and scaled by the width, optionally v by the world height, then
+	// times the object's view depth past the near plane
+	let size = frame.render_size.xy;
+	let q = floor(in.position.xy);
+	let screen_flags = u32(kind.w);
+	var screen = vec2f(2.0 * q.x / size.x - 1.0, (2.0 * q.y / size.y - 1.0) * size.y / size.x);
+	screen.y = select(screen.y, frame.eye.y + in.rel.y, (screen_flags & 2u) != 0u);
+	screen *= select(1.0, max(1.0, in.origin_depth - frame.local_lights.w), (screen_flags & 1u) != 0u);
+	let bases = fx_bases(in.uv.xy, in.uv.zw, fx_polar(in.uv.xy - 0.5), screen);
+	if (kind.y == FX_KIND_WATER_SHEET) {
 		return water_sheet(in, front, dx.xy, dy.xy, rel_dx, rel_dy);
 	}
 	let soft = fx_row(id, FX_SOFT);
 	let misc = fx_row(id, FX_MISC);
 	let tint = fx_row(id, FX_TINT) * select(vec4f(1.0), in.color, soft.w != 0.0);
-	let combined = fx_combine(id, in.uv.xy, in.uv.zw, dx.xy, dy.xy, tint);
+	let combined = fx_combine(id, bases, tint);
 	var color = combined.rgb;
 	color += max(color - vec3f(misc.y), vec3f(0.0)) * misc.z;
 	color = clamp(color * mix(1.0, frame.ambient.y, soft.z), vec3f(0.0), vec3f(1000.0));
@@ -364,7 +427,6 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let alpha = saturate(
 		saturate(combined.a) * mix(1.0, fresnel, fresnel_row.w) * soft_fade * fx_near_fade(id, depth),
 	);
-	let kind = fx_row(id, FX_UNFOGGED);
 	// `_BlendMode` 1 adds the layer rather than blending it over
 	if (kind.z >= 0.5) {
 		var out: EffectAccumulated;
@@ -629,12 +691,13 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 	let p = vec4f(rel, 1.0);
 	let object_p = vec3f(dot(in.to_object0, p), dot(in.to_object1, p), dot(in.to_object2, p));
 	let uv = object_p.xz + 0.5;
-	let dx = dpdx(uv);
-	let dy = dpdy(uv);
+	// the decal's screen UVs are the pixel's position over the width, unlike VFXBaseV2's
+	let screen = floor(in.position.xy) / frame.render_size.x;
+	let bases = fx_bases(uv, uv, fx_polar(object_p.xz), screen);
 	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9) {
 		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
 	}
-	let combined = fx_combine(id, uv, uv, dx, dy, fx_row(id, FX_TINT));
+	let combined = fx_combine(id, bases, fx_row(id, FX_TINT));
 	let soft = fx_row(id, FX_SOFT);
 	let color = clamp(combined.rgb, vec3f(0.0), vec3f(1000.0)) * mix(1.0, frame.ambient.y, soft.z);
 

@@ -39,7 +39,10 @@ export const EffectRow = {
 	uv: 4,
 	/** per slot: UV scroll per second (xy), the UV rotation's cosine and sine */
 	anim: 32,
-	/** per slot: role, plus 8 when the slot's UVs take the distortion, plus 16 when its red channel is its alpha */
+	/**
+	 * per slot: role, plus 8 when the slot's UVs take the distortion, plus 16 when its red channel is its
+	 * alpha, plus 32 times its {@link SlotSource}, or {@link SLOT_NO_BASE}
+	 */
 	slotBits: 60,
 	/** the blend layer's tint rgb (HDR), w = how strongly it covers */
 	blendTint: 68,
@@ -84,13 +87,44 @@ export const EffectRow = {
 	/**
 	 * 1 when the layer goes unfogged (its material lacks `_USE_FOG`, and the game draws effects after the fog),
 	 * the {@link EffectKind}, 1 when a VFXBaseV2 layer adds its light rather than blending over (`_BlendMode`
-	 * 1), 0
+	 * 1), then VFXBaseV2's screen UV options: 1 to scale by the object's view depth (`_ScreenUVUseDepth`), plus
+	 * 2 to take v from the world height (`_UsePosYAsScreenV`)
 	 */
 	unfogged: 124,
 } as const;
 
-/** slots of a VFXBaseV2 look: the main texture, then `_SampleTex0`… */
-const BASE_SLOTS = ['_MainTex', '_SampleTex0', '_SampleTex1', '_SampleTex2', '_SampleTex3', '_SampleTex4'];
+/**
+ * the UVs a texture slot starts from: the mesh's UV sets, polar coordinates about the UV centre (VFXBaseV2:
+ * UV0's; VFXDecal: the box's), or the screen position
+ */
+export const SlotSource = {
+	Uv0: 0,
+	Uv1: 1,
+	Polar: 2,
+	Screen: 3,
+} as const;
+
+export type SlotSource = (typeof SlotSource)[keyof typeof SlotSource];
+
+/**
+ * {@link EffectRow.slotBits} bit of a slot whose UVs start from zero, as the game's do when the source its
+ * weights pick isn't computed (polar or screen UVs without their keyword and switch)
+ */
+export const SLOT_NO_BASE = 128;
+
+/**
+ * slots of a VFXBaseV2 look: the main texture, then `_SampleTex0`…; the sixth sample texture shares
+ * {@link OFFSET_SLOT} with the vertex offset's, so a material can't have both
+ */
+const BASE_SLOTS = [
+	'_MainTex',
+	'_SampleTex0',
+	'_SampleTex1',
+	'_SampleTex2',
+	'_SampleTex3',
+	'_SampleTex4',
+	'_SampleTex5',
+];
 
 /**
  * the VFXBaseV2 slot of `_OffsetTex`, which the vertex stage samples; its UV and scroll rows hold the
@@ -106,8 +140,9 @@ const ROLE_TEXTURES = ['_DisturbTex1', '_DisturbTex2', '_WeightTex', '_MaskTex',
 
 /**
  * slots of a VFXDecal look: each texture's role, the keyword that enables it, and the properties of its UV
- * scroll, rotation (degrees) and distortion switch, where it has them. the shader runs through the slots in
- * order, so the disturb textures come before the textures they distort
+ * scroll, rotation (degrees), distortion switch and UV source switch (0 the box, 1 the screen, 2 polar),
+ * where it has them. the shader runs through the slots in order, so the disturb textures come before the
+ * weight and the textures they distort
  */
 const DECAL_SLOTS = [
 	{
@@ -117,6 +152,7 @@ const DECAL_SLOTS = [
 		speed: '_MainTexUVSpeed',
 		rotate: '_MainTexUVRotate',
 		disturbed: '_MainTexUseDisturb',
+		source: '_MainSwitchUV',
 	},
 	{
 		name: '_DisturbTex1',
@@ -125,6 +161,7 @@ const DECAL_SLOTS = [
 		speed: '_DisturbUVSpeed1',
 		rotate: null,
 		disturbed: null,
+		source: '_DisturbSwitchUV',
 	},
 	{
 		name: '_DisturbTex2',
@@ -133,6 +170,16 @@ const DECAL_SLOTS = [
 		speed: '_DisturbUVSpeed2',
 		rotate: null,
 		disturbed: null,
+		source: '_DisturbSwitchUV',
+	},
+	{
+		name: '_WeightTex',
+		role: EffectRole.Weight,
+		keyword: '_USE_WEIGHT',
+		speed: null,
+		rotate: null,
+		disturbed: null,
+		source: '_WeightSwitchUV',
 	},
 	{
 		name: '_MaskTex',
@@ -141,6 +188,7 @@ const DECAL_SLOTS = [
 		speed: '_MaskTexUVSpeed',
 		rotate: '_MaskTexUVRotate',
 		disturbed: '_MaskTexUseDisturb',
+		source: '_MaskSwitchUV',
 	},
 	{
 		name: '_BlendTex',
@@ -149,6 +197,7 @@ const DECAL_SLOTS = [
 		speed: '_BlendTexUVSpeed',
 		rotate: '_BlendTexUVRotate',
 		disturbed: '_BlendTexUseDisturb',
+		source: '_BlendSwitchUV',
 	},
 	{
 		name: '_DissolveTex',
@@ -157,6 +206,7 @@ const DECAL_SLOTS = [
 		speed: '_DissolveUVSpeed',
 		rotate: '_DissolveUVRotate',
 		disturbed: '_DissolveTexUseDisturb',
+		source: '_DissolveSwitchUV',
 	},
 ] as const;
 
@@ -170,6 +220,7 @@ const BASE_KEYWORDS = new Set([
 	'_USE_FOG',
 	'_USE_SOFTBLEND',
 	'_USE_FRESNEL',
+	'_USE_POLARUV',
 ]);
 const DECAL_KEYWORDS = new Set([
 	'_USE_MASK',
@@ -177,8 +228,11 @@ const DECAL_KEYWORDS = new Set([
 	'_USE_DISSOLVE',
 	'_USE_DISTURB',
 	'_USE_DISTURB_TEX2',
+	'_USE_WEIGHT',
 	'_USE_NORMALBLEND',
 	'_USE_FOG',
+	'_USE_POLARUV',
+	'_USE_SCREENUV',
 ]);
 
 /** what an effect look puts in `MaterialLook` besides its parameters */
@@ -268,6 +322,12 @@ const setShared = (look: EffectLook, entry: ReadyMaterial, shader: ShaderEntry, 
 	params[EffectRow.soft + 2] = float('_IgnorePostExposure', 1);
 };
 
+/** whether a VFXBaseV2 material moves its vertices by the offset texture in {@link OFFSET_SLOT} */
+const vertexOffsetDrawn = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
+	entry.keywords.includes('_USE_VERTOFFSET') &&
+	readers(entry, shader).float('_InParticle', 1) === 0 &&
+	entry.slots[OFFSET_TEXTURE] !== undefined;
+
 /** whether a VFXBaseV2 keyword outside {@link BASE_KEYWORDS} is drawn, or changes nothing in the viewer */
 const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderEntry): boolean => {
 	const { float, color } = readers(entry, shader);
@@ -281,6 +341,14 @@ const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderE
 			// the radial glow and distortion around the player (no `_BrightCenter`) reach `_OuterRadius` metres,
 			// and the viewer has no player
 			return float('_BrightType', 0) === 0 && (color('_BrightCenter')?.[3] ?? 0) === 0;
+		}
+		case '_USE_SCREENUV': {
+			// screen UVs relative to the object's pivot aren't drawn
+			return float('_LocalPivortSpace', 0) === 0;
+		}
+		case '_SAMPLE_TEX5': {
+			// the sixth sample texture takes the vertex offset's slot
+			return !vertexOffsetDrawn(entry, shader);
 		}
 		default: {
 			return false;
@@ -324,9 +392,18 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		const rotation = color(`${prefix}UVRotateMat`) ?? [1, 0, 0, 1];
 		return { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] };
 	};
-	const uv1 = (prefix: string): number => {
+	// polar and screen UVs are computed only with their keyword and switch, and are zero otherwise
+	const computed = [
+		true,
+		true,
+		entry.keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
+		entry.keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
+	];
+	// a slot's UVs are its weights times UV0, UV1, polar and screen UVs; materials set one weight
+	const source = (prefix: string): number => {
 		const weights = color(`${prefix}UVWeights`) ?? [1, 0, 0, 0];
-		return weights[1] > weights[0] ? 32 : 0;
+		const largest = weights.indexOf(Math.max(...weights));
+		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
 	};
 	BASE_SLOTS.forEach((name, i) => {
 		const slot = entry.slots[name];
@@ -338,7 +415,7 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 				EffectRole.Main +
 				(float('_MainTexUseDisturb', 0) !== 0 ? 8 : 0) +
 				(float('_UseMainTexAsAlpha', 0) !== 0 ? 16 : 0) +
-				uv1('_MainTex');
+				source('_MainTex');
 			setSlot(look, i, slot, animOf('_MainTex'), bits);
 			return;
 		}
@@ -352,12 +429,21 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		}
 		// the shader transforms a sample texture's UVs by the `_ST` of its role's texture property
 		const transform = entry.slots[ROLE_TEXTURES[role]] ?? slot;
-		const bits =
+		const anim = animOf(`_SampleTex${n}`);
+		let bits =
 			role +
 			(float(`_SampleTex${n}UseDisturb`, 0) !== 0 ? 8 : 0) +
-			(float(`_UseSampleTex${n}AsAlpha`, 0) !== 0 ? 16 : 0) +
-			uv1(`_SampleTex${n}`);
-		setSlot(look, i, { ...transform, texture: slot.texture }, animOf(`_SampleTex${n}`), bits);
+			(float(`_UseSampleTex${n}AsAlpha`, 0) !== 0 ? 16 : 0);
+		if (n === 5) {
+			// the shader computes the sixth's UVs in its vertex stage, from the mesh's UV sets alone, and scrolls them
+			// by the first's speed
+			const weights = color('_SampleTex5UVWeights') ?? [1, 0, 0, 0];
+			bits += weights[1] > weights[0] ? 32 : 0;
+			anim.speed = animOf('_SampleTex0').speed;
+		} else {
+			bits += source(`_SampleTex${n}`);
+		}
+		setSlot(look, i, { ...transform, texture: slot.texture }, anim, bits);
 	});
 	// without a main texture the shader samples its default; slot 0 is always sampled, and an unset slot binds
 	// white
@@ -395,6 +481,8 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
 	params[EffectRow.unfogged] = entry.keywords.includes('_USE_FOG') ? 0 : 1;
 	params[EffectRow.unfogged + 2] = blendMode;
+	params[EffectRow.unfogged + 3] =
+		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
 	params[EffectRow.misc + 1] = float('_ExpThreshold', 1);
 	params[EffectRow.misc + 2] = float('_ExpIntensity', 0);
 	params[EffectRow.misc + 3] = float('_UseDisturb', 0) !== 0 ? 1 : 0;
@@ -437,12 +525,20 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	const params = look.params;
 	const base = color('_DecalBaseColor') ?? [1, 1, 1, 1];
 	params.set([base[0], base[1], base[2], base[3] * float('_TintColorAlpha', 1)], EffectRow.tint);
-	DECAL_SLOTS.forEach(({ name, role, keyword, speed: speedName, rotate, disturbed }, i) => {
+	// a texture's UV switch picks polar or screen UVs only where they're computed; the box's otherwise
+	const sources = new Map<number, SlotSource>();
+	if (entry.keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0) {
+		sources.set(1, SlotSource.Screen);
+	}
+	if (entry.keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0) {
+		sources.set(2, SlotSource.Polar);
+	}
+	DECAL_SLOTS.forEach(({ name, role, keyword, speed: speedName, rotate, disturbed, source }, i) => {
 		const slot = entry.slots[name];
 		if (slot === undefined || slot.uv > 1 || (keyword !== null && !entry.keywords.includes(keyword))) {
 			return;
 		}
-		const speed = color(speedName) ?? [0, 0, 0, 0];
+		const speed = (speedName !== null && color(speedName)) || [0, 0, 0, 0];
 		// a rotation in degrees about the texture's centre
 		const angle = rotate === null ? 0 : (float(rotate, 0) * Math.PI) / 180;
 		const useDisturb = disturbed === null ? 0 : float(disturbed, 0);
@@ -463,7 +559,10 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 			i,
 			transform,
 			{ speed: [speed[0], speed[1]], cos: Math.cos(angle), sin: -Math.sin(angle) },
-			role + (useDisturb !== 0 ? 8 : 0) + (asAlpha ? 16 : 0),
+			role +
+				(useDisturb !== 0 ? 8 : 0) +
+				(asAlpha ? 16 : 0) +
+				(sources.get(float(source, 0)) ?? SlotSource.Uv0) * 32,
 		);
 	});
 	if (look.textures[0] < 0) {
@@ -473,6 +572,18 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	params[EffectRow.dissolve + 3] = entry.keywords.includes('_USE_DISSOLVE') ? 1 : 0;
 	params[EffectRow.dissolveColor + 3] = entry.keywords.includes('_USE_MASK') ? 1 : 0;
 	params[EffectRow.weight] = float('_Bi_Disturb', 0);
+	if (entry.keywords.includes('_USE_WEIGHT')) {
+		const intensity = float('_WeightTexIntensity', 1);
+		params.set(
+			[
+				intensity * float('_DisturbUseWeight', 1),
+				intensity * float('_DissolveUseWeight', 0),
+				// the distortion and dissolve then scale by `1 − intensity + red · intensity`
+				1,
+			],
+			EffectRow.weight + 1,
+		);
+	}
 	params[EffectRow.misc + 3] = entry.keywords.includes('_USE_DISTURB') ? 1 : 0;
 	params[EffectRow.unfogged] = entry.keywords.includes('_USE_FOG') ? 0 : 1;
 	params.set(

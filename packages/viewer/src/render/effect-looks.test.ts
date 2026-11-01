@@ -10,6 +10,8 @@ import {
 	MistRow,
 	OFFSET_SLOT,
 	ROLE_NONE,
+	SLOT_NO_BASE,
+	SlotSource,
 	WaterSheetFlags,
 	WaterSheetRow,
 } from './effect-looks.ts';
@@ -74,10 +76,16 @@ test('a VFXDecal is a transparent, shadowless box drawn by its back faces, its d
 	assert.equal(look.castsShadows, false);
 	assert.equal(look.cull, 'front');
 	assert.equal(look.flags, LookFlags.Effect | LookFlags.EffectDecal);
-	// main, disturb 1; disturb 2 and blend lack their keywords
-	assert.deepEqual(look.textures, [1, 3, -1, 2, -1, -1, -1]);
-	const bits = [...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 4)];
-	assert.deepEqual(bits, [EffectRole.Main, EffectRole.Disturb1, ROLE_NONE, EffectRole.Mask + 8 + 16]);
+	// main, disturb 1, mask; disturb 2 and blend lack their keywords, and there's no weight texture
+	assert.deepEqual(look.textures, [1, 3, -1, -1, 2, -1, -1]);
+	const bits = [...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 5)];
+	assert.deepEqual(bits, [
+		EffectRole.Main,
+		EffectRole.Disturb1,
+		ROLE_NONE,
+		ROLE_NONE,
+		EffectRole.Mask + 8 + 16,
+	]);
 	// the HDR base colour as stored, its alpha times `_TintColorAlpha`
 	assert.deepEqual(
 		[...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)],
@@ -167,6 +175,66 @@ test('effects without _USE_FOG are marked to stay out of the fog', () => {
 	assert.deepEqual(
 		looks.map((look) => look.params[EffectRow.unfogged]),
 		[1, 0, 1, 0],
+	);
+});
+
+test('effect slots start from polar UVs where the material computes them, and from zero where it does not', () => {
+	const looks = materialLooks({
+		shaders: [shader('HGRP/Effect/VFXBaseV2'), shader('HGRP/Effect/VFXDecal')],
+		entries: [
+			material({
+				id: 0,
+				keywords: ['_SAMPLE_TEX0', '_USE_POLARUV', '_USE_SCREENUV'],
+				slots: { _MainTex: slot(1), _SampleTex0: slot(2) },
+				floats: { _UsePolarUV: 1, _SampleTex0UseWeight0: 1 },
+				vectors: { _SampleTex0UVWeights: [0, 0, 1, 0], _MainTexUVWeights: [0, 0, 0, 1] },
+			}),
+			material({
+				id: 1,
+				shader: 1,
+				keywords: ['_USE_MASK', '_USE_WEIGHT', '_USE_POLARUV'],
+				slots: { _MainTex: slot(1), _MaskTex: slot(2), _WeightTex: slot(3) },
+				floats: {
+					_UsePolarUV: 1,
+					_MaskSwitchUV: 2,
+					_WeightSwitchUV: 1,
+					_WeightTexIntensity: 0.5,
+					_DissolveUseWeight: 1,
+				},
+			}),
+		],
+	});
+	const bits = (look: (typeof looks)[number], index: number) => look.params[EffectRow.slotBits + index];
+	// screen UVs without `_UseScreenUV` aren't computed
+	assert.equal(bits(looks[0], 0), EffectRole.Main + SLOT_NO_BASE);
+	assert.equal(bits(looks[0], 1), EffectRole.Disturb1 + SlotSource.Polar * 32);
+	// the decal's mask reads polar UVs; its weight's screen switch falls back to the box
+	assert.equal(bits(looks[1], 4), EffectRole.Mask + SlotSource.Polar * 32);
+	assert.equal(bits(looks[1], 3), EffectRole.Weight);
+	assert.deepEqual([...looks[1].params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
+});
+
+test('a VFXBaseV2 sixth sample texture takes the vertex offset slot and the first sample texture speed', () => {
+	const [look] = materialLooks({
+		shaders: [shader('HGRP/Effect/VFXBaseV2')],
+		entries: [
+			material({
+				keywords: ['_SAMPLE_TEX5'],
+				slots: { _MainTex: slot(1), _SampleTex5: slot(2), _DissolveTex: slot(3, [2, 3]) },
+				floats: { _SampleTex5UseWeight5: 1 },
+				vectors: { _SampleTex0UVSpeed: [0, -1, 0, 0], _SampleTex5UVSpeed: [5, 5, 0, 0] },
+			}),
+		],
+	});
+	assert.equal(look.textures[OFFSET_SLOT], 2);
+	assert.equal(look.params[EffectRow.slotBits + OFFSET_SLOT], EffectRole.Dissolve);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.uv + OFFSET_SLOT * 4, EffectRow.uv + OFFSET_SLOT * 4 + 2)],
+		[2, 3],
+	);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.anim + OFFSET_SLOT * 4, EffectRow.anim + OFFSET_SLOT * 4 + 2)],
+		[0, -1],
 	);
 });
 

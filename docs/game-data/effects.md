@@ -34,10 +34,19 @@ used as stored, the others are converted to linear. colours ignore the post expo
 layer in between `_NearCameraFadeDistanceStart` and `…End` metres of view depth, and out between
 `…Start2` and `…End2`.
 
-**VFXBaseV2** takes the main texture plus up to five `_SampleTexN`, each playing the role its
+**VFXBaseV2** takes the main texture plus up to six `_SampleTexN`, each playing the role its
 `_SampleTexNUseWeightK` property selects (0 disturb, 1 second disturb, 2 weight, 3 mask, 4 blend, 5
 dissolve), with the `_ST` of that role's own texture property (`_DisturbTex1`, `_DisturbTex2`,
-`_WeightTex`, `_MaskTex`, `_BlendTex`, `_DissolveTex`). the colour starts from
+`_WeightTex`, `_MaskTex`, `_BlendTex`, `_DissolveTex`). each texture's UVs start from its
+`*UVWeights` times UV0, UV1, polar and screen UVs (materials set one weight). polar UVs are computed
+with `_USE_POLARUV` and `_UsePolarUV`: about UV0's centre, the angle from +v as a fraction of a turn
+and twice the distance. screen UVs, with `_USE_SCREENUV` and `_UseScreenUV`, are the pixel's
+position, centred and divided by half the width, v optionally the world height
+(`_UsePosYAsScreenV`), times the object origin's view depth past the near plane
+(`_ScreenUVUseDepth`, on by default); those relative to the object (`_LocalPivortSpace`) aren't
+drawn. a source that isn't computed is zero, so a texture weighted to it only scrolls. the sixth
+sample texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`; the
+viewer gives it the vertex offset's slot, so materials with both stay hidden. the colour starts from
 `_TintColor · _TintColorIntensity` times the vertex colour, alpha from
 `_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`. a
 material without a main texture samples the shader's default, white, as the game does (the base ring
@@ -67,12 +76,18 @@ map02_lv002) use both.
 a depth test, so it still shows with the camera inside: each covered pixel reconstructs the main
 pass's surface from the depth buffer and, if that point lies inside the box, projects the textures
 down the box's y (UV = local xz + 0.5). its roles are fixed: `_MainTex`, `_MaskTex`, `_BlendTex`,
-`_DisturbTex1/2`, `_DissolveTex`, each only with its `_USE_*` keyword. the colour is
-`_DecalBaseColor`, alpha its alpha times `_TintColorAlpha`, faded towards the box's x and z faces
-(`_EdgeFadeX/Z`, over `_EdgeFadeIntensity`), its top and bottom (`_HeightFade` around
-`_HeightFadeOffset`), and with `_USE_NORMALBLEND` on surfaces facing away from the box's y (`N·up`
-to the power `_AngleBlendFallOff`, N from the main pass's packed surface normal). the colour is
-premultiplied by the alpha twice, as the game does.
+`_DisturbTex1/2`, `_WeightTex`, `_DissolveTex`, each only with its `_USE_*` keyword. a texture's
+`*SwitchUV` swaps the box UVs for screen UVs (1: the pixel's position over the width) or polar UVs
+(2: about the box's axis, as VFXBaseV2's), each computed only with its keyword and `_UseScreenUV` /
+`_UsePolarUV`. the weight texture neither scrolls nor turns, and scales the distortion and the
+dissolve by `1 − _WeightTexIntensity + red · _WeightTexIntensity` (`_DisturbUseWeight`,
+`_DissolveUseWeight`). the rift in Power Plateau's grating (map01_lv007, near unity −129, 173, 593)
+is two such decals around VFXBaseV2 rings and swirls on polar UVs. the colour is `_DecalBaseColor`,
+alpha its alpha times `_TintColorAlpha`, faded towards the box's x and z faces (`_EdgeFadeX/Z`, over
+`_EdgeFadeIntensity`), its top and bottom (`_HeightFade` around `_HeightFadeOffset`), and with
+`_USE_NORMALBLEND` on surfaces facing away from the box's y (`N·up` to the power
+`_AngleBlendFallOff`, N from the main pass's packed surface normal). the colour is premultiplied by
+the alpha twice, as the game does.
 
 ## portals
 
@@ -207,8 +222,8 @@ effects. effects cast no shadows and wait until all their textures are resident.
 
 not drawn, for VFXBaseV2 and VFXDecal: additive materials (they could draw into the glow), the
 vertex offset's mask (`_USE_VERTOFFSETMASK`) and particle-data terms, brightening that is a scan
-line or centred on a fixed point, polar or screen-space UVs, lighting, breathing, edge colour,
-vertex animation textures or water blending, the flipbook and particle inputs, and VFXDecal's
-parallax, 3D texture, weight and particle variants. across effects: their own fog (`_USE_FOG`), the
-scene effect colour grade, VFXDitherAlpha's keyword variants other than the normal map and
+line or centred on a fixed point, screen UVs relative to the object, lighting, breathing, edge
+colour, vertex animation textures or water blending, the flipbook and particle inputs, and
+VFXDecal's parallax, 3D texture and particle variants. across effects: their own fog (`_USE_FOG`),
+the scene effect colour grade, VFXDitherAlpha's keyword variants other than the normal map and
 `_MainTex2`'s alpha, and every other effect shader (`VFXAdvance`, `VFXRefract`, `WaterDecal`, …).
