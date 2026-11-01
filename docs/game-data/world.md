@@ -25,6 +25,41 @@ the game has three units:
   separate scenes with their own frames (some interiors sit at world-like coordinates but still
   stream from their own scene).
 
+### scene names
+
+scene ids follow `<owner>_<kind><number>`. the owner says what the scene belongs to: `map01` and
+`map02` are the open-world regions, `base01` is Dijiang, `dung01`/`dung02` are instances tied to
+region 01 or 02, and `indie` instances belong to neither. `blackbox01/02_dg001` hold the AIC
+tutorials. the kind is not stored anywhere, but `Data/TableCfg/DungeonTable` maps each dungeon entry
+(`dungeonId`) to its `sceneId` (or `levelId`) and a `dungeonCategory`, and the kinds line up with
+the categories:
+
+| kind    | `dungeonCategory`                         | what it is                                                          |
+| ------- | ----------------------------------------- | ------------------------------------------------------------------- |
+| `dg`    | `dungeon_story`, `dungeon_train`, or none | story interiors and cities; base01 training rooms                   |
+| `cdg`   | `dungeon_challenge`, `dungeon_actmonster` | puzzle and mechanic stages                                          |
+| `rdg`   | `dungeon_char`, a few `dungeon_story`     | operator story dungeons, e.g. `dung02_rdg008` is `dung_lizhiyan_01` |
+| `bdg`   | `dungeon_bossrush`                        | boss-rush arenas                                                    |
+| `gdg`   | `dungeon_archery`                         | archery stages                                                      |
+| `rcdg`  | `dungeon_wuling_racing`                   | Wuling tracks                                                       |
+| `sdg`   | `dungeon_resource`                        | Protocol Space resource stages                                      |
+| `ssdg`  | none (`dungeon_ss` rows point at levels)  | Protocol Space advanced progression                                 |
+| `ttdg`  | `dungeon_takestwo`                        | wave arena                                                          |
+| `swdg`  | `dungeon_gamblingdungeon`                 | Arena of Games                                                      |
+| `wrdg`  | `dungeon_weeklyraid`                      | weekly raid                                                         |
+| `hdg`   | `dungeon_highdifficulty`                  | high-difficulty boss arenas                                         |
+| `ccdg`  | `dungeon_contract`                        | Contingency Contract                                                |
+| `check` | `dungeon_worldlevel`                      | Zoetic Session level checks                                         |
+| `race`  | `dungeon_race`                            | race                                                                |
+| `tower` | `dungeon_seasontower`                     | season tower                                                        |
+
+the number counts up within an owner and kind; it carries no other meaning. a scene can serve
+several dungeon entries (`indie_tower001` serves 60) and some scenes have none: story quests can
+send the party to a scene directly, and each mission's
+`Data/Json/MissionRuntimeAsset/<mission>.json` names the scenes it uses (`sceneId`, `_mapId`), so
+`e11m5` is how the main story reaches `dung02_rdg008`. a dungeon and a puzzle stage can share a
+display name with a quest (`dung02_cdg005` and quest `e11m7` are both "Homecoming").
+
 ### LevelConfig
 
 `Data/Json/LevelConfig/<level>.json` is a binary MemoryPack-style payload with strings pooled in
