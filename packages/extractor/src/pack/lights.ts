@@ -33,7 +33,8 @@ export class LightCollector {
 	 */
 	finish(groupOf: (levelTag: number, sources: readonly ChunkSource[]) => number): LightsTable {
 		const lights: LightEntry[] = [];
-		for (const { light, sources } of [...this.#lights.values()].toSorted((a, b) => a.light.id - b.light.id)) {
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		for (const { light, sources } of [...this.#lights.values()].sort((a, b) => a.light.id - b.light.id)) {
 			const reason = skipReason(light);
 			if (reason !== null) {
 				this.skipped[reason] = (this.skipped[reason] ?? 0) + 1;

@@ -94,7 +94,8 @@ export class Vfs {
 			vfsLayerDirs(this.gameData).map((layer) => ignoreMissing(readdir(layer), [])),
 		);
 		const found = new Set(listings.flat().filter((name) => /^[0-9A-F]{8}$/.test(name)));
-		return [...found].toSorted();
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		return [...found].sort();
 	}
 
 	/**

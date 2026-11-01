@@ -233,7 +233,8 @@ const census = async (world: WorldIndex, mapId: string): Promise<void> => {
 			counts.set(key(surface), (counts.get(key(surface)) ?? 0) + 1);
 		}
 		console.log(`\nby ${label} (${counts.size}):`);
-		for (const [value, count] of [...counts].toSorted((a, b) => b[1] - a[1])) {
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		for (const [value, count] of [...counts].sort((a, b) => b[1] - a[1])) {
 			console.log(`  ${String(count).padStart(6)}  ${value}`);
 		}
 	};

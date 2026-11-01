@@ -85,7 +85,8 @@ export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIn
 			tile.channels = sceneChannels.get(id) ?? {};
 		}
 	}
-	return new Map([...scenes].toSorted(([a], [b]) => a.localeCompare(b)));
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	return new Map([...scenes].sort(([a], [b]) => a.localeCompare(b)));
 };
 
 /** @returns the asset folder of a scene's terrain */

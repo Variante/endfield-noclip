@@ -282,7 +282,8 @@ export const loadDynamicStructures = async (
 		if (control.kind === 'harvest') {
 			continue;
 		}
-		const ranked = [...(labels.get(control.id) ?? [])].toSorted((a, b) => b[1] - a[1]);
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		const ranked = [...(labels.get(control.id) ?? [])].sort((a, b) => b[1] - a[1]);
 		control.name =
 			ranked
 				.slice(0, 2)

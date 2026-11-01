@@ -748,7 +748,8 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			case 'script': {
 				const missions = missionsOf.get(cause.script.id);
 				if (missions !== undefined && quests.length === 0) {
-					out.push({ kind: 'quest', quests: await Promise.all([...missions].toSorted().map(label)), shows });
+					// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+					out.push({ kind: 'quest', quests: await Promise.all([...missions].sort().map(label)), shows });
 				}
 				const shape = asNode(
 					asList(cause.script.data.startShapeList)[0] ?? asList(cause.script.data.activeShapeList)[0],

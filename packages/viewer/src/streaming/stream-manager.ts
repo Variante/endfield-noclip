@@ -524,7 +524,8 @@ export class StreamManager {
 			return;
 		}
 
-		const queued = [...this.#queued].toSorted((a, b) => b.priority - a.priority);
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		const queued = [...this.#queued].sort((a, b) => b.priority - a.priority);
 		// per-archive lists by byte position, for coalescing neighbours
 		const byArchive = new Map<number, QueuedRange[]>();
 		for (const item of queued) {

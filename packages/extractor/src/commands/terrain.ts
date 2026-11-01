@@ -114,7 +114,8 @@ const requireScene = (
 /** @returns tile counts by level, ascending */
 const countLevels = (keys: Iterable<TerrainTileKey>): Map<number, TerrainTileKey[]> => {
 	const levels = Map.groupBy(keys, (key) => key.level);
-	return new Map([...levels].toSorted(([a], [b]) => a - b));
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	return new Map([...levels].sort(([a], [b]) => a - b));
 };
 
 // #endregion

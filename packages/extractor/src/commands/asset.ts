@@ -152,7 +152,8 @@ export const run = async (args: string[]): Promise<void> => {
 				console.log(
 					`${entities.length} entities, ${draws} lod-${lod} draws, ${scene.meshes.size} meshes, ${scene.materials.size} materials`,
 				);
-				for (const [reason, count] of [...failures].toSorted((a, b) => b[1] - a[1])) {
+				// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+				for (const [reason, count] of [...failures].sort((a, b) => b[1] - a[1])) {
 					console.log(`  ${String(count).padStart(5)} × ${reason}`);
 				}
 				break;

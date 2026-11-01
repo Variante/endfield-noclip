@@ -1257,7 +1257,8 @@ const packInstances = async (
 		global: countRows(collected.global.values()),
 	};
 
-	const detailGroups = [...collected.detail.values()].toSorted(
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	const detailGroups = [...collected.detail.values()].sort(
 		(a, b) => a.key.z - b.key.z || a.key.x - b.key.x || a.visibility - b.visibility,
 	);
 	for (let start = 0; start < detailGroups.length; start += BLOB_BATCH) {
@@ -1463,7 +1464,8 @@ const finishControls = (states: StatesInfo): SceneControl[] => {
 	}
 	const used = states.controls.filter((control) => tags.has(control.id));
 	for (const control of used) {
-		control.levelTags = [...tags.get(control.id)!].toSorted((a, b) => a - b);
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		control.levelTags = [...tags.get(control.id)!].sort((a, b) => a - b);
 	}
 	const values = resolveSceneValues({ ...states, controls: used }, {});
 	for (const control of used) {
@@ -1494,7 +1496,8 @@ const streamAreasInfo = async (
 		throw new Error(`${scene} has stream-area content but no stream-area table`);
 	}
 	return {
-		areas: [...areas].toSorted((a, b) => a - b),
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		areas: [...areas].sort((a, b) => a - b),
 		rootVisible: table.rootVisible,
 		shownInside: [...table.visibleWhileInside].map(([zone, shown]) => ({ zone, areas: shown })),
 		triggers: table.triggers.map(({ areaId, bounds, polygon }) => ({

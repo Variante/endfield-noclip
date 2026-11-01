@@ -54,7 +54,8 @@ export class TileTreeBuilder {
 	 * @returns the encodable tree
 	 */
 	build(geometricError: (key: TileKey) => number): Tree {
-		const ordered = [...this.#nodes.values()].toSorted(
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		const ordered = [...this.#nodes.values()].sort(
 			(a, b) => a.key.level - b.key.level || a.key.z - b.key.z || a.key.x - b.key.x,
 		);
 		const childMasks = new Map<string, number>();

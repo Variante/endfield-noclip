@@ -71,7 +71,8 @@ export const labelStory = async (
 		// hidden steps exist only to drive scenery; their id suffix is the best name they have
 		control.name = label ?? `hidden step ${id.slice(missionId.length + 3)}`;
 	}
-	return [...missions.values()].toSorted((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	return [...missions.values()].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
 };
 
 /**

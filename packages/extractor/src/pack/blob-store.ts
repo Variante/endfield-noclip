@@ -371,7 +371,8 @@ export class BlobStore {
 			const part = Number.parseInt(this.#blobs[index].hash.slice(0, 8), 16) >>> (32 - bits);
 			parts.getOrInsertComputed(part, () => []).push(index);
 		}
-		return new Map([...parts].toSorted((a, b) => a[0] - b[0]));
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		return new Map([...parts].sort((a, b) => a[0] - b[0]));
 	}
 
 	#plan(indices: readonly number[]): ArchivePlan<BlobSource> {

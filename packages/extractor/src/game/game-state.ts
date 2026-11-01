@@ -407,7 +407,8 @@ const variableId = (condition: Extract<GameCondition, { kind: 'mapVar' | 'global
  * @throws {RangeError} past 32 values
  */
 const variableRanges = (variable: Variable): Range[] => {
-	const targets = [...variable.targets].toSorted((a, b) => a - b);
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	const targets = [...variable.targets].sort((a, b) => a - b);
 	const ranges: Range[] = variable.unset ? [{ label: 'unset', value: null }] : [];
 	ranges.push({ label: `< ${targets[0]}`, value: targets[0] - 1 });
 	for (const [i, target] of targets.entries()) {

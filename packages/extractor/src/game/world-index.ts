@@ -349,7 +349,8 @@ export class WorldIndex {
 				scenes.add(name.slice(STREAMING_ROOT.length).split('/')[0]);
 			}
 		}
-		return [...scenes].toSorted();
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		return [...scenes].sort();
 	}
 
 	/**

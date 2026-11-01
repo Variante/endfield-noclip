@@ -375,7 +375,8 @@ export const loadInteractiveFacilities = async (
 		}
 	}
 	for (const [id, set] of doodadLevels) {
-		const levels = [...set].toSorted((a, b) => a - b);
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		const levels = [...set].sort((a, b) => a - b);
 		// shell slot activity varies (one or all four), so default to the fully grown form
 		progressions.push(
 			progressionControl(

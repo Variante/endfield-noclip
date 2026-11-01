@@ -262,7 +262,8 @@ const listMembers = async (world: WorldIndex, levelId: string, json: boolean): P
 	console.log(`${level.id} (tag ${level.tag}) members by placement:`);
 	let total = 0;
 	let renderers = 0;
-	for (const [where, count] of [...counts].toSorted(([a], [b]) => a.localeCompare(b))) {
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	for (const [where, count] of [...counts].sort(([a], [b]) => a.localeCompare(b))) {
 		console.log(`  ${where.padEnd(10)} ${String(count.all).padStart(8)}  (${count.renderer} with renderers)`);
 		total += count.all;
 		renderers += count.renderer;

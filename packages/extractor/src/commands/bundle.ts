@@ -153,7 +153,8 @@ const info = async (files: BundleAssetFile[]): Promise<void> => {
 			const key = `${object.classId} ${typeName(object.type) ?? '?'}`;
 			counts.set(key, (counts.get(key) ?? 0) + 1);
 		}
-		for (const [key, count] of [...counts].toSorted((a, b) => b[1] - a[1])) {
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		for (const [key, count] of [...counts].sort((a, b) => b[1] - a[1])) {
 			console.log(`  ${String(count).padStart(6)}  ${key}`);
 		}
 		if (file.externals.length > 0) {

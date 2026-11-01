@@ -306,7 +306,8 @@ const moduleFingerprint = async (entry: URL): Promise<string> => {
 
 	const hash = createHash('sha256');
 	const base = fileURLToPath(WORKSPACE_PACKAGES);
-	for (const path of [...sources.keys()].toSorted()) {
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	for (const path of [...sources.keys()].sort()) {
 		hash.update(`${relative(base, path)}\0`).update(sources.get(path)!);
 	}
 	hash.update(await readFile(new URL('../../package.json', import.meta.url)));

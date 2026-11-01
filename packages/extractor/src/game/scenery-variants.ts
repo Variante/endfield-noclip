@@ -112,7 +112,8 @@ export const loadSceneryVariants = async (world: WorldIndex, scene: string): Pro
 	);
 	const entitiesOf = new Map(allFiles.map((file, i) => [file, perFile[i]]));
 	const areas: StreamAreaInfo[] = [];
-	for (const [id, files] of [...areaFiles].toSorted((a, b) => a[0] - b[0])) {
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	for (const [id, files] of [...areaFiles].sort((a, b) => a[0] - b[0])) {
 		const seen = new Set<number>();
 		const tags = new Map<number, number>();
 		for (const file of files) {

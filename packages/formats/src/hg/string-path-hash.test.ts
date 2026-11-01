@@ -86,7 +86,8 @@ test('entriesWithByteLength yields only paths of that length', () => {
 		]),
 	);
 	assert.deepEqual(
-		[...table.entriesWithByteLength(4)].toSorted(([a], [b]) => Number(a - b)),
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		[...table.entriesWithByteLength(4)].sort(([a], [b]) => Number(a - b)),
 		[
 			[1n, 'ab'],
 			[3n, 'cd'],

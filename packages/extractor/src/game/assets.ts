@@ -92,7 +92,8 @@ export const recordBundleReads = async <T>(
 ): Promise<{ result: T; bundles: number[] }> => {
 	const bundles = new Set<number>();
 	const result = await bundleReads.run(bundles, work);
-	return { result, bundles: [...bundles].toSorted((a, b) => a - b) };
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	return { result, bundles: [...bundles].sort((a, b) => a - b) };
 };
 
 /** how many opened bundles (directory + a few decoded blocks each) stay cached */

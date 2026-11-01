@@ -42,9 +42,9 @@ export const run = async (args: string[]): Promise<void> => {
 			const selection: VariantSelection = { areas: parseAreas(values.areas), levels: {} };
 			const ids = selectedAreas(variants, await world.streamAreas(scene), selection);
 			const files = resolveChunkFiles(await world.chunkFiles(), scene, ids);
-			console.log(
-				`\n${files.length} InitChunkData files for areas ${[...ids].toSorted((a, b) => a - b).join(',')}`,
-			);
+			const sorted = [...ids];
+			sorted.sort((a, b) => a - b);
+			console.log(`\n${files.length} InitChunkData files for areas ${sorted.join(',')}`);
 			for (const file of files.filter((f) => f.area !== 0)) {
 				console.log(`  ${file.name}`);
 			}
