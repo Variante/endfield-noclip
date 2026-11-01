@@ -30,7 +30,7 @@ hold.
 | doodad group level         | doodad-shell postmodel's form list                                                                      | `doodadGroups:<level id>`                           | the highest level its shells name                                 |
 | Dijiang cabin slot         | `ExtraSceneSlot` entity; cabin scenes named by `SpaceshipCabinData.json`                                | `cabin:<entity id>`, empty / built                  | empty                                                             |
 | tree harvest state         | resource-group `logicState` on tree entities                                                            | `harvest:<level tag>`, standing / felled            | standing                                                          |
-| script group               | script-control component's default-load flag                                                            | `script:<entity id>`                                | the stored default                                                |
+| script group               | script-control component's default-load flag; level scripts                                             | `script:<entity id>`                                | the stored default, or its scripts' quest checks on activation    |
 | controller-less logic gate | resource-group `logicState` on an entity with no controller                                             | `logic:<entity id>:<mask>`                          | off                                                               |
 
 ## MapConfig scene states
@@ -269,7 +269,8 @@ transform and shown under `1 << level`.
 
 an entity with a script-control component stores a default-load flag (0 or 1): 0 means a script must
 explicitly enable it. each such entity gets a `script:<entity id>` control defaulting to that flag
-([`dynamic-structures.ts`](../../packages/extractor/src/game/dynamic-structures.ts)). the id is the
+([`dynamic-structures.ts`](../../packages/extractor/src/game/dynamic-structures.ts)), unless its
+scripts' quest checks settle it ([below](#following-quest-checks-on-activation)). the id is the
 entity's global id (its IdComp `uniqueId`), which level scripts use to show and hide it. its leading
 digits are the idNum of the level that authored the entity (`228…` for Wuling City, `404…` for a
 racing dungeon), not necessarily the level it stands in. event content such as a limited-time race
@@ -289,9 +290,10 @@ level scripts (`Data/Json/LevelScriptData/<level>/<script id>.json`) show and hi
 value a script last set, else at its default-load flag. a script is a graph: `actionList` and
 `headerList` nodes by `ID`, linked by `nextID`, `IfElseAction.onTrueID`/`onFalseID` (the guard is
 its `condition` param), switch `caseIDList`/`defaultID` (guard `value`), branch `idList` and other
-`…ID` fields. a param is a constant (`paramSource` 0), the current script (1002), or a
-`$<id>@_<field>` path into a getter node (`CheckQuestState`, `CompareQuestState`, …). headers are
-the events:
+`…ID` fields. a header fires only while its `validate` param holds, so a non-constant `validate` is
+a guard too. a param is a constant (`paramSource` 0), the current script (1002), a getter node
+(`CheckMissionOrQuestIsComplete`, `CompareQuestState`, …) named by `idRef` (`paramSource` -1), or a
+`$<id>@_<field>` path into another node's output. headers are the events:
 
 - `ScriptEvent_OnScriptActive` (`…OnScriptStart`, `…OnScriptPreActive`): the script running. the
   server sets script state by progress, and a script runs while the player is inside its start or
@@ -316,6 +318,24 @@ racing courses) become `level` drivers; they're found by the group's id in their
 whose objectives check a script (stage, property) are listed as quest drivers of its activation,
 since the server runs such scripts as those missions progress. the viewer lists each control's
 drivers and flies to a driver's position.
+
+### following quest checks on activation
+
+some scripts set a group from quest state each time they run: Power Plateau's fortress gate scripts
+show the open gate and hide the closed one on activation, guarded by `validate` = mission `e3m5`
+complete, and another shows the plateau's construction props on activation if mission `e3m6` is
+complete and hides them otherwise. a script that checks a quest when it runs is built to run on both
+sides of that check, so such a group follows the check rather than its stored flag.
+
+when every path from one of the scene's own scripts' activation headers (`OnScriptActive`, `…Start`,
+`…PreActive`) to a group's show or hide action passes only `CheckMissionOrQuestIsComplete` /
+`…IsProcessing` guards (and constants), each path is a conjunction of quest and mission tests. the
+group's control is then derived: shown while a show path holds, or, for a group authored to load,
+while no hide path holds. a path without any quest test (the script running is the only cause), a
+guard of another kind, or a state under which both a show and a hide path hold leaves the control at
+its stored flag. other drivers (switches, areas, quest events, other levels) don't enter the
+formula: they act after activation, until the script runs again. under the finished-story defaults
+the gate is open and the props are shown, and both follow "Main story progress".
 
 ### level scripts
 
@@ -426,9 +446,9 @@ environment blend.
 - **Dijiang cabins**: a checkbox per slot, built or empty
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
 - **harvest**: standing or felled
-- **script / event scenery**, **logic-gate previews**: checkboxes; a script group lists its drivers
-  ("Shown when the player uses …", "Hidden by quest progress: …"), with "Go" flying to a driver's
-  place
+- **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a
+  script group derived from its scripts' quest checks; a script group lists its drivers ("Shown when
+  the player uses …", "Hidden by quest progress: …"), with "Go" flying to a driver's place
 - **lighting / environment volumes**: volumes owned by the shown level or reaching into it. a volume
   follows its scene-state condition unless ticked or unticked here, which overrides it.
   scripted-blend volumes (blend mode 3) are off unless ticked. packed volumes carry
@@ -447,7 +467,8 @@ screen error threshold.
   unnamed state indices and controller-less logic gates have no recoverable runtime writer; showing
   them by default would overlay content the player sees only in specific events or dungeons (e.g.
   concert props and map-wide night volumes on map01). script groups follow their stored default-load
-  flag instead, because that flag is authored data.
+  flag instead, because that flag is authored data, unless their own scripts set them by quest
+  checks when they run ([following quest checks](#following-quest-checks-on-activation)).
 - **never infer activation from names** such as night, battle, rainy or liino. names describe
   content, not when it loads; a guessed rule hides or shows the wrong things with no signal that
   it's a guess. gate only on stored conditions and say in the control text what the default assumes.

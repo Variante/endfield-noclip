@@ -10,12 +10,14 @@ import { getOrInsert } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
+import type { GameCondition } from './game-state.ts';
 import { questRef } from './story.ts';
 
 // what sets each script-controlled entity group in game: every path from a level script's event header to a
 // `ShowSceneDecoration*` action naming the group, followed back across custom events and script starts to a
-// root cause, which becomes a driver of the group's control. the script graph is described in
-// docs/game-data/scene-states.md#what-sets-a-script-group.
+// root cause, which becomes a driver of the group's control. paths from a script's own activation that pass
+// only quest and mission checks also become a rule the group's control follows. the script graph is described
+// in docs/game-data/scene-states.md#what-sets-a-script-group.
 
 // #region decoded scripts
 
@@ -106,7 +108,8 @@ const keyOf = (value: Param): string =>
 
 /**
  * @returns a param's value: its constant (entity and script pointers reduced to their ids), the script's own
- *   id for the current-script source, the getter node for a `$<id>@_<field>` path, else `null`
+ *   id for the current-script source, the getter node it reads (by `idRef`, or a `$<id>@_<field>` path), else
+ *   `null`
  */
 const param = (script: Script, value: MemoryPackValue | undefined): Param => {
 	const p = asNode(value);
@@ -124,8 +127,15 @@ const param = (script: Script, value: MemoryPackValue | undefined): Param => {
 	if (p.paramSource === 1002) {
 		return script.id;
 	}
+	// an input wired straight to a getter names it by `idRef`; a path reads another node's output field
+	let ref: number | null = null;
 	const match = /^\$(\d+)@/.exec(typeof p.path === 'string' ? p.path : '');
-	const getter = match && script.getters.get(Number(match[1]));
+	if (match !== null) {
+		ref = Number(match[1]);
+	} else if (typeof p.idRef === 'number' && p.idRef >= 0) {
+		ref = p.idRef;
+	}
+	const getter = ref === null ? undefined : script.getters.get(ref);
 	return getter ? { getter } : null;
 };
 
@@ -133,10 +143,20 @@ const param = (script: Script, value: MemoryPackValue | undefined): Param => {
 
 // #region graph
 
-/** an event header reaching a node, with the branch conditions passed on the way */
+/**
+ * a condition passed on the way to a node: an if/else branch (`holds` is the branch taken), a header's
+ * `validate` (`holds` true), or a switch value (`holds` null, since which case was taken isn't a truth
+ * value)
+ */
+interface Guard {
+	param: Param;
+	holds: boolean | null;
+}
+
+/** an event header reaching a node, with the conditions passed on the way */
 interface Reach {
 	header: Node;
-	guards: Param[];
+	guards: Guard[];
 }
 
 /** distinct guard sets kept per node and header; more paths add little */
@@ -145,30 +165,51 @@ const PATHS_PER_NODE = 16;
 const MAX_DEPTH = 5;
 
 /** @returns a node's outgoing edges and the condition each one passes */
-const edges = (script: Script, node: Node): { to: number; guard: Param | undefined }[] => {
-	const out: { to: number; guard: Param | undefined }[] = [];
+const edges = (script: Script, node: Node): { to: number; guard: Guard | undefined }[] => {
+	const out: { to: number; guard: Guard | undefined }[] = [];
 	for (const [key, value] of Object.entries(node)) {
 		if (key === 'ID') {
 			continue;
 		}
 		if (typeof value === 'number' && key.endsWith('ID') && value >= 0) {
-			const guard =
-				key === 'onTrueID' || key === 'onFalseID'
-					? param(script, node.condition)
-					: key === 'defaultID'
-						? param(script, node.value)
-						: undefined;
+			let guard: Guard | undefined;
+			switch (key) {
+				case 'onTrueID':
+				case 'onFalseID': {
+					guard = { param: param(script, node.condition), holds: key === 'onTrueID' };
+					break;
+				}
+				case 'defaultID': {
+					guard = { param: param(script, node.value), holds: null };
+					break;
+				}
+				default: {
+					break;
+				}
+			}
 			out.push({ to: value, guard });
 		}
 		if (Array.isArray(value) && /(ID|id)List$/.test(key)) {
 			for (const to of value) {
 				if (typeof to === 'number' && to >= 0) {
-					out.push({ to, guard: key === 'caseIDList' ? param(script, node.value) : undefined });
+					out.push({
+						to,
+						guard: key === 'caseIDList' ? { param: param(script, node.value), holds: null } : undefined,
+					});
 				}
 			}
 		}
 	}
 	return out;
+};
+
+/** @returns a header's `validate` as a guard, which must hold for it to fire; nothing when absent or `true` */
+const validation = (script: Script, header: Node): Guard[] => {
+	if (header.validate === undefined) {
+		return [];
+	}
+	const value = param(script, header.validate);
+	return value === true ? [] : [{ param: value, holds: true }];
 };
 
 const reaches = new WeakMap<Script, Map<number, Reach[]>>();
@@ -182,8 +223,8 @@ const reach = (script: Script): Map<number, Reach[]> => {
 	result = new Map();
 	for (const header of script.headers) {
 		const seen = new Map<number, Set<string>>();
-		const stack: { id: number; guards: Param[]; path: Set<number> }[] = [
-			{ id: Number(header.ID), guards: [], path: new Set() },
+		const stack: { id: number; guards: Guard[]; path: Set<number> }[] = [
+			{ id: Number(header.ID), guards: validation(script, header), path: new Set() },
 		];
 		let steps = 0;
 		while (stack.length > 0 && steps++ < 50_000) {
@@ -219,11 +260,11 @@ const reach = (script: Script): Map<number, Reach[]> => {
 
 /** a root cause of a header firing, with the guards met on the way */
 type Cause =
-	| { kind: 'quest'; detail: Param; guards: Param[] }
-	| { kind: 'switch'; script: Script; target: Param; guards: Param[] }
-	| { kind: 'area'; shape: Node | null; guards: Param[] }
-	| { kind: 'script'; script: Script; guards: Param[] }
-	| { kind: 'server'; guards: Param[] };
+	| { kind: 'quest'; detail: Param; guards: Guard[] }
+	| { kind: 'switch'; script: Script; target: Param; guards: Guard[] }
+	| { kind: 'area'; shape: Node | null; guards: Guard[] }
+	| { kind: 'script'; script: Script; guards: Guard[] }
+	| { kind: 'server'; guards: Guard[] };
 
 interface Indexes {
 	/** `RaiseCustomScriptEvent` nodes by `<receiver>:<key>` */
@@ -343,10 +384,116 @@ const constantNode = (value: Param): Node | null =>
 
 // #endregion
 
-/** the scenery drivers of a scene's script-controlled entities */
-export interface ScriptDrivers {
+// #region quest checks on activation
+
+/** headers that fire when the script runs */
+const ACTIVATION = new Set([
+	'ScriptEvent_OnScriptActive',
+	'ScriptEvent_OnScriptStart',
+	'ScriptEvent_OnScriptPreActive',
+]);
+
+/** getters that test a quest's or mission's state, by the `QuestState` / `MissionState` they test for */
+const STATE_CHECKS = new Map([
+	['CheckMissionOrQuestIsProcessing', 2],
+	['CheckMissionOrQuestIsComplete', 3],
+]);
+
+/**
+ * @returns the condition a guard requires as a quest or mission test; `true` or `false` for a constant guard
+ *   that does or doesn't hold; `null` for anything else
+ */
+const questTest = (script: Script, guard: Guard): GameCondition | boolean | null => {
+	if (guard.holds === null) {
+		return null;
+	}
+	if (typeof guard.param === 'boolean') {
+		return guard.param === guard.holds;
+	}
+	const getter =
+		guard.param !== null && typeof guard.param === 'object' && !Array.isArray(guard.param)
+			? asNode(guard.param.getter)
+			: null;
+	const state = getter === null ? undefined : STATE_CHECKS.get(typeOf(getter));
+	if (getter === null || state === undefined) {
+		return null;
+	}
+	const isQuest = param(script, getter.isQuest);
+	const id = param(script, getter.missionId);
+	if (typeof isQuest !== 'boolean' || typeof id !== 'string' || id === '') {
+		return null;
+	}
+	return { kind: isQuest ? 'quest' : 'mission', id, compare: guard.holds ? 0 : 1, target: state };
+};
+
+/**
+ * what a group's own level scripts set it to when they run, where every path from a script's activation to
+ * the group's show or hide action passes only quest and mission state checks: each path is a conjunction of
+ * tests, and `show` / `hide` the disjunctions of the paths setting each value
+ */
+export interface ActivationRule {
+	show: GameCondition[][];
+	hide: GameCondition[][];
+}
+
+/** `QuestState` / `MissionState` values; quests skip "available" (1) */
+const STATES = { quest: [0, 2, 3, 4, 5], mission: [0, 1, 2, 3, 4, 5] };
+
+/** @returns whether some quest and mission state satisfies every test, which are all `=` or `≠` */
+const satisfiable = (tests: readonly GameCondition[]): boolean => {
+	const allowed = new Map<string, number[]>();
+	for (const test of tests) {
+		if (test.kind !== 'quest' && test.kind !== 'mission') {
+			return true;
+		}
+		const key = `${test.kind}:${test.id}`;
+		const values = allowed.get(key) ?? STATES[test.kind];
+		allowed.set(
+			key,
+			values.filter((value) => (value === test.target) === (test.compare === 0)),
+		);
+	}
+	return [...allowed.values()].every((values) => values.length > 0);
+};
+
+/**
+ * @param rule what the group's scripts set it to when they run
+ * @param defaultLoad the group's stored default-load flag, which holds until a script sets it
+ * @returns the condition under which the group is shown, or `null` when the rule doesn't settle it: some
+ *   state would both show and hide it, or no path changes the stored flag
+ */
+export const activationCondition = (rule: ActivationRule, defaultLoad: boolean): GameCondition | null => {
+	if (rule.show.some((show) => rule.hide.some((hide) => satisfiable([...show, ...hide])))) {
+		return null;
+	}
+	const paths = defaultLoad ? rule.hide : rule.show;
+	if (paths.length === 0) {
+		return null;
+	}
+	// shown while a show path holds, else while the flag is set and no hide path holds; with the two exclusive,
+	// that is the show paths for an unset flag and no hide path for a set one
+	return {
+		kind: 'any',
+		reverse: defaultLoad,
+		conditions: paths.map((tests) => ({ kind: 'all', reverse: false, conditions: tests })),
+	};
+};
+
+// #endregion
+
+/** what sets each script-controlled entity group */
+export interface ScriptLinks {
 	/** drivers by entity id */
 	drivers: Map<string, ControlDriver[]>;
+	/**
+	 * by entity id, what the scene's own scripts set the group to when they run, for groups whose every such
+	 * path passes only quest and mission state checks (see {@link activationCondition})
+	 */
+	rules: Map<string, ActivationRule>;
+}
+
+/** the scenery drivers of a scene's script-controlled entities */
+export interface ScriptDrivers extends ScriptLinks {
 	counts: { scripts: number; undecoded: number; targeted: number };
 }
 
@@ -357,7 +504,7 @@ export interface ScriptDrivers {
  * @param context install readers
  * @param scene streaming scene id
  * @param entities ids of the scene's script-controlled entities
- * @returns drivers by entity id; scripts the decoder can't read are counted and skipped
+ * @returns drivers and activation rules by entity id; scripts the decoder can't read are counted and skipped
  */
 export const loadScriptDrivers = async (
 	context: Pick<Context, 'vfs' | 'world' | 'memoryPack'>,
@@ -429,7 +576,7 @@ export const loadScriptDrivers = async (
 	// #endregion
 
 	const labels = new Map<string, Promise<QuestRef>>();
-	const drivers = await linkScripts([...scripts.values()], {
+	const links = await linkScripts([...scripts.values()], {
 		entities,
 		ownLevels,
 		placements,
@@ -439,8 +586,8 @@ export const loadScriptDrivers = async (
 		levelNames: await world.names(),
 	});
 	return {
-		drivers,
-		counts: { scripts: scripts.size, undecoded, targeted: drivers.size },
+		...links,
+		counts: { scripts: scripts.size, undecoded, targeted: links.drivers.size },
 	};
 };
 
@@ -463,15 +610,15 @@ export interface LinkContext {
 /**
  * @param scripts decoded level scripts (see {@link toScript})
  * @param context lookups
- * @returns drivers by entity id, for the entities some script shows or hides
+ * @returns drivers by entity id, for the entities some script shows or hides, and activation rules for those
+ *   whose own scripts' activation paths check only quest and mission states
  */
-export const linkScripts = async (
-	scripts: readonly Script[],
-	context: LinkContext,
-): Promise<Map<string, ControlDriver[]>> => {
+export const linkScripts = async (scripts: readonly Script[], context: LinkContext): Promise<ScriptLinks> => {
 	const { entities, ownLevels, placements, missionsOf, label, levelNames } = context;
 	const indexes = indexScripts(scripts);
 	const drivers = new Map<string, ControlDriver[]>();
+	// `null` once some activation path sets a group in a way quest tests don't capture
+	const rules = new Map<string, ActivationRule | null>();
 	for (const script of scripts) {
 		const paths = reach(script);
 		for (const node of script.nodes.values()) {
@@ -502,6 +649,9 @@ export const linkScripts = async (
 						// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
 						found.push(...(await driversOf(cause, [...path.guards, ...cause.guards], shows)));
 					}
+					if (ACTIVATION.has(typeOf(path.header))) {
+						noteActivation(script, target, path.guards, shows);
+					}
 				}
 			}
 			const list = getOrInsert(drivers, target, () => []);
@@ -513,8 +663,46 @@ export const linkScripts = async (
 		}
 	}
 
+	/** adds an activation path to its group's rule, or drops the rule when the path isn't only quest tests */
+	function noteActivation(script: Script, target: string, guards: Guard[], shows: boolean | null): void {
+		const rule = rules.get(target);
+		if (rule === null) {
+			return;
+		}
+		if (shows === null) {
+			rules.set(target, null);
+			return;
+		}
+		const tests: GameCondition[] = [];
+		for (const guard of guards) {
+			const test = questTest(script, guard);
+			if (test === false) {
+				// a constant branch never taken
+				return;
+			}
+			if (test === null) {
+				rules.set(target, null);
+				return;
+			}
+			if (test !== true) {
+				tests.push(test);
+			}
+		}
+		if (tests.length === 0) {
+			// set whenever the script runs, which depends on server progress this doesn't model
+			rules.set(target, null);
+			return;
+		}
+		const next = rule ?? { show: [], hide: [] };
+		const paths = shows ? next.show : next.hide;
+		if (!paths.some((known) => JSON.stringify(known) === JSON.stringify(tests))) {
+			paths.push(tests);
+		}
+		rules.set(target, next);
+	}
+
 	/** @returns the drivers a cause becomes */
-	async function driversOf(cause: Cause, guards: Param[], shows: boolean | null): Promise<ControlDriver[]> {
+	async function driversOf(cause: Cause, guards: Guard[], shows: boolean | null): Promise<ControlDriver[]> {
 		const quests = [...questIds(guards), ...(cause.kind === 'quest' ? questIds(cause.detail) : [])];
 		const out: ControlDriver[] = [];
 		if (quests.length > 0) {
@@ -582,7 +770,13 @@ export const linkScripts = async (
 		return out;
 	}
 
-	return drivers;
+	const settled = new Map<string, ActivationRule>();
+	for (const [target, rule] of rules) {
+		if (rule !== null) {
+			settled.set(target, rule);
+		}
+	}
+	return { drivers, rules: settled };
 };
 
 /** @returns whether the bytes hold any of the ids as a little-endian u64 */

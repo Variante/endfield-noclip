@@ -65,7 +65,7 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string; open: 
 	{
 		kinds: ['script'],
 		title: 'Script / event scenery',
-		note: 'Shown and hidden by level scripts and the server; the authored load default by default.',
+		note: 'Shown and hidden by level scripts and the server; the authored load default by default, or what a script’s quest checks set when it runs.',
 		open: false,
 	},
 	{

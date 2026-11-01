@@ -87,7 +87,7 @@ import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import { loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
-import { GameState } from '../game/game-state.ts';
+import { describeCondition, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
 import {
@@ -99,7 +99,7 @@ import {
 	unnamedSceneStateControl,
 } from '../game/scene-conditions.ts';
 import { loadProgressions, progressionControl, progressionId } from '../game/scenery-variants.ts';
-import { loadScriptDrivers } from '../game/script-drivers.ts';
+import { activationCondition, loadScriptDrivers } from '../game/script-drivers.ts';
 import { labelStory } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
 import type { ChunkFile, ChunkSource, WorldIndex } from '../game/world-index.ts';
@@ -913,6 +913,20 @@ const collectEntities = async (
 			if (control !== undefined) {
 				control.drivers = drivers;
 			}
+		}
+		// a group its scripts set by quest checks whenever they run follows those quests; its default is then the
+		// one a finished story gives (see finishControls)
+		counts.scriptGroupsDerived = 0;
+		for (const [id, rule] of found.rules) {
+			const control = scripted.get(id);
+			const condition = control && activationCondition(rule, control.default === 1);
+			if (!control || !condition) {
+				continue;
+			}
+			control.rule = describeCondition(condition);
+			control.assumption = 'set by its level scripts’ quest checks when they run';
+			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
+			counts.scriptGroupsDerived++;
 		}
 		counts.levelScripts = found.counts.scripts;
 		counts.levelScriptsUndecoded = found.counts.undecoded;
