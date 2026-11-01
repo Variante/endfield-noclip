@@ -1116,6 +1116,18 @@ const erosionLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook =>
 const DITHER_ALPHA_KEYWORDS = new Set(['_NORMAL_MAP', '_USE_MAIN2']);
 
 /**
+ * the row of a dithered VFXDitherAlpha look (one whose alpha-test threshold, `tint.w`, is negative), which
+ * reuses the leaves' canopy row
+ */
+export const DitherRow = {
+	/**
+	 * the alpha scale (`_TintColor.a · _TintColorAlpha`), `_DitherAlphaExp`, `_DitherTilling`, 1 when the alpha
+	 * is the red of the texture (`_UseMainTexAsAlpha`) rather than its alpha
+	 */
+	dither: LookRow.canopy,
+} as const;
+
+/**
  * `HGRP/Effect/VFXDitherAlpha`, an effect shader that writes the G-buffer like an opaque surface
  * (`docs/game-data/effects.md#solid-effects`). it has no shadow caster pass
  *
@@ -1152,10 +1164,38 @@ const ditherAlphaLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLoo
 		look.flags |= SLOT_FLAGS[i];
 		params.set([...slot.scale, ...slot.offset], LookRow.uv + i * 4);
 	}
+	const lit = float('_UseLighting', 1) !== 0;
+	// the depth pass's dithered alpha test, which shapes meshes such as the soft dark disc at the centre of
+	// Power Plateau's sky vortex. the viewer draws it for the main texture's alpha (or red, as the alpha
+	// alone, on unlit looks, which can borrow the normal slot to test it) in the default dither mode
+	{
+		const main = entry.slots['_MainTex'];
+		const redAlpha = float('_UseMainTexAsAlpha', 0) !== 0;
+		if (
+			main !== undefined &&
+			main.uv === 0 &&
+			!keywords.includes('_USE_MAIN2') &&
+			float('_DitherAlphaMode', 0) === 0 &&
+			(!redAlpha || !lit)
+		) {
+			if (redAlpha) {
+				look.textures[1] = main.texture;
+				look.uvScales[1] = Math.max(Math.abs(main.scale[0]), Math.abs(main.scale[1]), 1e-3);
+				look.flags |= SLOT_FLAGS[1] | LookFlags.AlphaNormal;
+				params.set([...main.scale, ...main.offset], LookRow.uv + 4);
+			}
+			const alpha = (colorOf(entry, shader, '_TintColor') ?? [1, 1, 1, 1])[3] * float('_TintColorAlpha', 1);
+			params.set(
+				[alpha, float('_DitherAlphaExp', 1), float('_DitherTilling', 1), redAlpha ? 1 : 0],
+				DitherRow.dither,
+			);
+			look.cutout = true;
+		}
+	}
 	const intensity = float('_TintColorIntensity', 1);
 	const tint = linearRgb(colorOf(entry, shader, '_TintColor') ?? [1, 1, 1, 1]);
 	const color = tint.map((c, i) => c * intensity * second[i]);
-	if (float('_UseLighting', 1) === 0) {
+	if (!lit) {
 		// unlit: the radiance, as the matte painting's path draws it, with no highlight (zero intensity)
 		look.flags |= LookFlags.Unlit;
 		params.set([...color, -1], LookRow.tint);

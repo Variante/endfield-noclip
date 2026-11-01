@@ -99,9 +99,9 @@ packs or renders correctly.
   draw, without the first two's additive, vertex-offset mask, polar-UV, lighting and particle
   variants, the effects' own fog, the game's global scene-effect colour adjustment (the Jingyu
   blight reads less saturated than in game), the mist boxes' 3D noise or VFXDitherAlpha's dither
-  fade; other effect shaders are suppressed rather than drawn opaque. stencil
-  [portals](game-data/effects.md#portals) draw without their masks' own colour and depth, and only
-  where the GPU has `depth32float-stencil8`
+  with `_USE_MAIN2` or the edge mode; other effect shaders are suppressed rather than drawn opaque.
+  stencil [portals](game-data/effects.md#portals) draw without their masks' own colour and depth,
+  and only where the GPU has `depth32float-stencil8`
 - particles ([prefabs](game-data/assets.md#prefabs), [viewer](viewer.md#particles)): billboard
   systems (sparkles, smoke, the crater column's glitter) aren't packed. mesh particles frozen in
   place lose their start colour and take the midpoint of random start values. other mesh systems

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
 
 import {
+	DitherRow,
 	ErosionRow,
 	LayerBlendRow,
 	LayerSource,
@@ -161,6 +162,68 @@ test('dither-alpha effects shade as opaque two-sided surfaces from the tinted ma
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.uv, LookRow.uv + 4)), [4, 4, 0, 0]);
 	assert.equal(colored.drawn, false);
 	assert.equal(dissolving.drawn, false);
+});
+
+test('dither-alpha effects without a second texture dither by the scaled alpha of their main texture', () => {
+	const shaders: ShaderEntry[] = [
+		{
+			name: 'HGRP/Effect/VFXDitherAlpha',
+			family: 'vfxDitherAlpha',
+			floats: {
+				_UseLighting: 0,
+				_TintColorAlpha: 1,
+				_DitherAlphaExp: 1,
+				_DitherTilling: 1,
+				_DitherAlphaMode: 0,
+			},
+			colors: { _TintColor: [1, 1, 1, 1] },
+			vectors: {},
+			textures: { _MainTex: 'white' },
+			normalMaps: [],
+		},
+	];
+	const material = (id: number, floats: Record<string, number>): ReadyMaterial => ({
+		id,
+		status: 'ready',
+		shader: 0,
+		keywords: [],
+		renderQueue: 2450,
+		blend: 'alphaTest',
+		blendFactors: null,
+		alphaClipThreshold: 0.5,
+		cull: 'back',
+		zWrite: false,
+		baseTextureMapCount: null,
+		slots: { _MainTex: { texture: 6, uv: 0, scale: [2, 2], offset: [0, 0] } },
+		floats,
+		colors: { _TintColor: [0.5, 0.5, 0.5, 0.5] },
+		vectors: {},
+	});
+	const [spot, mask, edged] = materialLooks({
+		shaders,
+		entries: [
+			material(0, { _TintColorAlpha: 1.5 }),
+			// the texture's red is only the alpha, tested through the normal slot
+			material(1, { _UseMainTexAsAlpha: 1, _DitherAlphaExp: 14, _DitherTilling: 0.1 }),
+			// the edge mode isn't drawn
+			material(2, { _DitherAlphaMode: 1 }),
+		],
+	});
+	assert.equal(spot.cutout, true);
+	assert.equal(spot.textures[0], 6);
+	assert.equal(spot.params[LookRow.tint + 3], -1);
+	assert.deepEqual(Array.from(spot.params.subarray(DitherRow.dither, DitherRow.dither + 4)), [0.75, 1, 1, 0]);
+	assert.equal(mask.cutout, true);
+	assert.deepEqual(mask.textures.slice(0, 2), [-1, 6]);
+	assert.equal(mask.flags & (LookFlags.BaseMap | LookFlags.AlphaNormal), LookFlags.AlphaNormal);
+	assert.deepEqual(Array.from(mask.params.subarray(LookRow.uv + 4, LookRow.uv + 8)), [2, 2, 0, 0]);
+	assert.deepEqual(Array.from(mask.params.subarray(DitherRow.dither, DitherRow.dither + 4)), [
+		0.5,
+		14,
+		Math.fround(0.1),
+		1,
+	]);
+	assert.equal(edged.cutout, false);
 });
 
 test('portal effects: an opaque mask writes only the stencil, its effects test it, other stencil operations stay hidden', () => {

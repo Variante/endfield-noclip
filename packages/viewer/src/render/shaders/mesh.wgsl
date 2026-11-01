@@ -69,7 +69,8 @@ struct Draw {
 	// leaves: subsurface intensity, 1 when transmission fades out with distance, canopy ramp intensity, 1 when
 	// the ramp starts at the top
 	foliage2: vec4f,
-	// leaves: canopy ramp range, transition range, colour brighter scale, colour cover
+	// leaves: canopy ramp range, transition range, colour brighter scale, colour cover. dithered VFXDitherAlpha
+	// (`DitherRow` in materials.ts): alpha scale, exponent, dither tiling, 1 when the alpha is the texture's red
 	canopy: vec4f,
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
@@ -239,6 +240,7 @@ fn fs_depth() {}
 
 // what fs_cutout_depth reads, at VertexOut's locations so vs_main can feed it too
 struct CutoutDepthVaryings {
+	@builtin(position) position: vec4f,
 	@location(3) uv: vec4f,
 	@location(4) @interpolate(flat) draw: u32,
 }
@@ -929,7 +931,8 @@ fn erosion_surface(
 
 // the depth of alpha-tested materials, in the main pass and the shadow passes (opaque ones have no fragment
 // stage there). only drawn for materials with an alpha-test threshold whose alpha texture is bound (`cutout`
-// in materials.ts and MeshRenderer.prepare)
+// in materials.ts and MeshRenderer.prepare). a negative threshold marks VFXDitherAlpha's dithered test
+// (`DitherRow` in materials.ts), which keeps a fraction of the pixels equal to the scaled alpha
 @fragment
 fn fs_cutout_depth(in: CutoutDepthVaryings) {
 	let draw = draws[in.draw];
@@ -937,8 +940,14 @@ fn fs_cutout_depth(in: CutoutDepthVaryings) {
 	let bias = frame.params.y;
 	let base = textureSampleBias(base_map, base_sampler, slot_uv(in.draw, in.uv, flags, BASE_SLOT), bias);
 	let packed = textureSampleBias(normal_map, detail_sampler, slot_uv(in.draw, in.uv, flags, NORMAL_SLOT), bias);
-	let alpha = select(base.a, packed.a, (flags & ALPHA_NORMAL) != 0u);
-	if (alpha < draw.tint.w) {
+	let texel = select(base, packed, (flags & ALPHA_NORMAL) != 0u);
+	if (draw.tint.w < 0.0) {
+		let dither = draw.canopy;
+		let alpha = pow(saturate(select(texel.a, texel.r, dither.w > 0.5) * dither.x), dither.y);
+		if (alpha - gradient_noise(in.position.xy * dither.z) < 1e-5) {
+			discard;
+		}
+	} else if (texel.a < draw.tint.w) {
 		discard;
 	}
 }

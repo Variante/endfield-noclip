@@ -99,10 +99,18 @@ times `_MainTex2Color` when `_USE_MAIN2` takes only the alpha of `_MainTex2` (`_
 and multiplies (`_MainTex2BlendMode` 0). with `_UseLighting` it is the albedo, saturated as the
 G-buffer stores it, else emitted. `_NORMAL_MAP` adds a tangent-space normal map (`_NormalScale`; x
 from alpha times red, as Unity unpacks it); roughness and metallic are `_Roughness` and `_Metallic`.
-the shader has no shadow caster pass. its depth pass discards where the alpha falls below a
-screen-space dither, which fades a mesh out; nothing drawn fades, so the dither isn't drawn. the
-rocks' material multiplies a gold mask by a tint twelve times over, so the saturated albedo is black
-rock with gold veins.
+the shader has no shadow caster pass. the rocks' material multiplies a gold mask by a tint twelve
+times over, so the saturated albedo is black rock with gold veins.
+
+its depth pass keeps a pixel where the alpha beats an interleaved gradient noise of the pixel
+position times `_DitherTilling`, so a fraction of the pixels equal to the alpha survives. the alpha
+is `_TintColor.a · _TintColorAlpha` times `_MainTex`'s alpha (its red with `_UseMainTexAsAlpha`),
+saturated and raised to `_DitherAlphaExp`. the viewer draws this as an alpha test in its cutout
+depth pass (`fs_cutout_depth` in `shaders/mesh.wgsl`) for materials without `_USE_MAIN2` in the
+default `_DitherAlphaMode`; with `_UseMainTexAsAlpha` only unlit ones, which test the texture
+through the normal slot. this shapes the dark disc at the centre of Power Plateau's sky vortex
+(`blackspot`), a quad whose texture's alpha is a soft round mask; drawn without the test it was a
+dark square. the vertex colour's alpha and the near-camera fade aren't part of the viewer's test.
 
 ## waterfalls
 
