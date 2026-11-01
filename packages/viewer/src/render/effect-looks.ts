@@ -83,7 +83,8 @@ export const EffectRow = {
 	offsetMode: 120,
 	/**
 	 * 1 when the layer goes unfogged (its material lacks `_USE_FOG`, and the game draws effects after the fog),
-	 * the {@link EffectKind}, 0, 0
+	 * the {@link EffectKind}, 1 when a VFXBaseV2 layer adds its light rather than blending over (`_BlendMode`
+	 * 1), 0
 	 */
 	unfogged: 124,
 } as const;
@@ -293,13 +294,17 @@ const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderE
  * @returns its effect look, or `null` when it uses features that aren't drawn
  */
 export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+	const { float, color } = readers(entry, shader);
+	// the shader writes its alpha times `1 − _BlendMode`: 1 adds the premultiplied colour over what's behind, and
+	// 2 is for multiplying blend states
+	const blendMode = float('_BlendMode', 0);
 	if (
 		entry.blend !== 'premultiplied' ||
+		(blendMode !== 0 && blendMode !== 1) ||
 		entry.keywords.some((keyword) => !BASE_KEYWORDS.has(keyword) && !baseKeywordDrawn(keyword, entry, shader))
 	) {
 		return null;
 	}
-	const { float, color } = readers(entry, shader);
 	const look = emptyEffect(7);
 	const params = look.params;
 	const intensity = float('_TintColorIntensity', 1);
@@ -389,6 +394,7 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 	}
 	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
 	params[EffectRow.unfogged] = entry.keywords.includes('_USE_FOG') ? 0 : 1;
+	params[EffectRow.unfogged + 2] = blendMode;
 	params[EffectRow.misc + 1] = float('_ExpThreshold', 1);
 	params[EffectRow.misc + 2] = float('_ExpIntensity', 0);
 	params[EffectRow.misc + 3] = float('_UseDisturb', 0) !== 0 ? 1 : 0;

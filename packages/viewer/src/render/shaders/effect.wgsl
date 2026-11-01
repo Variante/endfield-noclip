@@ -364,7 +364,16 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let alpha = saturate(
 		saturate(combined.a) * mix(1.0, fresnel, fresnel_row.w) * soft_fade * fx_near_fade(id, depth),
 	);
-	return fx_accumulate(color * alpha, alpha, length(in.rel), fx_row(id, FX_UNFOGGED).x);
+	let kind = fx_row(id, FX_UNFOGGED);
+	// `_BlendMode` 1 adds the layer rather than blending it over
+	if (kind.z >= 0.5) {
+		var out: EffectAccumulated;
+		out.sum = vec4f(0.0);
+		out.revealage = vec4f(0.0);
+		out.glow = vec4f(color * alpha, 0.0);
+		return out;
+	}
+	return fx_accumulate(color * alpha, alpha, length(in.rel), kind.x);
 }
 
 // #region water sheets

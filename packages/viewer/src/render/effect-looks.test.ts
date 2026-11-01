@@ -170,6 +170,21 @@ test('effects without _USE_FOG are marked to stay out of the fog', () => {
 	);
 });
 
+test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and stays hidden under 2', () => {
+	const additive = { ...shader('HGRP/Effect/VFXBaseV2'), floats: { _BlendMode: 1 } };
+	const looks = materialLooks({
+		shaders: [additive],
+		entries: [
+			material({ id: 0, slots: { _MainTex: slot(1) } }),
+			material({ id: 1, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 0 } }),
+			material({ id: 2, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 2 } }),
+		],
+	});
+	assert.equal(looks[0].params[EffectRow.unfogged + 2], 1);
+	assert.equal(looks[1].params[EffectRow.unfogged + 2], 0);
+	assert.equal(looks[2].drawn, false);
+});
+
 test('a VFXBaseV2 without a main texture draws with its shader default only when that is white', () => {
 	const looks = materialLooks({
 		shaders: [

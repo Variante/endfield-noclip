@@ -44,7 +44,12 @@ material without a main texture samples the shader's default, white, as the game
 of Origin Lodespring's crater column is one). alpha fades by a Fresnel term
 (`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by `_FresnelFlip`, applied by
 `_FresnelAffectOpacity`) and, with `_USE_SOFTBLEND`, where the surface comes within `_SoftDistance`
-metres of what lies behind it.
+metres of what lies behind it. the shader writes its alpha times `1 − _BlendMode`, so under
+`_BlendMode` 1, the shader's default, the premultiplied colour adds to what lies behind instead of
+covering it; about a quarter of the packed VFXBaseV2 materials are such. the viewer draws them into
+the transparent pass's glow, unfogged, as it does additive mist; drawn over, the glare at the
+corroded planet's centre (seen from Dijiang's deck) was a dark square. `_BlendMode` 2 is for
+multiplying blend states and isn't drawn.
 
 `_USE_VERTOFFSET` moves each vertex along `_OffsetDir` (`_OffsetSwitchDir` 0: object space, 1: world
 space, 2: the vertex normal) by `_OffsetIntensity · (r · (1 + _Bi_Offset) − _Bi_Offset)`, where r is
