@@ -268,8 +268,7 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 	let irradiance = ambient_irradiance(world, n);
 
 	// the sun on the surface: a highlight off a flattened normal, which widens the glitter path, plus the foam's
-	// diffuse and see-through light. divided by π like every sun term here; the game's isn't
-	// (docs/viewer/lighting.md#open)
+	// diffuse and transmitted light, in the viewer's illuminance convention (docs/viewer/lighting.md#sun)
 	var direct = vec3f(0.0);
 	{
 		let ns = normalize(vec3f(n.x, n.y * c.layers.z, n.z));

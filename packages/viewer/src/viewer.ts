@@ -1,10 +1,3 @@
-/**
- * the viewer: owns the device, the frame loop, the camera and the loaded package, and wires traversal →
- * streaming → renderers. the React UI drives it through {@link Viewer.setOptions} and the level actions, and
- * reads {@link ViewerStats} through {@link Viewer.subscribe}.
- *
- * @module
- */
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import {
 	conditionResults,
@@ -120,10 +113,7 @@ export interface ViewerOptions {
 	cloudShadows: boolean;
 	/** sway how much fog surfaces get with the environment's drifting 3D noise, where it has one */
 	flowNoise: boolean;
-	/**
-	 * let the flow noise drift: the viewer keeps rendering while it moves. off freezes it, so a still view
-	 * costs nothing
-	 */
+	/** animate flow noise and render continuously while it is active; disabling freezes its time */
 	flowNoisePlaying: boolean;
 	water: boolean;
 	ao: boolean;
@@ -1437,8 +1427,7 @@ export class Viewer {
 			this.#settleFrames--;
 			render = true;
 		}
-		// drifting fog moves on its own, so it renders every frame, reusing the last selection; paused, its time
-		// stands still and a still view costs nothing
+		// animate fog without repeating selection; paused fog retains its time
 		if (scene !== null && options.flowNoisePlaying && this.#post.drifts(post)) {
 			this.#flowTime += dt;
 			render = true;

@@ -1,12 +1,3 @@
-/**
- * the per-frame quadtree traversal. it decides what to draw (terrain patches, instance row ranges) from what
- * is resident, and tells the stream manager what it wants next, prioritised by screen-space error. the rules
- * are in `docs/viewer/streaming.md#instance-selection` (REPLACE refinement over HLOD) and
- * `docs/viewer/streaming.md#terrain-selection` (CDLOD).
- *
- * @module
- */
-
 import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
 import { type Camera, type Plane, boxInFrustum, distanceToBox } from '../scene/camera.ts';

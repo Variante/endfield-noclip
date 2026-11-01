@@ -2,8 +2,8 @@
 
 how the game decides what a place looks like (sun, sky, fog, clouds, grading). the game has no
 per-level environment setting: environment volumes placed in the world apply environment phases,
-blended by priority wherever the camera is. weather sits in the same system: it is a section of a
-phase, not a separate timer. how the renderer turns a blended phase into pixels is in
+blended by priority at the camera. phases also contain weather settings; their activation is
+described under [weather](#weather). how the renderer turns a blended phase into pixels is in
 [lighting.md](lighting.md), [sky-and-fog.md](sky-and-fog.md) and
 [post-processing.md](post-processing.md).
 
@@ -44,8 +44,9 @@ the lens flare's `LensFlareDataSRP`, whose elements carry images
 
 ## environment volumes
 
-volumes are tag-1 chunk objects (the mono-object rows of InitChunkData, with asset references in the
-paired StreamingChunkData; see [world.md](world.md)), not prefabs or LevelData. a volume is
+chunk volumes are tag-1 objects (the mono-object rows of InitChunkData, with asset references in
+paired StreamingChunkData; see [world.md](world.md)). other sources are
+[prefabs](#prefab-volumes) and [LevelData](#weather). a chunk volume is
 repeated, under the same object id, in every cell chunk it overlaps. the level tag of the entity id
 says which level owns it (0 = scene-wide).
 

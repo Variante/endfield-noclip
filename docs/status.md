@@ -231,7 +231,6 @@ packs or renders correctly.
 - interactive facilities are gathered from levels whose map is the packed scene, so a scene streamed
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
-- irradiance scene-state bakes are not selected by the active scene states
 - variable ids are unnamed (MapConfig's `mapVarName2NumId` names map variables but isn't read);
   outpost tier variables are matched to their outpost's levels by layout, not by a recovered table
   ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level

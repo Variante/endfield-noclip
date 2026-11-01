@@ -1,10 +1,3 @@
-/**
- * an opened viewer package: the core archive's manifest and tables, plus raw blob reads (one range read per
- * shard blob; shard JSON headers are never fetched).
- *
- * @module
- */
-
 import { decodeBlobTable, type BlobRecord } from '@endfield-noclip/package-format/blob-table';
 import { blobPath } from '@endfield-noclip/package-format/blobs';
 import type { GeometryTable } from '@endfield-noclip/package-format/geometry';

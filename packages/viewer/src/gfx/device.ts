@@ -1,9 +1,3 @@
-/**
- * WebGPU adapter/device setup: optional features the renderer can use, raised limits, and device loss.
- *
- * @module
- */
-
 /** optional features, detected on the adapter and requested when present */
 export interface GfxFeatures {
 	/** BC1–BC7 texture formats, which the package's textures are stored in */
@@ -35,9 +29,6 @@ export class GfxUnsupportedError extends Error {
 }
 
 /**
- * requests a high-performance adapter and a device with every optional feature we use that the adapter has,
- * and with the buffer/array limits raised to the adapter's maximum.
- *
  * @param onLost called once if the device is lost (not after `device.destroy()`)
  * @returns the device and its capabilities
  * @throws {GfxUnsupportedError} without WebGPU or a usable adapter

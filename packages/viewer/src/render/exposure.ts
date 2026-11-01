@@ -1,12 +1,3 @@
-/**
- * the game's auto exposure as arithmetic: a luminance histogram of the lit scene picks a post exposure that
- * brings the scene's average towards middle grey, within the profile's EV limits, and the exposure eases
- * towards it. the histogram itself is taken on the GPU (`auto-exposure.ts`). see
- * `docs/game-data/post-processing.md#auto-exposure`.
- *
- * @module
- */
-
 import type { AutoExposureConfig } from '@endfield-noclip/package-format/environment';
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 

@@ -1,17 +1,3 @@
-/**
- * plays the package's particle systems, meshes and camera-facing quads alike. a system's particles each
- * follow from their emission time and their own random values (a hash of the emitter and the particle's
- * index), so any moment can be evaluated on its own: {@link ParticleSimulation} lists the particles alive at a
- * system time, and {@link ParticleField} writes them as instance rows next to the blocks, which the mesh
- * selection then buckets like any instance.
- *
- * the game's random draws can't be reproduced, so particles start in other places than in the game, with the
- * same distributions. looping systems are shown as if they had played for a while; others start when their
- * emitter is first drawn.
- *
- * @module
- */
-
 import {
 	CurveMode,
 	type GradientInfo,
@@ -700,7 +686,6 @@ export class ParticleSimulation {
 				break;
 			}
 		}
-		// the shape's own placement
 		position = rotate(this.#shapeRotation, [
 			position[0] * shape.scale[0],
 			position[1] * shape.scale[1],
@@ -1070,7 +1055,6 @@ export class ParticleField {
 			const p = scratch.subarray(base + At.position, base + At.position + 3);
 			const q = scratch.subarray(base + At.rotation, base + At.rotation + 4);
 			const s = scratch.subarray(base + At.size, base + At.size + 3);
-			// the particle's place, through the emitter's matrix
 			const offset = toWorld(p);
 			const center: Vec3 = [offset[0] + m[3], offset[1] + m[7], offset[2] + m[11]];
 			// the rotation's axes, then the frame they turn in: the emitter's (local), the world's, or the camera's

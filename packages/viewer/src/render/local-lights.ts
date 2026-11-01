@@ -1,14 +1,3 @@
-/**
- * the package's local point and spot lights, as the game feeds them to its shading: each frame the shown
- * lights within their culling distance and the view are sorted by camera distance and capped at 256, then
- * binned the game's way, into screen tiles of 32 px and view-depth slices of 1 m from the near plane, each a
- * 256-bit mask; a pixel's lights are those in both its tile's mask and its slice's
- * (docs/viewer/lighting.md#local-lights). `frame.wgsl` reads both buffers (`local_lighting`,
- * `local_light_at`).
- *
- * @module
- */
-
 import { type LightEntry, LightKind } from '@endfield-noclip/package-format/lights';
 
 import type { Camera, Vec3 } from '../scene/camera.ts';

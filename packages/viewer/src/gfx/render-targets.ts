@@ -1,16 +1,4 @@
 /**
- * the canvas swapchain, kept at the canvas's device-pixel size, and the targets the main and transparent
- * passes render into.
- *
- * the main pass renders HDR radiance and its ambient part, one sample per pixel at the render size (the
- * canvas size times the render scale); depth is kept for the post passes (ambient occlusion, fog, sky).
- * temporal antialiasing resolves the render size up to the output (canvas) size, and post-processing then
- * writes the swapchain. the game has no MSAA either; its antialiasing is temporal.
- *
- * @module
- */
-
-/**
  * reversed-Z depth: 1 at the near plane, 0 at infinity; cleared to 0 and tested with `greater`. with a
  * stencil buffer, {@link DEPTH_STENCIL_FORMAT} instead
  */

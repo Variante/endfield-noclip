@@ -1,13 +1,3 @@
-/**
- * CDLOD terrain: height pages live in a slot pool (one storage buffer), and every selected page quadrant is
- * an instance of one shared 33×33 grid, so terrain is a single draw. baked surface pages (albedo, normal)
- * live in a second slot pool, a pair of BC3 texture arrays, one layer per page. leaves near the camera add a
- * splat page (splat control, tint, layer index) from a third pool, and blend the package's layer textures,
- * which stay resident in a pair of BC7 arrays.
- *
- * @module
- */
-
 import type { TerrainSplatInfo } from '@endfield-noclip/package-format/terrain';
 
 import type { BindLayouts } from '../gfx/bind-layouts.ts';

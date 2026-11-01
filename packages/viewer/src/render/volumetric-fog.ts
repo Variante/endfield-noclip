@@ -1,11 +1,3 @@
-/**
- * the game's froxel volumetric fog: a compute pass lights and integrates a grid over the view each frame, and
- * the composite and water passes add it in front of the height fog (shaders/sky.wgsl,
- * docs/game-data/sky-and-fog.md#fog).
- *
- * @module
- */
-
 import type { Camera, Vec3 } from '../scene/camera.ts';
 
 import type { Environment, VolumetricFog as VolumetricFogLook } from './environment.ts';

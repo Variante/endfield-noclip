@@ -1,12 +1,8 @@
 # extraction
 
 the extractor (`packages/extractor`) is a node CLI that reads a local Endfield install and writes
-viewer packages. this page covers running it, the local config and keys, the container layers it
-reads through, the decoders for the game's formats, how `pack` builds a package (its phases, how it
-files content, conversion workers, cache and debug outputs), and how the game's conditions become
-scene controls. what the game data means is in the `game-data/` pages; the package it writes is in
-[package-format.md](package-format.md); where the extractor sits among the packages is in
-[architecture.md](architecture.md).
+viewer packages in the [package format](package-format.md). game formats and behaviour are documented
+in [game-data](game-data/); this page covers the CLI and extraction pipeline.
 
 ## running it
 
@@ -112,40 +108,15 @@ its dependencies. code: [string-path-hash.ts](../packages/formats/src/hg/string-
 
 `AssetResolver` ([assets.ts](../packages/extractor/src/game/assets.ts)) turns a hash or a PPtr into
 an `ObjectRef` (bundle index, SerializedFile, object info), relying on the game facts in
-[how a reference reaches an object](game-data/assets.md#how-a-reference-reaches-an-object):
+[how a reference reaches an object](game-data/assets.md#how-a-reference-reaches-an-object).
 
-1. **hash → bundle.** the manifest's `AssetInfo` rows for the hash give the bundles holding it.
-2. **path → object.** in each such bundle, the `AssetBundle` object's container maps the lowercased
-   container path to a main-asset PPtr and a preload range. without a sub-asset name, the main asset
-   is the match. with one, candidates are the main asset plus preload pointers that stay inside the
-   same bundle (a sub-asset ships in its container's bundle, so preloads into dependency bundles are
-   skipped without opening them), kept when their class matches and their `m_Name` equals the
-   sub-asset name case-insensitively.
-3. **PPtr → object.** an external's CAB name isn't derivable from bundle names, but it's always
-   inside the referencing bundle's dependency closure, so the resolver opens that closure's
-   directories in batches until the CAB turns up, and remembers every CAB it sees. `m_StreamData`
-   (`.resS`) is located the same way.
+the resolver opens dependency directories in batches and caches each CAB location. sub-asset lookup
+checks the main asset and same-bundle preload pointers, skipping dependency preloads.
+`findUnique` requires exactly one match; missing containers, class mismatches, ambiguous sub-assets
+and invalid preload ranges fail. failed lookups retain their errors in the pack's debug index.
 
-`findUnique` requires exactly one match. an `AssetRef` reached through a prefab carries an
-`ObjectLocator` (bundle, CAB, path id) and bypasses path lookup entirely. `objectKey`
-(`CAB-<hex>:<pathId>`) is the identity used for dedupe and caching.
-
-**exact lookups only.** a hash resolves through its manifest bundle and container entry, a PPtr
-through its file and path id, and anything else is a failure. the resolver never falls back to a
-bundle-wide class match, a same-named object elsewhere, or the first of several ambiguous matches,
-because:
-
-- names don't identify objects ([resolving assets](game-data/assets.md#resolving-assets)): a by-name
-  pick draws a plausible but wrong mesh or material.
-- a substitute hides the defect. a failed lookup stays a `failed` entry in the pack's debug index
-  with its error, where it can be traced to the game data or a decoder bug; a substitute looks
-  finished and nobody revisits it.
-- the identities the game uses (hash → bundle → container, PPtr → CAB → path id) are available, so
-  exactness costs nothing but the explicit failure.
-
-the resolver's tests pin this down (missing containers and mismatched main assets never match by
-class; ambiguous sub-assets stay ambiguous; invalid preload ranges throw). keep failed lookups
-explicit when adding asset kinds, and fix the reference path instead of adding a fallback.
+an `AssetRef` reached through a prefab carries an `ObjectLocator` (bundle, CAB, path id), bypassing
+path lookup. `objectKey` (`CAB-<hex>:<pathId>`) identifies objects for deduplication and caching.
 
 ### objects
 
@@ -159,7 +130,7 @@ uses to read only `m_ParsedForm`.
 
 class decoders ([below](#decoders)) read fields through the narrowing accessors in `values.ts`
 (`numberField`, `pptrField`, `aabbField`, …), which throw a `FormatError` naming the field when the
-shape differs, so a layout change fails with a useful message instead of producing garbage.
+shape differs.
 `toPlainObject` (`plain-object.ts`) converts configuration objects (the environment's `HG*Config`
 sections) to plain JSON, with Unity math structs as arrays and `UInt8` bools as booleans. code:
 [serialized-file.ts](../packages/formats/src/unity/serialized-file.ts),
@@ -169,9 +140,8 @@ sections) to plain JSON, with Unity math structs as arrays and `UInt8` bools as 
 
 ## decoders
 
-the game's formats are decoded by `formats` modules that check their layout as they read and throw
-on a mismatch rather than skip or guess, so a format change fails loudly instead of silently
-dropping content. what each format holds is in the linked game-data sections.
+`formats` modules validate layouts while decoding and throw on a mismatch. the linked game-data
+sections describe each format.
 
 ### asset classes
 
@@ -241,7 +211,7 @@ field names, curves as keys and gradients as colour and alpha keys.
   ([layout](game-data/world.md#initchunkdata-layout)). `readChunkEntities` turns a component group
   into `ChunkEntity` rows with id, tag, name, matrix, bounds, decal flag and a `StaticRenderer`
   (draws with mesh/material StringPathHash keys, submesh, flags and LOD range). it throws on any
-  stride or count disagreement instead of skipping, so a format change can't silently drop draws.
+  stride or count disagreement.
   kind-1 object rows are read by
   [mono-objects.ts](../packages/formats/src/endfield/mono-objects.ts); local lights' runtime and
   settings blocks are laid out by
@@ -289,7 +259,7 @@ decoders for the [water data](game-data/water.md):
 the component layout follows An1X3R/Endfield-map-extractor (MIT, `extractor_core/water.py`).
 
 `readWaterSurfaces` rejects a row with a zero mask, a non-finite value or a missing binding, because
-each of those has never occurred and would mean the layout moved.
+these violate the observed layout.
 
 a surface can appear in several chunk files. `readSceneWater` keeps the first copy by id (files in
 name order) and records the scene state of every file holding it. surface meshes all resolve with
@@ -388,9 +358,7 @@ count. with `--level`, the subset keeps entities with that level's tag and terra
 its cells. DynamicStreaming entities' area lists ([stream areas](game-data/world.md#stream-areas))
 gate them the same way as stream-area files.
 
-the packer reuses the game's far-field stack rather than generating its own, since the game's
-clusters are exact, come with their own materials and atlases, and cover a whole level in very few
-triangles ([LOD and HLOD](game-data/world.md#lod-and-hlod)):
+the packer preserves the game's [LOD and HLOD](game-data/world.md#lod-and-hlod):
 
 - per-entity LOD chains: the packer keeps whole chains, thresholds included.
 - foliage cards: the packer marks a draw as a card when its mesh path contains `_cardmesh`.
@@ -888,28 +856,13 @@ their raw id. the episode label is inferred from the id.
 
 ### rules
 
-- **preserve uncertain gates as manual overrides, initially off.** condition-less scene states,
-  unnamed state indices and controller-less logic gates have no recoverable runtime writer; showing
-  them by default would overlay content the player sees only in specific events or dungeons (e.g.
-  concert props and map-wide night volumes on map01). script groups follow their stored default-load
-  flag instead, because that flag is authored data, unless their own scripts set them by quest
-  checks when they run.
-- **never infer activation from names** such as night, battle, rainy or liino. names describe
-  content, not when it loads; a guessed rule hides or shows the wrong things with no signal that
-  it's a guess. gate only on stored conditions and say in the control text what the default assumes.
-- **controls are game state, not conditions.** a control holds something the game holds (a quest's
-  state, a variable, a level); conditions are requirements on those. one switch per condition would
-  let the viewer show combinations no player state produces, such as both sides of a quest check.
-- **keep compound requirements combined.** an entity can need a progression level, a script flag, a
-  quest gate and two state lists at once; flattening that into independent controls would show
-  variants in combinations the data never authors. shared resources union alternatives, never merge
-  requirements.
-- **this is not a complete story-state evaluator.** defaults model one player (story finished,
-  variables at fixed assumptions) and ignore by-name state writers, script overrides, activity
-  conditions and server state. describe the controls as authored previews; don't present a default
-  as what a given player sees.
-- **fail on unknown data.** unknown condition classes, operators, out-of-range spans and invalid
-  flags throw during extraction, so a format change is noticed instead of silently evaluated.
+- gate content on stored conditions; names do not establish activation. show the assumption behind
+  each default ([defaults](#defaults)).
+- preserve compound requirements and union alternatives for shared resources
+  ([conditional sets](package-format.md#conditional-sets)).
+- present controls as previews. by-name state writers, script overrides, activity conditions and
+  server state remain incomplete ([status](status.md#coverage-and-conditional-content)).
+- unknown condition classes, operators, out-of-range spans and invalid flags throw during extraction.
 
 ## open
 

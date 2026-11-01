@@ -1,12 +1,3 @@
-/**
- * the game's screen-space sun shafts (`light-shafts.wgsl`), from the environment's `lightShaft` section: a
- * thresholded copy of the composited scene's far, bright pixels near the sun, at half the render size,
- * blurred towards the sun's position on screen in three passes of 12 samples (the game's PC presets) and
- * added onto the scene before temporal antialiasing. see `docs/game-data/post-processing.md#light-shafts`.
- *
- * @module
- */
-
 import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
 import type { Camera, Vec3 } from '../scene/camera.ts';
 

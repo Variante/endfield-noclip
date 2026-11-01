@@ -1,13 +1,3 @@
-/**
- * blob residency: the traversal says which blobs it wants each frame and how much; this fetches them (one
- * range read per blob, adjacent blobs of an archive coalesced into one request), decodes them on the worker
- * pool, uploads within a per-frame budget, and evicts the least recently used blobs when resident content
- * exceeds the memory budget. pinned blobs (the always-resident coarse layer) are never dropped. the limits
- * and why they're set so are in `docs/viewer/streaming.md#residency-and-budgets`.
- *
- * @module
- */
-
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 
 import type { RangeAllocation } from '../gfx/range-allocator.ts';
@@ -713,7 +703,6 @@ export class StreamManager {
 		if (uploads.length === 0) {
 			return;
 		}
-		// pinned first, then by priority
 		uploads.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority);
 		const deferred: ContentItem[] = [];
 		let uploaded = 0;

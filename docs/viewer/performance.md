@@ -1,4 +1,4 @@
-# how the frame stays cheap
+# performance
 
 - **redraw only when dirty.** `#tick` renders when the camera moved, the canvas resized, an option
   or scene value changed (`#dirty`), the stream's `version` changed, a pipeline finished compiling,
@@ -41,3 +41,16 @@
   irradiance clipmaps update only on re-centre or new cells.
 - **no per-frame allocation on hot paths.** selections, buckets and plane arrays are reused across
   frames.
+
+## optimization candidates
+
+- move per-instance culling and LOD selection to compute, writing the visible list and indirect
+  draw arguments; these dominate CPU time in dense views.
+- cache shadow layers across new selections when their fit and casters are unchanged; terrain
+  still draws into every layer.
+- reduce the AO blur's reads by packing depth with AO or using `textureGather`.
+- profile terrain close-up blending; stochastic projection or fewer anisotropy taps may reduce cost.
+- measure timestamp-query overhead before limiting profiling to the stats panel.
+
+composite needs a separate HDR target: the next frame's reflections read it after the main pass
+rewrites radiance. the celestial pass reuses the sky reflection target after reflections finish.

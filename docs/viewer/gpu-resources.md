@@ -1,11 +1,9 @@
 # GPU resource management
 
-- **device** ([`gfx/device.ts`](../../packages/viewer/src/gfx/device.ts)): high-performance adapter;
-  requests `texture-compression-bc`, `float32-filterable`, `indirect-first-instance`,
-  `timestamp-query` and `depth32float-stencil8` when present, and raises the buffer,
-  storage-binding, array-layer, storage-buffer and sampled-texture limits to the adapter's maximum
-  (the mesh pipeline samples 17 textures per stage, one over the default). without BC support, BC
-  textures are reported unstreamable and materials fall back to their untextured look.
+- **device** ([`gfx/device.ts`](../../packages/viewer/src/gfx/device.ts)): the mesh pipeline needs
+  17 sampled textures per stage, exceeding WebGPU's default limit. without BC support, package BC
+  textures cannot stream and materials use their untextured look. optional stencil support enables
+  effect portals; timestamp queries enable GPU profiling.
 - **range allocator**
   ([`gfx/range-allocator.ts`](../../packages/viewer/src/gfx/range-allocator.ts)): first-fit over
   units, with frees coalescing neighbours so streaming in and out doesn't fragment the space without

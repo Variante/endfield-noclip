@@ -1,14 +1,3 @@
-/**
- * how the viewer's mesh shader draws each package material: whether at all, which textures fill its slots
- * ({@link SLOTS}), and the draw parameters `mesh.wgsl` reads.
- *
- * the shading each look selects is in `docs/viewer/materials.md`, over the game's shaders in
- * `docs/game-data/materials.md`; the Lit family's two texture layouts, which decide the normal-map flags
- * here, are in `docs/game-data/materials.md#texture-layouts`.
- *
- * @module
- */
-
 import type {
 	MaterialCull,
 	MaterialTable,
@@ -311,9 +300,8 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 };
 
 /**
- * the look of a material the viewer can't draw: an unlit checker of magenta and black in world space, at its
- * colour whatever the exposure, so what's missing shows instead of hiding. it shows both faces and casts no
- * shadow
+ * unsupported material: a world-space magenta/black checker, unlit and exposure-independent. draws both faces
+ * and casts no shadow
  */
 const unsupportedLook = (): MaterialLook => {
 	const look = emptyLook({ drawn: true });

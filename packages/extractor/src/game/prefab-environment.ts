@@ -30,11 +30,8 @@ import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states'
 import type { AssetResolver, ObjectRef } from './assets.ts';
 import type { SceneEnvironmentVolume } from './environment.ts';
 
-// environment volumes that prefabs carry: the game places some through DynamicStreaming model rows (named
-// `P_lightingDeco_<entity id>_envvolume`), so the entity's load gates switch them, e.g. Power Plateau's
-// overcast after its battle (docs/game-data/environment.md#prefab-volumes). the component is the same
-// `HGEnvironmentVolume` as the chunk objects', serialized by Unity rather than flattened, with its phase a
-// reference to an `HGEnvironmentPhase` object instead of a StringPathHash key
+// reads HGEnvironmentVolume components from gated prefabs; phases are PPtrs rather than path hashes.
+// source layout: docs/game-data/environment.md#prefab-volumes.
 
 /** an environment volume found in a prefab */
 export interface PrefabEnvironmentVolume {
@@ -184,7 +181,6 @@ export const readPrefabEnvironmentVolumes = async (
 			const rotation = objectField(t, 'm_LocalRotation');
 			const quaternion = [...xyz(rotation), numberField(rotation, 'w')];
 			const scale = xyz(objectField(t, 'm_LocalScale'));
-			// the local position, scaled and turned by the parent
 			const [px, py, pz] = rotate(parent.rotation, [
 				numberField(local, 'x') * parent.scale[0],
 				numberField(local, 'y') * parent.scale[1],

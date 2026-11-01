@@ -3,8 +3,6 @@
 endfield-noclip is four workspace packages under `packages/`. the extractor reads a local Endfield
 install with the decoders in `formats` and writes a viewer package to disk in the layout
 `package-format` defines; the viewer streams that package in the browser and renders it with WebGPU.
-this page covers what each package owns, how they depend on each other, and the decisions that shape
-the whole pipeline.
 
 | page                                                         | covers                                                                    |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------- |
@@ -66,8 +64,7 @@ either, so game-format knowledge stays on the extractor side and a package can b
 ### boundaries
 
 - **`formats` is environment-agnostic.** it takes bytes (or a `ByteSource` for random access) and
-  returns plain values; it never opens files or uses `node:` APIs outside tests. this keeps the door
-  open to running the decoders, and eventually the packer, in a browser worker. anything that
+  returns plain values; it never opens files or uses `node:` APIs outside tests. code that
   touches the filesystem, caches open handles or knows install layout (`hg/vfs.ts`, `hg/bundles.ts`,
   `game/assets.ts`) lives in the extractor.
 - **`formats` decodes; the extractor interprets.** a `formats` module describes one layout (a
@@ -105,7 +102,7 @@ output and CLI tooling; the package keeps its own blob index in the core, so the
 any blob without parsing an archive header. blobs are content-addressed, so a mesh or texture used
 by several levels or tiles is stored once.
 
-**a renderer of our own on WebGPU.** three.js's WebGL renderer has no compute, so culling and LOD
+**a custom WebGPU renderer.** three.js's WebGL renderer has no compute, so culling and LOD
 would stay on the CPU, and its per-object scene graph cost a prototype 15 ms of CPU at 4.2k draws.
 three.js's WebGPU renderer keeps per-object render lists and bind groups and compiles node materials
 per material, so GPU-driven rendering would fight the abstraction. Babylon.js would put HGRP shaders

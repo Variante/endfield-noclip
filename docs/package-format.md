@@ -2,10 +2,8 @@
 
 a package is what `pnpm -s extract pack <scene>` writes and the viewer streams: one streaming scene
 (one world, one coordinate frame) as czar archives holding content-addressed blobs and a few tables.
-this page covers the layout on disk, every table and binary encoding, the versioning rule, and the
-design reasons behind them. how the packer gets there is in [extraction.md](extraction.md#pack), how
-the viewer opens and streams a package in [viewer/index.md](viewer/loading.md), and what the game
-data inside means in the [game-data](game-data/) pages.
+see [extraction](extraction.md#pack) for packing, [loading](viewer/loading.md) for reading, and
+[game-data](game-data/) for the source formats.
 
 the types are the contract: [package-format](../packages/package-format/src/) has one module per
 concern, each holding that concern's types and binary codec (`manifest`, `tiles`, `tree`,
@@ -83,11 +81,10 @@ pack and survives a failed one, and a reader never sees a mix of the two.
 
 **czar** ([`@mary-ext/czar`](https://www.npmjs.com/package/@mary-ext/czar)) is the container: a
 magic, a JSON header listing members (path, offset, size, CRC-32), then member data in path order on
-16-byte boundaries. **our blob table is the index**: `tables/blobs.bin` records each blob's archive,
+16-byte boundaries. **blob index**: `tables/blobs.bin` records each blob's archive,
 offset (relative to the archive's data section) and length, so a reader issues one range read per
 blob and never fetches a shard's JSON header. czar contributes CRCs, deterministic output,
-`list`/`verify`/`extract` tooling and Blob/OPFS readers; a hand-rolled pack format would only add
-control over member order, which content-hash names defeat anyway. 16-byte alignment lets decoders
+`list`/`verify`/`extract` tooling and Blob/OPFS readers. 16-byte alignment lets decoders
 view uncompressed members as typed arrays.
 
 - **blob identity**: the first 128 bits of the SHA-256 of the **stored** (post-codec) bytes, as 32
@@ -95,10 +92,7 @@ view uncompressed members as typed arrays.
   member path is `blobs/<hash>.<ext>` (`BLOB_EXTENSIONS`).
 - **codec** (`BlobCodec`): `0` none, `1` one zstd frame. the packer keeps the zstd frame only when
   it saves at least 1/32 of the bytes, since a frame costs a decode pass and small BC7 mip tails
-  barely compress. levels: `--zstd-level` (default 19) for instance blocks, height and splat pages
-  and geometry; `--texture-zstd-level` (default 9) for textures, surface pages and layer textures,
-  where 19 saves about 2 % more at roughly 10× the time; irradiance cells and the JSON tables are
-  fixed at 9.
+  barely compress. compression settings are in [asset conversion](extraction.md#asset-conversion-and-workers).
 - **offsets** are u32, so every archive stays below 4 GiB; groups over 1 GiB split into
   [parts](#layout).
 - **the core's offsets**: `ArchiveInfo.dataOffset` is `null` for the core, because the core's header
@@ -116,8 +110,10 @@ package.
 ## coordinates
 
 everything is in the game's Unity frame: left-handed, +Y up, +Z north, metres
-(`COORDINATE_CONVENTIONS`). the viewer applies `scale(1, 1, -1)` once at its root and swaps its
-front-face winding. matrices are `rows3x4`: the top three rows of object-to-world, row-major,
+(`COORDINATE_CONVENTIONS`). a right-handed scene can convert with `viewerRoot: scale(1, 1, -1)`
+and reversed front-face winding. this viewer keeps Unity coordinates and constructs its view-projection
+accordingly ([camera.ts](../packages/viewer/src/scene/camera.ts)). matrices are `rows3x4`: the top
+three rows of object-to-world, row-major,
 matching a WGSL `array<vec4f, 3>`. instance translations and bounds centres are relative to their
 block's origin, which keeps f32 precise anywhere in the world.
 
@@ -148,7 +144,7 @@ stands for.
 **refinement contract** (REPLACE, at HLOD-cell granularity): a node draws its coarse content while
 its screen-space error, `geometricError · viewportHeight / (2 · distance · tan(fovY / 2))`, is
 within the threshold; otherwise it refines to its children, and a refined leaf draws its detail
-blocks. this is how the game swaps HLODs, seams included. per-instance LOD inside detail uses the
+blocks. per-instance LOD inside detail uses the
 chain thresholds. conditional blocks have no HLOD stand-in, so they draw by their tile's screen size
 regardless of refinement ([viewer/index.md](viewer/streaming.md#instance-selection)).
 `manifest.global` content (the game's Global chunk scenery) is drawn whenever its group shows and
@@ -349,8 +345,8 @@ each stream is its own vertex buffer. attributes use Unity's channel numbering (
 | 4–11 UV0–7 | `unorm16x2` dequantized when the span is ≤ 16, else `float32x2`; 8-bit sources keep `snorm8x4`/`unorm8x4`; sets with more than two components `float32x4` | half floats step 1/128 at 12, too coarse for tiling UVs; dequantized unorm16 at span ≤ 16 errs below 2^-13                                                                                                                                                                                                                            |
 
 tangents are computed in the game's left-handed frame, so `bitangent = cross(n, t) · sign` holds
-there; under the viewer's mirroring root multiply by the sign of the object-to-world determinant, as
-Unity does. vertices whose corners disagree on the tangent frame (mirrored UV seams) are split.
+there. the mesh shader multiplies the bitangent sign by the object-to-world determinant's sign
+to handle mirrored instances. vertices whose corners disagree on the tangent frame (mirrored UV seams) are split.
 against `mikktspace` 1.1.1 on 200 meshes (864k corners), meshoptimizer's tangents agree to a mean
 dot product of 0.99978, 99.975 % within 2.5°, with matching bitangent signs in 99.998 %.
 
@@ -637,7 +633,7 @@ test at the camera. which content a stream area gates is in
 
 ## versioning
 
-`PACKAGE_VERSION` (25) is written to `manifest.version` and covers the manifest, the JSON tables and
+`PACKAGE_VERSION` ([manifest.ts](../packages/package-format/src/manifest.ts)) is written to `manifest.version` and covers the manifest, the JSON tables and
 how the parts fit together. each binary encoding (tree, chains, blob table, irradiance table,
 instance blocks, height, surface and splat pages, geometry blobs) carries its own version in its
 header, next to its codec. readers accept exactly the versions they know and reject any other, and

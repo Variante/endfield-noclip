@@ -3,7 +3,7 @@ import { ByteView } from '../binary/byte-view.ts';
 
 // SparkBuffer config tables (`Data/TableCfg/*.bytes`, Table group). layout recovered from MapIdTable,
 // LevelDescTable, I18nTextTable_*, SpaceshipAreaUnlockNeedCenterLvTable and SpaceshipGrowCabinLvTable; only
-// the value types those use are supported, and anything else fails loudly rather than guessing.
+// the value types those use are supported; other types throw FormatError.
 //
 //   u32 typesOffset, u32 rootOffset, u32 dataOffset
 //   types: u32 count, count × { u8 kind (6 = enum, 8 = bean), pad4, u32 hash, cstring name, pad4, then

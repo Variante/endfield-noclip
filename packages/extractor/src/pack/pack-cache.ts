@@ -10,16 +10,9 @@ import { errorCode, ignoreMissing } from '../errors.ts';
 import { BlobDir, type BlobMeta, shortHash } from './blob-file.ts';
 import type { BundleSource, ConvertResult } from './convert-pool.ts';
 
-// a persistent cache for packing: converted meshes and textures, and every blob a pack stores. blobs live in
-// a BlobDir that serves as the pack's blob store, so a re-pack reads cached blobs straight into its archives.
-// conversions are remembered by a key over the job (the object, the options) and a fingerprint of the
-// converter's code, along with the md5s (from the VFS catalog) of every bundle they read, so an install update
-// or a converter change misses. whole pack steps (terrain, irradiance) are remembered the same way, keyed by
-// their own module's code and the content md5s of what they read.
-//
-// the cache keeps what the packages it built are made of: each pack records its blobs and conversions as a
-// root named after its output directory, and then deletes whatever no root references. a root goes away with
-// its package (when the directory no longer holds a core archive). one pack uses a cache at a time.
+// caches converted assets and pack steps by code fingerprint, options and input catalog MD5s.
+// each live package roots its blobs and memos; unreferenced entries are swept after packing.
+// layout, invalidation and locking: docs/extraction.md#pack-cache.
 
 /** the conversion worker; the fingerprint covers it and every workspace module it imports, transitively */
 const CONVERTER_ENTRY = new URL('./convert-worker.ts', import.meta.url);
@@ -205,7 +198,6 @@ export class PackCache {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written like the root above
 				const other = JSON.parse(await readFile(roots.path(name), 'utf8')) as Root;
 				if ((await ignoreMissing(stat(join(other.outDir, CORE_ARCHIVE)), undefined)) === undefined) {
-					// its package is gone
 					await rm(roots.path(name), { force: true });
 					return;
 				}
@@ -237,7 +229,7 @@ const resultBlobs = (result: ConvertResult): string[] => {
 	return result.kind === 'geometry' ? [result.blob.hash] : result.pieces.map((piece) => piece.blob.hash);
 };
 
-/** takes a lock file holding our pid; a lock left by a process that's gone is taken over */
+/** acquires the cache lock with the current pid, reclaiming locks left by dead processes */
 const lock = async (path: string): Promise<void> => {
 	if (await tryCreate(path)) {
 		return;

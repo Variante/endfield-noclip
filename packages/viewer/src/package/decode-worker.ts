@@ -1,10 +1,3 @@
-/**
- * decode worker: undoes the blob codec (zstd) and turns terrain pages, instance blocks and geometry (meshopt)
- * into GPU-ready arrays, transferring the results back.
- *
- * @module
- */
-
 import { BlobCodec } from '@endfield-noclip/package-format/blobs';
 import {
 	decodeGeometryBlob,

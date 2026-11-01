@@ -1,9 +1,3 @@
-/**
- * a small pool of decode workers; jobs go to the least busy worker.
- *
- * @module
- */
-
 import type { Decoded, DecodeRequest, DecodeResponse } from './decode-protocol.ts';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

@@ -1,14 +1,3 @@
-/**
- * the passes after the main pass: sky LUTs, ground-truth AO, screen-space reflections, celestial layers,
- * compositing (AO, sky, atmosphere fog, height fog), water, light shafts, lens flare, temporal antialiasing,
- * auto exposure, bloom and tonemapping into the swapchain. everything up to the temporal resolve runs at the
- * render size, everything after it at the output size. the passes this module owns are fullscreen triangles
- * with `auto` layouts, so each bind group holds exactly the bindings its pass reads. see
- * `docs/viewer/post-processing.md`.
- *
- * @module
- */
-
 import { type SceneTextures, HDR_FORMAT } from '../gfx/render-targets.ts';
 import type { Camera } from '../scene/camera.ts';
 

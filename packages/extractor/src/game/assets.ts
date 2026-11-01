@@ -22,11 +22,8 @@ import {
 } from '../hg/bundles.ts';
 import type { Vfs } from '../hg/vfs.ts';
 
-// cross-bundle object resolution. a PPtr's `m_FileID` names an external SerializedFile by CAB name
-// (`archive:/CAB-<hex>/CAB-<hex>`), and `m_StreamData` names a `.resS` the same way. CAB names aren't derivable
-// from bundle names, but an external is always in the referencing bundle's dependency closure (manifest
-// `dependencies`), so a lookup opens just the directories of that closure until the CAB turns up, and
-// remembers every CAB it sees on the way.
+// resolves external CAB and .resS files within the referencing bundle's dependency closure, caching each
+// location found. reference rules: docs/game-data/assets.md#how-a-reference-reaches-an-object.
 
 // #region types
 
@@ -300,7 +297,6 @@ export class AssetResolver {
 		const candidates = [near, ...this.manifest.bundle(near).dependencies].filter(
 			(index) => !this.#scanned.has(index),
 		);
-		// open directories a few at a time; stop as soon as the CAB shows up
 		const BATCH = 16;
 		for (let i = 0; i < candidates.length; i += BATCH) {
 			// oxlint-disable-next-line no-await-in-loop -- batches stop opening bundles once the CAB is found

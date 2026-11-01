@@ -216,7 +216,7 @@ export const packIrradiance = async (
 		return null;
 	}
 	const index = parseIrradianceIndex(await vfs.readVerified(indexFile));
-	// validate every file before filtering by region or scene state, including files we won't read.
+	// validate the complete index before subset filtering, including skipped payloads.
 	const payloads = await Promise.all(
 		index.files.map(async (name, file) => {
 			const payload = await vfs.find(IRRADIANCE_GROUP, `${directory}${name}`);

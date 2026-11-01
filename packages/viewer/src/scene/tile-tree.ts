@@ -1,9 +1,3 @@
-/**
- * the package's tile quadtree as linked nodes, with content refs sorted by kind.
- *
- * @module
- */
-
 import type { PackageManifest } from '@endfield-noclip/package-format/manifest';
 import { tileAncestor, tileFootprint, tileId, tileQuadrant } from '@endfield-noclip/package-format/tiles';
 import { ContentKind, type ContentRef, type Tree } from '@endfield-noclip/package-format/tree';

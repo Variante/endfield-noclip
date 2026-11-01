@@ -1,13 +1,3 @@
-/**
- * temporal antialiasing with upsampling (TAAU), which the game uses instead of MSAA. the main pass renders
- * one sample per pixel at the render size, offset by a different subpixel jitter each frame; the resolve pass
- * (`taa.wgsl`) accumulates those frames into a history at the output size, which the rest of the post chain
- * reads. because the history needs a few frames to settle, the viewer keeps rendering for
- * {@link SETTLE_FRAMES} after the view stops changing.
- *
- * @module
- */
-
 import { HDR_FORMAT } from '../gfx/render-targets.ts';
 import type { Camera, Vec3 } from '../scene/camera.ts';
 

@@ -1,11 +1,3 @@
-/**
- * the rain wetness at the camera: the blended profile's `HGRainConfig` wetness fields as `frame.wgsl`'s
- * `rain_wet_surface` reads them (`Frame.wetness`). the game darkens and smooths every surface its deferred
- * lighting shades by these, whether or not rain falls (docs/game-data/environment.md#wetness).
- *
- * @module
- */
-
 import type { RainConfig } from '@endfield-noclip/package-format/environment';
 
 /**

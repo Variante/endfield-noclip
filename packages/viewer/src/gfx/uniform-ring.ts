@@ -1,10 +1,3 @@
-/**
- * a uniform buffer split into per-frame regions, sub-allocated at the device's dynamic-offset alignment.
- * callers fill CPU-side views during the frame and `flush` uploads the frame's region in one write.
- *
- * @module
- */
-
 /** a uniform block allocated for this frame */
 export interface UniformAllocation {
 	/** dynamic offset to bind */
@@ -13,7 +6,10 @@ export interface UniformAllocation {
 	u32: Uint32Array;
 }
 
-/** per-frame uniform sub-allocator */
+/**
+ * frame-local staging views backed by a rotating GPU buffer. call {@link beginFrame}, fill allocations, then
+ * {@link flush} before submitting draws. staging views are reused on the next frame.
+ */
 export class UniformRing {
 	readonly buffer: GPUBuffer;
 	#device: GPUDevice;
@@ -42,7 +38,7 @@ export class UniformRing {
 		});
 	}
 
-	/** starts the next frame's region */
+	/** invalidates previous staging allocations; flush them before advancing */
 	beginFrame(): void {
 		this.#region = (this.#region + 1) % this.#regions;
 		this.#cursor = 0;
@@ -69,7 +65,7 @@ export class UniformRing {
 		};
 	}
 
-	/** uploads what this frame allocated */
+	/** uploads staged allocations; call after filling their views and before submitting draws */
 	flush(): void {
 		if (this.#cursor > 0) {
 			this.#device.queue.writeBuffer(

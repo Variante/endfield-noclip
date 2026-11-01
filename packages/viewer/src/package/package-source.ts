@@ -1,10 +1,3 @@
-/**
- * where a package's files come from: HTTP (range requests against a static directory or the dev server), a
- * local directory handle (File System Access API or OPFS), or a flat list of `File`s from a directory input.
- *
- * @module
- */
-
 import { CORE_ARCHIVE } from '@endfield-noclip/package-format/manifest';
 
 /** random access to a package's files by package-relative path */
@@ -39,8 +32,8 @@ export interface ByteRange {
 }
 
 /**
- * thrown when a file no longer matches the opened package's manifest, as after a re-pack while the page was
- * open; its ranges would point at the wrong bytes
+ * thrown when an archive's size differs from the opened manifest; stored ranges may no longer be valid.
+ * same-sized edits are not detected, and missing archives produce the source's ordinary read error
  */
 export class PackageChangedError extends Error {
 	override name = 'PackageChangedError';

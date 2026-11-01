@@ -1,10 +1,3 @@
-/**
- * GPU pass timing with timestamp queries: every render pass of an instrumented encoder is timed by its label,
- * and the results are read back asynchronously through a small pool of mappable buffers.
- *
- * @module
- */
-
 const READBACK_BUFFERS = 4;
 /** passes timed per frame at most; later ones run untimed */
 const MAX_PASSES = 48;

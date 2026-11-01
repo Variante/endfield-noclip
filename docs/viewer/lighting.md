@@ -9,7 +9,7 @@ like the game, the viewer lights in physical units, pre-exposed:
 pre-exposed, so shaded values reach the tonemapper around 0–2.
 
 where the game's CPU packing of a profile field is known, the viewer follows it; where it isn't, the
-viewer substitutes and the unknown is listed under [open](#open).
+viewer approximates it; see [unknown packings](../game-data/lighting.md#open).
 [`render/environment.ts`](../../packages/viewer/src/render/environment.ts) (`deriveEnvironment`)
 turns a blended profile into the renderer's `Environment`; packages without profiles get a built-in
 default look.
@@ -21,8 +21,9 @@ the shading sun for the per-effect directions ([sun](../game-data/lighting.md#su
 
 direct sun lighting is GGX with height-correlated Smith visibility and Lambert diffuse in
 [`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl), with the sun's colour
-taken as illuminance and diffuse divided by π, unlike the game's lobe ([open](#open)); foliage takes
-the game's two-sided model.
+taken as illuminance and diffuse divided by π. the game's CPU scaling is unknown, so this may
+under-light the sun by π ([sun units](../game-data/lighting.md#open)). foliage uses the game's
+two-sided model.
 
 ## shadows
 
@@ -56,7 +57,7 @@ over places where a phase sets the alpha to 1, such as Marker Stone's caves, rea
 
 - the ambient probe is `sky.skyAmbientSH` scaled by `light.indirectDiffuseFactor`, converted to
   Unity's `ShadeSH9` vectors (`shaderSh`) and stored pre-exposed. how the game combines these is
-  unknown, so the ambient brightness is an approximation ([open](#open)).
+  unknown, so ambient brightness is approximate ([unknown packings](../game-data/lighting.md#open)).
 - the irradiance volume is sampled from the viewer's three clipmaps
   ([irradiance](irradiance.md#clipmaps)), blended between levels near each level's edge, with the
   game's validity fill-in and vertical correction term, but without its jitter or forward shift.
@@ -89,16 +90,6 @@ hold keeps its files' conditions.
 
 each frame `local-lights.ts` takes the shown level's lights (and tag 0's) whose condition holds,
 that are within their culling distance and in the view, sorts them by camera distance then priority
-and keeps the nearest 256. it bins them into the game's tiles and slices, using conservative
-bounding spheres on the CPU rather than compute shaders. the volumetric fog lights each froxel with
-the same lists.
-
-## open
-
-- the sun treats its colour as illuminance and divides diffuse by π, while the game's sun shades
-  with the local lights' lobe; unless the game's CPU folds a 1/π into the sun's colour, the viewer's
-  sun is π too dark. unchecked against a shot.
-- the ambient brightness approximates the game's unknown CPU packing of `skyAmbientSH`,
-  `customIVDefaultSH` and `indirectDiffuseFactor`.
-- the local-light cap per frame is the game's hard maximum, 256, since its quality setting isn't
-  recovered.
+and keeps the nearest 256, the game's hard maximum; its quality-dependent cap is unknown. it bins
+them into the game's tiles and slices using conservative bounding spheres on the CPU. the volumetric
+fog lights each froxel with the same lists.

@@ -170,7 +170,7 @@ export const readDynamicResources = (
 };
 
 /**
- * resolves a typed resource slice without silently truncating malformed references
+ * resolves a bounds-checked typed resource slice
  *
  * @param rows the selected grid's model or ECS vector
  * @param ref resource-group reference to that vector

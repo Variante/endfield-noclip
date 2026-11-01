@@ -13,9 +13,10 @@ whole-file reads and byte-range reads:
 | `fileListSource`  | a `<input webkitdirectory>` fallback where `showDirectoryPicker` is missing                                         |
 
 every range read passes the archive's size from the manifest. a source whose file has another size
-throws `PackageChangedError`; the stream manager then stops fetching shards (resident content stays
-drawn) and the stats panel offers a reload, instead of decoding wrong bytes into dozens of failed
-blobs.
+throws `PackageChangedError`; the stream manager stops fetching shards, keeps resident content
+drawn, and the stats panel offers a reload. this is a size check, not content verification; it cannot
+detect same-sized edits. repacks normally change [archive names](../package-format.md#layout), so
+an open page may instead get a missing-file error when an old archive is removed.
 
 the package panel ([`ui/package-panel.tsx`](../../packages/viewer/src/ui/package-panel.tsx)) offers
 all three. where both `showDirectoryPicker` and OPFS exist, "copy into browser storage" imports the
@@ -30,10 +31,8 @@ the repo's `out/`; set `NOCLIP_PACKAGES=/path` to point it elsewhere
 ([`vite.config.ts`](../../packages/viewer/vite.config.ts)).
 
 - files are served as a static host would, by `sirv`: `Range` support, `ETag` and `Last-Modified`
-  validators, `cache-control: no-cache`, nothing package-specific. keep it that way, so the dev
-  setup behaves like a deployment. a deployment's host needs range requests and revalidation too,
-  because archives keep their names across re-packs; the packer never rewrites a file in place (it
-  swaps in a new package), so ordinary validators suffice.
+  validators and `cache-control: no-cache`. deployments need range support and revalidation for
+  `core.czar`, whose name is fixed. other archives have content-derived names.
 - `GET /packages/index.json` lists subdirectories that hold a core archive, with its size, skipping
   hidden directories (the packer's staging and replaced packages). it's the one dev-only addition.
 

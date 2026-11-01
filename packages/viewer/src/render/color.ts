@@ -1,9 +1,3 @@
-/**
- * colour-space helpers for the game's colour fields
- *
- * @module
- */
-
 import type { Color } from '@endfield-noclip/package-format/values';
 
 import type { Vec3 } from '../scene/camera.ts';

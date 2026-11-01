@@ -1,9 +1,3 @@
-/**
- * helpers shared by the package's binary encodings: headers, alignment, typed sections, enum checks
- *
- * @module
- */
-
 import { PackageFormatError } from './errors.ts';
 
 /** bytes of the header the binary tables share: `u32 magic, u16 version, u16 0, u32 count, u32 count-or-0` */

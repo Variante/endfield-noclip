@@ -19,9 +19,8 @@ the URL takes the [`package` and `level` parameters](viewer/loading.md#url-param
 - after `agent-browser close`, reopen with `--webgpu` again.
 - `agent-browser console` keeps lines from before a reload; read only what follows
   `[vite] connected`.
-- after re-packing, reload: an open page keeps the old core archive's offsets. it notices when a
-  shard's size no longer matches its manifest, stops streaming and offers a reload (see
-  [sources](viewer/loading.md#sources)), but a re-pack that keeps a shard's size goes unnoticed.
+- reload after re-packing to read the new core. an open page retains the old manifest and may
+  request archives the replacement removed; see [sources](viewer/loading.md#sources).
 - wrap multi-statement `agent-browser eval` code in an IIFE: top-level `const` collides across
   evals.
 - give `agent-browser screenshot` an absolute path; relative paths land in agent-browser's own

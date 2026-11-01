@@ -1,12 +1,3 @@
-/**
- * the baked irradiance volume around the camera, as the game's renderer keeps it: three toroidal clipmaps of
- * L1 probes (0.5 m, 2 m and 8 m apart, 128 × 64 × 128 each) filled by a compute pass from the streamed cells.
- * a texel without a probe of its own copies the next coarser level. the lighting (`frame.wgsl`) samples them
- * and adds the environment's ambient probe by their validity and reach (docs/viewer/irradiance.md#clipmaps).
- *
- * @module
- */
-
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 
 import { GrowableBuffer } from '../gfx/growable-buffer.ts';

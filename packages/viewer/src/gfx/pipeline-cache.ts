@@ -1,11 +1,4 @@
-/**
- * shader-module and pipeline caching. pipelines compile asynchronously (`prepare`), so a draw whose pipeline
- * isn't ready is skipped rather than stalling the frame.
- *
- * @module
- */
-
-/** caches shader modules by label and render pipelines by a caller-chosen key */
+/** shader labels and pipeline keys identify immutable descriptors for the lifetime of the cache */
 export class PipelineCache {
 	#device: GPUDevice;
 	#modules = new Map<string, GPUShaderModule>();
@@ -27,7 +20,7 @@ export class PipelineCache {
 	}
 
 	/**
-	 * creates (once) the pipeline for `key`.
+	 * concurrent requests for a key share one compilation; a rejected compilation remains cached.
 	 *
 	 * @param key unique key of the pipeline's state, e.g. `terrain/fill`
 	 * @param describe builds the descriptor; only called on a miss

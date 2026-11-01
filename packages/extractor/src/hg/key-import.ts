@@ -7,8 +7,7 @@ import { definite } from '@mary-ext/array-fns';
 import type { KeyConfig } from '../config.ts';
 
 /**
- * scrapes key material from local checkouts of third-party tools that already embed it, so this project never
- * has to carry the keys itself.
+ * reads keys from local checkouts of third-party tools.
  *
  * recognized sources, looked for in each given directory and its `map-extractor` and `animestudio`
  * subdirectories:

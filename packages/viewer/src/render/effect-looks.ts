@@ -1,17 +1,3 @@
-/**
- * the draw parameters of the scene effects `effect.wgsl` draws in the transparent pass:
- * `HGRP/Effect/VFXBaseV2` surfaces and `HGRP/Effect/VFXDecal` boxes ({@link EffectRow}),
- * `HGRP/Effect/VFXWater` waterfall sheets ({@link WaterSheetRow}), and the mist, `HGRP/FogSimple` cards and
- * `HGRP/Effect/VFXFakeVolumeFog` boxes ({@link MistRow}). what each draws is in `docs/game-data/effects.md`.
- *
- * VFXBaseV2 and VFXDecal combine textures by role ({@link EffectRole}): VFXBaseV2 gives each `_SampleTexN`
- * its role by its `_SampleTexNUseWeightK` properties, VFXDecal has one fixed texture per role. materials
- * using keywords outside each shader's drawn set get no effect look, as do additive VFXBaseV2 and VFXDecal
- * materials; `materials.ts` shows them as unsupported.
- *
- * @module
- */
-
 import {
 	DECAL_COLOR_PROPERTY,
 	DECAL_UV_PROPERTY,

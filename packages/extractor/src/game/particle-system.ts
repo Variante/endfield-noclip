@@ -1,13 +1,3 @@
-/**
- * particle systems a viewer can play: a `ParticleSystem` whose renderer draws one mesh or one camera-facing
- * quad per particle and whose modules all have closed forms (velocities, gravity, orbits, size, rotation and
- * colour over lifetime, flipbooks), read into the package's {@link ParticleSystemInfo}. the floating rocks
- * rising over Origin Lodespring's crater, the Hub's campfire flames and the spray at the foot of Jingyu
- * Valley's falls are such systems.
- *
- * @module
- */
-
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {

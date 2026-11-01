@@ -105,7 +105,6 @@ export const planWater = async (
 	}
 	const [resolver, pathOf] = await Promise.all([context.resolver(), world.pathLookup()]);
 
-	// configs, by asset key
 	const configHashes = unique(selected.map((surface) => surface.configHash));
 	const loaded = await Promise.all(
 		configHashes.map(async (hash) => {

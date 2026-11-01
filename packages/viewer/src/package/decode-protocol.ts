@@ -1,9 +1,3 @@
-/**
- * messages between the main thread and the decode workers.
- *
- * @module
- */
-
 import type { BlobCodec } from '@endfield-noclip/package-format/blobs';
 
 import type { InstanceRows, RowKinds } from '../render/instance-rows.ts';

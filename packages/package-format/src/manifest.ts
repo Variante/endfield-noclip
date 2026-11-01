@@ -103,8 +103,8 @@ export interface SceneInfo {
 }
 
 /**
- * all positions, matrices and bounds are in the game's Unity frame. the viewer converts to its own frame
- * exactly once, at the root
+ * coordinate and matrix conventions shared by all package data. renderers may keep Unity coordinates or apply
+ * {@link viewerRoot} when converting to a right-handed scene
  */
 export interface CoordinateConventions {
 	frame: 'unity';

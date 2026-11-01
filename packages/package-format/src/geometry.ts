@@ -30,8 +30,8 @@ export const VertexAttribute = {
 	/**
 	 * `snorm8x4`: `xy` is the tangent, octahedral like {@link VertexAttribute.Normal}; `z` is the bitangent sign
 	 * (±1). `bitangent = cross(normal, tangent) · sign`, in the mesh's frame; like Unity, multiply by the sign
-	 * of the object-to-world determinant (negative under the viewer's mirroring root). MikkTSpace tangents over
-	 * UV set {@link GeometryEntry.tangentUv} unless the source mesh had its own
+	 * of the object-to-world determinant for mirrored instances. MikkTSpace tangents over UV set
+	 * {@link GeometryEntry.tangentUv} unless the source mesh had its own
 	 */
 	Tangent: 2,
 	/** `unorm8x4`, or `float16x4` when the source has values outside `[0, 1]` */

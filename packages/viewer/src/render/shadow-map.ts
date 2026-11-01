@@ -1,16 +1,3 @@
-/**
- * sun shadows in the game's PC high layout: three sharp cascades out to 80 m, fading into one coarse far
- * layer out to 800 m that stands in for the game's cached shadow map there. each layer is an orthographic
- * view along the sunlight fitted to a slice of the camera frustum (a bounding sphere, so the fit doesn't
- * change as the camera turns) and snapped to whole texels in world space, so shadow edges don't crawl as the
- * camera moves. matrices are camera-relative like everything else.
- *
- * casters are what the main pass draws this frame, plus instances outside the view whose shadows can reach it
- * ({@link offscreenCasters}). the filtering is in docs/game-data/lighting.md#shadows.
- *
- * @module
- */
-
 import { type Camera, type Plane, type Vec3, sweepPlanes } from '../scene/camera.ts';
 import type { CasterVolume } from '../streaming/selection.ts';
 
@@ -201,7 +188,6 @@ export class ShadowMap {
 			const sx = Math.round(dot(world, x) / texel) * texel;
 			const sy = Math.round(dot(world, y) / texel) * texel;
 			const sz = dot(world, z);
-			// back to camera-relative coordinates
 			const c: Vec3 = [
 				x[0] * sx + y[0] * sy + z[0] * sz - eye[0],
 				x[1] * sx + y[1] * sy + z[1] * sz - eye[1],

@@ -1,15 +1,9 @@
-/**
- * a storage buffer sub-allocated in ranges that starts small and grows on demand, so a pool sized for the
- * worst case only costs what's in it. growing copies the contents into a buffer twice the size (or more, for
- * a large request) on the GPU; live allocations keep their offsets. the streaming budget already bounds what
- * the pools hold, so they never shrink.
- *
- * @module
- */
-
 import { type RangeAllocation, RangeAllocator } from './range-allocator.ts';
 
-/** a growable range-allocated buffer */
+/**
+ * GPU storage with stable allocation offsets across growth. check {@link version} before reusing bindings;
+ * growth replaces and destroys the old buffer. capacity does not shrink when allocations are freed.
+ */
 export class GrowableBuffer {
 	/** the current buffer; replaced when it grows, so binders check {@link version} */
 	buffer: GPUBuffer;
@@ -90,7 +84,7 @@ export class GrowableBuffer {
 		this.#allocator.free(allocation);
 	}
 
-	/** frees the buffer */
+	/** releases GPU storage; existing allocations and bindings become unusable */
 	destroy(): void {
 		this.buffer.destroy();
 	}

@@ -231,7 +231,6 @@ export const planEnvironments = async (
 		}),
 	);
 
-	// profiles by phase and post-profile name, each with its texture lookups started
 	const byKey = new Map<string, number>();
 	const pending: {
 		phases: LevelPhases;
@@ -487,7 +486,6 @@ const fillTextureSlots = (
 			textureTransforms[slot] = [scale[0], scale[1], offset[0], offset[1]];
 			slotFor(materialTextures, slot, resolved.ref);
 		}
-		// the package's EnvironmentMaterial
 		holder[key] = {
 			shader: material.shader.name,
 			keywords: record.keywords.join(' '),
@@ -505,7 +503,6 @@ const fillTextureSlots = (
 			holder[key] = null;
 			continue;
 		}
-		// the package's LensFlareData, each element's texture a slot
 		const elements = flare.data.elements.map((element, e) => {
 			const packed: Record<string, unknown> = { ...structuredClone(element), lensFlareTexture: null };
 			slotFor(packed, 'lensFlareTexture', flare.textures[e] ?? null);

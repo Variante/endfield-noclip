@@ -20,8 +20,7 @@ distance.
 - **weights**: `sample_control` keeps its filtering half a texel inside the 8 m cell, since the
   weights belong to that cell's layers.
 - **projection**: the three planes are blended by the baked normal's `|n|⁸` weights instead of the
-  game's random per-pixel pick; without temporal smoothing a weighted blend reads better. planes and
-  slots without weight aren't sampled.
+  game's random per-pixel pick. planes and slots without weight aren't sampled.
 
 ### puddles
 

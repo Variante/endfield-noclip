@@ -20,7 +20,6 @@ export const run = async (args: string[]): Promise<void> => {
 		throw new Error('init needs --game <install root or Endfield_Data>');
 	}
 
-	// keys recoverable from the install are derived; the rest (and overrides) come from --keys-from
 	let fallback: KeyConfig | undefined;
 	if (values['keys-from'] !== undefined) {
 		fallback = await importKeys(values['keys-from']);

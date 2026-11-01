@@ -175,19 +175,15 @@ export interface LevelEnvironmentChoice {
 }
 
 /**
- * picks a level's base environment. levels are authored as one broad volume (usually priority 200, often
- * named `*global*`) under smaller, higher-priority ones for caves, interiors and set pieces; the base is that
- * broad one: of the volumes the level owns (by entity tag) and the game shows somewhere on a 32 m grid over
- * the level's cells, the one covering most points, the lower priority on a tie. a volume is shown where it
- * has the highest priority of those containing the point (the smaller footprint on equal priority, an
- * assumption). the scene's global volume stands in when the level has none. heights are ignored. volumes of
- * scene states outside `enabled`, and prefab volumes whose condition fails by default, aren't loaded; every
- * loaded volume is taken as enabled (level scripts can toggle them)
+ * chooses a base environment by 2D coverage of the level's cells, falling back to the scene's global volume.
+ * respects scene-state and default prefab loading, but assumes loaded volumes are enabled by scripts.
+ * sampling and tie rules: `docs/extraction.md#the-levels-base-environment`.
  *
- * @param level the level
+ * @param level ownership tag and cells to sample
  * @param volumes the scene's volumes
  * @param enabled MapConfig scene state indices taken as active
- * @returns the choice and the per-volume coverage
+ * @returns the selected volume (null without a candidate or global volume), global fallback and per-volume
+ *   coverage
  */
 export const resolveLevelEnvironment = (
 	level: Pick<PartitionLevel, 'tag'> & { config: Pick<PartitionLevel['config'], 'levelGrids'> },
@@ -235,7 +231,7 @@ export const resolveLevelEnvironment = (
 	shares.sort(
 		(a, b) => b.covered - a.covered || a.volume.priority - b.volume.priority || a.volume.id - b.volume.id,
 	);
-	// a volume the game never shows in the level (always beaten) can't be its look
+	// require at least one priority win, then choose by total coverage, not win count
 	const base = shares.find((share) => share.wins > 0);
 	return {
 		volume: base?.volume ?? global,
@@ -295,7 +291,6 @@ const footprint = (volume: EnvironmentVolume): Footprint | null => {
 			const [cx, , cz] = transform.position;
 			const halfX = Math.abs(transform.scale[0]) / 2;
 			const halfZ = Math.abs(transform.scale[2]) / 2;
-			// into the box frame
 			const inverse = yawRotation(-transform.rotation[1]);
 			return {
 				area: 4 * halfX * halfZ,

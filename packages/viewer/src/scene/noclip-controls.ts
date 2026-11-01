@@ -42,7 +42,7 @@ const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 export class NoclipControls {
 	/** base speed, m/s */
 	speed = 40;
-	/** the speed actually applied last update, m/s */
+	/** speed applied in the last update, m/s */
 	effectiveSpeed = 0;
 
 	#camera: Camera;

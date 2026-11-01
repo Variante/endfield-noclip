@@ -1,8 +1,7 @@
 # open-world water
 
-this page covers how the game stores open-world water (surface placements, per-surface `WaterConfig`
-assets, and the scene-wide `Global_Water_Config` with its flow, caustic and wave-normal maps) and
-how its water shading uses them. for scene-state conditions see [scene-states.md](scene-states.md);
+open-world water uses surface placements, per-surface `WaterConfig` assets and a scene-wide
+`Global_Water_Config`. for scene-state conditions see [scene-states.md](scene-states.md);
 the lighting the water shares with surfaces is in [lighting.md](lighting.md), and waterfall sheets
 are effects ([effects.md](effects.md)).
 
@@ -119,8 +118,8 @@ level's binding names the same asset.
 a sector has data only where `sectorDataExists` is set. its `(x, z)` is in its path
 (`…/Sector/T_<x>_<z>.asset`), and its `sectorDataAssetHashes` entry is the StringPathHash key stored
 as a signed 64-bit integer. sector `(x, z)` covers world
-`[center.x + x·sectorSize, +sectorSize) × [center.z + z·sectorSize, +sectorSize)`; clearly more
-surface centres land in sectors with data under this mapping than under swapped or flipped axes.
+`[center.x + x·sectorSize, +sectorSize) × [center.z + z·sectorSize, +sectorSize)`; this mapping places more
+surface centres in sectors with data than swapped or flipped axes do.
 each sector MonoBehaviour's `waterSectorTexture0` is a flow tile (256², linear BC7, one mip) holding
 the global flow map's content at `flowmapPrecision`. near the camera the game reads the flow (and
 most authored foam) from the sector tiles, blending to the global map at the edge of a 3 × 3 window

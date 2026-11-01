@@ -1,10 +1,3 @@
-/**
- * first-fit allocator over a linear range of units (rows of a mega buffer, slots of a pool). freed ranges
- * coalesce with their neighbours, so streaming in and out doesn't fragment the space indefinitely.
- *
- * @module
- */
-
 /** an allocated range */
 export interface RangeAllocation {
 	start: number;
@@ -78,7 +71,6 @@ export class RangeAllocator {
 	free(allocation: RangeAllocation): void {
 		this.#used -= allocation.count;
 		const free = this.#free;
-		// binary search for the insertion point
 		let lo = 0;
 		let hi = free.length;
 		while (lo < hi) {

@@ -1,13 +1,3 @@
-/**
- * mip-streamed textures. a texture's levels arrive as pieces (blobs): first the tail of small levels, then
- * one blob per larger level. the GPU texture always holds a contiguous run of levels from the finest
- * integrated piece down to 1×1; integrating a finer piece builds a texture one step larger and copies the
- * coarser levels over, and releasing a piece shrinks it the same way. texel data is uploaded as stored (BC
- * blocks, no transcoding, row 0 is v = 0).
- *
- * @module
- */
-
 import {
 	type ReadyTexture,
 	TEXTURE_FORMATS,
@@ -92,7 +82,10 @@ export const placeholderView = (
 		})
 		.createView({ dimension });
 
-/** owns texture residency for one package */
+/**
+ * texture residency for one package; integrated mips must form a contiguous run down to 1×1. binding versions
+ * change when integration or eviction replaces a GPU texture.
+ */
 export class TextureStore {
 	#device: GPUDevice;
 	#table: TextureTable;

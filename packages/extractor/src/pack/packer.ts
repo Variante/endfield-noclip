@@ -999,7 +999,6 @@ const collectEntities = async (
 	counts.dynamicRenderers = 0;
 	collected.controls = dynamic.controls;
 	{
-		// what level scripts show and hide script groups for
 		const scripted = new Map(
 			mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
 				control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
@@ -1119,7 +1118,6 @@ const collectEntities = async (
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
 	const particleQuad = await findParticleQuad(context, resolver);
-	// by prefab and pose
 	const prefabs = new Map<string, Promise<PrefabRenderer[]>>();
 	const prefabLights = new Map<bigint, Promise<PrefabLight[]>>();
 	const unsupportedLights: { path: string; reason: string }[] = [];
@@ -1249,7 +1247,6 @@ const collectEntities = async (
 			);
 		}
 	}
-	// environment volumes that placed prefabs carry, loading with their placement
 	const placed = await loadPlacedVolumes(
 		resolver,
 		[...dynamic.models, ...facilities.models, ...cabins.models],
@@ -1902,7 +1899,6 @@ const buildSubset = (options: PackOptions, partition: LevelPartition | undefined
 		}
 	}
 	const { bounds } = options;
-	// tiles at or above the cell level that touch one of the level's cells
 	const touched = new Set<string>();
 	if (level !== undefined) {
 		for (const cell of level.config.levelGrids ?? []) {

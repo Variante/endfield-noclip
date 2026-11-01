@@ -1,13 +1,3 @@
-/**
- * the game's screen-space reflections (`ssr.wgsl`): each lit pixel marches its mirror ray into last frame's
- * composited scene, the hits are filtered over frames, built into a depth-aware pyramid and resolved at the
- * mip the reflected cone covers. the result is what the reflections change in the radiance, which the
- * composite adds. it all runs at the render size, before compositing. see
- * `docs/viewer/lighting.md#screen-space-reflections`.
- *
- * @module
- */
-
 import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
 import type { Camera, Vec3 } from '../scene/camera.ts';
 
@@ -47,7 +37,7 @@ interface Sized {
 	clear: GPUTextureView;
 }
 
-/** owns the reflections' targets, history and passes */
+/** render-size reflections; resolve outputs a radiance delta for the composite to add */
 export class ScreenSpaceReflections {
 	#device: GPUDevice;
 	#postUniforms: GPUBuffer;

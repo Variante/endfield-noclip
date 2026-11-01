@@ -1,11 +1,3 @@
-/**
- * the sun's lens flare pass: draws the quads `lens-flare-layout.ts` lays out onto the composited scene after
- * the light shafts and before temporal antialiasing. `lens-flare.wgsl` fades them by how much of a disc
- * around the sun shows sky in the depth buffer. see `docs/game-data/post-processing.md#lens-flare`.
- *
- * @module
- */
-
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined } from '@mary-ext/array-fns';

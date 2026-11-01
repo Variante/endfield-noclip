@@ -245,7 +245,6 @@ export const loadInteractiveFacilities = async (
 		}
 	}
 
-	// interactive ids: facilities with their visual forms, the rest with one model
 	const authored = new Map<
 		string,
 		{
@@ -258,7 +257,6 @@ export const loadInteractiveFacilities = async (
 			data: string;
 		}
 	>();
-	// each template's base model and its variants' model overrides
 	const templates = new Map<
 		string,
 		{ base: { id: string; scale: number } | null; variants: Map<string, string | null> }

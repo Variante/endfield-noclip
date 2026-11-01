@@ -8,11 +8,8 @@ import { VfsGroup } from '../hg/vfs.ts';
 
 import type { PrefabPose } from './prefab.ts';
 
-// interactive doors keep their open and closed looks as view states of their model
-// (docs/game-data/assets.md#interactive-doors): per animator layer, a state machine whose settled states play a
-// one-frame idle clip. the open state is the settled state whose clip its authors named `…openidle…`; the
-// closed one is where the open one returns to. each pose is that clip's end pose plus the GameObjects the
-// state switches on or off.
+// derives settled open/closed poses from model view states: clip end pose plus GameObject switches.
+// state selection rules: docs/game-data/assets.md#interactive-doors.
 
 const ROOT = 'Beyond_Gameplay_Core_ModelViewStateController_MVSCModelViewStateControllerDataForMemoryPack';
 

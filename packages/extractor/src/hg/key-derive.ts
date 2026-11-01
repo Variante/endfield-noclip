@@ -27,31 +27,18 @@ import type { KeyConfig } from '../config.ts';
 
 import { Vfs, vfsCatalogPath, VfsGroup, vfsLayerDirs } from './vfs.ts';
 
-/**
- * recovers decryption keys from a local game install, so the repo never has to carry them.
- *
- * what comes from where, in this client build:
- *
- * - **bundle sbox/key/iv** are embedded as plain bytes in `UnityPlayer.dll`'s `.data` and are recovered by
- *   scanning for the cipher's 256-byte substitution box.
- * - **vfsKey** and the bundle **chainXor** are computed at runtime and are _not_ present as plain constants, so
- *   they can't be scanned out. they're taken from {@link DeriveOptions.fallback} (i.e. `--keys-from`) when
- *   supplied, and are still validated here against the install.
- *
- * every recovered or supplied key is checked against the real install before being returned, so a wrong key
- * fails here rather than deep in extraction.
- */
+/** fallback keys and progress reporting for install key derivation */
 export interface DeriveOptions {
-	/**
-	 * key material to fall back on for parts this build hides (vfsKey, chainXor). typically the result of
-	 * scraping third-party checkouts; see `key-import.ts`.
-	 */
+	/** supplied keys used when derivation fails; validated against the install before use */
 	fallback?: KeyConfig;
 	/** progress sink; defaults to stderr. never receives key bytes. */
 	log?: (message: string) => void;
 }
 
 /**
+ * derives bundle keys and validates all derived and supplied keys against the install. key sources:
+ * `docs/extraction.md#local-config-and-keys`.
+ *
  * @param installRoot the install directory (holding `UnityPlayer.dll`) or its `Endfield_Data` subdirectory
  * @param options fallback key material and a progress sink
  * @returns a complete, install-validated key config
@@ -72,7 +59,7 @@ export const deriveKeys = async (installRoot: string, options: DeriveOptions = {
 		const unity = parsePe(new Uint8Array(await readFile(unityPath)));
 		const cipher = deriveBundleCipher(unity, oracles, log);
 		const chainXor = deriveChainXor(unity, cipher, oracles, options.fallback, log);
-		log('all keys recovered and validated');
+		log(`keys validated`);
 		return {
 			vfsKey,
 			bundle: { sbox: toHex(cipher.sbox), key: toHex(cipher.key), iv: toHex(cipher.iv), chainXor },
@@ -124,10 +111,7 @@ const resolveInstall = (installRoot: string): InstallPaths => {
 
 // #region vfs key
 
-/**
- * the vfsKey isn't stored as a constant in this build, so we validate a supplied key rather than scanning for
- * it. the oracle: a `.blc` catalog decrypts to a recognizable layout.
- */
+/** validates a supplied VFS key by decrypting and parsing a `.blc` catalog. */
 const deriveVfsKey = async (
 	gameData: string,
 	fallback: KeyConfig | undefined,
@@ -137,7 +121,7 @@ const deriveVfsKey = async (
 	if (fallback?.vfsKey !== undefined) {
 		const key = fromHex(fallback.vfsKey);
 		if (key.length === 32 && catalogDecrypts(blc, key)) {
-			log('vfsKey: validated supplied key (not recoverable from this build)');
+			log(`vfsKey: supplied key validated`);
 			return fallback.vfsKey;
 		}
 		throw new Error('supplied vfsKey does not decrypt the install catalogs');
@@ -189,9 +173,8 @@ interface FirstBlock {
 const ORACLE_BUNDLE_COUNT = 4;
 
 /**
- * pulls a few small bundles out of the VFS to validate the bundle cipher against. we want bundles whose
- * blocks-info is stored unencrypted (so we can parse the header without the pad) and whose first payload
- * block is large enough to exercise the full pad.
+ * selects small bundles with unencrypted blocks-info and a first payload block large enough to exercise the
+ * full cipher pad.
  */
 const loadOracleBundles = async (vfs: Vfs, log: (message: string) => void): Promise<OracleBundle[]> => {
 	const group = await vfs.group(VfsGroup.Bundle);
@@ -292,7 +275,7 @@ const deriveBundleCipher = (
 		}
 		const key = unity.data.subarray(offset - 0x20, offset - 0x10);
 		const iv = unity.data.subarray(offset - 0x10, offset);
-		// block 0 of the pad is AES(iv) and doesn't depend on chainXor, so we can validate sbox/key/iv alone
+		// block 0 of the pad is AES(iv) and doesn't depend on chainXor, allowing sbox/key/iv validation alone
 		const block0 = deriveBundlePad({ sbox, key, iv, chainXor: 0n }).subarray(0, 16);
 		if (oracles.every((oracle) => block0Validates(oracle, block0))) {
 			log('bundle sbox/key/iv: recovered from UnityPlayer.dll');
@@ -366,9 +349,8 @@ const decryptWithBlock0 = (
 // #region chainXor
 
 /**
- * recovers the 64-bit chainXor. it's computed at runtime in this build, so we first try every `movabs`
- * immediate in the binary (in case another build keeps it as a plain constant), then fall back to a supplied
- * value. either way it's validated by a full bundle decode.
+ * tests `movabs` immediates as chainXor candidates, then tries the supplied fallback. accepts a value only
+ * after a full bundle decode validates it.
  *
  * @throws {Error} if neither a scanned nor a supplied value validates
  */
@@ -396,7 +378,7 @@ const deriveChainXor = (
 	if (fallback?.bundle.chainXor !== undefined) {
 		const chainXor = BigInt(`0x${fallback.bundle.chainXor}`);
 		if (validates(chainXor)) {
-			log('chainXor: validated supplied value (not recoverable from this build)');
+			log(`chainXor: supplied value validated`);
 			return toHex64(chainXor);
 		}
 		throw new Error('supplied chainXor does not decrypt the install bundles');

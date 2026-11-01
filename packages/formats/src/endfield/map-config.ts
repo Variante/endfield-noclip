@@ -104,7 +104,7 @@ const CONDITION_TYPE = /^Beyond\.Gameplay\.(\w+), Gameplay\.Beyond$/;
 /**
  * @param value a serialized `ConditionRuntimeBase`
  * @returns the typed condition
- * @throws {FormatError} on a class or field this reader doesn't know, rather than guessing its truth
+ * @throws {FormatError} on an unsupported condition class or malformed field
  */
 const sceneCondition = (value: unknown): SceneCondition => {
 	if (!isObject(value) || typeof value.$type !== 'string') {

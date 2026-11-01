@@ -1,8 +1,6 @@
 # irradiance volume
 
-the game's GI is a baked probe volume (`HGIrradianceVolume` v3), not lightmaps or Unity APV. this
-page covers its files, cells and probes, and the bakes of Dijiang's rooms. how the ambient term uses
-the result is in [lighting.md](lighting.md#ambient); the scene states that select bakes are in
+the game's GI uses a baked probe volume (`HGIrradianceVolume` v3). ambient sampling is described in [lighting.md](lighting.md#ambient); the scene states that select bakes are in
 [scene-states.md](scene-states.md).
 
 ## files

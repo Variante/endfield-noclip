@@ -5,26 +5,8 @@ describes at the camera, and applies its wetness.
 
 ## environment phases
 
-the viewer reads these [sections](../game-data/environment.md#environment-phases), by package key:
-
-| package key     | used for                                                      |
-| --------------- | ------------------------------------------------------------- |
-| `light`         | sun, exposure, ambient scale, effect directions               |
-| `sky`           | ambient SH, reflection cubemap, sky distance, sun disc        |
-| `atmosphere`    | sky LUTs, fog absorption                                      |
-| `fog`           | atmosphere (distance) fog                                     |
-| `heightFog`     | height fog                                                    |
-| `volumetricFog` | volumetric fog, and its own height-fog set used while it's on |
-| `cloud`         | cloud panorama, cloud shadows                                 |
-| `wind`          | —                                                             |
-| `lightShaft`    | sun shafts                                                    |
-| `colorGrading`  | grading                                                       |
-| `autoExposure`  | auto exposure                                                 |
-| `shadow`        | sun shadow softness, strength, penumbra ramp, sun-off         |
-| `celestial`     | planets in the sky                                            |
-| `star`          | star field and nebula                                         |
-| `rain`          | rain wetness ([wetness](#wetness))                            |
-| `lensFlare`     | the sun's lens flare                                          |
+the package's [phase sections](../extraction.md#environments) retain the game's field names.
+`wind` is packed but unused; the other sections feed lighting, sky, fog and post-processing.
 
 ## environment volumes
 
@@ -60,10 +42,8 @@ decision either way.
 ## activation
 
 the package marks every volume `activation: 'unknown'`, and the viewer treats a loaded, non-manual
-volume as enabled and leaves the rest to the user's checkboxes and phase pin. keep it that way until
-script activation is recovered: filtering volumes by name guesses wrong both ways
-([activation](../game-data/environment.md#activation)), and showing an authored state as the default
-misrepresents the game more than an honest manual toggle does.
+volume as enabled. checkboxes and phase pinning override this assumption. volume names do not
+establish activation ([activation](../game-data/environment.md#activation)).
 
 ## weather
 

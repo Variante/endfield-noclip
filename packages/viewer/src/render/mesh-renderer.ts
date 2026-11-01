@@ -1,18 +1,3 @@
-/**
- * geometry residency and the mesh family: each geometry gets one vertex buffer (quantized positions,
- * octahedral normals, UV sets 0 and 1, tangents, colours) and one index buffer; each mesh bucket is one
- * instanced `drawIndexed` over its slice of the visible list. per-draw parameters (dequantization, the
- * material look) sit in a storage array indexed through a per-list-entry draw id, and the material's textures
- * are in group 3 (a white texture for slots whose texture hasn't streamed in, with the slot's flag cleared).
- * opaque draws come before alpha-tested ones, which each pass draws with its own pipelines (see mesh.wgsl for
- * why), and alpha-blended ones come last, drawn in a pass of their own whose blending needs no sorting;
- * within each, draws are sorted by geometry, then material, so runs of draws share their bindings. effects
- * that mask each other through the stencil (`LookStencil`) get pipeline variants of their phase, compiled on
- * first use; their masks write the stencil at the end of the main pass, or first in the transparent pass.
- *
- * @module
- */
-
 import type { BindLayouts } from '../gfx/bind-layouts.ts';
 import type { PipelineCache } from '../gfx/pipeline-cache.ts';
 import {

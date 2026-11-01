@@ -57,8 +57,8 @@ layer textures (pinned at load) are resident, the shader blends the leaf's close
 [world.md](../game-data/world.md#close-up-layers) describes, with a smooth triplanar projection in
 place of the game's random one, and fades them into the baked page between 96 and 144 m. the layers
 sample with explicit gradients so slots and planes without weight are skipped. `terrainSplat` turns
-this off. on an Apple M-series GPU at 1600×1000 the blend added about 7 ms of GPU time over open
-ground (terrain only), unprofiled.
+this off. one measurement on an Apple M-series GPU at 1600×1000 showed about 7 ms added GPU time
+over open ground; the blend's individual costs remain unprofiled.
 
 ## per-instance LOD
 
@@ -91,7 +91,7 @@ tiling, then `textureBias` levels coarser (0 by default; each level quarters the
 sky, reflection and water textures are streamed whole (`streamWholeTexture`).
 
 the output (a visible row list plus per-bucket ranges) has the shape a GPU cull pass would write
-next to indirect draw arguments ([open](index.md#open)).
+next to indirect draw arguments ([optimization candidates](performance.md#optimization-candidates)).
 
 ## priority
 
