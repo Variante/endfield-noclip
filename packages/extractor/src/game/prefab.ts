@@ -1,5 +1,8 @@
 /* oxlint-disable no-await-in-loop -- traverse in authored order with bounded bundle residency */
+import { crc32 } from 'node:zlib';
+
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
+import type { ClipTransformValue } from '@endfield-noclip/formats/unity/animation-clip';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { multiplyMatrices, trsMatrix, transformBounds } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
@@ -45,6 +48,18 @@ export interface PrefabRenderer {
 	billboard: PrefabBillboard | null;
 }
 
+/** a pose a prefab is drawn in instead of as saved: a view state's clip end pose and the nodes it switches */
+export interface PrefabPose {
+	/** tells the poses of one prefab apart, for caching */
+	key: string;
+	/** the GameObject whose Animator the clip binds below, by name; `null` for the prefab root */
+	animator: string | null;
+	/** Transform values by binding path (CRC32 of the path below the Animator) */
+	transforms: ReadonlyMap<number, readonly ClipTransformValue[]>;
+	/** GameObjects the state switches on or off, by name */
+	active: ReadonlyMap<string, boolean>;
+}
+
 const xyz = (value: TypeTreeObject): [number, number, number] => [
 	numberField(value, 'x'),
 	numberField(value, 'y'),
@@ -57,12 +72,15 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
  *
  * @param resolver bundle reader
  * @param root prefab GameObject
+ * @param pose a pose to draw instead of the saved one, or `null`; the root's own Transform keeps the caller's
+ *   placement
  * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement
  * @throws {FormatError} on malformed hierarchy, missing references or unsupported renderer dependencies
  */
 export const readPrefabRenderers = async (
 	resolver: AssetResolver,
 	root: ObjectRef,
+	pose: PrefabPose | null,
 ): Promise<PrefabRenderer[]> => {
 	const candidates: {
 		ref: ObjectRef;
@@ -83,6 +101,8 @@ export const readPrefabRenderers = async (
 		isRoot: boolean,
 		active: boolean,
 		inherited: PrefabBillboard | null,
+		/** the parent's path below the pose's Animator, `null` outside it */
+		above: string | null,
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -90,8 +110,16 @@ export const readPrefabRenderers = async (
 		}
 		seen.add(key);
 		const data = await resolver.read(go);
+		const name = stringField(data, 'm_Name');
+		// clip bindings name GameObjects by their `/`-joined path below the Animator's own, which is ''
+		let below: string | null = null;
+		if (above !== null) {
+			below = above === '' ? name : `${above}/${name}`;
+		} else if (pose !== null && (isRoot ? pose.animator === null : name === pose.animator)) {
+			below = '';
+		}
 		// inactive subtrees draw nothing, but active skinned meshes can still use their transforms as bones
-		const drawn = active && booleanField(data, 'm_IsActive');
+		const drawn = active && (pose?.active.get(name) ?? booleanField(data, 'm_IsActive'));
 		const wanted = drawn
 			? [
 					UnityClass.Transform,
@@ -134,6 +162,24 @@ export const readPrefabRenderers = async (
 					rotation: [...xyz(rotation), numberField(rotation, 'w')],
 					scale: xyz(objectField(t, 'm_LocalScale')),
 				};
+		if (!isRoot && below !== null) {
+			for (const value of pose?.transforms.get(crc32(below) >>> 0) ?? []) {
+				switch (value.kind) {
+					case 'position': {
+						local.position = value.value;
+						break;
+					}
+					case 'rotation': {
+						local.rotation = value.value;
+						break;
+					}
+					case 'scale': {
+						local.scale = value.value;
+						break;
+					}
+				}
+			}
+		}
 		const matrix = isRoot
 			? parent
 			: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
@@ -169,7 +215,7 @@ export const readPrefabRenderers = async (
 					candidates.push({
 						...component,
 						matrix,
-						name: stringField(data, 'm_Name'),
+						name,
 						mesh,
 						particles: null,
 						billboard: null,
@@ -189,7 +235,7 @@ export const readPrefabRenderers = async (
 						candidates.push({
 							...component,
 							matrix,
-							name: stringField(data, 'm_Name'),
+							name,
 							mesh,
 							particles: null,
 							billboard,
@@ -212,7 +258,7 @@ export const readPrefabRenderers = async (
 					candidates.push({
 						...particles,
 						matrix: multiplyMatrices(parent, particle),
-						name: stringField(data, 'm_Name'),
+						name,
 						mesh,
 						particles: null,
 						billboard: null,
@@ -231,7 +277,7 @@ export const readPrefabRenderers = async (
 							candidates.push({
 								...particles,
 								matrix: emitter,
-								name: stringField(data, 'm_Name'),
+								name,
 								mesh,
 								particles: { ...read.info, mesh: i },
 								billboard: null,
@@ -247,12 +293,12 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, drawn, billboard);
+					await visit(childGo, matrix, false, drawn, billboard, below);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, true, null);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, true, null, null);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
@@ -278,7 +324,7 @@ export const readPrefabRenderers = async (
 				Math.hypot(...bounds.center) + Math.hypot(...bounds.extents),
 			);
 		}
-		let pose: Float32Array[] | null = null;
+		let skin: Float32Array[] | null = null;
 		if (candidate.ref.info.classId === UnityClass.SkinnedMeshRenderer) {
 			if (arrayField(candidate.data, 'm_BlendShapeWeights').some((weight) => weight !== 0)) {
 				throw new FormatError(`nonzero prefab blend shape in ${candidate.name}`);
@@ -288,7 +334,7 @@ export const readPrefabRenderers = async (
 			if (bones.length !== bindPoses.length || bones.length === 0) {
 				throw new FormatError(`invalid prefab skeleton in ${candidate.name}`);
 			}
-			pose = [];
+			skin = [];
 			const min = [Infinity, Infinity, Infinity],
 				max = [-Infinity, -Infinity, -Infinity];
 			for (const [i, pointer] of bones.entries()) {
@@ -302,7 +348,7 @@ export const readPrefabRenderers = async (
 					Array.from({ length: 16 }, (_, k) => numberField(bind, 'e' + (k % 4) + Math.floor(k / 4))),
 				);
 				const posed = multiplyMatrices(boneMatrix, bindMatrix);
-				pose.push(posed);
+				skin.push(posed);
 				const transformed = transformBounds(bounds, posed);
 				for (let axis = 0; axis < 3; axis++) {
 					min[axis] = Math.min(min[axis], transformed.center[axis] - transformed.extents[axis]);
@@ -320,7 +366,7 @@ export const readPrefabRenderers = async (
 			name: candidate.name,
 			matrix,
 			bounds,
-			pose,
+			pose: skin,
 			mesh: candidate.mesh,
 			materials,
 			submeshes: arrayField(mesh, 'm_SubMeshes').length,

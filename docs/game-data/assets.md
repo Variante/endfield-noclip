@@ -349,6 +349,35 @@ code: [interactive-model.ts](../../packages/formats/src/endfield/interactive-mod
 [level-interactives.ts](../../packages/formats/src/endfield/level-interactives.ts),
 [interactive-facilities.ts](../../packages/extractor/src/game/interactive-facilities.ts)
 
+### interactive doors
+
+a model's runtime looks are view states:
+`Data/Json/Interactive/ModelViewStateControllerData/<model id>.json` (MemoryPack, root
+`MVSCModelViewStateControllerData`) holds, per animator (`modelName`, `$$ROOT$$` for the prefab
+root) and layer, a state machine. each state names an AnimationClip, behaviours (`SetActive`
+switches a GameObject by name on or off; others play effects, audio or navmesh changes) and
+transitions that wait on blackboard keys. `clipAssetInfos` gives each clip's StringPathHash.
+
+a door is an interactive whose template has a door component (`InteractiveDoorCommonComponent`, or
+Dijiang's `SpaceshipRoomDoorSystem`) and whose model's states include exactly one settled state (a clip, and every transition waits
+on a condition) whose clip is an open idle (`…openidle…`). its closed state is where the open one
+returns to: its one transition, then any unconditional states, up to the next settled one. a Dijiang
+room door goes `built` → `built_to_unlocked` → `unlocked`; a Power Plateau gate `on_idle` →
+`on_to_off` → `off_idle`. models with no such state draw as before; an ambiguous one is reported.
+
+each pose is the state's clip end pose plus its `SetActive` switches. a generic clip's muscle clip
+stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
+(`m_ClipBindingConstant.genericBindings`): three values per position or scale binding, four per
+rotation, one per other float, none per PPtr curve. a binding's `path` is the CRC32 of the
+GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
+GameObject. `readPrefabRenderers` takes the pose, sets the bound local transforms and switches while
+walking the hierarchy, so skinned door leaves follow their bones. the placement is emitted once per
+pose, under a door control ([scene-states.md](scene-states.md#doors)).
+
+code: [animation-clip.ts](../../packages/formats/src/unity/animation-clip.ts),
+[door-poses.ts](../../packages/extractor/src/game/door-poses.ts),
+[prefab.ts](../../packages/extractor/src/game/prefab.ts)
+
 ### reading the variant table
 
 between the model component and the variant table sit hundreds of component and action-graph types
@@ -374,7 +403,7 @@ blackbox (factory puzzle) scenes' populated blackbox settings are unsupported.
 
 - decoding the packed tangent frame in normal bits 20–31 (its layout is identified; tangents are
   regenerated), and the meaning of the uv dimension byte's high nibble 2
-- animated poses and non-zero blend shapes
+- animated poses other than door view states, and non-zero blend shapes
 - billboard particle systems, and mesh particle systems using modules the viewer doesn't evaluate
 - LevelData members after the interactive list, and populated blackbox settings
 - the path hash function, which would replace the StringPathHash table scans in path → hash lookups;

@@ -52,6 +52,12 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string; open: 
 		open: true,
 	},
 	{
+		kinds: ['door'],
+		title: 'Doors',
+		note: 'Interactive doors, closed by default: the player or the server opens them. A Dijiang cabin’s door opens once its cabin is built.',
+		open: false,
+	},
+	{
 		kinds: ['area'],
 		title: 'Stream areas',
 		note: 'Interiors, caves and other places the game loads by where the camera is. Each follows the camera unless you pick a value.',
@@ -135,7 +141,13 @@ const Drivers = ({ viewer, drivers }: { viewer: Viewer; drivers: readonly Contro
 };
 
 /** kinds whose controls are plain on/off switches */
-const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set(['sceneState', 'script', 'logic', 'cabin']);
+const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set([
+	'sceneState',
+	'script',
+	'logic',
+	'cabin',
+	'door',
+]);
 
 /**
  * a scene control: a checkbox for an on/off switch only the user sets, otherwise a select. derived controls

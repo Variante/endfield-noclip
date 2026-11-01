@@ -87,7 +87,7 @@ import { mapDefined, unique } from '@mary-ext/array-fns';
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import { billboardPlacement } from '../game/billboard.ts';
-import { loadCabins } from '../game/cabins.ts';
+import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
@@ -994,10 +994,33 @@ const collectEntities = async (
 	counts.interactiveFacilities = facilities.progressions.length;
 	const cabins = await loadCabins(context, dynamic.slots, scene.partition);
 	counts.cabinSlots = cabins.controls.length;
-	collected.facilities = [...facilities.progressions, ...cabins.controls];
+	{
+		// a Dijiang cabin's door opens once the cabin is built
+		const linked = cabinDoors(
+			dynamic.slots,
+			facilities.doors.map(({ control, position }) => ({ id: control.id, position })),
+		);
+		for (const { control } of facilities.doors) {
+			const cabin = linked.get(control.id);
+			if (cabin !== undefined) {
+				control.rule = 'open while its cabin slot is built';
+				control.assumption = 'follows its Dijiang cabin slot';
+				control.derived = collected.condition({ alternatives: [[{ control: cabin, mask: 2 }]] });
+			}
+		}
+		counts.doors = facilities.doors.length;
+		counts.cabinDoors = linked.size;
+	}
+	// doors derived from cabin slots come after them
+	collected.facilities = [
+		...facilities.progressions,
+		...cabins.controls,
+		...facilities.doors.map(({ control }) => control),
+	];
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
-	const prefabs = new Map<bigint, Promise<PrefabRenderer[]>>();
+	// by prefab and pose
+	const prefabs = new Map<string, Promise<PrefabRenderer[]>>();
 	const unsupportedPrefabs: { path: string; reason: string }[] = [];
 	let modelId = 0;
 	for (const placement of [...dynamic.models, ...facilities.models, ...cabins.models]) {
@@ -1009,7 +1032,8 @@ const collectEntities = async (
 		) {
 			continue;
 		}
-		const prefab = prefabs.getOrInsertComputed(model.pathHash, () => {
+		const { pose } = placement;
+		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}`, () => {
 			const paths = unique(
 				resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
 			);
@@ -1023,7 +1047,7 @@ const collectEntities = async (
 					{ hash: model.pathHash, path: paths[0] },
 					UnityClass.GameObject,
 				);
-				return readPrefabRenderers(resolver, root);
+				return readPrefabRenderers(resolver, root, pose);
 			})().catch((error: unknown): PrefabRenderer[] => {
 				if (!(error instanceof FormatError)) {
 					throw error;

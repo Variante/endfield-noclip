@@ -19,7 +19,9 @@ import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
 import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
+import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
+import type { PrefabPose } from './prefab.ts';
 import { progressionControl } from './scenery-variants.ts';
 
 // these facility templates share the validated model-upgrade component, so their visual forms become a
@@ -94,19 +96,53 @@ const facilityModels = (
 	return { id: model.modelId, scale: model.modelScale, levels };
 };
 
+/** components that make a template a door: common doors, and Dijiang's room doors */
+const DOOR_COMPONENTS = [
+	'_InteractiveDoorCommonComponentDataForMemoryPack',
+	'_SpaceshipRoomDoorSystemDataForMemoryPack',
+];
+
+/**
+ * @param template a decoded interactive template
+ * @returns whether it has a door component
+ */
+const isDoorTemplate = (template: MemoryPackValue): boolean => {
+	const components =
+		template !== null && typeof template === 'object' && !Array.isArray(template)
+			? template.componentList
+			: null;
+	return (Array.isArray(components) ? components : []).some(
+		(component) =>
+			component !== null &&
+			typeof component === 'object' &&
+			!Array.isArray(component) &&
+			typeof component.$type === 'string' &&
+			DOOR_COMPONENTS.some(
+				(suffix) => typeof component.$type === 'string' && component.$type.endsWith(suffix),
+			),
+	);
+};
+
 const TABLE = 'Data/Json/Interactive/InteractiveTable.json';
+
+/** a placed door and its open/closed control */
+export interface InteractiveDoor {
+	control: SceneControl;
+	position: [number, number, number];
+}
 
 /**
  * resolves the models of interactives placed by referenced LevelData: the visual forms of the facility
  * templates in {@link TEMPLATES}, each under a `facility:<id>` control, and every other interactive's model
  * (its template variant's, else the template's), always shown. a model that is a doodad-group shell also
- * places its form models, one per group level, under a per-level `doodadGroups:<level id>` control
+ * places its form models, one per group level, under a per-level `doodadGroups:<level id>` control. a model
+ * with door poses is placed closed and open, under a `door:<id>` control, closed by default
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
  * @param level restricts decoding to one level, or null for the map
  * @param partition numeric level tags
- * @returns placements and explicit unsupported-file diagnostics; no partial file is used
+ * @returns placements, controls and explicit unsupported-file diagnostics; no partial file is used
  * @throws {FormatError} for broken authored references or malformed supported records
  */
 export const loadInteractiveFacilities = async (
@@ -117,6 +153,7 @@ export const loadInteractiveFacilities = async (
 ): Promise<{
 	models: StructureModel[];
 	progressions: SceneControl[];
+	doors: InteractiveDoor[];
 	unsupported: { path: string; reason: string }[];
 }> => {
 	const { vfs, world } = context;
@@ -188,7 +225,15 @@ export const loadInteractiveFacilities = async (
 	// interactive ids: facilities with their visual forms, the rest with one model
 	const authored = new Map<
 		string,
-		{ name: string | null; initial: number; forms: { prefab: string; scale: number }[] }
+		{
+			name: string | null;
+			initial: number;
+			forms: { prefab: string; scale: number }[];
+			/** the ModelTable id of a single-model interactive, `null` for facilities */
+			model: string | null;
+			/** the template's data file */
+			data: string;
+		}
 	>();
 	// each template's base model and its variants' model overrides
 	const templates = new Map<
@@ -210,6 +255,8 @@ export const loadInteractiveFacilities = async (
 				name: facility.name,
 				initial: model.levels.indexOf(model.id),
 				forms: model.levels.map((modelId) => formOf(modelId, model.scale)),
+				model: null,
+				data: facility.data,
 			});
 			continue;
 		}
@@ -247,7 +294,13 @@ export const loadInteractiveFacilities = async (
 			unsupported.push({ path: data, reason: `model ${modelId} of ${key} is not in the model table` });
 			continue;
 		}
-		authored.set(key, { name: null, initial: 0, forms: [formOf(modelId, base?.scale ?? 1)] });
+		authored.set(key, {
+			name: null,
+			initial: 0,
+			forms: [formOf(modelId, base?.scale ?? 1)],
+			model: modelId,
+			data,
+		});
 	}
 
 	const hashes = new Map<string, bigint>();
@@ -322,15 +375,66 @@ export const loadInteractiveFacilities = async (
 		findHashes(doodads.values().flatMap((levels) => levels.map(({ form }) => form.prefab)));
 	}
 
+	// doors drawn open or closed: interactives of door templates whose model has door poses, by key
+	const doorPoses = new Map<string, DoorPoses>();
+	{
+		const doorTemplates = new Map<string, boolean>();
+		const byModel = new Map<string, DoorPoses | null>();
+		// a failed read reports and leaves the model drawn as saved
+		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
+			try {
+				return await run();
+			} catch (error) {
+				if (!(error instanceof FormatError)) {
+					throw error;
+				}
+				unsupported.push({ path, reason: error.message });
+				return failed;
+			}
+		};
+		for (const [key, { model, data }] of authored) {
+			if (model === null) {
+				continue;
+			}
+			let door = doorTemplates.get(data);
+			if (door === undefined) {
+				// oxlint-disable-next-line no-await-in-loop -- one decode per template
+				door = await attempt(
+					data,
+					async () => isDoorTemplate(reader.decode(await read(data), TEMPLATE_ROOT)),
+					false,
+				);
+				doorTemplates.set(data, door);
+			}
+			if (!door) {
+				continue;
+			}
+			let poses = byModel.get(model);
+			if (poses === undefined) {
+				// oxlint-disable-next-line no-await-in-loop -- a few view state files and one-frame clips per map
+				poses = await attempt(model, () => readDoorPoses(context, model), null);
+				byModel.set(model, poses);
+			}
+			if (poses !== null) {
+				doorPoses.set(key, poses);
+			}
+		}
+	}
+
 	const models: StructureModel[] = [];
 	const progressions: SceneControl[] = [];
+	const doors: InteractiveDoor[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
 	for (const { path, levelId, levelTag, row } of placed) {
 		const template = authored.get(row.template);
 		if (template === undefined) {
 			continue;
 		}
-		const place = (model: { prefab: string; scale: number }, visibility: ConditionalSetInfo): void => {
+		const place = (
+			model: { prefab: string; scale: number },
+			visibility: ConditionalSetInfo,
+			pose: PrefabPose | null,
+		): void => {
 			// zero is the authored "no scale override" sentinel on LevelInteractiveData.
 			const scale = row.modelScale > 0 ? row.modelScale : model.scale;
 			models.push({
@@ -343,10 +447,37 @@ export const loadInteractiveFacilities = async (
 				levelTag,
 				source: `${path}#${row.id}`,
 				visibility,
+				pose,
 			});
 		};
+		const poses = doorPoses.get(row.template);
+		if (poses !== undefined) {
+			const control = `door:${row.id}`;
+			doors.push({
+				control: {
+					kind: 'door',
+					id: control,
+					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+					rule: null,
+					assumption: 'closed: the player or the server opens it',
+					story: null,
+					drivers: [],
+					levelTags: [],
+					values: [
+						{ value: 0, label: `closed (${poses.closedState})` },
+						{ value: 1, label: `open (${poses.openState})` },
+					],
+					default: 0,
+					derived: null,
+				},
+				position: row.position,
+			});
+			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, poses.closed);
+			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, poses.open);
+			continue;
+		}
 		if (template.name === null) {
-			place(template.forms[0], { alternatives: [[]] });
+			place(template.forms[0], { alternatives: [[]] }, null);
 			const doodad = doodads.get(row.template);
 			if (doodad === undefined || doodad.length === 0) {
 				continue;
@@ -355,7 +486,7 @@ export const loadInteractiveFacilities = async (
 			const levels = doodadLevels.getOrInsertComputed(id, () => new Set<number>());
 			for (const { groupLevel, form } of doodad) {
 				levels.add(groupLevel);
-				place(form, { alternatives: [[{ control: id, mask: (1 << groupLevel) >>> 0 }]] });
+				place(form, { alternatives: [[{ control: id, mask: (1 << groupLevel) >>> 0 }]] }, null);
 			}
 			continue;
 		}
@@ -371,7 +502,7 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 		for (const [form, model] of template.forms.entries()) {
-			place(model, { alternatives: [[{ control: id, mask: (1 << form) >>> 0 }]] });
+			place(model, { alternatives: [[{ control: id, mask: (1 << form) >>> 0 }]] }, null);
 		}
 	}
 	for (const [id, set] of doodadLevels) {
@@ -389,5 +520,5 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 	}
-	return { models, progressions, unsupported };
+	return { models, progressions, doors, unsupported };
 };

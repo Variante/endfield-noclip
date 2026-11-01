@@ -115,10 +115,45 @@ export const loadCabins = async (
 				levelTag,
 				source: `${cabin.type}#${index}@${id}`,
 				visibility: { alternatives: [[{ control, mask: 2 }]] },
+				pose: null,
 			});
 		}
 	}
 	return { controls, models: placed };
+};
+
+/**
+ * the farthest a slot's door stands from the slot origin: the medium slot's is 10.2 m off, the small ones' 9
+ * m
+ */
+const DOOR_REACH = 12;
+
+/**
+ * matches doors to the cabin slots they open into: each door to the nearest slot origin within
+ * {@link DOOR_REACH} in plan. the slots don't name their doors, and one small slot has none
+ *
+ * @param slots the scene's cabin slots
+ * @param doors door controls with their placements
+ * @returns the `cabin:<id>` control of each door's slot, by door control id
+ */
+export const cabinDoors = (
+	slots: readonly { id: string; slot: ExtraSceneSlot }[],
+	doors: readonly { id: string; position: readonly number[] }[],
+): Map<string, string> => {
+	const linked = new Map<string, string>();
+	for (const door of doors) {
+		let best: { id: string; distance: number } | null = null;
+		for (const { id, slot } of slots) {
+			const distance = Math.hypot(slot.position[0] - door.position[0], slot.position[2] - door.position[2]);
+			if (distance <= DOOR_REACH && (best === null || distance < best.distance)) {
+				best = { id, distance };
+			}
+		}
+		if (best !== null) {
+			linked.set(door.id, `cabin:${best.id}`);
+		}
+	}
+	return linked;
 };
 
 /** @returns `(x, z)` turned by a yaw of `turns` quarter turns, as Unity turns a vector by `Euler(0, θ, 0)` */

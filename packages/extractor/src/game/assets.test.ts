@@ -245,11 +245,15 @@ test('prefab selection follows active hierarchy and LOD references, preserving m
 	});
 	add(60n, UnityClass.Material, {});
 	const owner = file('CAB-prefab', objects, values);
-	const rows = await readPrefabRenderers(resolver([owner]), {
-		bundleIndex: 0,
-		file: owner,
-		info: objects[0],
-	});
+	const rows = await readPrefabRenderers(
+		resolver([owner]),
+		{
+			bundleIndex: 0,
+			file: owner,
+			info: objects[0],
+		},
+		null,
+	);
 	assert.equal(rows.length, 2);
 	assert.equal(rows[1].pose?.[0][12], 10);
 	assert.equal(rows[1].matrix[12], 0);
@@ -319,11 +323,15 @@ test('skinned prefab meshes resolve bones under inactive GameObjects', async () 
 	});
 	add(60n, UnityClass.Material, {});
 	const owner = file('CAB-prefab', objects, values);
-	const rows = await readPrefabRenderers(resolver([owner]), {
-		bundleIndex: 0,
-		file: owner,
-		info: objects[0],
-	});
+	const rows = await readPrefabRenderers(
+		resolver([owner]),
+		{
+			bundleIndex: 0,
+			file: owner,
+			info: objects[0],
+		},
+		null,
+	);
 	assert.deepEqual(
 		rows.map((row) => row.name),
 		['skin'],

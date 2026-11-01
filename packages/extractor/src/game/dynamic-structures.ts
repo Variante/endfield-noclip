@@ -20,6 +20,7 @@ import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
 import { allOf, gateCondition, type Alternatives, type GameState } from './game-state.ts';
+import type { PrefabPose } from './prefab.ts';
 import { sceneStateControl, SWITCH_VALUES } from './scene-conditions.ts';
 import { controllerKey, progressionId } from './scenery-variants.ts';
 
@@ -32,6 +33,8 @@ export interface StructureModel {
 	levelTag: number;
 	source: string;
 	visibility: ConditionalSetInfo;
+	/** the pose to draw the prefab in, `null` for the saved one */
+	pose: PrefabPose | null;
 }
 
 /** structures and their visibility decoded from dynamic resources */
@@ -223,6 +226,7 @@ export const loadDynamicStructures = async (
 								levelTag: tag,
 								source: key,
 								visibility: { alternatives: [] },
+								pose: null,
 							}))
 							.visibility.alternatives.push(...alternatives);
 					}

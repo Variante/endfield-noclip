@@ -3,9 +3,9 @@
 this page covers everything that decides whether a piece of authored content is visible: MapConfig
 scene states and their quest, mission and variable conditions; the load gates on DynamicStreaming
 entities; progression levels (outposts, POI facilities, factory regions); facility visual forms,
-Dijiang's cabins and resource-node groups; script-loaded groups; quest labels; and how the package
-encodes all of these as one control/condition system that the viewer exposes as preview controls.
-spatial stream areas (interiors, caves, off-map places) are a separate axis, covered in
+Dijiang's cabins, doors and resource-node groups; script-loaded groups; quest labels; and how the
+package encodes all of these as one control/condition system that the viewer exposes as preview
+controls. spatial stream areas (interiors, caves, off-map places) are a separate axis, covered in
 [world.md](world.md#stream-areas); the package encodes them as controls the viewer sets from the
 camera. the dynamic ECS scene's format and the interactives' models are in
 [assets.md](assets.md#dynamic-structures); the container layout of controls and sets is in
@@ -29,6 +29,7 @@ hold.
 | facility visual form       | interactive template model-upgrade list                                                                 | `facility:<interactive id>`                         | the template's base model                                         |
 | doodad group level         | doodad-shell postmodel's form list                                                                      | `doodadGroups:<level id>`                           | the highest level its shells name                                 |
 | Dijiang cabin slot         | `ExtraSceneSlot` entity; cabin scenes named by `SpaceshipCabinData.json`                                | `cabin:<entity id>`, empty / built                  | empty                                                             |
+| door                       | interactive model view states                                                                           | `door:<interactive id>`, closed / open              | closed; a cabin's follows its slot                                |
 | tree harvest state         | resource-group `logicState` on tree entities                                                            | `harvest:<level tag>`, standing / felled            | standing                                                          |
 | script group               | script-control component's default-load flag; level scripts                                             | `script:<entity id>`                                | the stored default, or its scripts' quest checks on activation    |
 | controller-less logic gate | resource-group `logicState` on an entity with no controller                                             | `logic:<entity id>:<mask>`                          | off                                                               |
@@ -223,10 +224,11 @@ levels or terminal levels (`KiteStationLevelTable`) map onto the list isn't reco
 labels them "Visual form", not "Level".
 
 every other interactive draws one model, always shown (its variant's, else its template's; see
-[assets.md](assets.md#interactives)): Dijiang's guest terminal desk, screens and doors, for
-instance. that ignores whatever runtime state the game keeps for them (open doors, unlocked region
-walls), and rows with another `createState` are left out. templates without a data file of their own
-(the weapon-wall racks, some doors) are reported, and templates that name no model draw nothing.
+[assets.md](assets.md#interactives)): Dijiang's guest terminal desk and screens, for instance. that
+ignores whatever runtime state the game keeps for them (unlocked region walls), except for
+[doors](#doors), and rows with another `createState` are left out. templates without a data file of
+their own (the weapon-wall racks, some doors) are reported, and templates that name no model draw
+nothing.
 
 ## Dijiang cabins
 
@@ -247,6 +249,24 @@ the medium slot and manufacturing cabins in the small ones. one of the small slo
 no room-table row; it's offered like the others. each slot is a `cabin:<id>` control, empty by
 default. cabin levels (1–3) change no stored geometry (only the planting boxes' and machine's
 runtime state), so they aren't offered.
+
+## doors
+
+implemented in
+[`interactive-facilities.ts`](../../packages/extractor/src/game/interactive-facilities.ts) and
+[`cabins.ts`](../../packages/extractor/src/game/cabins.ts); the poses are in
+[assets.md](assets.md#interactive-doors).
+
+each placed interactive whose model has door poses gets a `door:<interactive id>` control, closed
+(0) or open (1), with its closed and open poses placed under it. the game opens doors by gameplay
+and server state the client doesn't hold (a Power Plateau gate opens when a level script hears an
+event from a mission's cutscene and calls the server), so:
+
+- a door defaults to closed, its state before the player or the server opens it
+- a Dijiang cabin's door follows its cabin slot: derived, open while the slot is built and closed
+  (`unlocked`, its "to be constructed" panel showing) while it's empty. the slots don't name their
+  doors, so each door goes to the nearest slot origin within 12 m in plan (a small slot's door
+  stands 9 m from its origin, the medium one's 10.2 m); the spare small slot has none
 
 ## doodad groups
 
@@ -384,8 +404,8 @@ types in [`states.ts`](../../packages/package-format/src/states.ts) (`StatesInfo
   without a camera.
 - the packer canonicalises and deduplicates sets (`Collector.condition`), so equivalent expressions
   share one index. quests, missions and variables come first in `controls`, then progressions,
-  facilities, doodad groups and cabins, stream areas, script, logic and harvest controls, then scene
-  states.
+  facilities, doodad groups, cabins and doors, stream areas, script, logic and harvest controls,
+  then scene states.
 - only controls some visibility group requires, directly or through a derived scene state, are
   listed. each control's `levelTags` are those of the groups it gates, and a derived state passes
   its tags on to the quests and variables it reads.
@@ -445,6 +465,7 @@ environment blend.
 - **variables**: a select of ranges, the default marked "(initial)"
 - **progression**: one select per progression, "Level n", "Visual form n" or "Group level n"
 - **Dijiang cabins**: a checkbox per slot, built or empty
+- **doors**: a checkbox per door, open or closed, or "Follow game" for a cabin's door
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
 - **harvest**: standing or felled
 - **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a

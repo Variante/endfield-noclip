@@ -114,6 +114,7 @@ export const UnityClass = {
 	MeshFilter: 33,
 	Mesh: 43,
 	Shader: 48,
+	AnimationClip: 74,
 	Cubemap: 89,
 	MonoBehaviour: 114,
 	Texture3D: 117,

@@ -142,9 +142,12 @@ packs or renders correctly.
 - separate scenes (interiors, offices, arenas) are unvalidated
 - interactives ([assets](game-data/assets.md#interactives)) draw their model's default pose and
   ignore per-placement component properties and view states (`ModelViewStateControllerData`), so
-  doors stay as authored and every state's effects show at once (range rings, lock marks).
-  interactives whose model id is missing from the model table, and LevelData with populated blackbox
-  settings, are reported in `out/<map>/debug/unsupported-interactives.json` and omitted
+  every state's effects show at once (range rings, lock marks). doors are the exception: they draw
+  open or closed ([interactive doors](game-data/assets.md#interactive-doors)), closed by default
+  except a Dijiang cabin's, since what opens each in game (a level script reacting to a mission's
+  cutscene, the server) isn't followed. interactives whose model id is missing from the model table,
+  and LevelData with populated blackbox settings, are reported in
+  `out/<map>/debug/unsupported-interactives.json` and omitted
 - resource nodes (doodad groups) share one level control per level; the game's per-group level and
   its source in LevelData aren't read ([scene states](game-data/scene-states.md#doodad-groups))
 - interactive facilities are gathered from levels whose map is the packed scene, so a scene streamed
