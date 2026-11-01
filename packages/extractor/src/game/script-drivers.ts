@@ -6,7 +6,7 @@ import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-p
 import type { ControlDriver, QuestRef } from '@endfield-noclip/package-format/states';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
-import { unique } from '@mary-ext/array-fns';
+import { mapDefined, unique } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -516,7 +516,7 @@ export const loadScriptDrivers = async (
 	const reader = await context.memoryPack();
 	const configs = await world.levelConfigs();
 	const ownLevels = new Set(
-		[...configs.values()].filter((config) => config.mapId === scene).map((config) => config.id),
+		mapDefined([...configs.values()], (config) => (config.mapId === scene ? config.id : undefined)),
 	);
 	const read = async (name: string): Promise<Uint8Array> =>
 		vfs.readVerified((await vfs.find(VfsGroup.JsonData, name))!);
@@ -709,7 +709,8 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 		if (quests.length > 0) {
 			out.push({
 				kind: 'quest',
-				quests: await Promise.all(unique(quests).toSorted().map(label)),
+				// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+				quests: await Promise.all(unique(quests).sort().map(label)),
 				shows,
 			});
 		}

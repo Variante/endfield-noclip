@@ -8,7 +8,7 @@ import { levelOfTag, type LevelPartition } from '@endfield-noclip/formats/endfie
 import type { StreamAreaTable } from '@endfield-noclip/formats/endfield/stream-area';
 import type { SceneControl, SceneControlKind } from '@endfield-noclip/package-format/states';
 
-import { groupByDefined } from '@mary-ext/array-fns';
+import { groupByDefined, mapDefined } from '@mary-ext/array-fns';
 
 import { mapPool } from '../pool.ts';
 
@@ -272,21 +272,24 @@ export const summarizeProgressions = (entities: Iterable<DynamicEntity>): Progre
 			}
 		}
 	}
-	return [...byId.values()]
-		.filter((entry) => entry.perLevel.size > 0)
-		.map((entry) => {
-			const levels = [...entry.perLevel.keys()].toSorted((a, b) => a - b);
-			return {
-				kind: entry.kind,
-				key: entry.key,
-				levels,
-				defaultLevel: levels[0],
-				entities: entry.entities,
-				groupsPerLevel: Object.fromEntries(levels.map((level) => [level, entry.perLevel.get(level) ?? 0])),
-				levelNum: entry.levelNums.size === 1 ? [...entry.levelNums][0] : null,
-			};
-		})
-		.toSorted((a, b) => a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key));
+	const summaries = mapDefined([...byId.values()], (entry) => {
+		if (entry.perLevel.size === 0) {
+			return undefined;
+		}
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+		const levels = [...entry.perLevel.keys()].sort((a, b) => a - b);
+		return {
+			kind: entry.kind,
+			key: entry.key,
+			levels,
+			defaultLevel: levels[0],
+			entities: entry.entities,
+			groupsPerLevel: Object.fromEntries(levels.map((level) => [level, entry.perLevel.get(level) ?? 0])),
+			levelNum: entry.levelNums.size === 1 ? [...entry.levelNums][0] : null,
+		};
+	});
+	summaries.sort((a, b) => a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key));
+	return summaries;
 };
 
 /**

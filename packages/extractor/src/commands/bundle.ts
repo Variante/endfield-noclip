@@ -4,6 +4,8 @@ import { type ObjectInfo, typeName } from '@endfield-noclip/formats/unity/serial
 import type { TypeTreeValue } from '@endfield-noclip/formats/unity/type-tree';
 import { streamingInfo } from '@endfield-noclip/formats/unity/values';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { parseOptionalInteger, parsePathId, save } from '../cli-args.ts';
 import { type Context, withContext } from '../context.ts';
 import { errorText } from '../errors.ts';
@@ -311,7 +313,7 @@ const scanAsset = async (
 		return [];
 	}
 	return (await asset.assetBundles()).flatMap(({ container }) =>
-		container.map(({ path }) => path).filter((path) => filter.test(path)),
+		mapDefined(container, ({ path }) => (filter.test(path) ? path : undefined)),
 	);
 };
 

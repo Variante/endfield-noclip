@@ -23,6 +23,8 @@ import { isTerrainHole, terrainHeight } from '@endfield-noclip/package-format/te
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { type BindLayouts, createBindLayouts } from './gfx/bind-layouts.ts';
 import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
 import { GpuProfiler } from './gfx/gpu-profiler.ts';
@@ -1350,9 +1352,7 @@ export class Viewer {
 		const features = this.#gfx.features;
 		return {
 			adapter: this.#gfx.adapterName,
-			features: Object.entries(features)
-				.filter(([, on]) => on)
-				.map(([name]) => name),
+			features: mapDefined(Object.entries(features), ([name, on]) => (on ? name : undefined)),
 			frameMs: 0,
 			cpuMs: 0,
 			cpuPhases: {},

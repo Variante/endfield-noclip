@@ -166,7 +166,8 @@ export class WorldIndex {
 			const poolFiles = mapDefined(
 				[...group.files.keys()],
 				(name) => /^Data\/Json\/StringPool\/StringPool(\d+)\.byte$/.exec(name) ?? undefined,
-			).toSorted((a, b) => Number(a[1]) - Number(b[1]));
+			);
+			poolFiles.sort((a, b) => Number(a[1]) - Number(b[1]));
 			const blocks = await Promise.all(
 				poolFiles.map(async (match) =>
 					parseStringPoolBlock(await this.#read(VfsGroup.JsonData, match[0]), { first: match[1] === '0' }),

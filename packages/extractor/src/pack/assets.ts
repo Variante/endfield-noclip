@@ -7,7 +7,6 @@ import type { Chain } from '@endfield-noclip/package-format/instances';
 import type { MaterialEntry, MaterialTable, ReadyMaterial } from '@endfield-noclip/package-format/materials';
 import { type TextureEntry, textureLevelLayout } from '@endfield-noclip/package-format/textures';
 
-import { intern } from '../collections.ts';
 import { failureReason } from '../errors.ts';
 import { loadMaterial } from '../game/asset-decode.ts';
 import {
@@ -53,7 +52,10 @@ export class AssetIds {
 	 * @returns the asset's id
 	 */
 	intern(hash: bigint, resolve: (hash: bigint) => string | undefined): number {
-		return intern(this.assets, this.#ids, hash, () => ({ hash, path: resolve(hash) ?? null }));
+		return this.#ids.getOrInsertComputed(
+			hash,
+			() => this.assets.push({ hash, path: resolve(hash) ?? null }) - 1,
+		);
 	}
 
 	/** @returns the asset with the given id */

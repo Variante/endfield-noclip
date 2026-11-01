@@ -16,9 +16,11 @@ const COMMANDS_DIR = new URL('./commands/', import.meta.url);
 
 const listCommands = async (): Promise<string[]> => {
 	const files = await readdir(COMMANDS_DIR);
-	return mapDefined(files, (file) =>
+	const commands = mapDefined(files, (file) =>
 		file.endsWith('.ts') && !file.endsWith('.test.ts') ? file.slice(0, -3) : undefined,
-	).toSorted();
+	);
+	commands.sort();
+	return commands;
 };
 
 const loadCommand = async (name: string): Promise<CommandModule> => {

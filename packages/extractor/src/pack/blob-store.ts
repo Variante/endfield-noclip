@@ -217,9 +217,11 @@ export class BlobStore {
 
 	/** @returns the archives other than the core, sorted by name, with the stem each belongs to */
 	archives(): { name: string; stem: string }[] {
-		return mapDefined([...this.#layout().archives.values()], ({ name, stem }) =>
+		const archives = mapDefined([...this.#layout().archives.values()], ({ name, stem }) =>
 			name !== this.#core ? { name, stem } : undefined,
-		).toSorted((a, b) => (a.name < b.name ? -1 : 1));
+		);
+		archives.sort((a, b) => (a.name < b.name ? -1 : 1));
+		return archives;
 	}
 
 	/**

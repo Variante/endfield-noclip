@@ -1,7 +1,5 @@
 import type { DecodedMesh } from '@endfield-noclip/formats/unity/mesh';
 
-import { intern } from '../collections.ts';
-
 // a minimal glTF 2.0 binary writer for eyeballing decoded assets: triangle meshes with positions, normals and
 // UV0, plain base-colour materials, and nodes with matrices. Unity's left-handed space is mirrored on X into
 // glTF's right-handed one (positions, normals, matrices and winding), and V is flipped.
@@ -144,7 +142,7 @@ export const writeGlb = (scene: GlbScene, origin: [number, number, number]): Uin
 			continue;
 		}
 		const key = `${draw.mesh}\0${draw.submesh}\0${draw.material}`;
-		const index = intern(meshes, meshIndex, key, () => {
+		const index = meshIndex.getOrInsertComputed(key, () => {
 			// mirrored space: reverse the winding
 			const indices = new Uint32Array(submesh.indexCount);
 			for (let i = 0; i < submesh.indexCount; i += 3) {
@@ -153,22 +151,24 @@ export const writeGlb = (scene: GlbScene, origin: [number, number, number]): Uin
 				indices[i + 1] = mesh.indices[at + 2] + submesh.baseVertex;
 				indices[i + 2] = mesh.indices[at + 1] + submesh.baseVertex;
 			}
-			return {
-				name: `${mesh.name}#${draw.submesh}`,
-				primitives: [
-					{
-						attributes: meshAttributes(draw.mesh, mesh),
-						indices: addAccessor({
-							bufferView: addView(indices, ELEMENT_ARRAY_BUFFER),
-							componentType: UNSIGNED_INT,
-							count: indices.length,
-							type: 'SCALAR',
-						}),
-						material: materialIndex.get(draw.material),
-						mode: TRIANGLES,
-					},
-				],
-			};
+			return (
+				meshes.push({
+					name: `${mesh.name}#${draw.submesh}`,
+					primitives: [
+						{
+							attributes: meshAttributes(draw.mesh, mesh),
+							indices: addAccessor({
+								bufferView: addView(indices, ELEMENT_ARRAY_BUFFER),
+								componentType: UNSIGNED_INT,
+								count: indices.length,
+								type: 'SCALAR',
+							}),
+							material: materialIndex.get(draw.material),
+							mode: TRIANGLES,
+						},
+					],
+				}) - 1
+			);
 		});
 		// S·M·S with S = diag(-1, 1, 1, 1): negate the elements that mix X with Y/Z/W
 		const m = Array.from(draw.matrix);

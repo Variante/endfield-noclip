@@ -336,7 +336,8 @@ const readDraws = (
 		});
 	}
 	// grids carry no LOD-range column; a draw's LOD is the rank of its upper threshold
-	const uppers = unique(draws.map((draw) => draw.lodMaxSquared)).toSorted((a, b) => b - a);
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	const uppers = unique(draws.map((draw) => draw.lodMaxSquared)).sort((a, b) => b - a);
 	for (const draw of draws) {
 		draw.lod = uppers.indexOf(draw.lodMaxSquared);
 	}

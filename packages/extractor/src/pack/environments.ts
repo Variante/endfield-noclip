@@ -22,7 +22,6 @@ import type {
 } from '@endfield-noclip/package-format/environment';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
-import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
@@ -260,11 +259,10 @@ export const planEnvironments = async (
 			}
 		}
 		plan.levels.push(
-			intern(pending, byKey, `${phases.own.phase.name}\n${post?.name ?? ''}`, () => ({
-				phases,
-				post,
-				textures: resolveTextures(resolver, phases),
-			})),
+			byKey.getOrInsertComputed(
+				`${phases.own.phase.name}\n${post?.name ?? ''}`,
+				() => pending.push({ phases, post, textures: resolveTextures(resolver, phases) }) - 1,
+			),
 		);
 	}
 
@@ -300,8 +298,12 @@ export const planEnvironments = async (
 		const index =
 			loadedPhase === null
 				? null
-				: intern(plan.phases, phaseIndex, loadedPhase.loaded.phase.name, () =>
-						buildPhase(loadedPhase.loaded.phase, loadedPhase.textures, plan.textures, textureIndex),
+				: phaseIndex.getOrInsertComputed(
+						loadedPhase.loaded.phase.name,
+						() =>
+							plan.phases.push(
+								buildPhase(loadedPhase.loaded.phase, loadedPhase.textures, plan.textures, textureIndex),
+							) - 1,
 					);
 		plan.volumes.push({
 			name: volume.name.replace(/#.*$/, ''),
@@ -456,7 +458,11 @@ const fillTextureSlots = (
 	const slotFor = (holder: Record<string, unknown>, key: string, ref: ObjectRef | null): void => {
 		holder[key] = null;
 		if (ref !== null) {
-			slots.push({ holder, key, texture: intern(textures, textureIndex, objectKey(ref), () => ref) });
+			slots.push({
+				holder,
+				key,
+				texture: textureIndex.getOrInsertComputed(objectKey(ref), () => textures.push(ref) - 1),
+			});
 		}
 	};
 	for (const [i, { path }] of section.textures.entries()) {

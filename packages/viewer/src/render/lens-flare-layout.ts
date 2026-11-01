@@ -18,6 +18,8 @@ import type {
 } from '@endfield-noclip/package-format/environment';
 import type { Vec2, Vec4 } from '@endfield-noclip/package-format/values';
 
+import { mapDefined, unique } from '@mary-ext/array-fns';
+
 import type { Vec3 } from '../scene/camera.ts';
 
 import { towardsRotatedLight } from './environment.ts';
@@ -94,13 +96,12 @@ export const lensFlareLook = (input: LensFlareInput | null): LensFlareLook | nul
  * @param look the flare, or `null` for none
  * @returns the texture-table ids the flare's image elements sample
  */
-export const lensFlareTextures = (look: LensFlareLook | null): number[] => [
-	...new Set(
-		(look?.elements ?? []).flatMap(({ flareType, lensFlareTexture }) =>
-			flareType === IMAGE && lensFlareTexture !== null ? [lensFlareTexture] : [],
+export const lensFlareTextures = (look: LensFlareLook | null): number[] =>
+	unique(
+		mapDefined(look?.elements ?? [], ({ flareType, lensFlareTexture }) =>
+			flareType === IMAGE && lensFlareTexture !== null ? lensFlareTexture : undefined,
 		),
-	),
-];
+	);
 
 // #endregion
 

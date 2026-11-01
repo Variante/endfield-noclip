@@ -84,7 +84,6 @@ import type { WaterTable } from '@endfield-noclip/package-format/water';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
 
-import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import { loadCabins } from '../game/cabins.ts';
@@ -910,9 +909,9 @@ const collectEntities = async (
 	{
 		// what level scripts show and hide script groups for
 		const scripted = new Map(
-			dynamic.controls
-				.filter((control) => control.kind === 'script')
-				.map((control) => [control.id.slice('script:'.length), control]),
+			mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
+				control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
+			),
 		);
 		const found = await loadScriptDrivers(context, scene.options.scene, new Set(scripted.keys()));
 		for (const [id, drivers] of found.drivers) {
@@ -1948,7 +1947,10 @@ class Collector {
 			.toSorted(([a], [b]) => Number(a > b) - Number(a < b))
 			.map(([, requirements]) => requirements);
 		const serialized = JSON.stringify(alternatives);
-		return intern(this.conditions, this.#conditionIds, serialized, () => ({ alternatives }));
+		return this.#conditionIds.getOrInsertComputed(
+			serialized,
+			() => this.conditions.push({ alternatives }) - 1,
+		);
 	}
 
 	/** @param condition index into {@link conditions} for clusters of a stream area, else `null` */

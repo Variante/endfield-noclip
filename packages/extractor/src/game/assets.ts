@@ -141,6 +141,15 @@ class LruCache<K, V> {
 		return value;
 	}
 
+	getOrInsertComputed(key: K, compute: (key: K) => V): V {
+		let value = this.get(key);
+		if (value === undefined) {
+			value = compute(key);
+			this.set(key, value);
+		}
+		return value;
+	}
+
 	delete(key: K): void {
 		this.#map.delete(key);
 	}
@@ -210,17 +219,15 @@ export class AssetResolver {
 	 */
 	bundle(index: number): Promise<UnityBundle> {
 		bundleReads.getStore()?.add(index);
-		let cached = this.#bundles.get(index);
-		if (cached === undefined) {
-			cached = openBundle(this.context, this.manifest.bundle(index).name).then((bundle) => {
+		return this.#bundles.getOrInsertComputed(index, () => {
+			const opened = openBundle(this.context, this.manifest.bundle(index).name).then((bundle) => {
 				this.#register(index, bundle);
 				return bundle;
 			});
-			this.#bundles.set(index, cached);
 			// a failed open shouldn't stay cached
-			cached.catch(() => this.#bundles.delete(index));
-		}
-		return cached;
+			opened.catch(() => this.#bundles.delete(index));
+			return opened;
+		});
 	}
 
 	/**
@@ -229,12 +236,7 @@ export class AssetResolver {
 	 */
 	assetFiles(index: number): Promise<BundleAssetFile[]> {
 		bundleReads.getStore()?.add(index);
-		let cached = this.#files.get(index);
-		if (cached === undefined) {
-			cached = this.bundle(index).then(openAssetFiles);
-			this.#files.set(index, cached);
-		}
-		return cached;
+		return this.#files.getOrInsertComputed(index, () => this.bundle(index).then(openAssetFiles));
 	}
 
 	/**
@@ -462,25 +464,20 @@ export class AssetResolver {
 
 	/** @returns container entries with the owning file needed to resolve their pointers */
 	#container(index: number): Promise<Map<string, { from: ObjectRef; entry: ContainerEntry }[]>> {
-		let cached = this.#containers.get(index);
-		if (cached === undefined) {
-			cached = (async () => {
-				const byPath = new Map<string, { from: ObjectRef; entry: ContainerEntry }[]>();
-				const files = await this.assetFiles(index);
-				const perFile = await Promise.all(files.map((file) => file.assetBundles()));
-				for (const [i, bundles] of perFile.entries()) {
-					for (const bundle of bundles) {
-						const from = { bundleIndex: index, file: files[i], info: bundle.info };
-						for (const entry of bundle.container) {
-							byPath.getOrInsertComputed(entry.path.toLowerCase(), () => []).push({ from, entry });
-						}
+		return this.#containers.getOrInsertComputed(index, async () => {
+			const byPath = new Map<string, { from: ObjectRef; entry: ContainerEntry }[]>();
+			const files = await this.assetFiles(index);
+			const perFile = await Promise.all(files.map((file) => file.assetBundles()));
+			for (const [i, bundles] of perFile.entries()) {
+				for (const bundle of bundles) {
+					const from = { bundleIndex: index, file: files[i], info: bundle.info };
+					for (const entry of bundle.container) {
+						byPath.getOrInsertComputed(entry.path.toLowerCase(), () => []).push({ from, entry });
 					}
 				}
-				return byPath;
-			})();
-			this.#containers.set(index, cached);
-		}
-		return cached;
+			}
+			return byPath;
+		});
 	}
 
 	#register(index: number, bundle: UnityBundle): void {

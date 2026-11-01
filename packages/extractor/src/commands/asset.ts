@@ -6,6 +6,8 @@ import type { DecodedMesh } from '@endfield-noclip/formats/unity/mesh';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { type DecodedTexture, toKtx2Texture } from '@endfield-noclip/formats/unity/texture';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import {
 	jsonReplacer,
 	parseInteger,
@@ -191,12 +193,11 @@ const meshSummary = (mesh: DecodedMesh) => {
 		indexFormat: mesh.indices instanceof Uint16Array ? 'u16' : 'u32',
 		bounds: mesh.bounds,
 		submeshes: mesh.submeshes,
-		channels: mesh.channels
-			.filter((channel) => channel.dimension > 0)
-			.map(
-				(c) =>
-					`${c.channel}: stream ${c.stream} +${c.offset} format ${c.format} ×${c.dimension}${c.packing ? ` packing ${c.packing}` : ''}`,
-			),
+		channels: mapDefined(mesh.channels, (c) =>
+			c.dimension > 0
+				? `${c.channel}: stream ${c.stream} +${c.offset} format ${c.format} ×${c.dimension}${c.packing ? ` packing ${c.packing}` : ''}`
+				: undefined,
+		),
 		normals: mesh.normals === null ? null : mesh.packedNormals === null ? 'float' : 'packed',
 		tangents: mesh.tangents !== null,
 		colors: mesh.colors?.dimension ?? null,
@@ -347,12 +348,15 @@ const exportEntity = async (
 					shader: material.shader.name,
 					...material.classification,
 					textures: Object.fromEntries(
-						Object.entries(material.textures)
-							.filter(([, slot]) => slot.ref !== null || slot.error !== undefined)
-							.map(([slot, resolved]) => [
-								slot,
-								resolved.ref === null ? { error: resolved.error } : objectKey(resolved.ref),
-							]),
+						mapDefined(Object.entries(material.textures), ([slot, resolved]) => {
+							if (resolved.ref !== null) {
+								return [slot, objectKey(resolved.ref)];
+							}
+							if (resolved.error !== undefined) {
+								return [slot, { error: resolved.error }];
+							}
+							return undefined;
+						}),
 					),
 				},
 			});

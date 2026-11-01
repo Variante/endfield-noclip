@@ -5,6 +5,8 @@ import type { MapConfig } from '@endfield-noclip/formats/endfield/map-config';
 import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { GameState } from './game-state.ts';
 import { defaultSceneStates, loadSceneStates, sceneStateControls } from './scene-conditions.ts';
 import type { WorldIndex } from './world-index.ts';
@@ -21,7 +23,7 @@ test('scene states follow the quests their conditions read; states without a con
 	const world = { mapConfig: async () => map } as unknown as WorldIndex;
 	const states = await loadSceneStates(world, 'map01');
 	const game = new GameState();
-	game.note(states.flatMap(({ condition }) => (condition === null ? [] : [condition])));
+	game.note(mapDefined(states, ({ condition }) => condition ?? undefined));
 	assert.deepEqual([...defaultSceneStates(states, game)], [0]);
 	const conditionalSets: ConditionalSetInfo[] = [];
 	const controls = sceneStateControls(states, game, (formula) => conditionalSets.push(formula) - 1);

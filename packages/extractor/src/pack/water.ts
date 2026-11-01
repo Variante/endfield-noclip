@@ -12,7 +12,6 @@ import type {
 
 import { unique } from '@mary-ext/array-fns';
 
-import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { errorText } from '../errors.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
@@ -242,7 +241,9 @@ const planGlobal = async (
 ): Promise<WaterGlobal> => {
 	const textureIndex = new Map<string, number>();
 	const add = (ref: ObjectRef | null, place: Place): TextureRef =>
-		ref === null ? null : intern(plan.textures, textureIndex, objectKey(ref), () => ({ ref, place }));
+		ref === null
+			? null
+			: textureIndex.getOrInsertComputed(objectKey(ref), () => plan.textures.push({ ref, place }) - 1);
 	// errors are collected per lookup and reported in lookup order, whatever order the reads finish in
 	const resolveMap = async (name: string, pptr: PPtr): Promise<ObjectRef | Error | null> =>
 		resolver.resolve(from, pptr).catch((error: unknown) => new Error(`${name}: ${errorText(error)}`));

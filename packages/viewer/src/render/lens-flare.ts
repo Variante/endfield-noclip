@@ -8,6 +8,8 @@
 
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
 import type { Camera } from '../scene/camera.ts';
 import type { StreamedTexture } from '../streaming/mesh-selection.ts';
@@ -216,15 +218,14 @@ export class LensFlares {
 			return view === undefined ? undefined : this.#textureGroups.get(view);
 		};
 		// quads whose image hasn't streamed in yet don't draw
-		const quads = flareQuads(look, screen, aspect, (id) => {
+		const visible = flareQuads(look, screen, aspect, (id) => {
 			const entry = this.#textures.get(id)?.entry;
 			return entry === undefined ? 1 : entry.height / entry.width;
-		})
-			.flatMap((quad) => {
-				const group = groupOf(quad.texture);
-				return group === undefined ? [] : [{ ...quad, group }];
-			})
-			.slice(0, MAX_QUADS);
+		});
+		const quads = mapDefined(visible, (quad) => {
+			const group = groupOf(quad.texture);
+			return group === undefined ? undefined : { ...quad, group };
+		}).slice(0, MAX_QUADS);
 		if (quads.length === 0) {
 			return;
 		}

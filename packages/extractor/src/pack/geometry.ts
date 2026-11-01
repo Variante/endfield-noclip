@@ -24,8 +24,6 @@ import {
 import { MeshoptEncoder } from 'meshoptimizer/encoder';
 import { MeshoptTangents } from 'meshoptimizer/tangents';
 
-import { intern } from '../collections.ts';
-
 import { aabbBounds } from './bounds.ts';
 
 // converts a decoded Unity mesh into a geometry blob (layout and per-attribute encodings in
@@ -89,7 +87,7 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 		const vertices: number[] = [];
 		const seen = new Map<number, number>();
 		for (const [i, vertex] of list.entries()) {
-			local[i] = intern(vertices, seen, vertex, () => vertex);
+			local[i] = seen.getOrInsertComputed(vertex, () => vertices.push(vertex) - 1);
 		}
 		let vertexCount = 0;
 		if (local.length > 0) {

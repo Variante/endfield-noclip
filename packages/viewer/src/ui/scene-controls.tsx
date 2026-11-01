@@ -316,14 +316,14 @@ const StoryControls = ({
 		));
 	const unplaced = grouped.get(null) ?? [];
 	// the main story's episodes and missions run in one line
-	const mainLine = [...missions.values()]
-		.filter((mission) => mission.category === 'main' && storyOrder(mission.id) !== null)
-		.map((mission) => mission.id)
-		.toSorted((a, b) => {
-			const [ae, am] = storyOrder(a)!;
-			const [be, bm] = storyOrder(b)!;
-			return ae - be || am - bm;
-		});
+	const mainLine = mapDefined([...missions.values()], (mission) =>
+		mission.category === 'main' && storyOrder(mission.id) !== null ? mission.id : undefined,
+	);
+	mainLine.sort((a, b) => {
+		const [ae, am] = storyOrder(a)!;
+		const [be, bm] = storyOrder(b)!;
+		return ae - be || am - bm;
+	});
 	return (
 		<>
 			{mainLine.some((id) => grouped.has(id)) && (

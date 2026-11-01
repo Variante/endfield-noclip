@@ -231,7 +231,8 @@ export const resolveLevelEnvironment = (
 			}
 		}
 	}
-	const shares = mapDefined(candidates, ({ share }) => (share.covered > 0 ? share : undefined)).toSorted(
+	const shares = mapDefined(candidates, ({ share }) => (share.covered > 0 ? share : undefined));
+	shares.sort(
 		(a, b) => b.covered - a.covered || a.volume.priority - b.volume.priority || a.volume.id - b.volume.id,
 	);
 	// a volume the game never shows in the level (always beaten) can't be its look
