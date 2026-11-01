@@ -245,6 +245,8 @@ packs or renders correctly.
 - story-state expressions and script relationships beyond what client data proves; event and server
   conditions may never be recoverable
 - control labels still show internal identifiers or representative mesh names in many places
+- runtime world-space UI, including Dijiang's cabin nameplates and assigned-operator panels, is not
+  drawn ([cabins](game-data/scene-states.md#dijiang-cabins))
 - animated poses and nonzero blend shapes; vertex-animation-texture meshes (`_vat`, e.g. floating
   rocks) draw their rest pose
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii

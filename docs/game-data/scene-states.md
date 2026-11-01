@@ -179,6 +179,13 @@ server creates it; its mission condition, `e1m9` completed, only locks interacti
 templates have no data file of their own (the weapon-wall racks, some doors), and some templates
 name no model.
 
+## destructible props
+
+map01 and map02's type-20 dynamic destructibles have one resource group with `logicState` 0 and no
+controller. they store the intact model, with no destroyed variant to select; destruction removes
+the prop at runtime. interactive destructibles are separate placements whose scripts can react to
+destruction.
+
 ## Dijiang cabins
 
 Dijiang (`base01_lv001`) has four cabin slots, `ExtraSceneSlot` entities (type 29) whose
@@ -200,7 +207,9 @@ once the box is unlocked. `SpaceshipGrowCabinLvTable` lists the planting fields 
 (`unlockPlantingField`: 1–3, 4–6, 7–9). unverified: the fields are numbered in the order the cabin
 scene's entity lists the boxes in its resource groups; that order opens the three tanks facing the
 console at level 1, as in game. a planted crop and the box's status bar are player state and runtime
-UI. manufacturing cabins' levels change only runtime state.
+UI. the room nameplate above a cabin door and the assigned-operator panel beside it are also
+world-space UI, populated from the room's name, level, status and operators; they are not cabin
+scene meshes. manufacturing cabins' levels change only runtime state.
 
 ## Dijiang region walls
 
