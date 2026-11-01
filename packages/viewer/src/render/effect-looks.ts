@@ -87,7 +87,11 @@ export const EffectRow = {
 	 * the most it pulls vertices towards the camera (`_VertCameraOffset`, m)
 	 */
 	offset: 116,
-	/** VFXBaseV2 vertex offset: 1 when on, 1 when the offset texture reads UV set 1, 0, 0 */
+	/**
+	 * VFXBaseV2: 1 when the vertex offset is on, 1 when the offset texture reads UV set 1, 1 when
+	 * `_USE_LIGHTING` lights the colour, 1 when it lights it at the world's up rather than the surface normal
+	 * (`_RotateNormalToWorldUp`)
+	 */
 	offsetMode: 120,
 	/**
 	 * 1 when the layer goes unfogged (its material lacks `_USE_FOG`, and the game draws effects after the fog),
@@ -217,6 +221,7 @@ const DECAL_SLOTS = [
 
 /** keywords VFXBaseV2 and VFXDecal can have and still be drawn */
 const BASE_KEYWORDS = new Set([
+	'_USE_LIGHTING',
 	'_SAMPLE_TEX0',
 	'_SAMPLE_TEX1',
 	'_SAMPLE_TEX2',
@@ -512,6 +517,10 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 			EffectRow.offset,
 		);
 		params.set([1, float('_OffsetUVSet', 0) !== 0 ? 1 : 0], EffectRow.offsetMode);
+	}
+	if (entry.keywords.includes('_USE_LIGHTING')) {
+		params[EffectRow.offsetMode + 2] = 1;
+		params[EffectRow.offsetMode + 3] = float('_RotateNormalToWorldUp', 0) !== 0 ? 1 : 0;
 	}
 	return look;
 };

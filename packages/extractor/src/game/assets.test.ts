@@ -254,6 +254,7 @@ test('prefab selection follows active hierarchy and LOD references, preserving m
 			info: objects[0],
 		},
 		null,
+		null,
 	);
 	assert.equal(rows.length, 2);
 	assert.equal(rows[1].pose?.[0][12], 10);
@@ -331,6 +332,7 @@ test('skinned prefab meshes resolve bones under inactive GameObjects', async () 
 			file: owner,
 			info: objects[0],
 		},
+		null,
 		null,
 	);
 	assert.deepEqual(

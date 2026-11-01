@@ -74,6 +74,7 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
  * @param root prefab GameObject
  * @param pose a pose to draw instead of the saved one, or `null`; the root's own Transform keeps the caller's
  *   placement
+ * @param particleQuad the unit quad billboard particle systems draw, or `null` to skip them
  * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement
  * @throws {FormatError} on malformed hierarchy, missing references or unsupported renderer dependencies
  */
@@ -81,6 +82,7 @@ export const readPrefabRenderers = async (
 	resolver: AssetResolver,
 	root: ObjectRef,
 	pose: PrefabPose | null,
+	particleQuad: ObjectRef | null,
 ): Promise<PrefabRenderer[]> => {
 	const candidates: {
 		ref: ObjectRef;
@@ -270,9 +272,12 @@ export const readPrefabRenderers = async (
 					// the shape scaling mode scales the shape alone, leaving the particles' sizes
 					const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
 					const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
-					// one emitter per mesh, each drawing the particles that picked it
-					for (const [i, pointer] of read.meshes.entries()) {
-						const mesh = await resolver.resolve(particles.ref, pointer);
+					// one emitter per mesh, each drawing the particles that picked it; quads have none of their own
+					const meshes =
+						read.meshes.length === 0
+							? [particleQuad]
+							: await Promise.all(read.meshes.map((pointer) => resolver.resolve(particles.ref, pointer)));
+					for (const [i, mesh] of meshes.entries()) {
 						if (mesh !== null) {
 							candidates.push({
 								...particles,

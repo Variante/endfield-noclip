@@ -1,8 +1,9 @@
 /**
- * plays the package's mesh particle systems. a system's particles each follow from their emission time and
- * their own random values (a hash of the emitter and the particle's index), so any moment can be evaluated on
- * its own: {@link ParticleSimulation} lists the particles alive at a system time, and {@link ParticleField}
- * writes them as instance rows next to the blocks, which the mesh selection then buckets like any instance.
+ * plays the package's particle systems, meshes and camera-facing quads alike. a system's particles each
+ * follow from their emission time and their own random values (a hash of the emitter and the particle's
+ * index), so any moment can be evaluated on its own: {@link ParticleSimulation} lists the particles alive at a
+ * system time, and {@link ParticleField} writes them as instance rows next to the blocks, which the mesh
+ * selection then buckets like any instance.
  *
  * the game's random draws can't be reproduced, so particles start in other places than in the game, with the
  * same distributions. looping systems are shown as if they had played for a while; others start when their
@@ -13,8 +14,13 @@
 
 import {
 	CurveMode,
+	type GradientInfo,
+	GradientMode,
 	type MinMaxCurveInfo,
+	type MinMaxGradientInfo,
 	ParticleAlignment,
+	type ParticleDragInfo,
+	ParticleRenderMode,
 	ParticleShapeKind,
 	type ParticleSystemInfo,
 	type ParticlesTable,
@@ -34,10 +40,21 @@ import { evaluateCurve } from './lens-flare-layout.ts';
 const GRAVITY = 9.81;
 
 /**
- * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, then
- * the texture sheet's tile (0 without a sheet)
+ * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the
+ * texture sheet's tile (0 without a sheet), colour (linear rgb, alpha), then velocity (m/s), all in the
+ * emitter's frame
  */
-export const PARTICLE_FLOATS = 11;
+export const PARTICLE_FLOATS = 18;
+
+/** where each value starts in a particle's {@link PARTICLE_FLOATS} */
+const At = {
+	position: 0,
+	rotation: 3,
+	size: 7,
+	tile: 10,
+	color: 11,
+	velocity: 15,
+} as const;
 
 /** the most particles one emitter shows */
 const MAX_PARTICLES = 1024;
@@ -90,6 +107,9 @@ const Channel = {
 	SheetRow: 29,
 	StartFrame: 30,
 	FrameOverTime: 31,
+	Color: 32,
+	ColorOverLifetime: 33,
+	Drag: 34,
 } as const;
 
 /**
@@ -131,6 +151,164 @@ export const evaluateMinMax = (curve: MinMaxCurveInfo, time: number, r: number):
 			return curve.min + (curve.scalar - curve.min) * r;
 		}
 	}
+};
+
+/**
+ * @param gradient a Unity gradient
+ * @param time where it's read, 0–1
+ * @returns its colour and alpha there, as authored
+ */
+export const evaluateGradient = (gradient: GradientInfo, time: number): [number, number, number, number] => {
+	// the keys around `time` and how far between them it lies: the next key's value alone when fixed, or before
+	// the first or past the last key
+	const around = (keys: readonly { time: number }[]): [number, number, number] => {
+		const next = keys.findIndex((key) => key.time >= time);
+		if (next < 0) {
+			return [keys.length - 1, keys.length - 1, 0];
+		}
+		if (next === 0 || gradient.fixed) {
+			return [next, next, 0];
+		}
+		const from = keys[next - 1].time;
+		const span = keys[next].time - from;
+		return [next - 1, next, span > 0 ? (time - from) / span : 1];
+	};
+	const [c0, c1, ct] = around(gradient.colorKeys);
+	const a = gradient.colorKeys[c0].color;
+	const b = gradient.colorKeys[c1].color;
+	const [a0, a1, at] = around(gradient.alphaKeys);
+	const alpha0 = gradient.alphaKeys[a0].alpha;
+	return [
+		a[0] + (b[0] - a[0]) * ct,
+		a[1] + (b[1] - a[1]) * ct,
+		a[2] + (b[2] - a[2]) * ct,
+		alpha0 + (gradient.alphaKeys[a1].alpha - alpha0) * at,
+	];
+};
+
+/**
+ * @param gradient a MinMaxGradient
+ * @param time where gradients are read, 0–1
+ * @param r the random value choosing between the two ends, or along a random colour's gradient, 0–1
+ * @returns its colour and alpha, as authored
+ */
+export const evaluateMinMaxGradient = (
+	gradient: MinMaxGradientInfo,
+	time: number,
+	r: number,
+): [number, number, number, number] => {
+	const between = (a: readonly number[], b: readonly number[]): [number, number, number, number] => [
+		a[0] + (b[0] - a[0]) * r,
+		a[1] + (b[1] - a[1]) * r,
+		a[2] + (b[2] - a[2]) * r,
+		a[3] + (b[3] - a[3]) * r,
+	];
+	const max = gradient.maxGradient;
+	switch (gradient.mode) {
+		case GradientMode.Color: {
+			return [...gradient.max];
+		}
+		case GradientMode.Gradient: {
+			return max === null ? [...gradient.max] : evaluateGradient(max, time);
+		}
+		case GradientMode.TwoColors: {
+			return between(gradient.min, gradient.max);
+		}
+		case GradientMode.TwoGradients: {
+			const high = max === null ? gradient.max : evaluateGradient(max, time);
+			const low = gradient.minGradient === null ? high : evaluateGradient(gradient.minGradient, time);
+			return between(low, high);
+		}
+		case GradientMode.RandomColor: {
+			return max === null ? [...gradient.max] : evaluateGradient(max, r);
+		}
+	}
+};
+
+/** the drag's deceleration per unit of speed (or speed squared), for a particle of a size */
+const dragRate = (drag: ParticleDragInfo, size: number, r: number): number =>
+	Math.max(evaluateMinMax(drag.amount, 0, r), 0) * (drag.bySize ? Math.PI * (size / 2) ** 2 : 1);
+
+/**
+ * a start velocity slowed by drag alone
+ *
+ * @returns how far it has carried the particle by `age` (m), and its speed then (m/s)
+ */
+export const dragged = (
+	drag: ParticleDragInfo,
+	speed: number,
+	size: number,
+	age: number,
+	r: number,
+): [number, number] => {
+	const k = dragRate(drag, size, r);
+	if (k <= 0) {
+		return [speed * age, speed];
+	}
+	if (drag.byVelocity) {
+		// dv/dt = −k v²
+		const sign = Math.sign(speed);
+		const v = Math.abs(speed);
+		return [(sign * Math.log1p(k * v * age)) / k, (sign * v) / (1 + k * v * age)];
+	}
+	// dv/dt = −k v
+	const decay = Math.exp(-k * age);
+	return [(speed * (1 - decay)) / k, speed * decay];
+};
+
+/**
+ * a fall from rest under gravity and drag, which the particle approaches its terminal speed in
+ *
+ * @param gravity the acceleration down the world's y, m/s² (negative rises)
+ * @returns how far it has fallen by `age` (m), and its speed then (m/s)
+ */
+export const draggedFall = (
+	drag: ParticleDragInfo,
+	gravity: number,
+	size: number,
+	age: number,
+	r: number,
+): [number, number] => {
+	const k = dragRate(drag, size, r);
+	if (k <= 0 || gravity === 0) {
+		return [0.5 * gravity * age * age, gravity * age];
+	}
+	const sign = Math.sign(gravity);
+	const g = Math.abs(gravity);
+	if (drag.byVelocity) {
+		const terminal = Math.sqrt(g / k);
+		const x = (g * age) / terminal;
+		// ln(cosh(x)), kept finite for large x
+		const logCosh = x + Math.log1p(Math.exp(-2 * x)) - Math.LN2;
+		return [(sign * terminal * terminal * logCosh) / g, sign * terminal * Math.tanh(x)];
+	}
+	const decay = Math.exp(-k * age);
+	return [(sign * g * (age - (1 - decay) / k)) / k, (sign * g * (1 - decay)) / k];
+};
+
+/** sample pairs {@link travelled} integrates a velocity curve over */
+const TRAVEL_STEPS = 8;
+
+/**
+ * @param curve a velocity, m/s, read at the particle's age over its lifetime
+ * @param age the particle's age, s
+ * @param life its lifetime, s
+ * @param r its random value for the velocity
+ * @returns how far the velocity has carried it, m
+ */
+export const travelled = (curve: MinMaxCurveInfo, age: number, life: number, r: number): number => {
+	if (curve.mode === CurveMode.Constant || curve.mode === CurveMode.TwoConstants) {
+		return evaluateMinMax(curve, 0, r) * age;
+	}
+	// Simpson's rule over the age
+	const at = (a: number) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r);
+	const n = TRAVEL_STEPS * 2;
+	const h = age / n;
+	let sum = at(0) + at(age);
+	for (let i = 1; i < n; i++) {
+		sum += at(i * h) * (i % 2 === 1 ? 4 : 2);
+	}
+	return (sum * h) / 3;
 };
 
 /**
@@ -337,6 +515,21 @@ export class ParticleSimulation {
 	/** seconds a looping system needs to look as if it had always played */
 	get settleTime(): number {
 		return this.info.startDelay + this.#lookback + this.info.duration;
+	}
+
+	/** the most particles alive at once: the cap, or less when one lifetime of emission holds fewer */
+	get liveBound(): number {
+		const { maxParticles, ringBuffer, bursts, duration } = this.info;
+		if (ringBuffer !== null) {
+			return maxParticles;
+		}
+		const loops = Math.ceil(this.#longest / duration) + 1;
+		const burstCount = bursts.reduce(
+			(sum, burst) => sum + Math.max(upperBound(burst.count), 0) * burst.cycles,
+			0,
+		);
+		const rate = Math.max(upperBound(this.info.rate), 0);
+		return Math.min(maxParticles, Math.ceil(rate * this.#longest + burstCount * loops) + 1);
 	}
 
 	/**
@@ -582,28 +775,56 @@ export class ParticleSimulation {
 				? 1
 				: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
 		const speed = evaluateMinMax(info.startSpeed, u, random(seed, id, Channel.Speed)) * modifier;
-		let travel: Vec3 = [direction[0] * speed * age, direction[1] * speed * age, direction[2] * speed * age];
+		const lived = life > 0 ? age / life : 0;
+		const sizeRandom = random(seed, id, Channel.Size);
+		const growth = random(seed, id, Channel.SizeOverLifetime);
+		const startSize = info.startSize.map((curve) => evaluateMinMax(curve, u, sizeRandom));
 		// gravity, which Unity always pulls down the world's y
-		const fall =
-			0.5 * GRAVITY * evaluateMinMax(info.gravityModifier, u, random(seed, id, Channel.Gravity)) * age * age;
-		travel = [travel[0] + down[0] * fall, travel[1] + down[1] * fall, travel[2] + down[2] * fall];
-		let position: Vec3 = [start[0] + travel[0], start[1] + travel[1], start[2] + travel[2]];
+		const gravity = GRAVITY * evaluateMinMax(info.gravityModifier, u, random(seed, id, Channel.Gravity));
+		const [launch, launchSpeed] =
+			info.drag === null
+				? [speed * age, speed]
+				: dragged(info.drag, speed, Math.max(...startSize), age, random(seed, id, Channel.Drag));
+		const [fall, fallSpeed] =
+			info.drag === null
+				? [0.5 * gravity * age * age, gravity * age]
+				: draggedFall(info.drag, gravity, Math.max(...startSize), age, random(seed, id, Channel.Drag));
+		let position: Vec3 = [
+			start[0] + direction[0] * launch + down[0] * fall,
+			start[1] + direction[1] * launch + down[1] * fall,
+			start[2] + direction[2] * launch + down[2] * fall,
+		];
+		let moving: Vec3 = [
+			direction[0] * launchSpeed + down[0] * fallSpeed,
+			direction[1] * launchSpeed + down[1] * fallSpeed,
+			direction[2] * launchSpeed + down[2] * fallSpeed,
+		];
 		if (velocity !== null) {
-			let linear: Vec3 = [
-				evaluateMinMax(velocity.linear[0], 0, random(seed, id, Channel.VelocityX)),
-				evaluateMinMax(velocity.linear[1], 0, random(seed, id, Channel.VelocityY)),
-				evaluateMinMax(velocity.linear[2], 0, random(seed, id, Channel.VelocityZ)),
-			];
+			const channels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
+			let linear: Vec3 = [0, 0, 0];
+			let linearNow: Vec3 = [0, 0, 0];
+			for (let axis = 0; axis < 3; axis++) {
+				const r = random(seed, id, channels[axis]);
+				linear[axis] = travelled(velocity.linear[axis], age, life, r);
+				linearNow[axis] = evaluateMinMax(velocity.linear[axis], lived, r);
+			}
 			if (velocity.linearInWorld) {
 				linear = worldToLocal(linear);
+				linearNow = worldToLocal(linearNow);
 			}
 			const offset = velocity.orbitalOffset;
-			const radial = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier * age;
+			const radialSpeed = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
+			const radial = radialSpeed * age;
 			const outward = normalize([start[0] - offset[0], start[1] - offset[1], start[2] - offset[2]]);
 			position = [
-				position[0] + linear[0] * modifier * age + outward[0] * radial,
-				position[1] + linear[1] * modifier * age + outward[1] * radial,
-				position[2] + linear[2] * modifier * age + outward[2] * radial,
+				position[0] + linear[0] * modifier + outward[0] * radial,
+				position[1] + linear[1] * modifier + outward[1] * radial,
+				position[2] + linear[2] * modifier + outward[2] * radial,
+			];
+			moving = [
+				moving[0] + linearNow[0] * modifier + outward[0] * radialSpeed,
+				moving[1] + linearNow[1] * modifier + outward[1] * radialSpeed,
+				moving[2] + linearNow[2] * modifier + outward[2] * radialSpeed,
 			];
 			// the orbit turns the particle about the offset at a constant rate; applied to the whole path, which is
 			// exact when the other motion runs along the orbit's axis (the crater rocks rise along theirs)
@@ -620,14 +841,9 @@ export class ParticleSimulation {
 			position = [turned[0] + offset[0], turned[1] + offset[1], turned[2] + offset[2]];
 		}
 
-		const lived = life > 0 ? age / life : 0;
-		const sizeRandom = random(seed, id, Channel.Size);
-		const growth = random(seed, id, Channel.SizeOverLifetime);
-		const size = info.startSize.map((curve, axis) => {
+		const size = startSize.map((value, axis) => {
 			const over = info.sizeOverLifetime;
-			return (
-				evaluateMinMax(curve, u, sizeRandom) * (over === null ? 1 : evaluateMinMax(over[axis], lived, growth))
-			);
+			return value * (over === null ? 1 : evaluateMinMax(over[axis], lived, growth));
 		});
 
 		const angles = info.startRotation.map((curve, axis) =>
@@ -648,13 +864,25 @@ export class ParticleSimulation {
 			]);
 			position = [position[0] + pivot[0], position[1] + pivot[1], position[2] + pivot[2]];
 		}
-		out.set(position, at);
-		out.set(rotation, at + 3);
-		out.set(size, at + 7);
-		out[at + 10] =
+		let color = evaluateMinMaxGradient(info.startColor, u, random(seed, id, Channel.Color));
+		if (info.colorOverLifetime !== null) {
+			const over = evaluateMinMaxGradient(
+				info.colorOverLifetime,
+				Math.min(lived, 1),
+				random(seed, id, Channel.ColorOverLifetime),
+			);
+			color = [color[0] * over[0], color[1] * over[1], color[2] * over[2], color[3] * over[3]];
+		}
+		out.set(position, at + At.position);
+		out.set(rotation, at + At.rotation);
+		out.set(size, at + At.size);
+		out[at + At.tile] =
 			info.textureSheet === null
 				? 0
 				: sheetTile(info.textureSheet, lived, age, u, (channel) => random(seed, id, channel), info.mesh);
+		out.set(linearRgb(color), at + At.color);
+		out[at + At.color + 3] = color[3];
+		out.set(moving, at + At.velocity);
 	}
 }
 
@@ -741,11 +969,6 @@ export class ParticleField {
 			if (info === undefined) {
 				return [];
 			}
-			const capacity = Math.min(info.maxParticles, MAX_PARTICLES);
-			const rows = this.#store.allocateRows(capacity);
-			if (rows === null) {
-				return [];
-			}
 			const f32 = instances.rowsF32;
 			const at = row * ROW_WORDS;
 			// emitters of one renderer's meshes share their place, so they share their particles' random values
@@ -753,8 +976,13 @@ export class ParticleField {
 				hash2(this.#salts[system], hashText(`${f32[at + 3]},${f32[at + 7]},${f32[at + 11]}`)),
 				0,
 			);
+			const simulation = new ParticleSimulation(info, seed);
+			const rows = this.#store.allocateRows(Math.max(Math.min(simulation.liveBound, MAX_PARTICLES), 1));
+			if (rows === null) {
+				return [];
+			}
 			emitter = {
-				simulation: new ParticleSimulation(info, seed),
+				simulation,
 				rows,
 				start: view.time,
 				frame: -1,
@@ -812,44 +1040,91 @@ export class ParticleField {
 		const words = this.#rows;
 		const block = instances.blockSlot;
 		const sheet = info.textureSheet;
-		const color = info.startColor;
-		const tinted = color.some((channel) => channel !== 1);
-		const colorWord = tinted ? packRowColor([...linearRgb(color), color[3]]) : 0;
+		// Unity's shape scaling moves particles with the transform's scale but leaves their size
+		const sizing = info.shapeScaling ? [1, 1, 1] : scales;
+		const toWorld = (v: ArrayLike<number>): Vec3 => [
+			m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+			m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
+			m[8] * v[0] + m[9] * v[1] + m[10] * v[2],
+		];
+		// the frame quads turn in, by render mode: the camera's, its heading's, or lying flat facing up
+		let frame: Vec3[] = [view.right, view.up, view.forward];
+		switch (info.renderMode) {
+			case ParticleRenderMode.Vertical: {
+				const forward = normalize([view.forward[0], 0, view.forward[2]]);
+				frame = [[forward[2], 0, -forward[0]], [0, 1, 0], forward];
+				break;
+			}
+			case ParticleRenderMode.Horizontal: {
+				frame = [
+					[1, 0, 0],
+					[0, 0, 1],
+					[0, -1, 0],
+				];
+				break;
+			}
+		}
 		emitter.live.length = 0;
 		for (let i = 0; i < count; i++) {
-			const p = scratch.subarray(i * PARTICLE_FLOATS, i * PARTICLE_FLOATS + 3);
-			const q = scratch.subarray(i * PARTICLE_FLOATS + 3, i * PARTICLE_FLOATS + 7);
-			const s = scratch.subarray(i * PARTICLE_FLOATS + 7, i * PARTICLE_FLOATS + 10);
+			const base = i * PARTICLE_FLOATS;
+			const p = scratch.subarray(base + At.position, base + At.position + 3);
+			const q = scratch.subarray(base + At.rotation, base + At.rotation + 4);
+			const s = scratch.subarray(base + At.size, base + At.size + 3);
 			// the particle's place, through the emitter's matrix
-			const center: Vec3 = [
-				m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3],
-				m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[7],
-				m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
-			];
+			const offset = toWorld(p);
+			const center: Vec3 = [offset[0] + m[3], offset[1] + m[7], offset[2] + m[11]];
 			// the rotation's axes, then the frame they turn in: the emitter's (local), the world's, or the camera's
 			let axes: Vec3[] = [rotate(q, [1, 0, 0]), rotate(q, [0, 1, 0]), rotate(q, [0, 0, 1])];
-			let sizes = [s[0] * scales[0], s[1] * scales[1], s[2] * scales[2]];
-			switch (info.alignment) {
-				case ParticleAlignment.Local: {
-					axes = axes.map((axis) => [
-						m[0] * axis[0] + m[1] * axis[1] + m[2] * axis[2],
-						m[4] * axis[0] + m[5] * axis[1] + m[6] * axis[2],
-						m[8] * axis[0] + m[9] * axis[1] + m[10] * axis[2],
-					]);
-					sizes = [s[0], s[1], s[2]];
-					break;
-				}
-				case ParticleAlignment.View: {
-					const { right, up, forward } = view;
-					axes = axes.map((axis) => [
-						right[0] * axis[0] + up[0] * axis[1] + forward[0] * axis[2],
-						right[1] * axis[0] + up[1] * axis[1] + forward[1] * axis[2],
-						right[2] * axis[0] + up[2] * axis[1] + forward[2] * axis[2],
-					]);
-					break;
-				}
-				case ParticleAlignment.World: {
-					break;
+			let sizes = [s[0] * sizing[0], s[1] * sizing[1], s[2] * sizing[2]];
+			const turn = (basis: readonly Vec3[]) => {
+				axes = axes.map((axis) => [
+					basis[0][0] * axis[0] + basis[1][0] * axis[1] + basis[2][0] * axis[2],
+					basis[0][1] * axis[0] + basis[1][1] * axis[1] + basis[2][1] * axis[2],
+					basis[0][2] * axis[0] + basis[1][2] * axis[1] + basis[2][2] * axis[2],
+				]);
+			};
+			if (info.renderMode === ParticleRenderMode.Stretched) {
+				// along the velocity as the camera sees it, lengthened by the length scale and the speed
+				const velocity = toWorld(scratch.subarray(base + At.velocity, base + At.velocity + 3));
+				const f = view.forward;
+				const ahead = velocity[0] * f[0] + velocity[1] * f[1] + velocity[2] * f[2];
+				const across: Vec3 = [
+					velocity[0] - f[0] * ahead,
+					velocity[1] - f[1] * ahead,
+					velocity[2] - f[2] * ahead,
+				];
+				const length = Math.hypot(...across);
+				const up = length > 1e-6 ? normalize(across) : view.up;
+				const right: Vec3 = normalize([
+					up[1] * f[2] - up[2] * f[1],
+					up[2] * f[0] - up[0] * f[2],
+					up[0] * f[1] - up[1] * f[0],
+				]);
+				axes = [right, up, [f[0], f[1], f[2]]];
+				const stretch = info.stretch ?? { lengthScale: 1, velocityScale: 0 };
+				sizes = [
+					sizes[0],
+					sizes[1] * stretch.lengthScale + Math.hypot(...velocity) * stretch.velocityScale,
+					sizes[2],
+				];
+			} else if (info.renderMode !== ParticleRenderMode.Mesh) {
+				turn(frame);
+			} else {
+				switch (info.alignment) {
+					case ParticleAlignment.Local: {
+						axes = axes.map(toWorld);
+						sizes = info.shapeScaling
+							? [s[0] / scales[0], s[1] / scales[1], s[2] / scales[2]]
+							: [s[0], s[1], s[2]];
+						break;
+					}
+					case ParticleAlignment.View: {
+						turn(frame);
+						break;
+					}
+					case ParticleAlignment.World: {
+						break;
+					}
 				}
 			}
 			const o = i * ROW_WORDS;
@@ -868,9 +1143,10 @@ export class ParticleField {
 			let rowWord =
 				sheet === null
 					? RowKind.Detail
-					: rowInfo(RowKind.Detail, sheet.tiles, scratch[i * PARTICLE_FLOATS + 10], sheet.uvChannels);
-			if (tinted) {
-				words[o + 18] = colorWord;
+					: rowInfo(RowKind.Detail, sheet.tiles, scratch[base + At.tile], sheet.uvChannels);
+			const color = scratch.subarray(base + At.color, base + At.color + 4);
+			if (color.some((channel) => channel !== 1)) {
+				words[o + 18] = packRowColor(color);
 				rowWord = (rowWord | ROW_COLORED) >>> 0;
 			}
 			words[o + 19] = rowWord;

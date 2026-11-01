@@ -98,6 +98,7 @@ import { mapDefined, unique } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
+import type { AssetResolver, ObjectRef } from '../game/assets.ts';
 import { billboardPlacement } from '../game/billboard.ts';
 import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
@@ -1117,6 +1118,7 @@ const collectEntities = async (
 	];
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
+	const particleQuad = await findParticleQuad(context, resolver);
 	// by prefab and pose
 	const prefabs = new Map<string, Promise<PrefabRenderer[]>>();
 	const prefabLights = new Map<bigint, Promise<PrefabLight[]>>();
@@ -1148,7 +1150,7 @@ const collectEntities = async (
 					{ hash: model.pathHash, path: paths[0] },
 					UnityClass.GameObject,
 				);
-				return readPrefabRenderers(resolver, root, pose);
+				return readPrefabRenderers(resolver, root, pose, particleQuad);
 			})().catch((error: unknown): PrefabRenderer[] => {
 				if (!(error instanceof FormatError)) {
 					throw error;
@@ -1380,6 +1382,22 @@ const syntheticEntityId = (levelTag: number, index: number): number => {
  * @returns the levels that have height pages, ascending, and the detail section, `null` when the scene's
  *   layers can't be packed
  */
+/** the render pipeline's unit quad, which billboard particles draw */
+const PARTICLE_QUAD_PATH = 'Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx';
+
+/** @returns the quad billboard particles draw, or `null` if the install doesn't have it where expected */
+const findParticleQuad = async (context: Context, resolver: AssetResolver): Promise<ObjectRef | null> => {
+	const [hash] = await context.world.hashesOf(PARTICLE_QUAD_PATH);
+	if (hash === undefined) {
+		return null;
+	}
+	try {
+		return await resolver.findUnique({ hash, path: PARTICLE_QUAD_PATH }, UnityClass.Mesh);
+	} catch {
+		return null;
+	}
+};
+
 const packTerrain = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver'>,
 	pack: PackState,

@@ -214,7 +214,8 @@ and rewrites them once per frame the emitter is selected. so every mesh shader d
 unchanged, and shadow and effect passes need nothing of their own. a system whose start colour isn't
 white writes it into its rows (`ROW_COLORED` in
 [`render/instance-rows.ts`](../packages/viewer/src/render/instance-rows.ts)), where it multiplies
-the mesh's vertex colours in the mesh and effect shaders.
+the mesh's vertex colours in the mesh and effect shaders. emitters take as many rows as one lifetime
+of emission can hold, up to the cap.
 
 each particle follows in closed form from its emission time and random values hashed from the
 emitter's place, the system and its index, so any moment can be evaluated on its own:
@@ -245,6 +246,17 @@ emitter's place, the system and its index, so any moment can be evaluated on its
   game's do).
 - a renderer with several meshes is several emitters at one place; they share their random values,
   so each draws the particles that picked its mesh.
+- a linear velocity curve is integrated over the age (Simpson's rule). drag slows the start velocity
+  alone, by `k v` or `k v²` (k the amount, times the cross-section `π (size / 2)²` when it scales
+  with size), and gravity falls towards the matching terminal speed; the velocity module's own terms
+  and orbits aren't slowed, and the size is the start size.
+- colour is the start colour (read at the emission's place in its loop) times the colour over
+  lifetime, blended in the authored colour space, then made linear into the row's colour word.
+- quads turn by the render mode: billboards with the camera (their rotation rolls them), vertical
+  ones with its heading, horizontal ones lie flat facing up, and stretched ones lie in the view
+  plane along the velocity as the camera sees it, their length the size times the length scale plus
+  the speed times the velocity scale, centred on the particle. the transform's scale doesn't size
+  the particles under the `Shape` scaling mode.
 
 the game's random sequence can't be reproduced, so particles start elsewhere than in the game with
 the same distributions. looping systems are evaluated as if they had played since long before the

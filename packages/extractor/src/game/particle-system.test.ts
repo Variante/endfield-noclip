@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
 	CurveMode,
+	GradientMode,
 	ParticleAlignment,
+	ParticleRenderMode,
 	ParticleShapeKind,
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
@@ -24,6 +26,22 @@ const curve = (keys: [number, number][]) => ({
 	},
 });
 const vector = (x: number, y: number, z: number) => ({ x, y, z });
+const white = { r: 1, g: 1, b: 1, a: 1 };
+/** a serialized Unity gradient from colour keys (rgb) and alpha keys, as `[time, value]` */
+const gradient = (colors: [number, [number, number, number]][], alphas: [number, number][], mode = 0) => {
+	const value: Record<string, unknown> = {
+		m_Mode: mode,
+		m_NumColorKeys: colors.length,
+		m_NumAlphaKeys: alphas.length,
+	};
+	for (let i = 0; i < 8; i++) {
+		const [r, g, b] = colors[i]?.[1] ?? [0, 0, 0];
+		value[`key${i}`] = { r, g, b, a: alphas[i]?.[1] ?? 0 };
+		value[`ctime${i}`] = Math.round((colors[i]?.[0] ?? 0) * 65_535);
+		value[`atime${i}`] = Math.round((alphas[i]?.[0] ?? 0) * 65_535);
+	}
+	return value;
+};
 const pointer = (pathId: bigint) => ({ m_FileID: 0, m_PathID: pathId });
 
 const system = (
@@ -42,7 +60,7 @@ const system = (
 		enabled: true,
 		startLifetime: constant(80),
 		startSpeed: constant(0),
-		startColor: { minMaxState: 0, maxColor: { r: 1, g: 1, b: 1, a: 1 } },
+		startColor: { minMaxState: 0, minColor: white, maxColor: white },
 		size3D: true,
 		startSize: between(5, 3),
 		startSizeY: between(5, 3),
@@ -190,10 +208,11 @@ const sheet = (overrides: Record<string, unknown> = {}) => ({
 });
 
 test('a ring-buffered flipbook particle keeps its sheet and how it outlives its lifetime', () => {
-	const faint = { startColor: { minMaxState: 0, maxColor: { r: 1, g: 1, b: 1, a: 0.25 } } };
+	const faint = { startColor: { minMaxState: 0, minColor: white, maxColor: { ...white, a: 0.25 } } };
 	const read = readParticleSystem(system({ ringBufferMode: 1, UVModule: sheet() }, faint), renderer());
 	assert.ok('info' in read);
-	assert.deepEqual(read.info.startColor, [1, 1, 1, 0.25]);
+	assert.deepEqual(read.info.startColor.max, [1, 1, 1, 0.25]);
+	assert.equal(read.info.startColor.maxGradient, null);
 	assert.deepEqual(read.info.ringBuffer, { loop: false, loopRange: [0, 1] });
 	const textureSheet = read.info.textureSheet;
 	assert.deepEqual(textureSheet?.tiles, [8, 8]);
@@ -257,7 +276,7 @@ test('systems the viewer cannot play say why', () => {
 		const read = readParticleSystem(s, r);
 		return 'reason' in read ? read.reason : null;
 	};
-	assert.equal(reason(system(), renderer({ m_RenderMode: 0 })), 'not mesh particles');
+	assert.equal(reason(system(), renderer({ m_RenderMode: 5 })), 'render mode 5');
 	assert.equal(reason(system({ NoiseModule: { enabled: true } })), 'NoiseModule');
 	assert.equal(reason(system({ ringBufferMode: 3 })), 'ring buffer mode 3');
 	assert.equal(reason(system({ UVModule: sheet({ mode: 1 }) })), 'sprite sheet');
@@ -265,14 +284,99 @@ test('systems the viewer cannot play say why', () => {
 	assert.equal(reason(system({ UVModule: sheet({ tilesX: 65 }) })), 'sheet of 65×8 tiles');
 	assert.equal(reason(system(), renderer({ m_RenderAlignment: 4 })), 'alignment 4');
 	assert.equal(reason(system(), renderer({ m_Mesh: pointer(0n) })), 'no mesh');
+	const turning = { ...curve([[0, 1]]), minMaxState: 1 };
 	assert.equal(
-		reason(system({}, { startColor: { minMaxState: 2, maxColor: { r: 1, g: 1, b: 1, a: 1 } } })),
-		'start colour',
+		reason(system({ VelocityModule: { ...(system().VelocityModule as object), radial: turning } })),
+		'velocity curves',
 	);
 	assert.equal(
 		reason(system({ EmissionModule: { enabled: true, rateOverTime: curve([[0, 1]]), m_Bursts: [] } })),
 		'rate curve',
 	);
+});
+
+test('billboards draw one quad, stretched ones keep how they lengthen', () => {
+	const billboard = readParticleSystem(system(), renderer({ m_RenderMode: 0, m_Mesh: pointer(0n) }));
+	assert.ok('info' in billboard);
+	assert.equal(billboard.info.renderMode, ParticleRenderMode.Billboard);
+	assert.deepEqual(billboard.meshes, []);
+	assert.deepEqual(billboard.info.meshWeights, [1]);
+	assert.equal(billboard.info.stretch, null);
+	const stretched = readParticleSystem(
+		system({ scalingMode: 2 }),
+		renderer({ m_RenderMode: 1, m_LengthScale: 1.5, m_VelocityScale: 0.2 }),
+	);
+	assert.ok('info' in stretched);
+	assert.deepEqual(stretched.info.stretch, { lengthScale: 1.5, velocityScale: 0.2 });
+	assert.equal(stretched.info.shapeScaling, true);
+	assert.equal(billboard.info.shapeScaling, false);
+});
+
+test('start colours and colour over lifetime keep their gradients and random ranges', () => {
+	const read = readParticleSystem(
+		system(
+			{
+				ColorModule: {
+					enabled: true,
+					gradient: {
+						minMaxState: 3,
+						minColor: white,
+						maxColor: white,
+						maxGradient: gradient(
+							[
+								[0, [1, 1, 1]],
+								[1, [0.5, 0.5, 0.5]],
+							],
+							[
+								[0, 0],
+								[0.4, 1],
+								[1, 1],
+							],
+						),
+						minGradient: gradient([[0, [1, 1, 1]]], [[0, 1]], 1),
+					},
+				},
+			},
+			{
+				startColor: { minMaxState: 2, minColor: { ...white, a: 0.2 }, maxColor: { ...white, a: 0.45 } },
+			},
+		),
+		renderer(),
+	);
+	assert.ok('info' in read);
+	const { startColor, colorOverLifetime } = read.info;
+	assert.equal(startColor.mode, GradientMode.TwoColors);
+	assert.equal(startColor.min[3], 0.2);
+	assert.equal(startColor.max[3], 0.45);
+	assert.equal(colorOverLifetime?.mode, GradientMode.TwoGradients);
+	assert.deepEqual(colorOverLifetime?.maxGradient?.colorKeys, [
+		{ time: 0, color: [1, 1, 1] },
+		{ time: 1, color: [0.5, 0.5, 0.5] },
+	]);
+	assert.deepEqual(
+		colorOverLifetime?.maxGradient?.alphaKeys.map((key) => key.alpha),
+		[0, 1, 1],
+	);
+	assert.ok(Math.abs((colorOverLifetime?.maxGradient?.alphaKeys[1].time ?? 0) - 0.4) < 1e-4);
+	assert.equal(colorOverLifetime?.maxGradient?.fixed, false);
+	assert.equal(colorOverLifetime?.minGradient?.fixed, true);
+});
+
+test('linear velocities can be curves', () => {
+	const read = readParticleSystem(
+		system({
+			VelocityModule: {
+				...(system().VelocityModule as object),
+				y: curve([
+					[0, 0],
+					[1, 2],
+				]),
+			},
+		}),
+		renderer(),
+	);
+	assert.ok('info' in read);
+	assert.equal(read.info.velocity?.linear[1].mode, CurveMode.Curve);
 });
 
 test('the reach covers the cone, the rise under gravity and the largest mesh', () => {

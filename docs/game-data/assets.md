@@ -194,9 +194,11 @@ report; other errors fail the pack. a prefab's environment volumes are read sepa
 
 ### particle systems
 
-a mesh-mode `ParticleSystemRenderer` (`m_RenderMode` 4) whose `ParticleSystem` plays on awake is
-packed one of two ways; other particle systems (billboards, systems that don't play on awake) draw
-nothing.
+a `ParticleSystemRenderer` whose `ParticleSystem` plays on awake is packed one of two ways; systems
+that don't play on awake draw nothing. mesh-mode renderers (`m_RenderMode` 4) draw their meshes; the
+others (billboard 0, stretched 1, horizontal 2, vertical 3) draw the render pipeline's unit quad
+(`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx`), which the packer
+looks up once per scene.
 
 **a frozen particle**, read as a plain mesh
 ([particle-mesh.ts](../../packages/extractor/src/game/particle-mesh.ts)): the system allows one
@@ -209,24 +211,31 @@ draws can't be reproduced; curves and camera-facing alignments disqualify a syst
 spin over its lifetime and the start colour are dropped. Wuling City's threads swirling over the
 pillar array (`p_fxmap_lv002_fangyuzhenlie_*`) are such particles.
 
-**a played system**, when a viewer can play it from the package alone
+**a played system**, mesh or quad, when a viewer can play it from the package alone
 ([particle-system.ts](../../packages/extractor/src/game/particle-system.ts)): the renderer becomes
 an emitter whose draw names a particles-table entry
 ([package format](../package-format.md#particles)), its matrix the emitter's transform (with its
 local scale unless `scalingMode` is Shape) and its bounds a box around everywhere a particle can
 reach. the entry keeps:
 
+- the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
+  is `Shape` (the transform's scale moves particles but leaves their size)
 - the duration, looping, start delay, particle cap and simulation speed. some systems store a cap
   (`maxNumParticles`) of 0 yet show in game, such as the tilted torch flames
   (`P_fxmap_common_tiltedflame_2501`), so the game must size them itself. their cap becomes the most
   one longest lifetime of emission holds: the top rate times the lifetime, plus each loop's top
   burst counts times the loops that lifetime spans
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
-  `MinMaxCurve`s, the bursts, and the start colour
+  `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s
+  (gradient key times are stored as 0–65535)
 - the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
   angle, length, arc, placement and random-direction and -position amounts)
-- the velocity module (linear, orbital about an offset, radial, speed modifier), and size and
-  rotation over lifetime
+- the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as
+  constants), and size and rotation over lifetime
+- the drag of a Limit Velocity module whose `dampen` is 0, so its speed limit does nothing: its
+  amount and whether it scales with the particle's size and its speed squared. the splashes at the
+  foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on it to
+  hang in the air rather than drop under their 2–6× gravity
 - the render alignment (Facing is kept as View) and pivot
 - the ring buffer: `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
   replays `ringBufferLoopRange`
@@ -237,13 +246,14 @@ reach. the entry keeps:
 each particle draws one of up to four meshes (`m_Mesh` … `m_Mesh3`), evenly or by `m_MeshWeighting*`
 when `m_MeshDistribution` is 1, so a renderer with several becomes one emitter per mesh, its entry
 naming which. a system is skipped when it enables a module whose effect the viewer doesn't evaluate
-(forces, noise, collision, triggers, sub-emitters, lights, trails, colour, the by-speed modules,
-custom data, velocity limits), or uses sprite sheets, sheets timed by speed, velocity or rotation
-curves, a rate curve, a start colour that varies between particles, or velocity alignment. the
-floating rocks over Origin Lodespring's crater (`Rock02` in `P_fxmap_common_brokentree_01/02`, four
-rock meshes each) and the campfire flames (`fire01`/`fire02` in
-`P_fxmap_common_damagefire_small_2501`, one ring-buffered particle stepping through an 8×8 flipbook
-every loop) are such systems; [viewer](../viewer.md#particles) describes how they play.
+(forces, noise, collision, triggers, sub-emitters, lights, trails, the by-speed modules, custom
+data), a speed limit that acts, or uses sprite sheets, sheets timed by speed, orbital, radial or
+rotation curves, a drag or rate curve, or velocity alignment. the floating rocks over Origin
+Lodespring's crater (`Rock02` in `P_fxmap_common_brokentree_01/02`, four rock meshes each), the
+campfire flames (`fire01`/`fire02` in `P_fxmap_common_damagefire_small_2501`, one ring-buffered
+particle stepping through an 8×8 flipbook every loop) and the spray and stretched mist cards at the
+foot of falls (`shuihua`, `shuiwu`) are such systems; [viewer](../viewer.md#particles) describes how
+they play.
 
 ### billboards
 

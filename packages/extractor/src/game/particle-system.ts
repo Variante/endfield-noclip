@@ -1,8 +1,9 @@
 /**
- * mesh particle systems a viewer can play: a `ParticleSystem` whose renderer draws one mesh per particle and
- * whose modules all have closed forms (constant or two-constant velocities, gravity, orbits, size and
- * rotation over lifetime, flipbooks), read into the package's {@link ParticleSystemInfo}. the floating rocks
- * rising over Origin Lodespring's crater and the Hub's campfire flames are such systems.
+ * particle systems a viewer can play: a `ParticleSystem` whose renderer draws one mesh or one camera-facing
+ * quad per particle and whose modules all have closed forms (velocities, gravity, orbits, size, rotation and
+ * colour over lifetime, flipbooks), read into the package's {@link ParticleSystemInfo}. the floating rocks
+ * rising over Origin Lodespring's crater, the Hub's campfire flames and the spray at the foot of Jingyu
+ * Valley's falls are such systems.
  *
  * @module
  */
@@ -24,9 +25,14 @@ import {
 import type { AnimationCurve, CurveKey } from '@endfield-noclip/package-format/environment';
 import {
 	CurveMode,
+	type GradientInfo,
+	GradientMode,
 	type MinMaxCurveInfo,
+	type MinMaxGradientInfo,
 	ParticleAlignment,
 	type ParticleBurstInfo,
+	type ParticleDragInfo,
+	ParticleRenderMode,
 	type ParticleRingBufferInfo,
 	type ParticleShapeInfo,
 	ParticleShapeKind,
@@ -36,8 +42,7 @@ import {
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
 
-/** `ParticleSystemRenderer.m_RenderMode` that draws a mesh per particle */
-const RENDER_MODE_MESH = 4;
+import { SCALING_SHAPE } from './particle-mesh.ts';
 
 /** the renderer's meshes and their weights */
 const MESH_FIELDS = ['m_Mesh', 'm_Mesh1', 'm_Mesh2', 'm_Mesh3'] as const;
@@ -57,21 +62,16 @@ const ALIGNMENT_FACING = 3;
 /** Unity's gravity, m/s² */
 const GRAVITY = 9.81;
 
-/**
- * modules whose effect the viewer doesn't evaluate; a system with any of them enabled isn't played. colour
- * modules are among them because a mesh particle's colour reaches the shader only through per-particle data
- */
+/** modules whose effect the viewer doesn't evaluate; a system with any of them enabled isn't played */
 const UNSUPPORTED_MODULES = [
 	'ForceModule',
 	'ExternalForcesModule',
-	'ClampVelocityModule',
 	'NoiseModule',
 	'CollisionModule',
 	'TriggerModule',
 	'SubModule',
 	'LightsModule',
 	'TrailModule',
-	'ColorModule',
 	'ColorBySpeedModule',
 	'SizeBySpeedModule',
 	'RotationBySpeedModule',
@@ -88,7 +88,10 @@ export type ParticleSystemRead =
 	| {
 			/** the system, drawing the first of its meshes */
 			info: ParticleSystemInfo;
-			/** the meshes particles pick from, in the order of {@link ParticleSystemInfo.meshWeights} */
+			/**
+			 * the meshes particles pick from, in the order of {@link ParticleSystemInfo.meshWeights}; empty for
+			 * quads, which the caller supplies
+			 */
 			meshes: PPtr[];
 	  }
 	| { reason: string };
@@ -174,14 +177,72 @@ export const curveReach = (curve: MinMaxCurveInfo): number => {
 const enabled = (system: TypeTreeObject, module: string): boolean =>
 	isObject(system[module]) && booleanField(system[module], 'enabled');
 
-/** @returns the start colour when it's one colour for every particle, else `null` (gradients, random picks) */
-const startColorOf = (initial: TypeTreeObject): [number, number, number, number] | null => {
-	const color = objectField(initial, 'startColor');
-	if (numberField(color, 'minMaxState') !== 0) {
-		return null;
+const rgba = (value: TypeTreeObject): [number, number, number, number] => [
+	numberField(value, 'r'),
+	numberField(value, 'g'),
+	numberField(value, 'b'),
+	numberField(value, 'a'),
+];
+
+/** Unity's `GradientMode.Fixed` */
+const GRADIENT_FIXED = 1;
+
+/** the most keys a Unity gradient holds */
+const GRADIENT_KEYS = 8;
+
+/**
+ * @param value a serialized `Gradient`
+ * @returns its keys
+ * @throws {FormatError} on a key count outside 1–8
+ */
+export const readGradient = (value: TypeTreeObject): GradientInfo => {
+	const colors = numberField(value, 'm_NumColorKeys');
+	const alphas = numberField(value, 'm_NumAlphaKeys');
+	if (colors < 1 || colors > GRADIENT_KEYS || alphas < 1 || alphas > GRADIENT_KEYS) {
+		throw new FormatError(`gradient with ${colors} colour and ${alphas} alpha keys`);
 	}
-	const max = objectField(color, 'maxColor');
-	return [numberField(max, 'r'), numberField(max, 'g'), numberField(max, 'b'), numberField(max, 'a')];
+	// key times are stored as 0–65535
+	return {
+		colorKeys: Array.from({ length: colors }, (_, i) => {
+			const [r, g, b] = rgba(objectField(value, `key${i}`));
+			return { time: numberField(value, `ctime${i}`) / 65_535, color: [r, g, b] };
+		}),
+		alphaKeys: Array.from({ length: alphas }, (_, i) => ({
+			time: numberField(value, `atime${i}`) / 65_535,
+			alpha: rgba(objectField(value, `key${i}`))[3],
+		})),
+		fixed: numberField(value, 'm_Mode') === GRADIENT_FIXED,
+	};
+};
+
+/**
+ * @param value a serialized `MinMaxGradient`
+ * @returns it, with only the gradients its mode reads
+ * @throws {FormatError} on an unknown mode
+ */
+export const readMinMaxGradient = (value: TypeTreeObject): MinMaxGradientInfo => {
+	const mode = numberField(value, 'minMaxState');
+	switch (mode) {
+		case GradientMode.Color:
+		case GradientMode.Gradient:
+		case GradientMode.TwoColors:
+		case GradientMode.TwoGradients:
+		case GradientMode.RandomColor: {
+			break;
+		}
+		default: {
+			throw new FormatError(`unknown MinMaxGradient mode ${mode}`);
+		}
+	}
+	const gradients =
+		mode === GradientMode.Gradient || mode === GradientMode.TwoGradients || mode === GradientMode.RandomColor;
+	return {
+		mode,
+		max: rgba(objectField(value, 'maxColor')),
+		min: rgba(objectField(value, 'minColor')),
+		maxGradient: gradients ? readGradient(objectField(value, 'maxGradient')) : null,
+		minGradient: mode === GradientMode.TwoGradients ? readGradient(objectField(value, 'minGradient')) : null,
+	};
 };
 
 const readShape = (shape: TypeTreeObject): ParticleShapeInfo | string => {
@@ -213,7 +274,8 @@ const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo | string =
 	const linear = curves(['x', 'y', 'z']);
 	const orbital = curves(['orbitalX', 'orbitalY', 'orbitalZ']);
 	const [radial, speedModifier] = curves(['radial', 'speedModifier']);
-	if (![...linear, ...orbital, radial, speedModifier].every(isConstant)) {
+	// linear velocities integrate over a particle's age; the others turn or push along paths that don't
+	if (![...orbital, radial, speedModifier].every(isConstant)) {
 		return 'velocity curves';
 	}
 	return {
@@ -227,6 +289,25 @@ const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo | string =
 		],
 		radial,
 		speedModifier,
+	};
+};
+
+const readDrag = (clamp: TypeTreeObject): ParticleDragInfo | null | string => {
+	// a dampen of 0 lets particles pass the speed limit untouched, leaving only the drag
+	if (numberField(clamp, 'dampen') !== 0) {
+		return 'velocity limit';
+	}
+	const amount = readMinMaxCurve(objectField(clamp, 'drag'));
+	if (!isConstant(amount)) {
+		return 'drag curve';
+	}
+	if (curveReach(amount) === 0) {
+		return null;
+	}
+	return {
+		amount,
+		bySize: booleanField(clamp, 'multiplyDragByParticleSize'),
+		byVelocity: booleanField(clamp, 'multiplyDragByParticleVelocity'),
 	};
 };
 
@@ -326,17 +407,27 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
 };
 
 /**
- * reads a mesh particle system that plays on its own once loaded.
+ * reads a particle system that plays on its own once loaded.
  *
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
- * @returns the system and the meshes its particles draw, or why the viewer can't play it: another render
- *   mode, a module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves, a rate
- *   curve, a start colour that varies, no mesh, or velocity alignment
+ * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
+ *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
+ *   ones, a speed limit, a drag or rate curve, no mesh, or velocity alignment
  */
 export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObject): ParticleSystemRead => {
-	if (numberField(renderer, 'm_RenderMode') !== RENDER_MODE_MESH) {
-		return { reason: 'not mesh particles' };
+	const renderMode = numberField(renderer, 'm_RenderMode');
+	switch (renderMode) {
+		case ParticleRenderMode.Billboard:
+		case ParticleRenderMode.Stretched:
+		case ParticleRenderMode.Horizontal:
+		case ParticleRenderMode.Vertical:
+		case ParticleRenderMode.Mesh: {
+			break;
+		}
+		default: {
+			return { reason: `render mode ${renderMode}` };
+		}
 	}
 	if (!booleanField(system, 'playOnAwake')) {
 		return { reason: 'not played on awake' };
@@ -349,22 +440,27 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 	if (unsupported !== undefined) {
 		return { reason: unsupported };
 	}
-	// each particle picks one of up to four meshes, evenly or by the weights
-	const weighted = (optionalNumberField(renderer, 'm_MeshDistribution') ?? 0) === MESH_DISTRIBUTION_WEIGHTED;
+	// each particle picks one of up to four meshes, evenly or by the weights; other modes draw one quad
 	const meshes: PPtr[] = [];
 	const meshWeights: number[] = [];
-	for (const [i, field] of MESH_FIELDS.entries()) {
-		if (!isObject(renderer[field]) || pptrField(renderer, field).pathId === 0n) {
-			continue;
+	if (renderMode === ParticleRenderMode.Mesh) {
+		const weighted =
+			(optionalNumberField(renderer, 'm_MeshDistribution') ?? 0) === MESH_DISTRIBUTION_WEIGHTED;
+		for (const [i, field] of MESH_FIELDS.entries()) {
+			if (!isObject(renderer[field]) || pptrField(renderer, field).pathId === 0n) {
+				continue;
+			}
+			const weight = weighted ? (optionalNumberField(renderer, MESH_WEIGHT_FIELDS[i]) ?? 1) : 1;
+			if (weight > 0) {
+				meshes.push(pptrField(renderer, field));
+				meshWeights.push(weight);
+			}
 		}
-		const weight = weighted ? (optionalNumberField(renderer, MESH_WEIGHT_FIELDS[i]) ?? 1) : 1;
-		if (weight > 0) {
-			meshes.push(pptrField(renderer, field));
-			meshWeights.push(weight);
+		if (meshes.length === 0) {
+			return { reason: 'no mesh' };
 		}
-	}
-	if (meshes.length === 0) {
-		return { reason: 'no mesh' };
+	} else {
+		meshWeights.push(1);
 	}
 	const renderAlignment = numberField(renderer, 'm_RenderAlignment');
 	let alignment: ParticleAlignment;
@@ -384,10 +480,6 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 		}
 	}
 	const initial = objectField(system, 'InitialModule');
-	const startColor = startColorOf(initial);
-	if (startColor === null) {
-		return { reason: 'start colour' };
-	}
 	const emission = objectField(system, 'EmissionModule');
 	const emits = booleanField(emission, 'enabled');
 	const rate = emits
@@ -420,6 +512,14 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 			return { reason: read };
 		}
 		velocity = read;
+	}
+	let drag: ParticleDragInfo | null = null;
+	if (enabled(system, 'ClampVelocityModule')) {
+		const read = readDrag(objectField(system, 'ClampVelocityModule'));
+		if (typeof read === 'string') {
+			return { reason: read };
+		}
+		drag = read;
 	}
 
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));
@@ -477,6 +577,15 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 	const delay = curve(system, 'startDelay');
 	return {
 		info: {
+			renderMode,
+			stretch:
+				renderMode === ParticleRenderMode.Stretched
+					? {
+							lengthScale: numberField(renderer, 'm_LengthScale'),
+							velocityScale: numberField(renderer, 'm_VelocityScale'),
+						}
+					: null,
+			shapeScaling: numberField(system, 'scalingMode') === SCALING_SHAPE,
 			duration,
 			looping: booleanField(system, 'looping'),
 			// a random delay takes its midpoint, a curve none
@@ -486,7 +595,10 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 			maxParticles,
 			simulationSpeed: numberField(system, 'simulationSpeed'),
 			startLifetime,
-			startColor,
+			startColor: readMinMaxGradient(objectField(initial, 'startColor')),
+			colorOverLifetime: enabled(system, 'ColorModule')
+				? readMinMaxGradient(objectField(objectField(system, 'ColorModule'), 'gradient'))
+				: null,
 			startSpeed: curve(initial, 'startSpeed'),
 			startSize,
 			startRotation,
@@ -495,6 +607,7 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 			bursts,
 			shape,
 			velocity,
+			drag,
 			sizeOverLifetime,
 			rotationOverLifetime,
 			alignment,
@@ -538,11 +651,17 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 			s.randomPosition * Math.sqrt(3);
 	}
 	const gravity = 0.5 * GRAVITY * curveReach(info.gravityModifier) * life * life;
-	const size =
+	let size =
 		meshRadius *
 		Math.max(...info.startSize.map(curveReach)) *
 		Math.max(1, ...(info.sizeOverLifetime ?? []).map(curveReach)) *
 		Math.max(1, Math.hypot(...info.pivot));
+	if (info.stretch !== null) {
+		// a stretched quad lengthens by its length scale and its speed
+		const fastest = speed * speedScale + GRAVITY * curveReach(info.gravityModifier) * life;
+		size =
+			size * Math.max(1, Math.abs(info.stretch.lengthScale)) + Math.abs(info.stretch.velocityScale) * fastest;
+	}
 	// orbits keep a particle's distance from their centre, which lies `offset` from the emitter
 	const half = 2 * offset + shape + speed * speedScale * life + gravity + size;
 	return { center: [0, 0, 0], extents: [half, half, half] };

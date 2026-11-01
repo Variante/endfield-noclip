@@ -3,9 +3,10 @@ import type { Vec3 } from './values.ts';
 
 /**
  * `tables/particles.json`: the particle systems that chain draws emit ({@link ChainDraw.particles}), loaded
- * with the core. each is a Unity `ParticleSystem` drawing one mesh per particle, reduced to the modules a
- * viewer can evaluate in closed form: a particle's state follows from its emission time and its own random
- * values, so a viewer can place every live particle at any time without stepping a simulation
+ * with the core. each is a Unity `ParticleSystem` drawing one mesh or one camera-facing quad per particle,
+ * reduced to the modules a viewer can evaluate in closed form: a particle's state follows from its emission
+ * time and its own random values, so a viewer can place every live particle at any time without stepping a
+ * simulation
  */
 export interface ParticlesTable {
 	systems: ParticleSystemInfo[];
@@ -36,6 +37,68 @@ export interface MinMaxCurveInfo {
 	curve: AnimationCurve | null;
 	/** the lower curve ({@link CurveMode.TwoCurves}); `null` otherwise */
 	minCurve: AnimationCurve | null;
+}
+
+/** {@link MinMaxGradientInfo.mode} values, Unity's `ParticleSystemGradientMode` */
+export const GradientMode = {
+	Color: 0,
+	Gradient: 1,
+	TwoColors: 2,
+	TwoGradients: 3,
+	/** a random point of the gradient */
+	RandomColor: 4,
+} as const;
+
+export type GradientMode = (typeof GradientMode)[keyof typeof GradientMode];
+
+/** a Unity `Gradient`: colour and alpha keys over 0–1 */
+export interface GradientInfo {
+	/** at least one key, in time order; colours as authored (sRGB) */
+	colorKeys: { time: number; color: [r: number, g: number, b: number] }[];
+	/** at least one key, in time order */
+	alphaKeys: { time: number; alpha: number }[];
+	/** each key's value holds until the key's time instead of blending towards it (Unity's `Fixed` mode) */
+	fixed: boolean;
+}
+
+/**
+ * a Unity `MinMaxGradient`: a colour, a gradient, a random value between two of either, or a random point of
+ * a gradient. gradients are read at a normalized time, as {@link MinMaxCurveInfo}'s curves are
+ */
+export interface MinMaxGradientInfo {
+	mode: GradientMode;
+	/** the colour (or the upper one), rgba as authored (sRGB rgb) */
+	max: [r: number, g: number, b: number, a: number];
+	/** the lower colour ({@link GradientMode.TwoColors}) */
+	min: [r: number, g: number, b: number, a: number];
+	/** the gradient, or the upper one; `null` for colours */
+	maxGradient: GradientInfo | null;
+	/** the lower gradient ({@link GradientMode.TwoGradients}); `null` otherwise */
+	minGradient: GradientInfo | null;
+}
+
+/** {@link ParticleSystemInfo.renderMode} values, Unity's `ParticleSystemRenderMode` */
+export const ParticleRenderMode = {
+	/** a quad facing the camera */
+	Billboard: 0,
+	/** a quad facing the camera, stretched along the particle's velocity ({@link ParticleSystemInfo.stretch}) */
+	Stretched: 1,
+	/** a quad lying flat, facing up the world's y */
+	Horizontal: 2,
+	/** a quad facing the camera's heading, kept upright */
+	Vertical: 3,
+	/** the system's meshes ({@link ParticleSystemInfo.meshWeights}) */
+	Mesh: 4,
+} as const;
+
+export type ParticleRenderMode = (typeof ParticleRenderMode)[keyof typeof ParticleRenderMode];
+
+/** how a {@link ParticleRenderMode.Stretched} particle's quad lengthens */
+export interface ParticleStretchInfo {
+	/** its length in units of its width */
+	lengthScale: number;
+	/** metres added to its length per m/s of speed */
+	velocityScale: number;
 }
 
 /** {@link ParticleShapeInfo.kind} values, Unity's `ParticleSystemShapeType` (those a viewer emits from) */
@@ -109,6 +172,18 @@ export type ParticleAlignment = (typeof ParticleAlignment)[keyof typeof Particle
  * y, so it is given in the world frame
  */
 export interface ParticleSystemInfo {
+	/**
+	 * what each particle draws. every mode but {@link ParticleRenderMode.Mesh} draws a unit quad in its xy plane
+	 * (the chain draw's geometry), turned as the mode says
+	 */
+	renderMode: ParticleRenderMode;
+	/** how {@link ParticleRenderMode.Stretched} quads lengthen; `null` for other modes */
+	stretch: ParticleStretchInfo | null;
+	/**
+	 * the transform's scale moves the particles but leaves their size (Unity's `Shape` scaling mode); otherwise
+	 * it scales both
+	 */
+	shapeScaling: boolean;
 	/** seconds per loop; emission stops after one when not {@link looping} */
 	duration: number;
 	looping: boolean;
@@ -120,8 +195,10 @@ export interface ParticleSystemInfo {
 	simulationSpeed: number;
 	/** seconds; read at the emission time over the duration */
 	startLifetime: MinMaxCurveInfo;
-	/** every particle's colour, rgba as authored (sRGB rgb); it multiplies the mesh's vertex colours */
-	startColor: [number, number, number, number];
+	/** each particle's colour, read at the emission's place in its loop; it multiplies the mesh's vertex colours */
+	startColor: MinMaxGradientInfo;
+	/** a multiplier of the start colour, read at each particle's age over its lifetime; `null` without */
+	colorOverLifetime: MinMaxGradientInfo | null;
 	/** m/s along the shape's start direction */
 	startSpeed: MinMaxCurveInfo;
 	/** x, y and z scale of the mesh, m */
@@ -137,6 +214,11 @@ export interface ParticleSystemInfo {
 	shape: ParticleShapeInfo | null;
 	/** extra velocity over each particle's lifetime (Unity's `VelocityModule`); `null` without */
 	velocity: ParticleVelocityInfo | null;
+	/**
+	 * drag slowing each particle's start velocity and its fall (Unity's `ClampVelocityModule` without a speed
+	 * limit); `null` without
+	 */
+	drag: ParticleDragInfo | null;
 	/** a multiplier of the start size over each particle's lifetime, per axis; `null` without */
 	sizeOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
 	/** angular velocity about x, y and z, radians per second; `null` without */
@@ -146,7 +228,8 @@ export interface ParticleSystemInfo {
 	pivot: Vec3;
 	/**
 	 * the relative chance of each of the system's meshes (up to four); each particle draws one. a renderer with
-	 * several meshes is one entry per mesh, differing only in {@link mesh}, each drawing its own particles
+	 * several meshes is one entry per mesh, differing only in {@link mesh}, each drawing its own particles.
+	 * quads are one mesh, `[1]`
 	 */
 	meshWeights: number[];
 	/** which of {@link meshWeights} the draw naming this entry shows */
@@ -203,9 +286,19 @@ export interface ParticleTextureSheetInfo {
 	uvChannels: number;
 }
 
-/** Unity's `VelocityModule`, with constant (or two-constant) terms */
+/** how strongly the air slows a particle: its deceleration is {@link amount} times the factors chosen */
+export interface ParticleDragInfo {
+	/** a constant or two */
+	amount: MinMaxCurveInfo;
+	/** times the particle's cross-section, π (size / 2)² */
+	bySize: boolean;
+	/** times its speed squared rather than its speed */
+	byVelocity: boolean;
+}
+
+/** Unity's `VelocityModule`; all but {@link linear} are constant (or two-constant) */
 export interface ParticleVelocityInfo {
-	/** m/s along x, y and z */
+	/** m/s along x, y and z, read at the particle's age over its lifetime */
 	linear: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
 	/** whether {@link linear} is in world axes rather than the emitter's */
 	linearInWorld: boolean;

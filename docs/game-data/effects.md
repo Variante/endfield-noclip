@@ -46,7 +46,11 @@ position, centred and divided by half the width, v optionally the world height
 (`_ScreenUVUseDepth`, on by default); those relative to the object (`_LocalPivortSpace`) aren't
 drawn. a source that isn't computed is zero, so a texture weighted to it only scrolls. the sixth
 sample texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`; the
-viewer gives it the vertex offset's slot, so materials with both stay hidden. the colour starts from
+viewer gives it the vertex offset's slot, so materials with both stay hidden. with `_USE_LIGHTING`
+the colour is an albedo times the irradiance volume and the shadowed sun at the vertex normal turned
+towards the camera, or at the world's up (`_RotateNormalToWorldUp`); the game also adds local lights
+and divides by the post exposure under `_IgnorePostExposure`, which the viewer leaves out as for the
+waterfall sheets. the mist cards rising at the foot of falls are lit so. the colour starts from
 `_TintColor · _TintColorIntensity` times the vertex colour, alpha from
 `_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`. a
 material without a main texture samples the shader's default, white, as the game does (the base ring
@@ -222,8 +226,9 @@ effects. effects cast no shadows and wait until all their textures are resident.
 
 not drawn, for VFXBaseV2 and VFXDecal: additive materials (they could draw into the glow), the
 vertex offset's mask (`_USE_VERTOFFSETMASK`) and particle-data terms, brightening that is a scan
-line or centred on a fixed point, screen UVs relative to the object, lighting, breathing, edge
-colour, vertex animation textures or water blending, the flipbook and particle inputs, and
-VFXDecal's parallax, 3D texture and particle variants. across effects: their own fog (`_USE_FOG`),
-the scene effect colour grade, VFXDitherAlpha's keyword variants other than the normal map and
-`_MainTex2`'s alpha, and every other effect shader (`VFXAdvance`, `VFXRefract`, `WaterDecal`, …).
+line or centred on a fixed point, screen UVs relative to the object, VFXDecal's lighting, local
+lights, breathing, edge colour, vertex animation textures or water blending, the flipbook and
+particle inputs, and VFXDecal's parallax, 3D texture and particle variants. across effects: their
+own fog (`_USE_FOG`), the scene effect colour grade, VFXDitherAlpha's keyword variants other than
+the normal map and `_MainTex2`'s alpha, and every other effect shader (`VFXAdvance`, `VFXRefract`,
+`WaterDecal`, …).

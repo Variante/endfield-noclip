@@ -102,7 +102,7 @@ export const markBillboardRows = (built: InstanceRows, chains: readonly Chain[])
  * @param rgba linear colour and alpha, 0–1
  * @returns them as the RGBA8 word of a {@link ROW_COLORED} row
  */
-export const packRowColor = (rgba: readonly number[]): number => {
+export const packRowColor = (rgba: ArrayLike<number>): number => {
 	let word = 0;
 	for (let i = 0; i < 4; i++) {
 		word |= Math.round(Math.min(Math.max(rgba[i], 0), 1) * 255) << (i * 8);

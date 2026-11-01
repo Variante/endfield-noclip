@@ -337,15 +337,18 @@ properties Unity keeps from earlier shaders are dropped
 
 ### particles
 
-`tables/particles.json.zst`, `ParticlesTable`: the mesh particle systems chain draws emit, equal
-ones interned to one entry ([particles.ts](../packages/package-format/src/particles.ts), read as
+`tables/particles.json.zst`, `ParticlesTable`: the particle systems chain draws emit, equal ones
+interned to one entry ([particles.ts](../packages/package-format/src/particles.ts), read as
 [assets.md](game-data/assets.md#prefabs) describes). each `ParticleSystemInfo` keeps only modules a
 viewer can evaluate in closed form, so every live particle's state follows from its emission time
 and its own random values. values are Unity `MinMaxCurve`s (a constant, a curve times a scalar, or
-random between two of either). an emitter is an ordinary instance row: its transform is the system's
-frame and its bounds cover everywhere a particle reaches, so the row culls like any other. a
-ring-buffered system's particles outlive their lifetime until replaced, held at their end or looping
-part of it; a texture sheet names the flipbook tile each particle's mesh UVs are remapped into.
+random between two of either), colours `MinMaxGradient`s (likewise, plus a random point of a
+gradient). a system draws its meshes, or a unit quad (the chain draw's geometry) that its render
+mode turns to the camera, stretches along the particle's velocity, or lays flat. an emitter is an
+ordinary instance row: its transform is the system's frame and its bounds cover everywhere a
+particle reaches, so the row culls like any other. a ring-buffered system's particles outlive their
+lifetime until replaced, held at their end or looping part of it; a texture sheet names the flipbook
+tile each particle's mesh UVs are remapped into.
 
 ### textures (`.tex`)
 

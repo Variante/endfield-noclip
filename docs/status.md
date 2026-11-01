@@ -90,28 +90,28 @@ packs or renders correctly.
 - water ([water](game-data/water.md#open)): sector flow tiles (packed but unread), the LOD surfaces'
   displaced wave grid, rain ripples and wetness; `HGRP/WaterDecal` foam at the foot of waterfalls
   (it most likely feeds the water's own foam rather than adding to the scene, and its per-placement
-  `HGWaterDecalRenderer` values aren't packed); the mist and splash at falls (billboard particles,
-  below); other fluid types are unverified
-- waterfalls missing: some falls are mesh particle systems that store a particle cap of 0 (packed
-  with a derived cap, [prefabs](game-data/assets.md#particle-systems)) and still don't show in the
-  viewer (Jingyu's pool falls near unity −763, 209, −1190)
+  `HGWaterDecalRenderer` values aren't packed); other fluid types are unverified
+- waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
+  beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
+  of it, and the steep river surface running down the lip draws as clear water. what the game draws
+  there is unknown
 - scene effects ([scene effects](game-data/effects.md)): only VFXBaseV2, VFXDecal, the mist
   (FogSimple, VFXFakeVolumeFog), VFXWater's waterfall sheets and VFXDitherAlpha's plain variant
-  draw, without the first two's additive, vertex-offset mask, polar-UV, lighting and particle
-  variants, the effects' own fog, the game's global scene-effect colour adjustment (the Jingyu
-  blight reads less saturated than in game), the mist boxes' 3D noise or VFXDitherAlpha's dither
-  with `_USE_MAIN2` or the edge mode; other effect shaders are suppressed rather than drawn opaque.
-  stencil [portals](game-data/effects.md#portals) draw without their masks' own colour and depth,
-  and only where the GPU has `depth32float-stencil8`
-- particles ([prefabs](game-data/assets.md#prefabs), [viewer](viewer.md#particles)): billboard
-  systems (sparkles, smoke, the crater column's glitter) aren't packed. mesh particles frozen in
-  place lose their start colour and take the midpoint of random start values. other mesh systems
-  play only without colour-over-lifetime, force, noise, sub-emitter and other modules without a
-  closed form, from the viewer's own random values, and move only while frames render; a system's
-  constant start colour tints its meshes, but random start colours and custom data never reach the
-  shaders. texture sheets play in grid mode only (no sprite lists or speed timing), and all copies
-  of one flipbook step in phase. Marker Stone's low mist banks over the valley are still missing;
-  their source is unknown
+  draw, without the first two's additive, vertex-offset mask, polar-UV and particle variants,
+  VFXDecal's lighting and local lights on lit effects, the effects' own fog, the game's global
+  scene-effect colour adjustment (the Jingyu blight reads less saturated than in game), the mist
+  boxes' 3D noise or VFXDitherAlpha's dither with `_USE_MAIN2` or the edge mode; other effect
+  shaders are suppressed rather than drawn opaque. stencil [portals](game-data/effects.md#portals)
+  draw without their masks' own colour and depth, and only where the GPU has `depth32float-stencil8`
+- particles ([prefabs](game-data/assets.md#prefabs), [viewer](viewer.md#particles)): mesh particles
+  frozen in place lose their start colour and take the midpoint of random start values. other
+  systems, meshes and billboards alike, play only without force, noise, sub-emitter, speed limit and
+  other modules without a closed form, from the viewer's own random values, and move only while
+  frames render; drag is approximated (it slows the start velocity and the fall alone), the maximum
+  on-screen particle size isn't applied, stretched billboards are centred on the particle, and
+  colours above 1 and custom data never reach the shaders. texture sheets play in grid mode only (no
+  sprite lists or speed timing), and all copies of one flipbook step in phase. Marker Stone's low
+  mist banks over the valley are still missing; their source is unknown
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` draws without its emissive,
   wetness, sludge, footprint, UV-noise and arc variants, normal- or roughness-only decals and the
   game's draw order; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28),

@@ -3,8 +3,11 @@ import { describe, it } from 'node:test';
 
 import {
 	CurveMode,
+	type GradientInfo,
+	GradientMode,
 	type MinMaxCurveInfo,
 	ParticleAlignment,
+	ParticleRenderMode,
 	ParticleShapeKind,
 	type ParticleSystemInfo,
 	type ParticleTextureSheetInfo,
@@ -17,9 +20,14 @@ import { RowKind, packRowColor, rowInfo } from './instance-rows.ts';
 import {
 	PARTICLE_FLOATS,
 	ParticleSimulation,
+	dragged,
+	draggedFall,
+	evaluateGradient,
 	evaluateMinMax,
+	evaluateMinMaxGradient,
 	ringBufferAge,
 	sheetTile,
+	travelled,
 } from './particles.ts';
 
 const constant = (value: number): MinMaxCurveInfo => ({
@@ -70,13 +78,23 @@ const line = (from: number, to: number): MinMaxCurveInfo => ({
 });
 
 const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo => ({
+	renderMode: ParticleRenderMode.Mesh,
+	stretch: null,
+	shapeScaling: false,
 	duration: 5,
 	looping: true,
 	startDelay: 0,
 	maxParticles: 150,
 	simulationSpeed: 1,
 	startLifetime: constant(80),
-	startColor: [1, 1, 1, 1],
+	startColor: {
+		mode: GradientMode.Color,
+		max: [1, 1, 1, 1],
+		min: [1, 1, 1, 1],
+		maxGradient: null,
+		minGradient: null,
+	},
+	colorOverLifetime: null,
 	startSpeed: constant(0),
 	startSize: [constant(4), constant(4), constant(4)],
 	startRotation: [constant(0), constant(0), between(0, Math.PI * 2)],
@@ -98,6 +116,7 @@ const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo
 		randomPosition: 0,
 	},
 	velocity: null,
+	drag: null,
 	sizeOverLifetime: null,
 	rotationOverLifetime: null,
 	alignment: ParticleAlignment.View,
@@ -134,6 +153,56 @@ const run = (info: ParticleSystemInfo, time: number, seed = 7) => {
 		tile: out[i * PARTICLE_FLOATS + 10],
 	}));
 };
+
+describe('gradients', () => {
+	const fade: GradientInfo = {
+		colorKeys: [
+			{ time: 0, color: [1, 1, 1] },
+			{ time: 1, color: [0.5, 0.5, 0.5] },
+		],
+		alphaKeys: [
+			{ time: 0, alpha: 0 },
+			{ time: 0.4, alpha: 1 },
+		],
+		fixed: false,
+	};
+	it('blend between keys and hold past the ends', () => {
+		assert.deepEqual(evaluateGradient(fade, 0.2), [0.9, 0.9, 0.9, 0.5]);
+		assert.deepEqual(evaluateGradient(fade, 1), [0.5, 0.5, 0.5, 1]);
+	});
+	it('step to the next key when fixed', () => {
+		assert.deepEqual(evaluateGradient({ ...fade, fixed: true }, 0.2), [0.5, 0.5, 0.5, 1]);
+	});
+	it('pick between two colours or gradients by the random value', () => {
+		const two = {
+			mode: GradientMode.TwoColors,
+			max: [1, 1, 1, 0.45] as [number, number, number, number],
+			min: [1, 1, 1, 0.2] as [number, number, number, number],
+			maxGradient: null,
+			minGradient: null,
+		};
+		assert.ok(Math.abs(evaluateMinMaxGradient(two, 0, 0.5)[3] - 0.325) < 1e-9);
+		const gradients = { ...two, mode: GradientMode.TwoGradients, maxGradient: fade, minGradient: fade };
+		assert.deepEqual(evaluateMinMaxGradient(gradients, 0.2, 0.3), [0.9, 0.9, 0.9, 0.5]);
+	});
+});
+
+describe('motion', () => {
+	it('integrates a velocity curve over the age', () => {
+		// 0 → 2 m/s over a 1 s life covers 1 m
+		assert.ok(Math.abs(travelled(line(0, 2), 1, 1, 0) - 1) < 1e-6);
+		assert.equal(travelled(constant(3), 2, 10, 0), 6);
+	});
+	it('slows a launch and caps a fall at the terminal speed under quadratic drag', () => {
+		const drag = { amount: constant(1), bySize: false, byVelocity: true };
+		const [distance, speed] = dragged(drag, 4, 1, 1, 0);
+		assert.ok(Math.abs(distance - Math.log1p(4)) < 1e-9);
+		assert.ok(Math.abs(speed - 4 / 5) < 1e-9);
+		// terminal speed √(g / k) = √9.81
+		const [, falling] = draggedFall(drag, 9.81, 1, 100, 0);
+		assert.ok(Math.abs(falling - Math.sqrt(9.81)) < 1e-6);
+	});
+});
 
 describe('ringBufferAge', () => {
 	it('holds a particle at its end, or replays its loop range', () => {
