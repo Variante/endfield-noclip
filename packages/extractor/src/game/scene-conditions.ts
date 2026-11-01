@@ -1,5 +1,7 @@
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { describeCondition, mapConfigCondition, type GameCondition, type GameState } from './game-state.ts';
 import type { WorldIndex } from './world-index.ts';
 
@@ -50,9 +52,9 @@ export const loadSceneStates = async (world: WorldIndex, map: string): Promise<S
  */
 export const defaultSceneStates = (states: readonly SceneStateDefinition[], game: GameState): Set<number> =>
 	new Set(
-		states
-			.filter(({ condition }) => condition !== null && game.evaluate(condition))
-			.map(({ index }) => index),
+		mapDefined(states, ({ index, condition }) =>
+			condition !== null && game.evaluate(condition) ? index : undefined,
+		),
 	);
 
 /**

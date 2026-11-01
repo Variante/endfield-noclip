@@ -6,7 +6,8 @@ import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-p
 import type { ControlDriver, QuestRef } from '@endfield-noclip/package-format/states';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
-import { getOrInsert } from '../collections.ts';
+import { unique } from '@mary-ext/array-fns';
+
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
@@ -234,12 +235,12 @@ const reach = (script: Script): Map<number, Reach[]> => {
 				continue;
 			}
 			const key = JSON.stringify(guards);
-			const at = getOrInsert(seen, id, () => new Set<string>());
+			const at = seen.getOrInsertComputed(id, () => new Set<string>());
 			if (at.has(key) || at.size >= PATHS_PER_NODE) {
 				continue;
 			}
 			at.add(key);
-			getOrInsert(result, id, () => []).push({ header, guards });
+			result.getOrInsertComputed(id, () => []).push({ header, guards });
 			const next = new Set(path).add(id);
 			for (const edge of edges(script, node)) {
 				stack.push({
@@ -280,7 +281,7 @@ const indexScripts = (scripts: Iterable<Script>): Indexes => {
 	for (const script of scripts) {
 		for (const node of script.nodes.values()) {
 			const push = (map: Map<string, { script: Script; node: Node }[]>, key: string) =>
-				getOrInsert(map, key, () => []).push({ script, node });
+				map.getOrInsertComputed(key, () => []).push({ script, node });
 			switch (typeOf(node)) {
 				case 'RaiseCustomScriptEvent': {
 					push(
@@ -582,7 +583,7 @@ export const loadScriptDrivers = async (
 		placements,
 		// missions whose objectives check a script: the progress that has the server run it
 		missionsOf: await missionScriptReferences(context),
-		label: (id) => getOrInsert(labels, id, () => questRef(world, id)),
+		label: (id) => labels.getOrInsertComputed(id, () => questRef(world, id)),
 		levelNames: await world.names(),
 	});
 	return {
@@ -654,7 +655,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 					}
 				}
 			}
-			const list = getOrInsert(drivers, target, () => []);
+			const list = drivers.getOrInsertComputed(target, () => []);
 			for (const driver of found) {
 				if (!list.some((known) => JSON.stringify(known) === JSON.stringify(driver))) {
 					list.push(driver);
@@ -708,7 +709,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 		if (quests.length > 0) {
 			out.push({
 				kind: 'quest',
-				quests: await Promise.all([...new Set(quests)].toSorted().map(label)),
+				quests: await Promise.all(unique(quests).toSorted().map(label)),
 				shows,
 			});
 		}
@@ -811,7 +812,7 @@ const missionScriptReferences = async (context: Pick<Context, 'vfs'>): Promise<M
 		// oxlint-disable-next-line no-await-in-loop -- mission files are small
 		const text = new TextDecoder().decode(await vfs.readVerified((await vfs.find(VfsGroup.JsonData, name))!));
 		for (const reference of text.matchAll(/"scriptId":\s*"?(\d+)/g)) {
-			getOrInsert(references, reference[1], () => new Set()).add(match[1]);
+			references.getOrInsertComputed(reference[1], () => new Set()).add(match[1]);
 		}
 	}
 	return references;

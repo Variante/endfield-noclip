@@ -710,12 +710,7 @@ const compiledTypes = new WeakMap<SerializedType, CompiledTypeTree>();
  * @throws {FormatError} if the type has no TypeTree or it doesn't compile
  */
 export const compiledTypeOf = (type: SerializedType): CompiledTypeTree => {
-	let compiled = compiledTypes.get(type);
-	if (compiled === undefined) {
-		compiled = compileTypeTree(type.nodes);
-		compiledTypes.set(type, compiled);
-	}
-	return compiled;
+	return compiledTypes.getOrInsertComputed(type, () => compileTypeTree(type.nodes));
 };
 
 const resolvers = new WeakMap<SerializedFile, RefTypeResolver>();
@@ -746,27 +741,20 @@ const withoutRegistry = (nodes: readonly TypeTreeNode[]): TypeTreeNode[] => {
  * @returns the read options for objects in `file`, resolving managed references against its `refTypes`
  */
 export const readOptionsOf = (file: SerializedFile): ReadTypeTreeOptions => {
-	let resolveRefType = resolvers.get(file);
-	if (resolveRefType === undefined) {
+	const resolveRefType = resolvers.getOrInsertComputed(file, (): RefTypeResolver => {
 		const byName = new Map<string, SerializedType>();
 		for (const type of file.refTypes) {
 			byName.set(`${type.asmName}\0${type.nameSpace}\0${type.klassName}`, type);
 		}
 		const compiled = new Map<SerializedType, CompiledTypeTree>();
-		resolveRefType = (klassName, nameSpace, asmName) => {
+		return (klassName, nameSpace, asmName) => {
 			const type = byName.get(`${asmName}\0${nameSpace}\0${klassName}`);
 			if (type === undefined) {
 				return undefined;
 			}
-			let tree = compiled.get(type);
-			if (tree === undefined) {
-				tree = compileTypeTree(withoutRegistry(type.nodes));
-				compiled.set(type, tree);
-			}
-			return tree;
+			return compiled.getOrInsertComputed(type, () => compileTypeTree(withoutRegistry(type.nodes)));
 		};
-		resolvers.set(file, resolveRefType);
-	}
+	});
 	return { littleEndian: file.header.littleEndian, resolveRefType };
 };
 

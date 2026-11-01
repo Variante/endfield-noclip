@@ -85,7 +85,7 @@ const build = (bundles: Bundle[], assets: { hash: bigint; path: string; bundle: 
 	const bySlot = new Map<number, number[]>();
 	assets.forEach((a, i) => {
 		const slot = Number(a.hash % BigInt(assetCapacity));
-		bySlot.set(slot, [...(bySlot.get(slot) ?? []), i]);
+		bySlot.getOrInsertComputed(slot, () => []).push(i);
 	});
 	let value = values;
 	for (const [slot, members] of bySlot) {

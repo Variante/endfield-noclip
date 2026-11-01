@@ -105,7 +105,7 @@ export class MemoryPackSchema {
 				const method = metadata.method(definition.methodStart + m);
 				if (method.name === 'GetValue' && method.parameterCount === 0) {
 					const key = typeKey(runtime.type(method.returnType));
-					this.#byValue.set(key, [...(this.#byValue.get(key) ?? []), index]);
+					this.#byValue.getOrInsertComputed(key, () => []).push(index);
 				}
 			}
 		}
@@ -135,8 +135,7 @@ export class MemoryPackSchema {
 
 	/** @returns a wrapper's members and union subtypes */
 	wrapper(index: number): Wrapper {
-		let wrapper = this.#cache.get(index);
-		if (wrapper === undefined) {
+		return this.#cache.getOrInsertComputed(index, (): Wrapper => {
 			const { metadata } = this.runtime;
 			const definition = metadata.typeDefinition(index);
 			const fields: Wrapper['fields'] = [];
@@ -160,10 +159,8 @@ export class MemoryPackSchema {
 					type: this.runtime.type(metadata.parameterType(setter.parameterStart)),
 				});
 			}
-			wrapper = { name: definition.name, fields, union: this.#unions(definition) };
-			this.#cache.set(index, wrapper);
-		}
-		return wrapper;
+			return { name: definition.name, fields, union: this.#unions(definition) };
+		});
 	}
 
 	#unions(definition: TypeDefinition): Map<number, number> | null {

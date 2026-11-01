@@ -82,7 +82,9 @@ import {
 import type { Bounds, Rect } from '@endfield-noclip/package-format/values';
 import type { WaterTable } from '@endfield-noclip/package-format/water';
 
-import { getOrInsert } from '../collections.ts';
+import { mapDefined, unique } from '@mary-ext/array-fns';
+
+import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import { loadCabins } from '../game/cabins.ts';
@@ -568,7 +570,7 @@ const indexScene = async (
 			loadSceneStates(world, options.scene),
 		]);
 	const game = new GameState();
-	game.note(sceneStates.flatMap(({ condition }) => (condition === null ? [] : [condition])));
+	game.note(mapDefined(sceneStates, ({ condition }) => condition ?? undefined));
 	const terrainScene = terrainIndex.get(options.scene);
 	if (terrainScene !== undefined && surface === undefined) {
 		throw new Error(`${options.scene} has terrain tiles but no HGTerrainSurfacesData`);
@@ -730,7 +732,7 @@ const collectEntities = async (
 			collected.addConditional(tag, key, row, name, visibility, file);
 		} else {
 			collected.addDetail(tag, condition, key, row, name, file);
-			getOrInsert(detailBounds, `${tileId(key)}/${tag}`, () => []).push(row.bounds);
+			detailBounds.getOrInsertComputed(`${tileId(key)}/${tag}`, () => []).push(row.bounds);
 		}
 		pack.uses.note(row.chain, key);
 	};
@@ -1007,16 +1009,13 @@ const collectEntities = async (
 		) {
 			continue;
 		}
-		let prefab = prefabs.get(model.pathHash);
-		if (prefab === undefined) {
-			const paths = [
-				...new Set(
-					resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
-				),
-			];
+		const prefab = prefabs.getOrInsertComputed(model.pathHash, () => {
+			const paths = unique(
+				resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
+			);
 			const label = paths.length === 1 ? paths[0] : `0x${model.pathHash.toString(16)}`;
 			// one malformed prefab skips its placements instead of failing the scene
-			prefab = (async () => {
+			return (async () => {
 				if (paths.length !== 1) {
 					throw new FormatError(`prefab has ${paths.length} manifest paths`);
 				}
@@ -1025,15 +1024,14 @@ const collectEntities = async (
 					UnityClass.GameObject,
 				);
 				return readPrefabRenderers(resolver, root);
-			})().catch((error: unknown) => {
+			})().catch((error: unknown): PrefabRenderer[] => {
 				if (!(error instanceof FormatError)) {
 					throw error;
 				}
 				unsupportedPrefabs.push({ path: label, reason: error.message });
 				return [];
 			});
-			prefabs.set(model.pathHash, prefab);
-		}
+		});
 		const rootMatrix = trsMatrix(model.position, unityEulerQuaternion(model.rotation), model.scale);
 		// oxlint-disable-next-line no-await-in-loop -- stable asset ids and bounded bundle cache
 		for (const renderer of await prefab) {
@@ -1046,23 +1044,21 @@ const collectEntities = async (
 				renderer.pose === null
 					? pack.geometries.internObject(renderer.mesh)
 					: pack.geometries.internPosedObject(renderer.mesh, renderer.pose);
-			const draws: ChainDraw[] = renderer.materials.flatMap((material, index): ChainDraw[] => {
+			const draws = mapDefined(renderer.materials, (material, index): ChainDraw | undefined => {
 				if (material === null) {
-					return [];
+					return undefined;
 				}
-				return [
-					{
-						geometry,
-						material: pack.materials.internObject(material),
-						submesh: Math.min(index, renderer.submeshes - 1),
-						lod: 0,
-						role: renderer.shadowOnly ? DrawRole.ShadowOnly : DrawRole.Lit,
-						minSquared: -1,
-						maxSquared: 3.4028234663852886e38,
-						sourceFlags: renderer.shadowOnly ? DrawFlags.ShadowOnly : 0,
-						particles: renderer.particles === null ? null : pack.particles.intern(renderer.particles),
-					},
-				];
+				return {
+					geometry,
+					material: pack.materials.internObject(material),
+					submesh: Math.min(index, renderer.submeshes - 1),
+					lod: 0,
+					role: renderer.shadowOnly ? DrawRole.ShadowOnly : DrawRole.Lit,
+					minSquared: -1,
+					maxSquared: 3.4028234663852886e38,
+					sourceFlags: renderer.shadowOnly ? DrawFlags.ShadowOnly : 0,
+					particles: renderer.particles === null ? null : pack.particles.intern(renderer.particles),
+				};
 			});
 			if (draws.length === 0) {
 				continue;
@@ -1447,7 +1443,7 @@ const finishControls = (states: StatesInfo): SceneControl[] => {
 				if (!byId.has(control)) {
 					throw new Error(`a visibility expression requires unknown control ${control}`);
 				}
-				const current = getOrInsert(tags, control, () => new Set<number>());
+				const current = tags.getOrInsertComputed(control, () => new Set<number>());
 				for (const tag of levelTags) {
 					current.add(tag);
 				}
@@ -1823,7 +1819,7 @@ class Collector {
 	 * @returns the visibility group's index, shared by equal owners and conditions
 	 */
 	group(levelTag: number, condition: number | null): number {
-		return getOrInsert(this.#groupIds, `${levelTag}/${condition}`, () => {
+		return this.#groupIds.getOrInsertComputed(`${levelTag}/${condition}`, () => {
 			this.groups.push({ levelTag, condition });
 			return this.groups.length - 1;
 		});
@@ -1892,7 +1888,7 @@ class Collector {
 		name: string,
 		file: number,
 	): void {
-		const group = getOrInsert(this.detail, `${tileId(key)}/${visibility}`, () => ({
+		const group = this.detail.getOrInsertComputed(`${tileId(key)}/${visibility}`, () => ({
 			...newGroup(),
 			key,
 			visibility,
@@ -1952,13 +1948,7 @@ class Collector {
 			.toSorted(([a], [b]) => Number(a > b) - Number(a < b))
 			.map(([, requirements]) => requirements);
 		const serialized = JSON.stringify(alternatives);
-		let condition = this.#conditionIds.get(serialized);
-		if (condition === undefined) {
-			condition = this.conditions.length;
-			this.conditions.push({ alternatives });
-			this.#conditionIds.set(serialized, condition);
-		}
-		return condition;
+		return intern(this.conditions, this.#conditionIds, serialized, () => ({ alternatives }));
 	}
 
 	/** @param condition index into {@link conditions} for clusters of a stream area, else `null` */
@@ -1971,7 +1961,7 @@ class Collector {
 		name: string,
 		file: number,
 	): void {
-		const group = getOrInsert(this.hlod, this.group(level, condition), newGroup);
+		const group = this.hlod.getOrInsertComputed(this.group(level, condition), newGroup);
 		const sortKey = nodeSortKey(key);
 		push(group, row, sortKey, name, file);
 		const node = this.hlodNodes.get(sortKey);
@@ -1987,7 +1977,7 @@ class Collector {
 	 * @param condition index into {@link conditions} for Global chunks of scene states, else `null`
 	 */
 	addGlobal(level: number, condition: number | null, row: InstanceInput, name: string, file: number): void {
-		push(getOrInsert(this.global, this.group(level, condition), newGroup), row, 0, name, file);
+		push(this.global.getOrInsertComputed(this.group(level, condition), newGroup), row, 0, name, file);
 		this.#countInstance(level);
 	}
 

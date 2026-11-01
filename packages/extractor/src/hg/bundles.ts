@@ -28,6 +28,8 @@ import {
 	type PPtr,
 } from '@endfield-noclip/formats/unity/values';
 
+import { groupByDefined } from '@mary-ext/array-fns';
+
 import type { Keys } from '../config.ts';
 
 import { type Vfs, type VfsFile, VfsGroup } from './vfs.ts';
@@ -79,12 +81,7 @@ const pads = new WeakMap<Keys['bundle'], Uint8Array>();
 
 /** @returns the bundle cipher pad, derived once per key set */
 const bundlePad = (keys: Keys): Uint8Array => {
-	let pad = pads.get(keys.bundle);
-	if (pad === undefined) {
-		pad = deriveBundlePad(keys.bundle);
-		pads.set(keys.bundle, pad);
-	}
-	return pad;
+	return pads.getOrInsertComputed(keys.bundle, deriveBundlePad);
 };
 
 /** @returns a range-reading {@link ByteSource} over a logical file */
@@ -233,24 +230,11 @@ export class BundleAssetFile {
 	 * @returns the objects of that class whose lowercased name is `name`
 	 */
 	async objectsNamed(classId: number, name: string): Promise<ObjectInfo[]> {
-		let index = this.#names.get(classId);
-		if (index === undefined) {
-			index = (async () => {
-				const byName = new Map<string, ObjectInfo[]>();
-				const objects = this.file.objects.filter((info) => info.classId === classId);
-				const names = await Promise.all(objects.map((info) => this.peekName(info)));
-				for (const [i, info] of objects.entries()) {
-					const key = names[i]?.toLowerCase();
-					if (key !== undefined) {
-						const list = byName.get(key) ?? [];
-						list.push(info);
-						byName.set(key, list);
-					}
-				}
-				return byName;
-			})();
-			this.#names.set(classId, index);
-		}
+		const index = this.#names.getOrInsertComputed(classId, async () => {
+			const objects = this.file.objects.filter((info) => info.classId === classId);
+			const names = await Promise.all(objects.map((info) => this.peekName(info)));
+			return groupByDefined(objects, (_info, i) => names[i]?.toLowerCase());
+		});
 		return (await index).get(name) ?? [];
 	}
 

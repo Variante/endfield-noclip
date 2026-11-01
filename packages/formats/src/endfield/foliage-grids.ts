@@ -1,3 +1,5 @@
+import { unique } from '@mary-ext/array-fns';
+
 import { FormatError } from '../binary/binary-reader.ts';
 import type { Aabb } from '../unity/values.ts';
 
@@ -334,7 +336,7 @@ const readDraws = (
 		});
 	}
 	// grids carry no LOD-range column; a draw's LOD is the rank of its upper threshold
-	const uppers = [...new Set(draws.map((draw) => draw.lodMaxSquared))].toSorted((a, b) => b - a);
+	const uppers = unique(draws.map((draw) => draw.lodMaxSquared)).toSorted((a, b) => b - a);
 	for (const draw of draws) {
 		draw.lod = uppers.indexOf(draw.lodMaxSquared);
 	}

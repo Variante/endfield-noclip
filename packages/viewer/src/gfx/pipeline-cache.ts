@@ -23,12 +23,7 @@ export class PipelineCache {
 	 * @returns the compiled module
 	 */
 	module(label: string, code: string): GPUShaderModule {
-		let module = this.#modules.get(label);
-		if (module === undefined) {
-			module = this.#device.createShaderModule({ label, code });
-			this.#modules.set(label, module);
-		}
-		return module;
+		return this.#modules.getOrInsertComputed(label, () => this.#device.createShaderModule({ label, code }));
 	}
 
 	/**
@@ -43,16 +38,13 @@ export class PipelineCache {
 		if (ready !== undefined) {
 			return Promise.resolve(ready);
 		}
-		let pending = this.#pending.get(key);
-		if (pending === undefined) {
-			pending = this.#device.createRenderPipelineAsync({ label: key, ...describe() }).then((pipeline) => {
+		return this.#pending.getOrInsertComputed(key, () =>
+			this.#device.createRenderPipelineAsync({ label: key, ...describe() }).then((pipeline) => {
 				this.#pipelines.set(key, pipeline);
 				this.#pending.delete(key);
 				return pipeline;
-			});
-			this.#pending.set(key, pending);
-		}
-		return pending;
+			}),
+		);
 	}
 
 	/**

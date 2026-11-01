@@ -518,14 +518,13 @@ export class MeshSelector {
 		const { geometry, submesh, material } = slot;
 		const index = bucketIndex(mirrored, castOnly);
 		const key = ((geometry * 256 + submesh) * 65_536 + material) * 4 + index;
-		let bucket = this.#buckets.get(key);
-		if (bucket === undefined) {
+		const bucket = this.#buckets.getOrInsertComputed(key, (): MeshBucket => {
 			const entry = this.#geometries[geometry];
 			const item = entry.status === 'ready' ? this.#stream.get(entry.blob) : undefined;
 			if (item === undefined) {
 				throw new Error(`geometry ${geometry} has no stream item`);
 			}
-			bucket = {
+			return {
 				geometry: item,
 				submesh,
 				material,
@@ -541,8 +540,7 @@ export class MeshSelector {
 				frame: -1,
 				sortKey: -1,
 			};
-			this.#buckets.set(key, bucket);
-		}
+		});
 		slot.buckets[index] = bucket;
 		return bucket;
 	}

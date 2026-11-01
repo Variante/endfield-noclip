@@ -1,3 +1,5 @@
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { FormatError } from '../binary/binary-reader.ts';
 import { type PlainObject, type PlainResult, toPlainObject } from '../unity/plain-object.ts';
 import type { TypeTreeNode } from '../unity/serialized-file.ts';
@@ -94,9 +96,9 @@ export const readEnvironmentPhase = (
 		) {
 			throw new FormatError(`environment phase has no ${name}`);
 		}
-		const own = pptrs
-			.filter((pptr) => pptr.path[0] === name)
-			.map(({ path, type, pptr }) => ({ path: path.slice(1), type, pptr }));
+		const own = mapDefined(pptrs, ({ path, type, pptr }) =>
+			path[0] === name ? { path: path.slice(1), type, pptr } : undefined,
+		);
 		return {
 			active: raw.m_active === undefined ? true : raw.m_active !== 0 && raw.m_active !== false,
 			value: converted,

@@ -350,16 +350,13 @@ const readTypeTreeBlob = (r: BinaryReader, version: number): TypeTreeNode[] => {
 			const common = offset & 0x7fffffff;
 			return COMMON_STRINGS.get(common) ?? `<common ${common}>`;
 		}
-		let value = local.get(offset);
-		if (value === undefined) {
+		return local.getOrInsertComputed(offset, () => {
 			const end = strings.indexOf(0, offset);
 			if (end < 0) {
 				throw new FormatError(`TypeTree string at ${offset} is unterminated`);
 			}
-			value = latin1.decode(strings.subarray(offset, end));
-			local.set(offset, value);
-		}
-		return value;
+			return latin1.decode(strings.subarray(offset, end));
+		});
 	};
 	return raw.map(({ typeOffset, nameOffset, node }) => {
 		node.type = lookup(typeOffset);

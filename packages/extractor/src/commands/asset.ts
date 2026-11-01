@@ -394,11 +394,7 @@ const resolveMaterial = async (
 	scene: GlbScene,
 ): Promise<[string, LoadedMaterial]> => {
 	const key = hash.toString(16);
-	let cache = materialCache.get(scene);
-	if (cache === undefined) {
-		cache = new Map();
-		materialCache.set(scene, cache);
-	}
+	const cache = materialCache.getOrInsertComputed(scene, () => new Map());
 	const cached = cache.get(key);
 	if (cached !== undefined) {
 		return [key, cached];

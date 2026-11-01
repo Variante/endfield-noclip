@@ -10,6 +10,8 @@ import type {
 	WaterTable,
 } from '@endfield-noclip/package-format/water';
 
+import { unique } from '@mary-ext/array-fns';
+
 import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { errorText } from '../errors.ts';
@@ -105,7 +107,7 @@ export const planWater = async (
 	const [resolver, pathOf] = await Promise.all([context.resolver(), world.pathLookup()]);
 
 	// configs, by asset key
-	const configHashes = [...new Set(selected.map((surface) => surface.configHash))];
+	const configHashes = unique(selected.map((surface) => surface.configHash));
 	const loaded = await Promise.all(
 		configHashes.map(async (hash) => {
 			try {

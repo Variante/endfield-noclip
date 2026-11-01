@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { readdir } from 'node:fs/promises';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 /**
  * each file in `commands/` is one subcommand exporting `summary` and `run(args)`, so commands can be added
  * without touching this dispatcher.
@@ -14,10 +16,9 @@ const COMMANDS_DIR = new URL('./commands/', import.meta.url);
 
 const listCommands = async (): Promise<string[]> => {
 	const files = await readdir(COMMANDS_DIR);
-	return files
-		.filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
-		.map((file) => file.slice(0, -3))
-		.toSorted();
+	return mapDefined(files, (file) =>
+		file.endsWith('.ts') && !file.endsWith('.test.ts') ? file.slice(0, -3) : undefined,
+	).toSorted();
 };
 
 const loadCommand = async (name: string): Promise<CommandModule> => {

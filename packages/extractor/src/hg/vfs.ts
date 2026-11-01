@@ -104,14 +104,12 @@ export class Vfs {
 	 * @throws {Error} if no layer has a catalog for the group
 	 */
 	group(hash: string): Promise<MountedGroup> {
-		let cached = this.#groups.get(hash);
-		if (cached === undefined) {
-			cached = this.#mount(hash);
-			this.#groups.set(hash, cached);
+		return this.#groups.getOrInsertComputed(hash, () => {
+			const mounted = this.#mount(hash);
 			// a failed mount shouldn't stay cached
-			cached.catch(() => this.#groups.delete(hash));
-		}
-		return cached;
+			mounted.catch(() => this.#groups.delete(hash));
+			return mounted;
+		});
 	}
 
 	/**

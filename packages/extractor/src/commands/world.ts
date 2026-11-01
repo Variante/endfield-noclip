@@ -9,6 +9,8 @@ import {
 } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import {
 	hashText,
 	need as needArg,
@@ -17,7 +19,6 @@ import {
 	parseOptionalInteger,
 	separatePositionals,
 } from '../cli-args.ts';
-import { getOrInsert } from '../collections.ts';
 import { type Context, withContext } from '../context.ts';
 import {
 	type LoadedPhase,
@@ -191,9 +192,7 @@ const listCells = async (world: WorldIndex, levelId: string): Promise<void> => {
 		if (file.scene === partition.mapId && file.cell !== null) {
 			const key = cellKey(file.cell.x, file.cell.z);
 			if (level.cells.has(key)) {
-				const list = byCell.get(key) ?? [];
-				list.push(`${file.sceneState}/${file.area}`);
-				byCell.set(key, list);
+				byCell.getOrInsertComputed(key, () => []).push(`${file.sceneState}/${file.area}`);
 			}
 		}
 	}
@@ -247,12 +246,11 @@ const listMembers = async (world: WorldIndex, levelId: string, json: boolean): P
 	const rows: object[] = [];
 	for await (const entity of world.entitiesOfLevel(level, partition)) {
 		const where = entity.source.cell === null ? 'global' : entity.membership.placement;
-		const count = counts.get(where) ?? { all: 0, renderer: 0 };
+		const count = counts.getOrInsertComputed(where, () => ({ all: 0, renderer: 0 }));
 		count.all++;
 		if (entity.renderer !== null) {
 			count.renderer++;
 		}
-		counts.set(where, count);
 		if (names !== undefined) {
 			rows.push(entityJson(entity, partition, names));
 		}
@@ -291,14 +289,11 @@ const showEnvironment = async (context: Context, target: string): Promise<void> 
 		loadSceneStates(world, scene.mapId),
 	]);
 	const game = new GameState();
-	game.note(states.flatMap(({ condition }) => (condition === null ? [] : [condition])));
+	game.note(mapDefined(states, ({ condition }) => condition ?? undefined));
 	const enabled = defaultSceneStates(states, game);
 	console.log(
 		`scene states (default: ${
-			states
-				.filter(({ index }) => enabled.has(index))
-				.map(({ name }) => name)
-				.join(', ') || 'none'
+			mapDefined(states, ({ index, name }) => (enabled.has(index) ? name : undefined)).join(', ') || 'none'
 		})`,
 	);
 	for (const { index, name, condition } of states) {
@@ -319,7 +314,7 @@ const showEnvironment = async (context: Context, target: string): Promise<void> 
 	const loadPhase = ({ envPhase }: EnvironmentVolume) =>
 		envPhase === null
 			? null
-			: getOrInsert(phaseLoads, envPhase, () => loadEnvironmentPhase(resolver, envPhase, pathOf));
+			: phaseLoads.getOrInsertComputed(envPhase, () => loadEnvironmentPhase(resolver, envPhase, pathOf));
 
 	const choices = levels.map((level) => resolveLevelEnvironment(level, volumes, enabled));
 	const phases = await Promise.all(choices.map((choice) => loadLevelPhases(choice, loadPhase)));

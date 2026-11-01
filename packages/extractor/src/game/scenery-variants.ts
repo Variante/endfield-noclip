@@ -8,6 +8,8 @@ import { levelOfTag, type LevelPartition } from '@endfield-noclip/formats/endfie
 import type { StreamAreaTable } from '@endfield-noclip/formats/endfield/stream-area';
 import type { SceneControl, SceneControlKind } from '@endfield-noclip/package-format/states';
 
+import { groupByDefined } from '@mary-ext/array-fns';
+
 import { mapPool } from '../pool.ts';
 
 import type { ChunkFile, WorldIndex } from './world-index.ts';
@@ -100,14 +102,9 @@ export const loadSceneryVariants = async (world: WorldIndex, scene: string): Pro
 	const partition = await world.partition(scene);
 	const table = await world.streamAreas(scene);
 
-	const areaFiles = new Map<number, ChunkFile[]>();
-	for (const file of await world.chunkFiles()) {
-		if (file.scene === scene && file.area !== 0) {
-			const list = areaFiles.get(file.area) ?? [];
-			list.push(file);
-			areaFiles.set(file.area, list);
-		}
-	}
+	const areaFiles = groupByDefined(await world.chunkFiles(), (file) =>
+		file.scene === scene && file.area !== 0 ? file.area : undefined,
+	);
 	const allFiles = [...areaFiles.values()].flat();
 	// keep only what the tally needs, so all files' entities needn't stay in memory at once
 	const perFile = await mapPool(allFiles, READ_CONCURRENCY, async (file) =>
@@ -256,13 +253,13 @@ export const summarizeProgressions = (entities: Iterable<DynamicEntity>): Progre
 		for (const controller of entity.controllers) {
 			const key = controllerKey(controller);
 			const id = progressionId(controller.kind, key);
-			const entry = byId.get(id) ?? {
+			const entry = byId.getOrInsertComputed(id, () => ({
 				kind: controller.kind,
 				key,
 				entities: 0,
 				levelNums: new Set<number>(),
 				perLevel: new Map<number, number>(),
-			};
+			}));
 			entry.entities++;
 			for (const group of entity.resourceGroups) {
 				if (group.logicState === 0) {
@@ -273,7 +270,6 @@ export const summarizeProgressions = (entities: Iterable<DynamicEntity>): Progre
 					entry.perLevel.set(level, (entry.perLevel.get(level) ?? 0) + 1);
 				}
 			}
-			byId.set(id, entry);
 		}
 	}
 	return [...byId.values()]

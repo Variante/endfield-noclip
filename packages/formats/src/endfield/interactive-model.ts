@@ -302,11 +302,7 @@ export const readInteractiveVariantModels = (
 			continue;
 		}
 		const models = readVariantTail(new BinaryReader(bytes, { offset: at, littleEndian: true }), string);
-		if (
-			models === null ||
-			models.size !== variants.size ||
-			![...models.keys()].every((id) => variants.has(id))
-		) {
+		if (models === null || models.size !== variants.size || !models.keys().every((id) => variants.has(id))) {
 			continue;
 		}
 		if (found !== null) {

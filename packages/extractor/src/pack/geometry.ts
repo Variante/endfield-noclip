@@ -24,6 +24,8 @@ import {
 import { MeshoptEncoder } from 'meshoptimizer/encoder';
 import { MeshoptTangents } from 'meshoptimizer/tangents';
 
+import { intern } from '../collections.ts';
+
 import { aabbBounds } from './bounds.ts';
 
 // converts a decoded Unity mesh into a geometry blob (layout and per-attribute encodings in
@@ -87,13 +89,7 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 		const vertices: number[] = [];
 		const seen = new Map<number, number>();
 		for (const [i, vertex] of list.entries()) {
-			let id = seen.get(vertex);
-			if (id === undefined) {
-				id = vertices.length;
-				seen.set(vertex, id);
-				vertices.push(vertex);
-			}
-			local[i] = id;
+			local[i] = intern(vertices, seen, vertex, () => vertex);
 		}
 		let vertexCount = 0;
 		if (local.length > 0) {
@@ -354,11 +350,7 @@ const splitByTangent = (
 			const vertex = list[i];
 			const t = at * 4;
 			const [x, y, z, w] = [perCorner[t], perCorner[t + 1], perCorner[t + 2], perCorner[t + 3]];
-			let candidates = variants.get(vertex);
-			if (candidates === undefined) {
-				candidates = [];
-				variants.set(vertex, candidates);
-			}
+			const candidates = variants.getOrInsertComputed(vertex, () => []);
 			let id = candidates.find((candidate) => {
 				const c = candidate * 4;
 				return (

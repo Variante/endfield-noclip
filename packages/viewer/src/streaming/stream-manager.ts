@@ -529,12 +529,9 @@ export class StreamManager {
 		const byArchive = new Map<number, QueuedRange[]>();
 		for (const item of queued) {
 			const range = this.#package.blobRange(item.blob);
-			let list = byArchive.get(range.archive);
-			if (list === undefined) {
-				list = [];
-				byArchive.set(range.archive, list);
-			}
-			list.push({ item, start: range.start, end: range.start + range.length });
+			byArchive
+				.getOrInsertComputed(range.archive, () => [])
+				.push({ item, start: range.start, end: range.start + range.length });
 		}
 		const positions = new Map<ContentItem, number>();
 		for (const list of byArchive.values()) {
@@ -793,8 +790,14 @@ export class StreamManager {
 	/** evicts unpinned content of the same kind not used this frame, oldest first, to make room for `item` */
 	#evictForSpace(item: ContentItem): boolean {
 		const candidates = this.#known
-			.filter((other) => other.state === 'ready' && !other.pinned && other.kind === item.kind)
-			.filter((other) => other.usedFrame < this.#frame && other.priority <= item.priority)
+			.filter(
+				(other) =>
+					other.state === 'ready' &&
+					!other.pinned &&
+					other.kind === item.kind &&
+					other.usedFrame < this.#frame &&
+					other.priority <= item.priority,
+			)
 			.toSorted((a, b) => a.usedFrame - b.usedFrame)
 			.slice(0, 16);
 		for (const other of candidates) {

@@ -72,7 +72,12 @@ export const footprintContains = (trigger: StreamAreaTriggerInfo, point: readonl
  * @returns the zones whose trigger holds the point
  */
 export const zonesAt = (info: StreamAreasInfo, point: readonly number[]): Set<number> =>
-	new Set(info.triggers.filter((trigger) => triggerContains(trigger, point)).map((trigger) => trigger.zone));
+	new Set(
+		info.triggers
+			.values()
+			.filter((trigger) => triggerContains(trigger, point))
+			.map((trigger) => trigger.zone),
+	);
 
 /**
  * @param info the scene's stream areas
@@ -81,7 +86,10 @@ export const zonesAt = (info: StreamAreasInfo, point: readonly number[]): Set<nu
  */
 export const zonesAround = (info: StreamAreasInfo, point: readonly number[]): Set<number> =>
 	new Set(
-		info.triggers.filter((trigger) => footprintContains(trigger, point)).map((trigger) => trigger.zone),
+		info.triggers
+			.values()
+			.filter((trigger) => footprintContains(trigger, point))
+			.map((trigger) => trigger.zone),
 	);
 
 /**

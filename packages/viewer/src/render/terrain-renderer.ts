@@ -385,9 +385,7 @@ export class TerrainRenderer {
 			this.#device.queue.writeBuffer(params, 0, data);
 			const targets = new Map<number, { texture: GPUTexture; layer: number }[]>();
 			const target = (blob: number, into: GPUTexture, layer: number): void => {
-				const list = targets.get(blob) ?? [];
-				list.push({ texture: into, layer });
-				targets.set(blob, list);
+				targets.getOrInsertComputed(blob, () => []).push({ texture: into, layer });
 			};
 			for (let i = 0; i < count; i++) {
 				target(info.diffuse[i], diffuse, i);

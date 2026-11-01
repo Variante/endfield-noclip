@@ -247,14 +247,14 @@ export class GameState {
 				case 'mapVar':
 				case 'globalVar': {
 					const id = variableId(condition);
-					const variable = this.#variables.get(id) ?? {
+					const variable = this.#variables.getOrInsertComputed(id, () => ({
 						kind: condition.kind,
 						name: condition.name,
 						mapId: condition.kind === 'mapVar' ? condition.mapId : null,
 						targets: new Set(),
 						unset: false,
 						ranges: null,
-					};
+					}));
 					if (
 						variable.ranges !== null &&
 						(!variable.targets.has(condition.target) || (condition.unsetFails && !variable.unset))
@@ -263,7 +263,6 @@ export class GameState {
 					}
 					variable.targets.add(condition.target);
 					variable.unset ||= condition.unsetFails;
-					this.#variables.set(id, variable);
 					break;
 				}
 				case 'all':

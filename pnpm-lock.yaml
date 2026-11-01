@@ -38,6 +38,9 @@ importers:
       '@endfield-noclip/package-format':
         specifier: workspace:*
         version: link:../package-format
+      '@mary-ext/array-fns':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@mary-ext/czar':
         specifier: ^0.1.2
         version: 0.1.2
@@ -47,6 +50,9 @@ importers:
 
   packages/formats:
     dependencies:
+      '@mary-ext/array-fns':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@noble/ciphers':
         specifier: ^2.4.0
         version: 2.4.0
@@ -62,6 +68,9 @@ importers:
       '@endfield-noclip/package-format':
         specifier: workspace:*
         version: link:../package-format
+      '@mary-ext/array-fns':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@mary-ext/czar':
         specifier: ^0.1.2
         version: 0.1.2
@@ -101,6 +110,9 @@ packages:
 
   '@atcute/uint8array@1.2.1':
     resolution: {integrity: sha512-qsDY5lKIutT5FJeVOD3Au0OxqRJjEd5UKm4z7zM0kMQFX4vMKfBIEmBMDAEUpwZXlpxkvGhVZ1PEu67BG9o8cw==}
+
+  '@mary-ext/array-fns@0.1.0':
+    resolution: {integrity: sha512-lH9+OrLNSRiwBvocdkTgASVM8ISsGf531j1Bjx8GzIWtzYU9A3Mi6GkC0zT83b8oCPNAo5ULWTU3kIUNesVv+g==}
 
   '@mary-ext/crc32@0.1.0':
     resolution: {integrity: sha512-g80zjr5uEb4qGIDacr129pGJLz1SQ2qRqeHf3EduXMXqtfwV/DS2zmoBApxB1Xeivq2eWDuXhhI9ktfR/UIzTA==}
@@ -947,6 +959,8 @@ packages:
 snapshots:
 
   '@atcute/uint8array@1.2.1': {}
+
+  '@mary-ext/array-fns@0.1.0': {}
 
   '@mary-ext/crc32@0.1.0': {}
 

@@ -217,28 +217,24 @@ export const loadDynamicStructures = async (
 					}
 					for (const [index, model] of rows.entries()) {
 						const key = `${effect ? 'effect:' : ''}${ref.grid}/${ref.index + index}`;
-						const current = models.get(key);
-						if (current) {
-							current.visibility.alternatives.push(...alternatives);
-						} else {
-							models.set(key, {
+						models
+							.getOrInsertComputed(key, () => ({
 								model,
 								levelTag: tag,
 								source: key,
-								visibility: { alternatives: [...alternatives] },
-							});
-						}
+								visibility: { alternatives: [] },
+							}))
+							.visibility.alternatives.push(...alternatives);
 					}
 					break;
 				}
 				case 7: {
 					for (const ecs of dynamicResourceSlice(grid.ecs, ref)) {
 						const key = `${ecs.sceneIndex.toString().padStart(2, '0')}_${ecs.chunk.toString().padStart(8, '0')}`;
-						const indices = chunks.get(key) ?? new Map<number, ConditionalSetInfo>();
-						const visibility = indices.get(ecs.index) ?? { alternatives: [] };
-						visibility.alternatives.push(...alternatives);
-						indices.set(ecs.index, visibility);
-						chunks.set(key, indices);
+						chunks
+							.getOrInsertComputed(key, () => new Map())
+							.getOrInsertComputed(ecs.index, () => ({ alternatives: [] }))
+							.alternatives.push(...alternatives);
 					}
 					break;
 				}
@@ -263,12 +259,9 @@ export const loadDynamicStructures = async (
 			}
 			result.counts.ecsGroups++;
 			for (const entity of readChunkEntities({ ...chunk, groups: [group] })) {
-				const current = entities.get(entity.id);
-				if (current) {
-					current.visibility.alternatives.push(...visibility.alternatives);
-				} else {
-					entities.set(entity.id, { entity, visibility: { alternatives: [...visibility.alternatives] } });
-				}
+				entities
+					.getOrInsertComputed(entity.id, () => ({ entity, visibility: { alternatives: [] } }))
+					.visibility.alternatives.push(...visibility.alternatives);
 			}
 		}
 	}
@@ -281,9 +274,8 @@ export const loadDynamicStructures = async (
 				requirements.map((requirement) => requirement.control),
 			),
 		)) {
-			const frequencies = labels.get(control) ?? new Map<string, number>();
+			const frequencies = labels.getOrInsertComputed(control, () => new Map());
 			frequencies.set(name, (frequencies.get(name) ?? 0) + 1);
-			labels.set(control, frequencies);
 		}
 	}
 	for (const control of controls.values()) {

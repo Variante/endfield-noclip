@@ -22,7 +22,7 @@ import type {
 } from '@endfield-noclip/package-format/environment';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
-import { getOrInsert, intern } from '../collections.ts';
+import { intern } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
@@ -202,16 +202,18 @@ export const planEnvironments = async (
 	const phase = (volume: EnvironmentVolume): Promise<LoadedPhase> | null => {
 		const object = phaseObjects.get(volume) ?? null;
 		if (object !== null) {
-			return getOrInsert(phaseLoads, objectKey(object), () => loadEnvironmentPhaseObject(resolver, object));
+			return phaseLoads.getOrInsertComputed(objectKey(object), () =>
+				loadEnvironmentPhaseObject(resolver, object),
+			);
 		}
 		const hash = volume.envPhase;
 		return hash === null
 			? null
-			: getOrInsert(phaseLoads, `hash:${hash}`, () => loadEnvironmentPhase(resolver, hash, pathOf));
+			: phaseLoads.getOrInsertComputed(`hash:${hash}`, () => loadEnvironmentPhase(resolver, hash, pathOf));
 	};
 	const postLoads = new Map<bigint, Promise<LoadedVolumeProfile>>();
 	const postProfile = (hash: bigint) =>
-		getOrInsert(postLoads, hash, () => loadVolumeProfile(resolver, hash, pathOf));
+		postLoads.getOrInsertComputed(hash, () => loadVolumeProfile(resolver, hash, pathOf));
 	const loaded = await Promise.all(
 		levels.map(async (level) => {
 			const choice = resolveLevelEnvironment(level, volumes, enabled);

@@ -132,13 +132,7 @@ export class TextureStore {
 				continue;
 			}
 			entry.pieces.forEach((piece, i) => {
-				const refs = this.#pieces.get(piece.blob);
-				const ref = { texture: entry.id, index: i };
-				if (refs === undefined) {
-					this.#pieces.set(piece.blob, [ref]);
-				} else {
-					refs.push(ref);
-				}
+				this.#pieces.getOrInsertComputed(piece.blob, () => []).push({ texture: entry.id, index: i });
 			});
 		}
 	}
@@ -259,13 +253,12 @@ export class TextureStore {
 	}
 
 	#state(id: number): TextureState {
-		let state = this.#states.get(id);
-		if (state === undefined) {
+		return this.#states.getOrInsertComputed(id, (): TextureState => {
 			const entry = this.#table.entries[id];
 			if (entry?.status !== 'ready') {
 				throw new Error(`texture ${id} isn't ready`);
 			}
-			state = {
+			return {
 				entry,
 				gpu: null,
 				binding: null,
@@ -275,20 +268,13 @@ export class TextureStore {
 				version: 0,
 				sampler: this.#sampler(entry),
 			};
-			this.#states.set(id, state);
-		}
-		return state;
+		});
 	}
 
 	#sampler(entry: ReadyTexture): GPUSampler {
 		const { mipBias: _, ...descriptor } = entry.sampler;
 		const key = JSON.stringify(descriptor);
-		let sampler = this.#samplers.get(key);
-		if (sampler === undefined) {
-			sampler = this.#device.createSampler(descriptor);
-			this.#samplers.set(key, sampler);
-		}
-		return sampler;
+		return this.#samplers.getOrInsertComputed(key, () => this.#device.createSampler(descriptor));
 	}
 
 	#create(entry: ReadyTexture, top: number): GPUTexture {

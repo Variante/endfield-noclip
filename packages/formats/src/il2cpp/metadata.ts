@@ -119,17 +119,14 @@ export class Il2CppMetadata {
 	 * @returns the null-terminated string there
 	 */
 	string(index: number): string {
-		let value = this.#strings.get(index);
-		if (value === undefined) {
+		return this.#strings.getOrInsertComputed(index, () => {
 			const start = this.#tables[Table.String].offset + index;
 			let end = start;
 			while (this.#bytes[end] !== 0) {
 				end++;
 			}
-			value = this.#decoder.decode(this.#bytes.subarray(start, end));
-			this.#strings.set(index, value);
-		}
-		return value;
+			return this.#decoder.decode(this.#bytes.subarray(start, end));
+		});
 	}
 
 	/**

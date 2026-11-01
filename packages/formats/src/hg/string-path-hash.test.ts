@@ -35,7 +35,7 @@ const build = (pairs: [bigint, string][]): Uint8Array => {
 	const bySlot = new Map<number, number[]>();
 	pairs.forEach(([hash], i) => {
 		const slot = Number(hash % BigInt(count));
-		bySlot.set(slot, [...(bySlot.get(slot) ?? []), i]);
+		bySlot.getOrInsertComputed(slot, () => []).push(i);
 	});
 	let bucket = 8 + 8 * count;
 	for (const [slot, members] of bySlot) {

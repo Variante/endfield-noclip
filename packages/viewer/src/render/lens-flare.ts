@@ -105,10 +105,9 @@ export class LensFlares {
 
 	#pipeline(shape: 'image' | 'circle', blendMode: number): GPURenderPipeline {
 		const key = `${shape}/${blendMode}`;
-		let pipeline = this.#pipelines.get(key);
-		if (pipeline === undefined) {
+		return this.#pipelines.getOrInsertComputed(key, () => {
 			const blend = BLENDS[blendMode] ?? BLENDS[0];
-			pipeline = this.#device.createRenderPipeline({
+			return this.#device.createRenderPipeline({
 				label: `lens flare ${key}`,
 				layout: this.#layout,
 				vertex: { module: this.#module, entryPoint: 'vs_flare' },
@@ -125,9 +124,7 @@ export class LensFlares {
 				},
 				primitive: { topology: 'triangle-strip' },
 			});
-			this.#pipelines.set(key, pipeline);
-		}
-		return pipeline;
+		});
 	}
 
 	#textureGroup(view: GPUTextureView): GPUBindGroup {

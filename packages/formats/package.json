@@ -8,6 +8,7 @@
 		"./*": "./src/*.ts"
 	},
 	"dependencies": {
+		"@mary-ext/array-fns": "^0.1.0",
 		"@noble/ciphers": "^2.4.0"
 	},
 	"devDependencies": {

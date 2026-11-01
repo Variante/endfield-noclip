@@ -105,15 +105,12 @@ export class Il2CppRuntime {
 	 * @throws {FormatError} if the index or a referenced address is out of range, or the type kind is unknown
 	 */
 	type(index: number): Il2CppTypeRef {
-		let resolved = this.#resolved.get(index);
-		if (resolved === undefined) {
+		return this.#resolved.getOrInsertComputed(index, () => {
 			if (!Number.isInteger(index) || index < 0 || index >= this.#typeCount) {
 				throw new FormatError(`type index ${index} outside ${this.#typeCount}`);
 			}
-			resolved = this.#typeAt(this.#image.u64At(this.#types + index * 8));
-			this.#resolved.set(index, resolved);
-		}
-		return resolved;
+			return this.#typeAt(this.#image.u64At(this.#types + index * 8));
+		});
 	}
 
 	/**

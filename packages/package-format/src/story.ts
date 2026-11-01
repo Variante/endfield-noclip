@@ -59,8 +59,10 @@ export const storyPoints = (
 	for (const [index, mission] of missions.entries()) {
 		points.push({ point: { mission: index, step: 0 }, mission, quest: null });
 		const quests = controls
-			.filter((control) => control.kind === 'quest' && control.story?.mission === mission)
-			.filter((control) => control.story?.step != null)
+			.filter(
+				(control) =>
+					control.kind === 'quest' && control.story?.mission === mission && control.story.step != null,
+			)
 			.toSorted((a, b) => (a.story?.step ?? 0) - (b.story?.step ?? 0));
 		for (const quest of quests) {
 			points.push({ point: { mission: index, step: quest.story?.step ?? 0 }, mission, quest });

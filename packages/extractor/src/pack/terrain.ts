@@ -31,6 +31,8 @@ import { type TileKey, tileFootprint } from '@endfield-noclip/package-format/til
 import type { TreeInfo } from '@endfield-noclip/package-format/tree';
 import type { Bounds } from '@endfield-noclip/package-format/values';
 
+import { unique } from '@mary-ext/array-fns';
+
 import type { Context } from '../context.ts';
 import {
 	findTerrainSplatIndex,
@@ -178,7 +180,7 @@ export const packTerrain = async (
 		}
 		splat = { ...memo.value.splat, diffuse, normal };
 	}
-	return { tiles: packed, levels: [...new Set(tiles.map(({ key: tile }) => tile.level))], splat };
+	return { tiles: packed, levels: unique(tiles.map(({ key: tile }) => tile.level)), splat };
 };
 
 /** @returns a VFS file's content md5 */

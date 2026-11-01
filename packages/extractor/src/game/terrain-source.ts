@@ -50,17 +50,16 @@ export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIn
 		if (path === undefined) {
 			continue;
 		}
-		let scene = scenes.get(path.scene);
-		if (scene === undefined) {
-			scene = {
+		const scene = scenes.getOrInsertComputed(path.scene, () => {
+			const created: TerrainSceneIndex = {
 				scene: path.scene,
 				tiles: new Map(),
 				layers: { D: new Map(), N: new Map(), C: new Map() },
 				leafLevel: 0,
 			};
-			scenes.set(path.scene, scene);
-			channels.set(scene, new Map());
-		}
+			channels.set(created, new Map());
+			return created;
+		});
 		switch (path.kind) {
 			case 'tile': {
 				const key = { level: path.level, x: path.x, z: path.z };
@@ -72,12 +71,7 @@ export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIn
 					break;
 				}
 				const sceneChannels = channels.get(scene)!;
-				let tile = sceneChannels.get(id);
-				if (tile === undefined) {
-					tile = {};
-					sceneChannels.set(id, tile);
-				}
-				tile[path.channel] = file;
+				sceneChannels.getOrInsertComputed(id, () => ({}))[path.channel] = file;
 				break;
 			}
 			case 'layer': {

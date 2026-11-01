@@ -5,7 +5,6 @@ import { crc32 } from 'node:zlib';
 
 import { BlobCodec } from '@endfield-noclip/package-format/blobs';
 
-import { getOrInsert } from '../collections.ts';
 import { ignoreMissing } from '../errors.ts';
 
 // stored blobs as files, shared by the packer's blob store and the conversion workers. what's here decides
@@ -101,7 +100,7 @@ export class BlobDir {
 	 */
 	async replace(hash: string, data: Uint8Array | string): Promise<void> {
 		const fan = join(this.root, hash.slice(0, 2));
-		await getOrInsert(this.#made, fan, () => mkdir(fan, { recursive: true }));
+		await this.#made.getOrInsertComputed(fan, () => mkdir(fan, { recursive: true }));
 		const temp = `${this.path(hash)}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
 		await writeFile(temp, data);
 		await rename(temp, this.path(hash));

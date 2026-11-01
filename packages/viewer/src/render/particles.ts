@@ -732,11 +732,7 @@ export class ParticleField {
 		frame: number,
 		view: ParticleView,
 	): readonly number[] {
-		let emitters = this.#emitters.get(instances);
-		if (emitters === undefined) {
-			emitters = new Map();
-			this.#emitters.set(instances, emitters);
-		}
+		const emitters = this.#emitters.getOrInsertComputed(instances, () => new Map());
 		// one emitter per row and system: a renderer's meshes are separate rows
 		const key = row * this.#systems.length + system;
 		let emitter = emitters.get(key);

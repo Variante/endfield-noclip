@@ -274,12 +274,11 @@ const instanceRowKinds = (tree: TileTree, global: readonly ContentRef[]): Map<nu
 	const spans = new Map<number, TierSpan[]>();
 	for (const node of tree.nodes) {
 		for (const ref of node.hlod) {
-			let list = spans.get(ref.blob);
-			if (list === undefined) {
-				list = [];
-				spans.set(ref.blob, list);
-				kinds.set(ref.blob, list);
-			}
+			const list = spans.getOrInsertComputed(ref.blob, () => {
+				const created: TierSpan[] = [];
+				kinds.set(ref.blob, created);
+				return created;
+			});
 			list.push({ first: ref.first, count: ref.count, tier: ref.tier });
 		}
 		for (const ref of [...node.detail, ...node.conditional]) {
@@ -1273,7 +1272,7 @@ export class Viewer {
 		const same =
 			visible === null || current === null
 				? visible === current
-				: visible.size === current.size && [...visible].every((area) => current.has(area));
+				: visible.size === current.size && visible.isSubsetOf(current);
 		if (!same) {
 			this.#updateVisibility();
 		}

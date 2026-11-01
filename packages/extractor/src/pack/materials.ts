@@ -12,6 +12,8 @@ import type {
 	TextureSlot,
 } from '@endfield-noclip/package-format/materials';
 
+import { intern } from '../collections.ts';
+
 // material table rows: a shader table holding each shader's declared property defaults, and per material only
 // what differs from them. Unity keeps stale properties from earlier shaders in a material; undeclared ones are
 // dropped.
@@ -69,13 +71,7 @@ export class ShaderTable {
 				}
 			}
 		}
-		const key = JSON.stringify(entry);
-		let id = this.#ids.get(key);
-		if (id === undefined) {
-			id = this.shaders.length;
-			this.shaders.push(entry);
-			this.#ids.set(key, id);
-		}
+		const id = intern(this.shaders, this.#ids, JSON.stringify(entry), () => entry);
 		return { id, entry: this.shaders[id] };
 	}
 }

@@ -12,6 +12,8 @@ import {
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import { type IrradianceTable, irradianceStem } from '@endfield-noclip/package-format/irradiance';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import type { Context } from '../context.ts';
 import type { VfsFile } from '../hg/vfs.ts';
 
@@ -139,9 +141,9 @@ export const packIrradiance = async (
 		}),
 	);
 	// the base bake's files and the cells of each the region keeps
-	const selected = index.files.flatMap((name, file) => {
+	const selected = mapDefined(index.files, (name, file) => {
 		if (index.stateGroups[index.fileGroups[file]].hash !== 0) {
-			return [];
+			return undefined;
 		}
 		const records = index.records.filter((record) => {
 			if (record.file !== file) {
@@ -151,7 +153,7 @@ export const packIrradiance = async (
 			const half = (IRRADIANCE_CELL_SIZE << level) / 2;
 			return options.includes(origin[0] + half, origin[2] + half);
 		});
-		return records.length === 0 ? [] : [{ name, payload: payloads[file], records }];
+		return records.length === 0 ? undefined : { name, payload: payloads[file], records };
 	});
 
 	const key =

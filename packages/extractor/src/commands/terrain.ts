@@ -113,15 +113,7 @@ const requireScene = (
 
 /** @returns tile counts by level, ascending */
 const countLevels = (keys: Iterable<TerrainTileKey>): Map<number, TerrainTileKey[]> => {
-	const levels = new Map<number, TerrainTileKey[]>();
-	for (const key of keys) {
-		let list = levels.get(key.level);
-		if (list === undefined) {
-			list = [];
-			levels.set(key.level, list);
-		}
-		list.push(key);
-	}
+	const levels = Map.groupBy(keys, (key) => key.level);
 	return new Map([...levels].toSorted(([a], [b]) => a - b));
 };
 

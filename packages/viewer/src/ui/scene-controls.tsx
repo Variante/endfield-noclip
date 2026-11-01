@@ -11,6 +11,7 @@ import {
 	type StoryPoint,
 } from '@endfield-noclip/package-format/story';
 
+import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
 
 import { volumeCondition, volumeLevelTag, volumeReaches } from '../render/environment-blend.ts';
@@ -154,7 +155,7 @@ const ControlRow = ({
 	const picked = control.id in viewer.scenePicks;
 	const label = (entry: number): string =>
 		control.values.find((candidate) => candidate.value === entry)?.label ?? String(entry);
-	const detail = [control.rule && describe(control.rule), control.assumption].filter(Boolean).join(' · ');
+	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
 	const follows = control.kind === 'area' ? 'Follow camera' : control.derived === null ? null : 'Follow game';
 	if (follows === null && SWITCH_KINDS.has(control.kind)) {
 		return (
@@ -308,11 +309,7 @@ const StoryControls = ({
 	/** a level id's display name */
 	levelName: (id: string) => string;
 }) => {
-	const grouped = new Map<string | null, SceneControl[]>();
-	for (const control of controls) {
-		const mission = control.story?.mission ?? null;
-		grouped.set(mission, [...(grouped.get(mission) ?? []), control]);
-	}
+	const grouped = Map.groupBy(controls, (control) => control.story?.mission ?? null);
 	const rows = (entries: readonly SceneControl[]) =>
 		ordered(entries).map((entry) => (
 			<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
@@ -355,14 +352,12 @@ const StoryControls = ({
 								<summary>
 									{mission.name ?? mission.id}
 									<small className="muted">
-										{[
+										{definite([
 											mission.levelId && `takes place in ${levelName(mission.levelId)}`,
 											mission.chapter,
 											mission.episode,
 											mission.name && mission.id,
-										]
-											.filter(Boolean)
-											.join(' · ')}
+										]).join(' · ')}
 									</small>
 								</summary>
 								<StoryProgress
@@ -429,29 +424,25 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 			matches(`${storyName(entry)} ${entry.id} ${entry.rule ? describe(entry.rule) : ''}`),
 	);
 	// volumes apply wherever they hold the camera, so a neighbour's volume reaching into this level is listed too
-	const volumes = manifest.environmentVolumes
-		.map((volume, id) => ({
-			volume,
-			id,
-			owner: volumeLevelTag(manifest, volume),
-			condition: volumeCondition(manifest, volume),
-		}))
-		.filter(
-			({ volume, owner }) =>
-				(owner === 0 || owner === level?.tag || (level !== undefined && volumeReaches(volume, level.rect))) &&
-				matches(volume.name),
-		);
+	const volumes = mapDefined(manifest.environmentVolumes, (volume, id) => {
+		const owner = volumeLevelTag(manifest, volume);
+		const listed =
+			(owner === 0 || owner === level?.tag || (level !== undefined && volumeReaches(volume, level.rect))) &&
+			matches(volume.name);
+		if (!listed) {
+			return undefined;
+		}
+		return { volume, id, owner, condition: volumeCondition(manifest, volume) };
+	});
 	const levelNames = new Map(manifest.levels.map((entry) => [entry.tag, entry.name ?? entry.id]));
 	const controlNames = new Map(manifest.states.controls.map((entry) => [entry.id, entry.name]));
 	/** @returns the scene states a volume loads with, by name */
 	const loadingStates = (condition: number): string =>
-		[
-			...new Set(
-				manifest.states.conditionalSets[condition].alternatives.flatMap((requirements) =>
-					requirements.map(({ control }) => controlNames.get(control) ?? control),
-				),
+		unique(
+			manifest.states.conditionalSets[condition].alternatives.flatMap((requirements) =>
+				requirements.map(({ control }) => controlNames.get(control) ?? control),
 			),
-		].join(' or ');
+		).join(' or ');
 	return (
 		<section className="panel scene-controls" aria-label="scene conditions">
 			<header>

@@ -1,6 +1,8 @@
 import type { MissionRuntime } from '@endfield-noclip/formats/endfield/mission-runtime';
 import type { MissionInfo, QuestRef, SceneControl } from '@endfield-noclip/package-format/states';
 
+import { definite, mapDefined } from '@mary-ext/array-fns';
+
 import type { WorldIndex } from './world-index.ts';
 
 // names quest and mission controls from the game's mission definitions and English text. a quest's id is its
@@ -87,9 +89,10 @@ const flowStep = (mission: MissionRuntime, id: string, seen = new Set<string>())
 	}
 	seen.add(id);
 	const quest = mission.quests.find((entry) => entry.id === id);
-	const steps = (quest?.previous ?? [])
-		.map((previous) => flowStep(mission, previous, seen))
-		.filter((step) => step !== null);
+	const steps = mapDefined(
+		quest?.previous ?? [],
+		(previous) => flowStep(mission, previous, seen) ?? undefined,
+	);
 	return steps.length === 0 ? null : Math.floor(Math.max(...steps)) + 0.5;
 };
 
@@ -106,8 +109,7 @@ const missionInfo = (mission: MissionRuntime, plain: (key: string | null) => str
 		chapter:
 			chapter === undefined
 				? null
-				: [plain(`chapter${chapter}_num`), plain(`chapter${chapter}_name`)].filter(Boolean).join(' · ') ||
-					null,
+				: definite([plain(`chapter${chapter}_num`), plain(`chapter${chapter}_name`)]).join(' · ') || null,
 		episode: episode === undefined ? null : plain(`ep${episode}_name`),
 		levelId: mission.levelId,
 	};

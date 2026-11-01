@@ -231,9 +231,8 @@ export const voteLevelTags = (
 	for (const sample of samples) {
 		const cell = cellOf(sample.x, sample.z);
 		const owner = levelOfCell(partition, cell.x, cell.z)?.id ?? null;
-		const tally = votes.get(sample.tag) ?? new Map<string | null, number>();
+		const tally = votes.getOrInsertComputed(sample.tag, () => new Map());
 		tally.set(owner, (tally.get(owner) ?? 0) + 1);
-		votes.set(sample.tag, tally);
 	}
 	return [...votes.entries()]
 		.toSorted((a, b) => a[0] - b[0])

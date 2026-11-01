@@ -28,7 +28,8 @@ import { parseSparkTable, type SparkValue } from '@endfield-noclip/formats/hg/sp
 import { StringPathHashTable } from '@endfield-noclip/formats/hg/string-path-hash';
 import { parseStringPoolBlock, StringPool } from '@endfield-noclip/formats/hg/string-pool';
 
-import { getOrInsert } from '../collections.ts';
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { loadBundleManifest } from '../hg/bundles.ts';
 import { VfsGroup, type Vfs } from '../hg/vfs.ts';
 import { mapPool } from '../pool.ts';
@@ -162,10 +163,10 @@ export class WorldIndex {
 	stringPool(): Promise<StringPool> {
 		this.#stringPool ??= (async () => {
 			const group = await this.vfs.group(VfsGroup.JsonData);
-			const poolFiles = [...group.files.keys()]
-				.map((name) => /^Data\/Json\/StringPool\/StringPool(\d+)\.byte$/.exec(name))
-				.filter((match) => match !== null)
-				.toSorted((a, b) => Number(a[1]) - Number(b[1]));
+			const poolFiles = mapDefined(
+				[...group.files.keys()],
+				(name) => /^Data\/Json\/StringPool\/StringPool(\d+)\.byte$/.exec(name) ?? undefined,
+			).toSorted((a, b) => Number(a[1]) - Number(b[1]));
 			const blocks = await Promise.all(
 				poolFiles.map(async (match) =>
 					parseStringPoolBlock(await this.#read(VfsGroup.JsonData, match[0]), { first: match[1] === '0' }),
@@ -196,7 +197,7 @@ export class WorldIndex {
 	 * @returns its MapConfig, or `undefined` if it has none
 	 */
 	mapConfig(mapId: string): Promise<MapConfig | undefined> {
-		return getOrInsert(this.#mapConfigs, mapId, async () => {
+		return this.#mapConfigs.getOrInsertComputed(mapId, async () => {
 			const file = await this.vfs.find(VfsGroup.JsonData, `Data/Json/MapConfig/${mapId}.json`);
 			return file && parseMapConfig(new TextDecoder().decode(await this.vfs.readVerified(file)));
 		});
@@ -207,7 +208,7 @@ export class WorldIndex {
 	 * @returns its level partition, or `undefined` if the map has no MapConfig (and so no levels)
 	 */
 	partition(mapId: string): Promise<LevelPartition | undefined> {
-		return getOrInsert(this.#partitions, mapId, async () => {
+		return this.#partitions.getOrInsertComputed(mapId, async () => {
 			const map = await this.mapConfig(mapId);
 			return map && buildLevelPartition(map, (await this.levelConfigs()).values());
 		});
@@ -291,7 +292,7 @@ export class WorldIndex {
 	 * @throws {FormatError} if the file is malformed
 	 */
 	mission(id: string): Promise<MissionRuntime | undefined> {
-		return getOrInsert(this.#missions, id, async () => {
+		return this.#missions.getOrInsertComputed(id, async () => {
 			const file = await this.vfs.find(VfsGroup.JsonData, `Data/Json/MissionRuntimeAsset/${id}.json`);
 			return file && parseMissionRuntime(new TextDecoder().decode(await this.vfs.readVerified(file)));
 		});
@@ -450,7 +451,7 @@ export class WorldIndex {
 	 * @returns its stream-area table, or `undefined` if the scene has none
 	 */
 	streamAreas(scene: string): Promise<StreamAreaTable | undefined> {
-		return getOrInsert(this.#streamAreas, scene, async () => {
+		return this.#streamAreas.getOrInsertComputed(scene, async () => {
 			const file = await this.vfs.find(
 				VfsGroup.DynamicStreaming,
 				`${DYNAMIC_SCENE_ROOT}${scene}/FBStreamArea.bytes`,
@@ -464,7 +465,7 @@ export class WorldIndex {
 	 * @returns every DynamicStreaming entity of the scene's `fb_main` files, in file-name order
 	 */
 	dynamicEntities(scene: string): Promise<DynamicEntity[]> {
-		return getOrInsert(this.#dynamicEntities, scene, async () => {
+		return this.#dynamicEntities.getOrInsertComputed(scene, async () => {
 			const prefix = `${DYNAMIC_SCENE_ROOT}${scene}/fb_main_`;
 			const names = [...(await this.vfs.group(VfsGroup.DynamicStreaming)).files.keys()]
 				.filter((name) => name.startsWith(prefix))

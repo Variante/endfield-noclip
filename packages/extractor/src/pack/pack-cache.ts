@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 import { CORE_ARCHIVE } from '@endfield-noclip/package-format/manifest';
 
-import { getOrInsert } from '../collections.ts';
 import { errorCode, ignoreMissing } from '../errors.ts';
 
 import { BlobDir, type BlobMeta, shortHash } from './blob-file.ts';
@@ -147,7 +146,9 @@ export class PackCache {
 	 * @returns the step's key
 	 */
 	async stepKey(entry: URL, parts: object): Promise<string> {
-		const fingerprint = await getOrInsert(this.#stepFingerprints, entry.href, () => moduleFingerprint(entry));
+		const fingerprint = await this.#stepFingerprints.getOrInsertComputed(entry.href, () =>
+			moduleFingerprint(entry),
+		);
 		return shortHash(
 			JSON.stringify(['step', fingerprint, parts], (_, value: unknown) =>
 				typeof value === 'bigint' ? value.toString() : value,

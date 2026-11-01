@@ -7,6 +7,8 @@ import { type ObjectInfo, UnityClass } from '@endfield-noclip/formats/unity/seri
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import type { PPtr, StreamingInfo } from '@endfield-noclip/formats/unity/values';
 
+import { unique } from '@mary-ext/array-fns';
+
 import type { Keys } from '../config.ts';
 import {
 	archiveFileName,
@@ -382,7 +384,7 @@ export class AssetResolver {
 		if (assets.length === 0) {
 			throw new Error(`${path} isn't in the bundle manifest`);
 		}
-		const bundles = [...new Set(assets.map((asset) => asset.bundleIndex))];
+		const bundles = unique(assets.map((asset) => asset.bundleIndex));
 		const found = await Promise.all(bundles.map((index) => this.findInBundle(index, path, classId)));
 		return found.flat();
 	}
@@ -470,10 +472,7 @@ export class AssetResolver {
 					for (const bundle of bundles) {
 						const from = { bundleIndex: index, file: files[i], info: bundle.info };
 						for (const entry of bundle.container) {
-							const path = entry.path.toLowerCase();
-							const list = byPath.get(path) ?? [];
-							list.push({ from, entry });
-							byPath.set(path, list);
+							byPath.getOrInsertComputed(entry.path.toLowerCase(), () => []).push({ from, entry });
 						}
 					}
 				}

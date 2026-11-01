@@ -27,6 +27,8 @@ import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { arrayField, asPPtr, stringField } from '@endfield-noclip/formats/unity/values';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
+import { mapDefined } from '@mary-ext/array-fns';
+
 import { mapPool } from '../pool.ts';
 
 import type { AssetResolver, ObjectRef } from './assets.ts';
@@ -196,12 +198,10 @@ export const resolveLevelEnvironment = (
 	const global =
 		loaded.find(({ tag, volume }) => tag === 0 && volume.volumeType === EnvironmentVolumeType.Global)
 			?.volume ?? null;
-	const candidates = loaded
-		.filter(({ tag }) => tag === level.tag)
-		.flatMap(({ volume }) => {
-			const shape = footprint(volume);
-			return shape === null ? [] : [{ volume, shape, share: { volume, covered: 0, wins: 0 } }];
-		});
+	const candidates = mapDefined(loaded, ({ tag, volume }) => {
+		const shape = tag === level.tag ? footprint(volume) : null;
+		return shape === null ? undefined : { volume, shape, share: { volume, covered: 0, wins: 0 } };
+	});
 
 	let samples = 0;
 	for (const cell of level.config.levelGrids ?? []) {
@@ -231,12 +231,9 @@ export const resolveLevelEnvironment = (
 			}
 		}
 	}
-	const shares = candidates
-		.map(({ share }) => share)
-		.filter((share) => share.covered > 0)
-		.toSorted(
-			(a, b) => b.covered - a.covered || a.volume.priority - b.volume.priority || a.volume.id - b.volume.id,
-		);
+	const shares = mapDefined(candidates, ({ share }) => (share.covered > 0 ? share : undefined)).toSorted(
+		(a, b) => b.covered - a.covered || a.volume.priority - b.volume.priority || a.volume.id - b.volume.id,
+	);
 	// a volume the game never shows in the level (always beaten) can't be its look
 	const base = shares.find((share) => share.wins > 0);
 	return {

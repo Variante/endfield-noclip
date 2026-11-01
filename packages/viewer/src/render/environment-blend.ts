@@ -60,17 +60,14 @@ const SHAPE_ORDER: Record<EnvironmentVolumeShape['kind'], number> = { global: 0,
 const sortedVolumes = new WeakMap<PackageManifest, { id: number; volume: EnvironmentVolumeInfo }[]>();
 
 const volumesOf = (manifest: PackageManifest): { id: number; volume: EnvironmentVolumeInfo }[] => {
-	let sorted = sortedVolumes.get(manifest);
-	if (sorted === undefined) {
-		sorted = manifest.environmentVolumes
+	return sortedVolumes.getOrInsertComputed(manifest, () =>
+		manifest.environmentVolumes
 			.map((volume, id) => ({ id, volume }))
 			.toSorted(
 				({ volume: a }, { volume: b }) =>
 					a.priority - b.priority || SHAPE_ORDER[a.shape.kind] - SHAPE_ORDER[b.shape.kind],
-			);
-		sortedVolumes.set(manifest, sorted);
-	}
-	return sorted;
+			),
+	);
 };
 
 /**

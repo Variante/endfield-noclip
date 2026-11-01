@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { definite } from '@mary-ext/array-fns';
+
 import type { KeyConfig } from '../config.ts';
 
 /**
@@ -59,7 +61,7 @@ export const importKeys = async (dirs: string[]): Promise<KeyConfig> => {
 		bundle === undefined && 'bundle cipher (from AnimeStudio)',
 	];
 	if (vfsKey === undefined || bundle === undefined) {
-		throw new Error(`couldn't find: ${missing.filter(Boolean).join(', ')}`);
+		throw new Error(`couldn't find: ${definite(missing).join(', ')}`);
 	}
 	return { vfsKey, bundle };
 };

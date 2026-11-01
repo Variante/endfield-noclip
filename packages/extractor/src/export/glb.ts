@@ -1,5 +1,7 @@
 import type { DecodedMesh } from '@endfield-noclip/formats/unity/mesh';
 
+import { intern } from '../collections.ts';
+
 // a minimal glTF 2.0 binary writer for eyeballing decoded assets: triangle meshes with positions, normals and
 // UV0, plain base-colour materials, and nodes with matrices. Unity's left-handed space is mirrored on X into
 // glTF's right-handed one (positions, normals, matrices and winding), and V is flipped.
@@ -142,8 +144,7 @@ export const writeGlb = (scene: GlbScene, origin: [number, number, number]): Uin
 			continue;
 		}
 		const key = `${draw.mesh}\0${draw.submesh}\0${draw.material}`;
-		let index = meshIndex.get(key);
-		if (index === undefined) {
+		const index = intern(meshes, meshIndex, key, () => {
 			// mirrored space: reverse the winding
 			const indices = new Uint32Array(submesh.indexCount);
 			for (let i = 0; i < submesh.indexCount; i += 3) {
@@ -152,7 +153,7 @@ export const writeGlb = (scene: GlbScene, origin: [number, number, number]): Uin
 				indices[i + 1] = mesh.indices[at + 2] + submesh.baseVertex;
 				indices[i + 2] = mesh.indices[at + 1] + submesh.baseVertex;
 			}
-			meshes.push({
+			return {
 				name: `${mesh.name}#${draw.submesh}`,
 				primitives: [
 					{
@@ -167,10 +168,8 @@ export const writeGlb = (scene: GlbScene, origin: [number, number, number]): Uin
 						mode: TRIANGLES,
 					},
 				],
-			});
-			index = meshes.length - 1;
-			meshIndex.set(key, index);
-		}
+			};
+		});
 		// S·M·S with S = diag(-1, 1, 1, 1): negate the elements that mix X with Y/Z/W
 		const m = Array.from(draw.matrix);
 		m[12] -= origin[0];

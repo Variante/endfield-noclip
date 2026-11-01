@@ -61,33 +61,23 @@ const shaderCache = new WeakMap<AssetResolver, Map<string, Promise<ShaderSummary
  * @returns its summary
  */
 export const loadShaderSummary = (resolver: AssetResolver, ref: ObjectRef): Promise<ShaderSummary> => {
-	let cache = shaderCache.get(resolver);
-	if (cache === undefined) {
-		cache = new Map();
-		shaderCache.set(resolver, cache);
-	}
-	const key = objectKey(ref);
-	let cached = cache.get(key);
-	if (cached === undefined) {
-		cached = (async () => {
-			if (ref.info.classId !== UnityClass.Shader) {
-				throw new FormatError(`object ${ref.info.pathId} is class ${ref.info.classId}, not a Shader`);
-			}
-			const bytes = await ref.file.objectBytes(ref.info);
-			const parsed = readTypeTreeField(
-				compiledTypeOf(ref.info.type),
-				bytes,
-				readOptionsOf(ref.file.file),
-				'm_ParsedForm',
-			);
-			if (!isObject(parsed)) {
-				throw new FormatError(`shader ${ref.info.pathId} has no m_ParsedForm`);
-			}
-			return summarizeShader(parsed);
-		})();
-		cache.set(key, cached);
-	}
-	return cached;
+	const cache = shaderCache.getOrInsertComputed(resolver, () => new Map());
+	return cache.getOrInsertComputed(objectKey(ref), async () => {
+		if (ref.info.classId !== UnityClass.Shader) {
+			throw new FormatError(`object ${ref.info.pathId} is class ${ref.info.classId}, not a Shader`);
+		}
+		const bytes = await ref.file.objectBytes(ref.info);
+		const parsed = readTypeTreeField(
+			compiledTypeOf(ref.info.type),
+			bytes,
+			readOptionsOf(ref.file.file),
+			'm_ParsedForm',
+		);
+		if (!isObject(parsed)) {
+			throw new FormatError(`shader ${ref.info.pathId} has no m_ParsedForm`);
+		}
+		return summarizeShader(parsed);
+	});
 };
 
 /** a material's texture slot with its texture located */

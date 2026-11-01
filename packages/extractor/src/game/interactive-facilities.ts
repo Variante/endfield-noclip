@@ -15,7 +15,6 @@ import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
 
-import { getOrInsert } from '../collections.ts';
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
@@ -199,7 +198,7 @@ export const loadInteractiveFacilities = async (
 	const variantsOf = new Map<string, Set<string>>();
 	for (const [id, template] of interactives.templates) {
 		if (id !== template) {
-			variantsOf.set(template, (variantsOf.get(template) ?? new Set()).add(id));
+			variantsOf.getOrInsertComputed(template, () => new Set()).add(id);
 		}
 	}
 	for (const key of new Set(placed.map(({ row }) => row.template))) {
@@ -353,7 +352,7 @@ export const loadInteractiveFacilities = async (
 				continue;
 			}
 			const id = `doodadGroups:${levelId}`;
-			const levels = getOrInsert(doodadLevels, id, () => new Set<number>());
+			const levels = doodadLevels.getOrInsertComputed(id, () => new Set<number>());
 			for (const { groupLevel, form } of doodad) {
 				levels.add(groupLevel);
 				place(form, { alternatives: [[{ control: id, mask: (1 << groupLevel) >>> 0 }]] });

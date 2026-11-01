@@ -10,6 +10,7 @@ import type { BlobRecord } from '@endfield-noclip/package-format/blob-table';
 import { blobPath, type BlobKind } from '@endfield-noclip/package-format/blobs';
 import { ARCHIVE_ID_LENGTH, archiveName } from '@endfield-noclip/package-format/manifest';
 
+import { mapDefined } from '@mary-ext/array-fns';
 import { type ArchivePlan, encodeArchive, encodeArchiveStream, planArchive } from '@mary-ext/czar';
 
 import { ignoreMissing } from '../errors.ts';
@@ -196,11 +197,10 @@ export class BlobStore {
 	totals(): Map<BlobKind, { count: number; stored: number; raw: number }> {
 		const totals = new Map<BlobKind, { count: number; stored: number; raw: number }>();
 		for (const blob of this.#blobs) {
-			const total = totals.get(blob.kind) ?? { count: 0, stored: 0, raw: 0 };
+			const total = totals.getOrInsertComputed(blob.kind, () => ({ count: 0, stored: 0, raw: 0 }));
 			total.count++;
 			total.stored += blob.length;
 			total.raw += blob.rawLength;
-			totals.set(blob.kind, total);
 		}
 		return totals;
 	}
@@ -217,10 +217,9 @@ export class BlobStore {
 
 	/** @returns the archives other than the core, sorted by name, with the stem each belongs to */
 	archives(): { name: string; stem: string }[] {
-		return [...this.#layout().archives.values()]
-			.filter(({ name }) => name !== this.#core)
-			.map(({ name, stem }) => ({ name, stem }))
-			.toSorted((a, b) => (a.name < b.name ? -1 : 1));
+		return mapDefined([...this.#layout().archives.values()], ({ name, stem }) =>
+			name !== this.#core ? { name, stem } : undefined,
+		).toSorted((a, b) => (a.name < b.name ? -1 : 1));
 	}
 
 	/**
@@ -301,7 +300,7 @@ export class BlobStore {
 				throw new Error(`core member ${member.path} would sort before the blobs and shift their offsets`);
 			}
 		}
-		const indices = this.#blobs.flatMap((blob, index) => (blob.stem === this.#core ? [index] : []));
+		const indices = mapDefined(this.#blobs, (blob, index) => (blob.stem === this.#core ? index : undefined));
 		const blobs = await Promise.all(
 			indices.map(async (index) => {
 				const blob = this.#blobs[index];
@@ -324,9 +323,7 @@ export class BlobStore {
 		}
 		const stems = new Map<string, number[]>();
 		for (const [index, blob] of this.#blobs.entries()) {
-			const list = stems.get(blob.stem) ?? [];
-			list.push(index);
-			stems.set(blob.stem, list);
+			stems.getOrInsertComputed(blob.stem, () => []).push(index);
 		}
 		const archives = new Map<string, PlannedArchive>();
 		const placement: Layout['placement'] = [];
@@ -370,9 +367,7 @@ export class BlobStore {
 		const parts = new Map<number, number[]>();
 		for (const index of indices) {
 			const part = Number.parseInt(this.#blobs[index].hash.slice(0, 8), 16) >>> (32 - bits);
-			const list = parts.get(part) ?? [];
-			list.push(index);
-			parts.set(part, list);
+			parts.getOrInsertComputed(part, () => []).push(index);
 		}
 		return new Map([...parts].toSorted((a, b) => a[0] - b[0]));
 	}
