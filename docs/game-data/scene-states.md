@@ -302,6 +302,13 @@ event from a mission's cutscene and calls the server), so:
   (`unlocked`, its "to be constructed" panel showing) while it's empty. the slots don't name their
   doors, so each door goes to the nearest slot origin within 12 m in plan (a small slot's door
   stands 9 m from its origin, the medium one's 10.2 m); the spare small slot has none
+- Dijiang's reception room door (`system_inst_key` `guest_room`) stays closed by default: it opens
+  once the reception room is unlocked, and that unlock is server-only. the room's level-1 row in
+  `SpaceshipRoomLvTable` has no condition, only the text "Progress through the main story to unlock
+  this cabin"; the Control Nexus tables don't unlock it; the client gets its unlocked systems from
+  the server, and no client table maps a mission to them. no mission or level script unlocks it
+  either. mission `f1m22` (Control Nexus level 3) places an NPC in the room, so it's open by then,
+  but that's no link to follow
 
 ## doodad groups
 
