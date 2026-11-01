@@ -825,8 +825,9 @@ export class MeshRenderer {
 				continue;
 			}
 			const state = this.#materialState(bucket.material, look, textures);
-			// unlit looks are their texture, so they wait for it rather than draw as solid cards
-			if ((look.flags & LookFlags.Unlit) !== 0 && state.slots[0] === null) {
+			// unlit looks are their texture, so they wait for it rather than draw as solid cards. the unsupported
+			// checker has none to wait for
+			if ((look.flags & LookFlags.Unlit) !== 0 && look.textures[0] >= 0 && state.slots[0] === null) {
 				continue;
 			}
 			// effects are made of their textures, so they wait for all of them
