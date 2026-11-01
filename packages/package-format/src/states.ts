@@ -80,6 +80,8 @@ export interface VisibilityGroup {
  * - `logic`: a logic-state gate with no recovered controller
  * - `harvest`: one level's harvestable trees, standing (0) or felled (1); each tree's state is the player's, at
  *   runtime
+ * - `controlNexus`: Dijiang's Control Nexus level, offered at the levels that unlock a construction area; each
+ *   area's region wall shows below its level
  * - `cabin`: a Dijiang cabin slot, empty (0) or built (1); building is the player's choice
  * - `door`: an interactive door, closed (0) or open (1); derived from its cabin slot for a Dijiang cabin's door
  * - `area`: a stream area, shown (1) or hidden (0). unless the user picks a value, a viewer sets it from the
@@ -96,6 +98,7 @@ export type SceneControlKind =
 	| 'script'
 	| 'logic'
 	| 'harvest'
+	| 'controlNexus'
 	| 'cabin'
 	| 'door'
 	| 'area'

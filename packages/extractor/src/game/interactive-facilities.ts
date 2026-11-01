@@ -11,6 +11,7 @@ import {
 } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
+import { parseSparkTable } from '@endfield-noclip/formats/hg/spark-buffer';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
@@ -102,11 +103,15 @@ const DOOR_COMPONENTS = [
 	'_SpaceshipRoomDoorSystemDataForMemoryPack',
 ];
 
+/** the component of Dijiang's construction-area walls */
+const REGION_WALL_COMPONENTS = ['_SpaceshipRegionWallDataForMemoryPack'];
+
 /**
  * @param template a decoded interactive template
- * @returns whether it has a door component
+ * @param suffixes component type name suffixes
+ * @returns whether it has a component of one of those types
  */
-const isDoorTemplate = (template: MemoryPackValue): boolean => {
+const hasComponent = (template: MemoryPackValue, suffixes: readonly string[]): boolean => {
 	const components =
 		template !== null && typeof template === 'object' && !Array.isArray(template)
 			? template.componentList
@@ -117,13 +122,31 @@ const isDoorTemplate = (template: MemoryPackValue): boolean => {
 			typeof component === 'object' &&
 			!Array.isArray(component) &&
 			typeof component.$type === 'string' &&
-			DOOR_COMPONENTS.some(
-				(suffix) => typeof component.$type === 'string' && component.$type.endsWith(suffix),
-			),
+			suffixes.some((suffix) => typeof component.$type === 'string' && component.$type.endsWith(suffix)),
 	);
 };
 
 const TABLE = 'Data/Json/Interactive/InteractiveTable.json';
+
+/** construction area → the Control Nexus level that unlocks it */
+const AREA_UNLOCK_TABLE = 'Data/TableCfg/SpaceshipAreaUnlockNeedCenterLvTable.bytes';
+
+/** the placement parameter naming a region wall's construction area */
+const AREA_KEY = 'system_inst_key';
+
+/**
+ * @param row a placed interactive
+ * @returns the string of its {@link AREA_KEY} parameter on any component, or null
+ */
+const areaOf = (row: LevelInteractive): string | null => {
+	for (const params of row.componentProperties.values()) {
+		const text = params.find((param) => param.key === AREA_KEY)?.values[0]?.text;
+		if (text) {
+			return text;
+		}
+	}
+	return null;
+};
 
 /** a placed door and its open/closed control */
 export interface InteractiveDoor {
@@ -375,10 +398,12 @@ export const loadInteractiveFacilities = async (
 		findHashes(doodads.values().flatMap((levels) => levels.map(({ form }) => form.prefab)));
 	}
 
-	// doors drawn open or closed: interactives of door templates whose model has door poses, by key
+	// doors drawn open or closed: interactives of door templates whose model has door poses, by key. region
+	// walls, by key, are drawn while their construction area is locked
 	const doorPoses = new Map<string, DoorPoses>();
+	const regionWalls = new Set<string>();
 	{
-		const doorTemplates = new Map<string, boolean>();
+		const templateKinds = new Map<string, 'door' | 'regionWall' | null>();
 		const byModel = new Map<string, DoorPoses | null>();
 		// a failed read reports and leaves the model drawn as saved
 		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
@@ -396,17 +421,29 @@ export const loadInteractiveFacilities = async (
 			if (model === null) {
 				continue;
 			}
-			let door = doorTemplates.get(data);
-			if (door === undefined) {
+			let kind = templateKinds.get(data);
+			if (kind === undefined) {
 				// oxlint-disable-next-line no-await-in-loop -- one decode per template
-				door = await attempt(
+				kind = await attempt(
 					data,
-					async () => isDoorTemplate(reader.decode(await read(data), TEMPLATE_ROOT)),
-					false,
+					async () => {
+						const decoded = reader.decode(await read(data), TEMPLATE_ROOT);
+						if (hasComponent(decoded, DOOR_COMPONENTS)) {
+							return 'door';
+						}
+						if (hasComponent(decoded, REGION_WALL_COMPONENTS)) {
+							return 'regionWall';
+						}
+						return null;
+					},
+					null,
 				);
-				doorTemplates.set(data, door);
+				templateKinds.set(data, kind);
 			}
-			if (!door) {
+			if (kind === 'regionWall') {
+				regionWalls.add(key);
+			}
+			if (kind !== 'door') {
 				continue;
 			}
 			let poses = byModel.get(model);
@@ -421,8 +458,46 @@ export const loadInteractiveFacilities = async (
 		}
 	}
 
+	// Dijiang's region walls hide once the Control Nexus level unlocks their construction area. one control,
+	// offered at the levels that unlock an area; levels between them change no wall
+	let nexus: { control: SceneControl; unlockOf: Map<string, number> } | null = null;
+	{
+		const walls = placed.filter(({ row }) => regionWalls.has(row.template));
+		const file = walls.length > 0 ? await vfs.find(VfsGroup.Table, AREA_UNLOCK_TABLE) : undefined;
+		if (walls.length > 0 && file === undefined) {
+			unsupported.push({ path: AREA_UNLOCK_TABLE, reason: 'missing; region walls stay shown' });
+		}
+		if (file !== undefined) {
+			const unlockOf = new Map<string, number>();
+			for (const [area, unlock] of parseSparkTable(await vfs.readVerified(file)).entries) {
+				if (typeof area !== 'string' || typeof unlock !== 'number' || unlock < 1 || unlock > 31) {
+					throw new FormatError(`${AREA_UNLOCK_TABLE} has an invalid entry for ${String(area)}`);
+				}
+				unlockOf.set(area, unlock);
+			}
+			// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+			const levels = [...new Set([1, ...unlockOf.values()])].sort((a, b) => a - b);
+			nexus = {
+				control: {
+					kind: 'controlNexus',
+					id: `controlNexus:${walls[0].levelId}`,
+					name: 'Control Nexus level',
+					rule: null,
+					assumption: 'level 1, before the player upgrades it',
+					story: null,
+					drivers: [],
+					levelTags: [],
+					values: levels.map((value) => ({ value, label: `Level ${value}` })),
+					default: 1,
+					derived: null,
+				},
+				unlockOf,
+			};
+		}
+	}
+
 	const models: StructureModel[] = [];
-	const progressions: SceneControl[] = [];
+	const progressions: SceneControl[] = nexus === null ? [] : [nexus.control];
 	const doors: InteractiveDoor[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
 	for (const { path, levelId, levelTag, row } of placed) {
@@ -474,6 +549,24 @@ export const loadInteractiveFacilities = async (
 			});
 			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, poses.closed);
 			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, poses.open);
+			continue;
+		}
+		if (nexus !== null && regionWalls.has(row.template)) {
+			const unlock = nexus.unlockOf.get(areaOf(row) ?? '');
+			if (unlock === undefined) {
+				// no level unlocks the area in this client
+				place(template.forms[0], { alternatives: [[]] }, null);
+				continue;
+			}
+			let mask = 0;
+			for (const { value } of nexus.control.values) {
+				if (value < unlock) {
+					mask |= 1 << value;
+				}
+			}
+			if (mask !== 0) {
+				place(template.forms[0], { alternatives: [[{ control: nexus.control.id, mask: mask >>> 0 }]] }, null);
+			}
 			continue;
 		}
 		if (template.name === null) {

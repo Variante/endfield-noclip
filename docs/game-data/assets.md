@@ -323,8 +323,9 @@ harvestable plants, shops. their models come from four sources:
 
 1. LevelData files (from LevelConfig `levelDataPathHashes`) place them. `readLevelInteractives`
    decodes the sequential prefix through the interactive list: interactive id, `createState`,
-   position, rotation, scale, `modelScale` (0 = no override). only `createState` 0 (created with the
-   level) is drawn, once per id.
+   position, rotation, scale, `modelScale` (0 = no override), and the per-component parameters
+   (keyed by the game's interactive component type). only `createState` 0 (created with the level)
+   is drawn, once per id.
 2. `Data/Json/Interactive/InteractiveTable.json` maps each interactive id to a template and each
    template to its data file (`readInteractiveTable`). many ids share one template: the Wuling
    switch variants all instantiate `int_switch_wuling`.

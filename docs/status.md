@@ -18,10 +18,10 @@ packs or renders correctly.
 - quest, mission and variable state as preview controls, with scene states derived from them and
   dynamic load gates reading them; story progress picked per mission or across the main story;
   progressions, facility visual forms (shops, depots, recycling stations, monitoring terminals),
-  Dijiang cabins, tree harvest state, stream areas and script/event groups as controls, each listed
-  for the levels it gates; script groups list what sets them in game (quests, switches, areas,
-  dungeons), from the level scripts, and follow the quests their scripts check when they run
-  ([scene states](game-data/scene-states.md))
+  Dijiang cabins and Control Nexus level (region walls), tree harvest state, stream areas and
+  script/event groups as controls, each listed for the levels it gates; script groups list what sets
+  them in game (quests, switches, areas, dungeons), from the level scripts, and follow the quests
+  their scripts check when they run ([scene states](game-data/scene-states.md))
 - static and dynamic stream areas switched by the camera through the game's trigger zones
   ([world](game-data/world.md#stream-areas))
 - terrain heights, baked surface pages and the close-up layer blend

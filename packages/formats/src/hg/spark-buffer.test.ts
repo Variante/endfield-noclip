@@ -137,6 +137,27 @@ test('decodes an int64-keyed string table', () => {
 	]);
 });
 
+test('decodes a string-keyed int table', () => {
+	const b = new Buffer();
+	const header = [b.u32(12), b.u32(0), b.u32(0)];
+	b.u32(0);
+	b.patch(header[1], b.pos);
+	b.u8(SparkType.Map);
+	b.cString('SpaceshipAreaUnlockNeedCenterLvTable');
+	b.u8(SparkType.String);
+	b.u8(SparkType.Int);
+	const key = b.cString('construction_area_2');
+	b.align(4);
+	b.patch(header[2], b.pos);
+	b.u32(1);
+	const slot = b.u32(0);
+	b.u32(1);
+	b.patch(slot, b.pos);
+	b.u32(key);
+	b.u32(3);
+	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [['construction_area_2', 3]]);
+});
+
 test('rejects unsupported field types', () => {
 	assert.throws(() => parseSparkTable(buildBeanTable(42)), /unsupported spark field type 42/);
 });

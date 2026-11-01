@@ -2,7 +2,7 @@ import { FormatError } from '../binary/binary-reader.ts';
 import { ByteView } from '../binary/byte-view.ts';
 
 // SparkBuffer config tables (`Data/TableCfg/*.bytes`, Table group). layout recovered from MapIdTable,
-// LevelDescTable and I18nTextTable_*; only the value types those use are supported, and anything else fails
+// LevelDescTable, I18nTextTable_* and SpaceshipAreaUnlockNeedCenterLvTable; only the value types those use are supported, and anything else fails
 // loudly rather than guessing.
 //
 //   u32 typesOffset, u32 rootOffset, u32 dataOffset
@@ -15,6 +15,7 @@ import { ByteView } from '../binary/byte-view.ts';
 
 /** value type codes (the game's `SparkType`) */
 export const SparkType = {
+	Int: 2,
 	Long: 3,
 	String: 7,
 	Bean: 8,
@@ -22,7 +23,7 @@ export const SparkType = {
 } as const;
 
 /** a decoded SparkBuffer value */
-export type SparkValue = bigint | string | null | { [field: string]: SparkValue };
+export type SparkValue = number | bigint | string | null | { [field: string]: SparkValue };
 
 interface BeanType {
 	name: string;
@@ -75,7 +76,7 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 					at = align(at, 4);
 					typeHash = u32(at);
 					at += 4;
-				} else if (type !== SparkType.Long && type !== SparkType.String) {
+				} else if (type !== SparkType.Int && type !== SparkType.Long && type !== SparkType.String) {
 					throw new FormatError(`unsupported spark field type ${type} in ${name}.${fieldName}`);
 				}
 				fields.push({ name: fieldName, type, typeHash });
@@ -100,6 +101,10 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 	/** reads a value of `type` packed at or after `pos`; returns it and the position after it */
 	const read = (type: number, typeHash: number, pos: number): [SparkValue, number] => {
 		switch (type) {
+			case SparkType.Int: {
+				const p = align(pos, 4);
+				return [view.i32(p), p + 4];
+			}
 			case SparkType.Long: {
 				const p = align(pos, 8);
 				return [view.i64(p), p + 8];
@@ -147,7 +152,7 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		for (let i = 0; i < count; i++) {
 			const [key, afterKey] = read(keyType, 0, p);
 			const [value, afterValue] = read(valueType, valueBean, afterKey);
-			if (key === null || typeof key === 'object') {
+			if (typeof key !== 'string' && typeof key !== 'bigint') {
 				throw new FormatError(`null spark key in ${name}`);
 			}
 			entries.push([key, value]);

@@ -9,6 +9,17 @@ export interface LevelInteractive {
 	rotation: [number, number, number];
 	scale: [number, number, number];
 	modelScale: number;
+	/** the placement's parameters for its template's components, by the game's interactive component type */
+	componentProperties: Map<number, InteractiveParam[]>;
+}
+
+/** a keyed parameter authored on an interactive placement */
+export interface InteractiveParam {
+	key: string;
+	/** the game's parameter value type */
+	type: number;
+	/** each value atom: its 64 raw bits and its string (pooled; `null` when absent) */
+	values: { bits: bigint; text: string | null }[];
 }
 
 /** an unimplemented field; callers may report and omit the entire file, never scan past it */
@@ -110,7 +121,7 @@ export const readLevelInteractives = (
 	const ints = (): void => {
 		r.skip(count() * 4);
 	};
-	const entity = (): Omit<LevelInteractive, 'modelScale'> => {
+	const entity = (): Omit<LevelInteractive, 'modelScale' | 'componentProperties'> => {
 		r.i32();
 		r.u64();
 		const createState = r.i32();
@@ -155,16 +166,18 @@ export const readLevelInteractives = (
 			r.skip(24);
 		});
 	};
-	const param = (): void => {
+	const param = (): InteractiveParam => {
 		marker(2);
-		str();
+		const key = str() ?? '';
 		marker(2);
-		r.i32();
+		const type = r.i32();
+		const values: InteractiveParam['values'] = [];
 		list(() => {
 			marker(2);
-			r.i64();
-			str();
+			const bits = r.u64();
+			values.push({ bits, text: str() });
 		});
+		return { key, type, values };
 	};
 	marker(43);
 	field = 'airWalls';
@@ -700,9 +713,12 @@ export const readLevelInteractives = (
 	list(() => {
 		marker(25);
 		const row = entity();
+		const componentProperties = new Map<number, InteractiveParam[]>();
 		list(() => {
-			r.i32();
-			list(param);
+			const component = r.i32();
+			const params: InteractiveParam[] = [];
+			list(() => params.push(param()));
+			componentProperties.set(component, params);
 		});
 		ints();
 		list(param);
@@ -714,7 +730,7 @@ export const readLevelInteractives = (
 		const modelScale = r.f32();
 		condition(0);
 		list(param);
-		result.push({ ...row, modelScale });
+		result.push({ ...row, modelScale, componentProperties });
 	});
 	return result;
 };

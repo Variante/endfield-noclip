@@ -46,9 +46,9 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string; open: 
 		open: true,
 	},
 	{
-		kinds: ['cabin'],
-		title: 'Dijiang cabins',
-		note: 'Cabins the player builds into Dijiang’s slots; empty by default.',
+		kinds: ['controlNexus', 'cabin'],
+		title: 'Dijiang',
+		note: 'The Control Nexus level, which opens construction areas, and the cabins the player builds into Dijiang’s slots; level 1 and empty by default.',
 		open: true,
 	},
 	{

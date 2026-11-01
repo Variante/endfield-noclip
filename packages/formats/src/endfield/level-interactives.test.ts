@@ -83,7 +83,22 @@ const fixture = (options: { gated: boolean; unsupported: boolean; areas: boolean
 			f32(f);
 		}
 		u8(0);
-		i32(0);
+		if (n === 0) {
+			// one component (type 26) with one string parameter
+			i32(1);
+			i32(26);
+			i32(1);
+			u8(2);
+			i32(9);
+			u8(2);
+			i32(7);
+			i32(1);
+			u8(2);
+			u64(0n);
+			i32(10);
+		} else {
+			i32(0);
+		}
 		i32(-1);
 		i32(0);
 		u8(0);
@@ -106,9 +121,17 @@ const fixture = (options: { gated: boolean; unsupported: boolean; areas: boolean
 	return bytes.slice(0, at);
 };
 
+const STRINGS = new Map([
+	[7, 'test_facility'],
+	[8, 'test_quest'],
+	[9, 'system_inst_key'],
+	[10, 'construction_area_2'],
+]);
+
 const string = (id: number): string => {
-	assert.ok(id === 7 || id === 8);
-	return id === 7 ? 'test_facility' : 'test_quest';
+	const value = STRINGS.get(id);
+	assert.ok(value !== undefined);
+	return value;
 };
 
 test('reads the complete interactive list through nullable properties and quest locks', () => {
@@ -124,6 +147,13 @@ test('reads the complete interactive list through nullable properties and quest 
 	assert.deepEqual(rows[0].position, [1, 2, 3]);
 	assert.deepEqual(rows[0].rotation, [0, 90, 0]);
 	assert.equal(rows[0].template, 'test_facility');
+	assert.deepEqual(
+		rows[0].componentProperties,
+		new Map([
+			[26, [{ key: 'system_inst_key', type: 7, values: [{ bits: 0n, text: 'construction_area_2' }] }]],
+		]),
+	);
+	assert.equal(rows[1].componentProperties.size, 0);
 });
 
 test('an unsupported prefix cannot be bypassed to find a plausible placement later in the file', () => {

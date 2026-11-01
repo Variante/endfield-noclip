@@ -243,10 +243,11 @@ labels them "Visual form", not "Level".
 
 every other interactive draws one model, always shown (its variant's, else its template's; see
 [assets.md](assets.md#interactives)): Dijiang's guest terminal desk and screens, for instance. that
-ignores whatever runtime state the game keeps for them (unlocked region walls), except for
-[doors](#doors), and rows with another `createState` are left out. templates without a data file of
-their own (the weapon-wall racks, some doors) are reported, and templates that name no model draw
-nothing.
+ignores whatever runtime state the game keeps for them, except for [doors](#doors) and
+[region walls](#dijiang-region-walls), and rows with another `createState` are left out (Dijiang's
+Control Nexus terminal is one: no client data creates it, so the server does; its mission condition,
+`e1m9` completed, only locks interaction with it). templates without a data file of their own (the
+weapon-wall racks, some doors) are reported, and templates that name no model draw nothing.
 
 ## Dijiang cabins
 
@@ -267,6 +268,22 @@ the medium slot and manufacturing cabins in the small ones. one of the small slo
 no room-table row; it's offered like the others. each slot is a `cabin:<id>` control, empty by
 default. cabin levels (1–3) change no stored geometry (only the planting boxes' and machine's
 runtime state), so they aren't offered.
+
+## Dijiang region walls
+
+implemented in
+[`interactive-facilities.ts`](../../packages/extractor/src/game/interactive-facilities.ts).
+
+Dijiang's "no entry" walls (`int_system_spaceship_region_wall`, a template with a
+`SpaceshipRegionWall` component) each close off a construction area, named by the placement's
+`system_inst_key` component parameter in LevelData. the game hides the wall's whole model once the
+area is unlocked, and `SpaceshipAreaUnlockNeedCenterLvTable` gives the Control Nexus level that
+unlocks each area (`construction_area_1` at 1, `construction_area_2` at 3). `construction_area_3`
+and `_4` have no row, so their walls always show in this client.
+
+the packer makes one `controlNexus:<level id>` control, level 1 by default, offering level 1 and
+each level that unlocks an area; levels between them change no wall. each wall shows at the offered
+levels below its area's unlock level. the cabin slot behind a locked wall stays selectable.
 
 ## doors
 
@@ -483,7 +500,7 @@ environment blend.
   "Quests". rules elsewhere show quests by mission and quest name instead of id
 - **variables**: a select of ranges, the default marked "(initial)"
 - **progression**: one select per progression, "Level n", "Visual form n" or "Group level n"
-- **Dijiang cabins**: a checkbox per slot, built or empty
+- **Dijiang**: a Control Nexus level select, and a checkbox per cabin slot, built or empty
 - **doors**: a checkbox per door, open or closed, or "Follow game" for a cabin's door
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
 - **harvest**: standing or felled
