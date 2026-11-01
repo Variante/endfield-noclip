@@ -28,10 +28,10 @@ import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '.
 import type { Vfs, VfsFile } from '../hg/vfs.ts';
 import { squareOverlapsRect } from '../pack/bounds.ts';
 
-export const summary =
-	'inspect terrain: scenes | tiles <scene> | export-heights <scene> -o <dir> [--bounds xmin,xmax,zmin,zmax]';
+export const summary = 'inspect terrain scenes and tiles; export heightmaps';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   terrain scenes
   terrain tiles <scene> [--bounds xmin,xmax,zmin,zmax]
   terrain export-heights <scene> -o <dir> [--bounds …] [--height-scale m] [--origin x,y,z] [--size m]
@@ -89,7 +89,7 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			default: {
-				throw new Error(USAGE);
+				throw new Error(usage);
 			}
 		}
 	});
@@ -102,7 +102,7 @@ const requireScene = (
 	scene: string | undefined,
 ): TerrainSceneIndex => {
 	if (scene === undefined) {
-		throw new Error(USAGE);
+		throw new Error(usage);
 	}
 	const entry = index.get(scene);
 	if (entry === undefined) {

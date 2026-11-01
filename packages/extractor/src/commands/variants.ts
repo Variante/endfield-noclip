@@ -8,10 +8,10 @@ import {
 	type VariantSelection,
 } from '../game/scenery-variants.ts';
 
-export const summary =
-	'scenery variants: stream areas and progression levels of a scene [--json] [--areas all|root|<id,…>]';
+export const summary = 'inspect stream areas, progressions and selected chunk files';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   variants <scene> [--json]                   stream areas (chunk areaIds) and progression controllers
   variants <scene> --areas all|root|<id,…>    also list the chunk files that selection loads`;
 
@@ -27,26 +27,27 @@ export const run = async (args: string[]): Promise<void> => {
 	});
 	const [scene] = positionals;
 	if (scene === undefined) {
-		throw new Error(USAGE);
+		throw new Error(usage);
 	}
 
 	await withContext(values.config, async ({ world }) => {
 		const variants = await loadSceneryVariants(world, scene);
-		if (values.json) {
-			console.log(JSON.stringify(variants, null, '\t'));
-		} else {
-			printVariants(variants);
-		}
-
+		let selection: { areas: number[]; files: string[] } | undefined;
 		if (values.areas !== undefined) {
-			const selection: VariantSelection = { areas: parseAreas(values.areas), levels: {} };
-			const ids = selectedAreas(variants, await world.streamAreas(scene), selection);
+			const requested: VariantSelection = { areas: parseAreas(values.areas), levels: {} };
+			const ids = selectedAreas(variants, await world.streamAreas(scene), requested);
 			const files = resolveChunkFiles(await world.chunkFiles(), scene, ids);
-			const sorted = [...ids];
-			sorted.sort((a, b) => a - b);
-			console.log(`\n${files.length} InitChunkData files for areas ${sorted.join(',')}`);
-			for (const file of files.filter((f) => f.area !== 0)) {
-				console.log(`  ${file.name}`);
+			selection = { areas: [...ids].toSorted((a, b) => a - b), files: files.map((file) => file.name) };
+		}
+		if (values.json) {
+			console.log(JSON.stringify({ ...variants, selection }, null, '\t'));
+			return;
+		}
+		printVariants(variants);
+		if (selection !== undefined) {
+			console.log(`\n${selection.files.length} InitChunkData files for areas ${selection.areas.join(',')}`);
+			for (const file of selection.files) {
+				console.log(`  ${file}`);
 			}
 		}
 	});
@@ -56,9 +57,9 @@ const parseAreas = (value: string): VariantSelection['areas'] => {
 	if (value === 'all' || value === 'root') {
 		return value;
 	}
-	const ids = value.split(',').map(Number);
-	if (!ids.every((id) => Number.isInteger(id))) {
-		throw new Error(`--areas takes all, root or comma-separated area ids\n${USAGE}`);
+	const ids = value.split(',').map((part) => (part.trim() === '' ? Number.NaN : Number(part)));
+	if (!ids.every((id) => Number.isSafeInteger(id) && id >= 0)) {
+		throw new Error(`--areas takes all, root or comma-separated area ids\n${usage}`);
 	}
 	return ids;
 };

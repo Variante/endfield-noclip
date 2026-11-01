@@ -16,11 +16,12 @@ pnpm run dev    # the viewer lists packages under out/
 pnpm extract --help
 ```
 
-`cli.ts` loads every file in `commands/` as a subcommand exporting `summary` and `run(args)`, so a
+`cli.ts` loads every file in `commands/` as a subcommand exporting `summary`, `usage` and `run(args)`, so a
 new command is a new file there. shared argument helpers live in `cli-args.ts`, outside `commands/`,
-because every file in that directory is treated as a command. each command's `--help`-style usage
-text is in its module; run it without arguments for the details. every command except `init` takes
-`--config <file>` (default `endfield.local.json` in the working directory) and opens the install
+because every file in that directory is treated as a command. each command exports its usage text; run it
+without arguments or with `--help` / `-h` for details.
+help works without a config or install, including `world find --help`. every command takes
+`--config <file>` (default `endfield.local.json` in the working directory) and, except for `init`, opens the install
 through `withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the
 asset resolver on first use.
 
@@ -28,10 +29,10 @@ asset resolver on first use.
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                           |
 | `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                 |
-| `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), and path ↔ hash ↔ bundle resolution |
+| `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and static entity search (`find`) |
 | `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                             |
 | `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                     |
-| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and classes                                                                      |
+| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                      |
 | `asset`    | decodes one mesh, texture or material by bundle and path id, follows an entity's draws, or exports a cell as glTF                                                                                   |
 | `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                       |
 | `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                    |
@@ -39,6 +40,39 @@ asset resolver on first use.
 the inspection commands (`world`, `variants`, `vfs`, `bundle`, `asset`, `terrain`, `water`) are for
 research and debugging; only `init` and `pack` are needed to produce a package. their glTF/PNG/KTX2
 exports (`export/`) mirror Unity's X axis and use base colours only.
+
+### finding assets and scenery
+
+```sh
+pnpm extract world paths 'water.*material' --limit 50 --json
+pnpm extract world find map02 --name 'rock|cliff' --near=0,0,0 --radius 40 --json
+pnpm extract bundle find --class Shader --group initial --limit 20
+```
+
+`world paths` searches both StringPathHash catalogs with a case-insensitive regular expression. rows
+include the hex hash, full path and all matching manifest bundles; identical hash/path pairs are emitted
+once, while different hashes for the same path remain distinguishable. an empty bundle list means the
+catalog entry has no manifest asset. use `world resolve` for its dependency details.
+
+`world find` searches static chunk entities by name or resolved mesh/material path. `--near x,y,z`
+and `--radius n` select by 3D distance from the pivot (translation, falling back to bounds centre), in
+Unity coordinates. entities without pivots cannot match a spatial query. results follow chunk order,
+not nearest-first order; `--scene-state` and `--area` filter files before entity-id deduplication.
+without those filters all states and areas are searched, including inactive content. dynamic models,
+facilities and cabin placements are outside this command's scope. JSON includes draws, asset bundles,
+source chunk, pivot, distance and state/area ids; text includes the source chunk for follow-up inspection.
+
+both searches default to 100 results; `--limit` must be positive. summaries and limit notices go to
+stderr, leaving `--json` as one JSON array (including `[]` for no matches). reaching the limit stops the
+scan, so the notice does not imply more matches were found.
+
+`bundle find --class` prints one row per object with bundle, SerializedFile node, path id, class, name
+and container paths, so the result can be passed to `bundle dump` or `asset`. `--filter` matches container
+paths; combined with `--class`, it selects objects of that class in matching SerializedFiles. `--group`
+selects `main` (default), `initial` or `all`. `--limit` counts output rows and `--scan` counts bundles.
+
+`variants --areas` lists every selected chunk, including area zero. with `--json`, it adds a `selection`
+object containing sorted area ids and chunk file names to the variants object, without trailing text.
 
 ## local config and keys
 

@@ -24,10 +24,10 @@ import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 import { zstdSync } from '../zstd.ts';
 
-export const summary =
-	'decode assets: mesh|texture|material <bundle> --path-id N [-o file] | entity <map> <x> <z> <index|id> [-o file.glb] | cell <map> <x> <z> -o file.glb';
+export const summary = 'decode meshes, textures and materials; trace entity draws or export glTF';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   asset mesh <bundle> --path-id=N [-o file.glb]       mesh summary; -o exports it alone as glTF
   asset texture <bundle> --path-id=N [-o file.ktx2] [--zstd level]
                                                       texture summary; -o writes KTX2 (zstd per level if given)
@@ -67,7 +67,7 @@ export const run = async (args: string[]): Promise<void> => {
 		const objectArg = async (): Promise<ObjectRef> => {
 			const [bundle] = rest;
 			if (bundle === undefined || pathId === undefined) {
-				throw new Error(`${sub} needs <bundle> --path-id=N\n${USAGE}`);
+				throw new Error(`${sub} needs <bundle> --path-id=N\n${usage}`);
 			}
 			return resolver.object(resolver.bundleIndex(bundle), pathId);
 		};
@@ -107,7 +107,7 @@ export const run = async (args: string[]): Promise<void> => {
 			case 'entity': {
 				const [map, x, z, which] = rest;
 				if (map === undefined || x === undefined || z === undefined || which === undefined) {
-					throw new Error(USAGE);
+					throw new Error(usage);
 				}
 				const entities = await cellEntities(world, map, x, z, {});
 				const index = parseInteger(which, 'entity index or id');
@@ -128,7 +128,7 @@ export const run = async (args: string[]): Promise<void> => {
 			case 'cell': {
 				const [map, x, z] = rest;
 				if (map === undefined || x === undefined || z === undefined || output === undefined) {
-					throw new Error(USAGE);
+					throw new Error(usage);
 				}
 				const entities = await cellEntities(world, map, x, z, {
 					sceneState: parseOptionalInteger(values['scene-state'], '--scene-state'),
@@ -159,7 +159,7 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			default: {
-				throw new Error(USAGE);
+				throw new Error(usage);
 			}
 		}
 	});

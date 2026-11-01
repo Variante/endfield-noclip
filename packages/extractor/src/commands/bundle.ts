@@ -12,18 +12,18 @@ import { errorText } from '../errors.ts';
 import { type BundleAssetFile, openAssetFiles, openBundle } from '../hg/bundles.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
-export const summary =
-	'inspect asset bundles: info <name> | dump <name> [--path-id N | --class C] | stream <name> --path-id N -o <file> | find [--filter re] [--class C]';
+export const summary = 'inspect and search bundle objects; dump JSON or stream payloads';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   bundle info <name>                     header, nodes and per-class object counts
   bundle dump <name> [--path-id N] [--class Mesh|43] [--limit n] [--max-array n]
                                          objects as JSON; big arrays are truncated
   bundle stream <name> --path-id N -o <file>
                                          writes an object's m_StreamData (.resS) payload
-  bundle find [--filter <re>] [--class Shader|48] [--scan n] [--limit n]
+  bundle find [--filter <re>] [--class Shader|48] [--scan n] [--limit n] [--group main|initial|all]
                                          searches bundles for m_Container paths matching <re>
-                                         and/or objects of a class
+                                         and/or objects of a class; class results include node, path id and name
 
 <name> is a bundle hex id, main/<hex>.ab, or a full logical path.
 negative path ids need the --path-id=-N form.`;
@@ -40,6 +40,7 @@ export const run = async (args: string[]): Promise<void> => {
 			'max-array': { type: 'string' },
 			filter: { type: 'string' },
 			scan: { type: 'string' },
+			group: { type: 'string', default: 'main' },
 			output: { type: 'string', short: 'o' },
 		},
 	});
@@ -71,7 +72,7 @@ export const run = async (args: string[]): Promise<void> => {
 					throw new Error('bundle stream needs --path-id N -o <file>');
 				}
 				if (name === undefined) {
-					throw new Error(USAGE);
+					throw new Error(usage);
 				}
 				await stream(context, name, pathId, values.output);
 				break;
@@ -80,7 +81,11 @@ export const run = async (args: string[]): Promise<void> => {
 				if (values.filter === undefined && values.class === undefined) {
 					throw new Error('bundle find needs --filter <re> and/or --class <class>');
 				}
+				if (!['main', 'initial', 'all'].includes(values.group)) {
+					throw new Error('--group must be main, initial or all');
+				}
 				await find(context, {
+					group: values.group,
 					filter: values.filter === undefined ? undefined : new RegExp(values.filter, 'i'),
 					className: values.class,
 					scan,
@@ -89,7 +94,7 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			default: {
-				throw new Error(USAGE);
+				throw new Error(usage);
 			}
 		}
 	});
@@ -105,7 +110,7 @@ const openAssetFilesByName = async (
 	name: string | undefined,
 ): Promise<BundleAssetFile[]> => {
 	if (name === undefined) {
-		throw new Error(USAGE);
+		throw new Error(usage);
 	}
 	return openAssetFiles(await openBundle(context, name));
 };
@@ -259,9 +264,20 @@ const stream = async (context: Context, name: string, pathId: bigint, output: st
 
 const find = async (
 	context: Context,
-	options: { filter: RegExp | undefined; className: string | undefined; scan: number; limit: number },
+	options: {
+		filter: RegExp | undefined;
+		className: string | undefined;
+		group: string;
+		scan: number;
+		limit: number;
+	},
 ): Promise<void> => {
-	const names = [...(await context.vfs.group(VfsGroup.Bundle)).files.keys()];
+	const groups =
+		options.group === 'all'
+			? [VfsGroup.Bundle, VfsGroup.InitialBundle]
+			: [options.group === 'initial' ? VfsGroup.InitialBundle : VfsGroup.Bundle];
+	const catalogs = await Promise.all(groups.map((group) => context.vfs.group(group)));
+	const names = catalogs.flatMap((catalog) => Array.from(catalog.files.keys()));
 	let scanned = 0;
 	let found = 0;
 	let failed = 0;
@@ -289,32 +305,31 @@ const find = async (
 	console.error(`scanned ${scanned} bundles, ${found} matches, ${failed} failures`);
 };
 
-/**
- * @returns the asset file's matches: with `className` alone, a summary line of its objects of that class;
- *   otherwise its container paths matching `filter`, if it holds an object of `className` when one is given
- */
+/** @returns matching container paths, or individually addressable objects of the requested class */
 const scanAsset = async (
 	asset: BundleAssetFile,
 	{ filter, className }: { filter: RegExp | undefined; className: string | undefined },
 ): Promise<string[]> => {
-	if (className !== undefined) {
-		const hits = asset.file.objects.filter((object) => isClass(object, className));
-		if (hits.length === 0) {
-			return [];
-		}
-		if (filter === undefined) {
-			const labels = await Promise.all(
-				hits.slice(0, 5).map(async (object) => (await asset.peekName(object)) ?? '?'),
-			);
-			const more = hits.length > 5 ? ` …${hits.length - 5} more` : '';
-			return [`${hits.length}× ${className}: ${labels.join(', ')}${more}`];
-		}
-	}
-	if (filter === undefined) {
+	const objects = asset.file.objects.filter(
+		(object) => className !== undefined && isClass(object, className),
+	);
+	if (className !== undefined && objects.length === 0) {
 		return [];
 	}
-	return (await asset.assetBundles()).flatMap(({ container }) =>
-		mapDefined(container, ({ path }) => (filter.test(path) ? path : undefined)),
+	const paths = (await asset.assetBundles()).flatMap(({ container }) =>
+		mapDefined(container, ({ path }) => (filter === undefined || filter.test(path) ? path : undefined)),
+	);
+	if (filter !== undefined && paths.length === 0) {
+		return [];
+	}
+	if (className === undefined) {
+		return paths;
+	}
+	return Promise.all(
+		objects.map(
+			async (object) =>
+				`${asset.node.path}\t${object.pathId}\t${typeName(object.type) ?? object.classId}\t${(await asset.peekName(object)) ?? '?'}\t${paths.join(',')}`,
+		),
 	);
 };
 

@@ -36,10 +36,10 @@ import { mapPool } from '../pool.ts';
 /** assets decoded at once by `--resolve` */
 const RESOLVE_CONCURRENCY = 16;
 
-export const summary =
-	'water surfaces: surfaces <map> [<level> | <x> <z>] [--resolve] [--json] | census <map> | config <path|hash>';
+export const summary = 'inspect water surfaces, coverage and configs';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   water surfaces <map> [<level> | <x> <z>] [--resolve] [--json]
                               water surfaces of a map, of one level (by id tag) or overlapping one cell;
                               --resolve loads each distinct mesh and config
@@ -79,13 +79,13 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			default: {
-				throw new Error(USAGE);
+				throw new Error(usage);
 			}
 		}
 	});
 };
 
-const need = (value: string | undefined, what: string): string => needArg(value, what, USAGE);
+const need = (value: string | undefined, what: string): string => needArg(value, what, usage);
 
 // #region surfaces
 

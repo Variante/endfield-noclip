@@ -4,7 +4,10 @@ import { save } from '../cli-args.ts';
 import { withContext } from '../context.ts';
 import { errorText } from '../errors.ts';
 
-export const summary = 'browse the VFS: groups | ls <group> [--filter re] | cat <group> <name> -o <file>';
+export const summary = 'list virtual filesystem groups and files; extract logical files';
+
+/** command usage, available without opening the install */
+export const usage = `usage:\n  vfs groups\n  vfs ls <group> [--filter re]\n  vfs cat <group> <name> -o <file>`;
 
 export const run = async (args: string[]): Promise<void> => {
 	const { values, positionals } = parseArgs({

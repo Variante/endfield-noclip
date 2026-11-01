@@ -9,10 +9,10 @@ import { parseBounds, parseInteger, parseZstdLevel } from '../cli-args.ts';
 import { withContext } from '../context.ts';
 import { packScene, type PackReport } from '../pack/packer.ts';
 
-export const summary =
-	'write a viewer package: pack <scene> [-o <dir>] [--level <id>] [--bounds xmin,xmax,zmin,zmax]';
+export const summary = 'build a viewer package for a scene, level or world rectangle';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
   pack <scene> [-o <dir>] [--level <id>] [--bounds xmin,xmax,zmin,zmax] [--zstd-level n]
        [--texture-zstd-level n] [--jobs n] [--cache <dir> | --no-cache] [--no-assets] [--json]
 
@@ -57,7 +57,7 @@ export const run = async (args: string[]): Promise<void> => {
 	});
 	const [scene] = positionals;
 	if (scene === undefined) {
-		throw new Error(USAGE);
+		throw new Error(usage);
 	}
 	const level = values.level ?? null;
 	const outDir =

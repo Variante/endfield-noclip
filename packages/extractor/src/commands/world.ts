@@ -16,6 +16,7 @@ import {
 	need as needArg,
 	parseHash,
 	parseInteger,
+	parseNumbers,
 	parseOptionalInteger,
 	separatePositionals,
 } from '../cli-args.ts';
@@ -32,10 +33,15 @@ import { describeCondition, GameState } from '../game/game-state.ts';
 import { defaultSceneStates, loadSceneStates, sceneStateControl } from '../game/scene-conditions.ts';
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 
-export const summary =
-	'world index: scenes | levels <map> [--verify] | cells <level> | entities <scene> <x> <z>|global | members <level> | env <map|level> | resolve <path|hash>';
+export const summary = 'browse scenes and levels; search asset paths and static entities';
 
-const USAGE = `usage:
+/** command usage, available without opening the install */
+export const usage = `usage:
+  world paths <re> [--limit n] [--json]    search both path catalogs, with hashes and bundle names
+  world find <scene> [--name re] [--near x,y,z --radius n] [--limit n] [--json]
+                                          static chunk entities; names and mesh/material paths match --name
+                                          Unity coordinates, 3D pivot distance; includes all states/areas
+                                          --scene-state/--area filter before deduplication by entity id
   world scenes                             streaming scenes, with level counts for open-world maps
   world levels <map> [--verify]            levels with tag, cells and names; --verify votes tags against cells
   world cells <level>                      cells a level owns and their chunk files
@@ -50,6 +56,10 @@ const OPTIONS = {
 	verify: { type: 'boolean', default: false },
 	'scene-state': { type: 'string' },
 	area: { type: 'string' },
+	name: { type: 'string' },
+	near: { type: 'string' },
+	radius: { type: 'string' },
+	limit: { type: 'string' },
 } as const;
 
 export const run = async (args: string[]): Promise<void> => {
@@ -63,6 +73,33 @@ export const run = async (args: string[]): Promise<void> => {
 	await withContext(values.config, async (context) => {
 		const { world } = context;
 		switch (sub) {
+			case 'paths': {
+				await findPaths(
+					world,
+					new RegExp(need(rest[0], 'pattern'), 'i'),
+					searchLimit(values.limit),
+					values.json,
+				);
+				break;
+			}
+			case 'find': {
+				const near = values.near === undefined ? undefined : parseNumbers(values.near, 3, '--near');
+				const radius =
+					values.radius === undefined ? undefined : parseNumbers(values.radius, 1, '--radius')[0];
+				if ((near === undefined) !== (radius === undefined) || (radius !== undefined && radius < 0)) {
+					throw new Error('use --near x,y,z with --radius n (nonnegative)');
+				}
+				await findEntities(world, need(rest[0], 'scene'), {
+					pattern: values.name === undefined ? undefined : new RegExp(values.name, 'i'),
+					near,
+					radius,
+					limit: searchLimit(values.limit),
+					json: values.json,
+					sceneState: parseOptionalInteger(values['scene-state'], '--scene-state'),
+					area: parseOptionalInteger(values.area, '--area'),
+				});
+				break;
+			}
 			case 'scenes': {
 				await listScenes(world);
 				break;
@@ -96,13 +133,13 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			default: {
-				throw new Error(USAGE);
+				throw new Error(usage);
 			}
 		}
 	});
 };
 
-const need = (value: string | undefined, what: string): string => needArg(value, what, USAGE);
+const need = (value: string | undefined, what: string): string => needArg(value, what, usage);
 
 const requirePartition = async (world: WorldIndex, mapId: string): Promise<LevelPartition> => {
 	const partition = await world.partition(mapId);
@@ -113,6 +150,120 @@ const requirePartition = async (world: WorldIndex, mapId: string): Promise<Level
 };
 
 // #region subcommands
+
+const searchLimit = (text: string | undefined): number => {
+	const limit = parseOptionalInteger(text, '--limit') ?? 100;
+	if (limit < 1) {
+		throw new Error('--limit must be a positive integer');
+	}
+	return limit;
+};
+
+const findPaths = async (world: WorldIndex, pattern: RegExp, limit: number, json: boolean): Promise<void> => {
+	const [main, initial, manifest] = await Promise.all([
+		world.pathHash(),
+		world.initPathHash(),
+		world.manifest(),
+	]);
+	const rows: { hash: string; path: string; bundles: string[] }[] = [];
+	const seen = new Set<string>();
+	for (const table of [main, initial]) {
+		for (const [hash, path] of table.entries()) {
+			const key = `${hash}:${path}`;
+			if (!pattern.test(path) || seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			const bundles = [
+				...new Set(manifest.findAssets(hash).map((asset) => manifest.bundle(asset.bundleIndex).name)),
+			];
+			rows.push({ hash: hashText(hash), path, bundles });
+			if (rows.length >= limit) {
+				break;
+			}
+		}
+		if (rows.length >= limit) {
+			break;
+		}
+	}
+	if (json) {
+		console.log(JSON.stringify(rows, null, '\t'));
+	} else {
+		for (const row of rows) {
+			console.log(`${row.hash}\t${row.path}\t${row.bundles.join(',') || '-'}`);
+		}
+	}
+	console.error(
+		`${rows.length} matches${rows.length === limit ? ' (limit reached; raise --limit for more)' : ''}`,
+	);
+};
+
+const findEntities = async (
+	world: WorldIndex,
+	scene: string,
+	options: {
+		pattern: RegExp | undefined;
+		near: number[] | undefined;
+		radius: number | undefined;
+		limit: number;
+		json: boolean;
+		sceneState: number | undefined;
+		area: number | undefined;
+	},
+): Promise<void> => {
+	if (!(await world.scenes()).includes(scene)) {
+		throw new Error(`unknown streaming scene ${scene}`);
+	}
+	const partition = await world.partition(scene);
+	const names = await assetNames(world);
+	const rows: object[] = [];
+	let count = 0;
+	for await (const entity of world.sceneEntities(
+		scene,
+		(file) =>
+			(options.sceneState === undefined || file.sceneState === options.sceneState) &&
+			(options.area === undefined || file.area === options.area),
+	)) {
+		let distance: number | null = null;
+		if (options.near !== undefined && options.radius !== undefined) {
+			const p = entity.pivot;
+			if (p === null) {
+				continue;
+			}
+			distance = Math.hypot(p.x - options.near[0], p.y - options.near[1], p.z - options.near[2]);
+			if (distance > options.radius) {
+				continue;
+			}
+		}
+		if (options.pattern !== undefined) {
+			const labels = [
+				entity.name,
+				...(entity.renderer?.draws.flatMap((draw) => [
+					names.pathOf(draw.meshHash) ?? hashText(draw.meshHash),
+					names.pathOf(draw.materialHash) ?? hashText(draw.materialHash),
+				]) ?? []),
+			];
+			if (!labels.some((label) => options.pattern?.test(label))) {
+				continue;
+			}
+		}
+		count++;
+		if (options.json) {
+			rows.push({ ...entityJson(entity, partition, names), distance });
+		} else {
+			console.log(`${entityLine(entity, names.pathOf)}\t${entity.source.name}`);
+		}
+		if (count >= options.limit) {
+			break;
+		}
+	}
+	if (options.json) {
+		console.log(JSON.stringify(rows, null, '\t'));
+	}
+	console.error(
+		`${count} matches${count === options.limit ? ' (limit reached; raise --limit for more)' : ''}`,
+	);
+};
 
 const listScenes = async (world: WorldIndex): Promise<void> => {
 	const names = await world.names();
@@ -436,6 +587,9 @@ const entityJson = (
 		cellOwner: entity.membership.cellOwner?.id ?? null,
 		name: entity.name,
 		source: entity.source.name,
+		sceneState: entity.source.sceneState,
+		area: entity.source.area,
+		pivot: entity.pivot,
 		matrix: entity.matrix === null ? null : [...entity.matrix],
 		bounds: entity.bounds,
 		decal: entity.decal,

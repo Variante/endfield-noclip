@@ -5,7 +5,10 @@ import { deriveKeys, resolveGameData } from '../hg/key-derive.ts';
 import { importKeys } from '../hg/key-import.ts';
 import { Vfs, VfsGroup } from '../hg/vfs.ts';
 
-export const summary = `write ${DEFAULT_CONFIG_PATH}: --game <install or Endfield_Data> [--keys-from <dir>...]`;
+export const summary = 'derive and validate install keys, then write the local config';
+
+/** command usage, available without opening the install */
+export const usage = `usage: init --game <install root or Endfield_Data> [--keys-from <dir>...] [--config <file>]`;
 
 export const run = async (args: string[]): Promise<void> => {
 	const { values } = parseArgs({

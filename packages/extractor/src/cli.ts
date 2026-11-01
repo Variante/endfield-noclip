@@ -4,11 +4,12 @@ import { readdir } from 'node:fs/promises';
 import { mapDefined } from '@mary-ext/array-fns';
 
 /**
- * each file in `commands/` is one subcommand exporting `summary` and `run(args)`, so commands can be added
- * without touching this dispatcher.
+ * each file in `commands/` is one subcommand exporting `summary`, `usage` and `run(args)`, so commands can be
+ * added without touching this dispatcher.
  */
 interface CommandModule {
 	summary: string;
+	usage: string;
 	run(args: string[]): Promise<void>;
 }
 
@@ -26,7 +27,7 @@ const listCommands = async (): Promise<string[]> => {
 const loadCommand = async (name: string): Promise<CommandModule> => {
 	const module: unknown = await import(new URL(`${name}.ts`, COMMANDS_DIR).href);
 	if (!isCommandModule(module)) {
-		throw new Error(`commands/${name}.ts must export \`summary\` and \`run\``);
+		throw new Error(`commands/${name}.ts must export \`summary\`, \`usage\` and \`run\``);
 	}
 	return module;
 };
@@ -37,6 +38,8 @@ const isCommandModule = (value: unknown): value is CommandModule => {
 		value !== null &&
 		'summary' in value &&
 		typeof value.summary === 'string' &&
+		'usage' in value &&
+		typeof value.usage === 'string' &&
 		'run' in value &&
 		typeof value.run === 'function'
 	);
@@ -62,7 +65,14 @@ const main = async ([command, ...args]: string[]): Promise<void> => {
 	if (!names.includes(command)) {
 		throw new Error(`unknown command ${command}; run with --help`);
 	}
-	await (await loadCommand(command)).run(args);
+	const module = await loadCommand(command);
+	const separator = args.indexOf('--');
+	const options = separator === -1 ? args : args.slice(0, separator);
+	if (args.length === 0 || options.includes('--help') || options.includes('-h')) {
+		console.log(`${module.usage}\n\n--config <file> selects the local config (default endfield.local.json).`);
+		return;
+	}
+	await module.run(args);
 };
 
 try {
