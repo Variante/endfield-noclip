@@ -59,6 +59,11 @@ export class ByteView {
 		return this.#view.getFloat32(at, true);
 	}
 
+	f64(at: number): number {
+		this.check(at, 8);
+		return this.#view.getFloat64(at, true);
+	}
+
 	/** @returns a view (not a copy) of `size` bytes at `at` */
 	subarray(at: number, size: number): Uint8Array {
 		this.check(at, size);

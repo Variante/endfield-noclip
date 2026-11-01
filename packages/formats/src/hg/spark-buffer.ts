@@ -2,8 +2,8 @@ import { FormatError } from '../binary/binary-reader.ts';
 import { ByteView } from '../binary/byte-view.ts';
 
 // SparkBuffer config tables (`Data/TableCfg/*.bytes`, Table group). layout recovered from MapIdTable,
-// LevelDescTable, I18nTextTable_*, SpaceshipAreaUnlockNeedCenterLvTable and SpaceshipGrowCabinLvTable; only
-// the value types those use are supported; other types throw FormatError.
+// LevelDescTable, I18nTextTable_*, SpaceshipAreaUnlockNeedCenterLvTable, SpaceshipGrowCabinLvTable and the
+// Dungeon* tables. map-typed fields aren't supported and throw FormatError.
 //
 //   u32 typesOffset, u32 rootOffset, u32 dataOffset
 //   types: u32 count, count × { u8 kind (6 = enum, 8 = bean), pad4, u32 hash, cstring name, pad4, then
@@ -12,13 +12,17 @@ import { ByteView } from '../binary/byte-view.ts';
 //   type ref: u8 type, then [pad4, u32 typeHash] for beans and enums, or the element's type ref for arrays
 //   root:  u8 0x0a (map), cstring name, key type ref, value type ref
 //   data:  u32 slotCount, slotCount × (u32 entriesOffset, u32 entryCount); entries are `key ‖ value` packed
-//          with natural alignment. enums are i32. strings, beans and arrays are stored as u32 absolute offsets
+//          with natural alignment. bools and bytes are u8, enums i32, floats f32, doubles f64. strings, beans and arrays are stored as u32 absolute offsets
 //          (0xFFFFFFFF = null); a bean's fields follow the same packing, an array is `u32 count ‖ elements`.
 
 /** value type codes (the game's `SparkType`) */
 export const SparkType = {
+	Bool: 0,
+	Byte: 1,
 	Int: 2,
 	Long: 3,
+	Float: 4,
+	Double: 5,
 	Enum: 6,
 	String: 7,
 	Bean: 8,
@@ -27,7 +31,14 @@ export const SparkType = {
 } as const;
 
 /** a decoded SparkBuffer value; enums decode to their numeric value */
-export type SparkValue = number | bigint | string | null | SparkValue[] | { [field: string]: SparkValue };
+export type SparkValue =
+	| boolean
+	| number
+	| bigint
+	| string
+	| null
+	| SparkValue[]
+	| { [field: string]: SparkValue };
 
 /**
  * @param value a decoded value
@@ -74,8 +85,12 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 	const readRef = (at: number, where: string): [TypeRef, number] => {
 		const type = u8(at);
 		switch (type) {
+			case SparkType.Bool:
+			case SparkType.Byte:
 			case SparkType.Int:
 			case SparkType.Long:
+			case SparkType.Float:
+			case SparkType.Double:
 			case SparkType.String: {
 				return [{ type, typeHash: 0, element: null }, at + 1];
 			}
@@ -140,6 +155,20 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 	/** reads a value of type `ref` packed at or after `pos`; returns it and the position after it */
 	const read = (ref: TypeRef, pos: number): [SparkValue, number] => {
 		switch (ref.type) {
+			case SparkType.Bool: {
+				return [u8(pos) !== 0, pos + 1];
+			}
+			case SparkType.Byte: {
+				return [u8(pos), pos + 1];
+			}
+			case SparkType.Float: {
+				const p = align(pos, 4);
+				return [view.f32(p), p + 4];
+			}
+			case SparkType.Double: {
+				const p = align(pos, 8);
+				return [view.f64(p), p + 8];
+			}
 			case SparkType.Int:
 			case SparkType.Enum: {
 				const p = align(pos, 4);
@@ -207,7 +236,8 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		for (let i = 0; i < count; i++) {
 			const [key, afterKey] = read(keyRef, p);
 			const [value, afterValue] = read(valueRef, afterKey);
-			if (key === null || typeof key === 'object') {
+			// the key type was checked above; this narrows the value for TypeScript
+			if (key === null || typeof key === 'object' || typeof key === 'boolean') {
 				throw new FormatError(`null spark key in ${name}`);
 			}
 			entries.push([key, value]);

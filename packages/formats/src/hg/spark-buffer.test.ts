@@ -30,6 +30,18 @@ class Buffer {
 			this.bytes.push(Number((BigInt.asUintN(64, value) >> (i * 8n)) & 0xffn));
 		}
 	}
+	f32(value: number): void {
+		this.align(4);
+		const view = new DataView(new ArrayBuffer(4));
+		view.setFloat32(0, value, true);
+		this.bytes.push(...new Uint8Array(view.buffer));
+	}
+	f64(value: number): void {
+		this.align(8);
+		const view = new DataView(new ArrayBuffer(8));
+		view.setFloat64(0, value, true);
+		this.bytes.push(...new Uint8Array(view.buffer));
+	}
 	cString(text: string): number {
 		const at = this.pos;
 		this.bytes.push(...new TextEncoder().encode(text), 0);
@@ -203,6 +215,49 @@ test('decodes an int-keyed bean table with enum and array fields', () => {
 	b.u32(2);
 	b.u32(bean);
 	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [[2, { roomType: 2, fields: [4, 5] }]]);
+});
+
+test('decodes bool, byte, float and double fields with natural alignment', () => {
+	const b = new Buffer();
+	const header = [b.u32(12), b.u32(0), b.u32(0)];
+	// types: a bean { flag: bool, count: byte, scale: float, weight: double }
+	b.u32(1);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	b.cString('DungeonData');
+	b.u32(4);
+	b.cString('flag');
+	b.u8(SparkType.Bool);
+	b.cString('count');
+	b.u8(SparkType.Byte);
+	b.cString('scale');
+	b.u8(SparkType.Float);
+	b.cString('weight');
+	b.u8(SparkType.Double);
+	// root
+	b.patch(header[1], b.pos);
+	b.u8(SparkType.Map);
+	b.cString('DungeonTable');
+	b.u8(SparkType.Int);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	// values: bool and byte share the first word, the double starts on the next 8-byte boundary
+	b.align(8);
+	const bean = b.pos;
+	b.u8(1);
+	b.u8(7);
+	b.f32(0.5);
+	b.f64(2.25);
+	// data
+	b.patch(header[2], b.u32(1));
+	const slot = b.u32(0);
+	b.u32(1);
+	b.patch(slot, b.pos);
+	b.u32(3);
+	b.u32(bean);
+	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [
+		[3, { flag: true, count: 7, scale: 0.5, weight: 2.25 }],
+	]);
 });
 
 test('rejects unsupported field types', () => {
