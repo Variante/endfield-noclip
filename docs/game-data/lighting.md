@@ -199,9 +199,12 @@ the scenes' point, spot and tube lights live in the chunk files
 ([world.md](world.md#initchunkdata-layout)). the packer keeps the spot and point lights (a point
 with a positive length is a tube along its direction) in `tables/lights.json.zst`
 ([`pack/lights.ts`](../../packages/extractor/src/pack/lights.ts)), with conditions from the scene
-states of the files holding them, like instances. directional lights, shadow-only lights (12 on
-map02) and character-only lights (none) are left out. both bake types on the maps, realtime and
-mixed, light directly, as in the game.
+states of the files holding them, like instances. dynamic structures' ECS groups hold lights in the
+same layout (map02: 466, such as the outposts' per-level lamps), which load under their structure's
+visibility ([assets.md](assets.md#dynamic-structures)); a light the chunk files also hold keeps its
+files' conditions. directional lights, shadow-only lights (12 on map02) and character-only lights
+(none) are left out. both bake types on the maps, realtime and mixed, light directly, as in the
+game.
 
 | input                                                         | effect                                                                                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

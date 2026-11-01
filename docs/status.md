@@ -53,8 +53,7 @@ packs or renders correctly.
   water and glass, and its volume blend is read from the height-fog section's and assumed for the
   volumetric one
 - local lights ([lighting](game-data/lighting.md#local-lights)): no shadows, shadow-only lights,
-  flicker or multiple-scattering term; light beams aren't drawn; lights inside prefabs and dynamic
-  structures aren't packed
+  flicker or multiple-scattering term; light beams aren't drawn; lights inside prefabs aren't packed
 - the sun may be π too dark against local lights and the game (the two conventions differ);
   unchecked
 - interiors, in order of impact:

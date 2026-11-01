@@ -1,15 +1,18 @@
 import { type ChunkLight, LightType } from '@endfield-noclip/formats/endfield/chunk-lights';
 import { unityEulerQuaternion } from '@endfield-noclip/formats/unity/transform';
 import { type LightEntry, LightKind, type LightsTable } from '@endfield-noclip/package-format/lights';
+import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import type { ChunkSource } from '../game/world-index.ts';
 
 // local lights for `tables/lights.json`. lights repeat in every cell chunk they overlap, in scene states and in
-// stream areas, so they're deduplicated by id and load with the files holding them, like instances.
+// stream areas, so they're deduplicated by id and load with the files holding them, like instances. lights in
+// dynamic structures load with their structure instead.
 
 /** collects a scene's lights across its chunk files */
 export class LightCollector {
 	readonly #lights = new Map<number, { light: ChunkLight; sources: ChunkSource[] }>();
+	readonly #conditional = new Map<number, { light: ChunkLight; visibility: ConditionalSetInfo }>();
 	/** lights left out, by reason */
 	readonly skipped: Record<string, number> = {};
 
@@ -28,19 +31,51 @@ export class LightCollector {
 	}
 
 	/**
+	 * adds a light that loads with a dynamic structure. lights the chunk files also hold keep their files'
+	 * gating, like the structures' renderers
+	 *
+	 * @param light a light from a dynamic structure's ECS group
+	 * @param visibility its structure's visibility
+	 */
+	addConditional(light: ChunkLight, visibility: ConditionalSetInfo): void {
+		if (this.#lights.has(light.id)) {
+			return;
+		}
+		const known = this.#conditional.get(light.id);
+		if (known === undefined) {
+			this.#conditional.set(light.id, { light, visibility: { alternatives: [...visibility.alternatives] } });
+		} else {
+			known.visibility.alternatives.push(...visibility.alternatives);
+		}
+	}
+
+	/**
 	 * @param groupOf the visibility group of content a level owns that loads with any of these files
+	 * @param groupOfVisibility the visibility group of content a level owns under this visibility
 	 * @returns the table, lights in id order
 	 */
-	finish(groupOf: (levelTag: number, sources: readonly ChunkSource[]) => number): LightsTable {
+	finish(
+		groupOf: (levelTag: number, sources: readonly ChunkSource[]) => number,
+		groupOfVisibility: (levelTag: number, visibility: ConditionalSetInfo) => number,
+	): LightsTable {
+		const entries: { light: ChunkLight; group: () => number }[] = [];
+		for (const { light, sources } of this.#lights.values()) {
+			entries.push({ light, group: () => groupOf(light.levelTag, sources) });
+		}
+		for (const [id, { light, visibility }] of this.#conditional) {
+			if (!this.#lights.has(id)) {
+				entries.push({ light, group: () => groupOfVisibility(light.levelTag, visibility) });
+			}
+		}
 		const lights: LightEntry[] = [];
-		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
-		for (const { light, sources } of [...this.#lights.values()].sort((a, b) => a.light.id - b.light.id)) {
+		entries.sort((a, b) => a.light.id - b.light.id);
+		for (const { light, group } of entries) {
 			const reason = skipReason(light);
 			if (reason !== null) {
 				this.skipped[reason] = (this.skipped[reason] ?? 0) + 1;
 				continue;
 			}
-			lights.push(lightEntry(light, groupOf(light.levelTag, sources)));
+			lights.push(lightEntry(light, group()));
 		}
 		return { lights };
 	}

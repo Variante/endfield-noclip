@@ -1,4 +1,5 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
+import { readChunkLights, type ChunkLight } from '@endfield-noclip/formats/endfield/chunk-lights';
 import {
 	dynamicResourceSlice,
 	readDynamicResources,
@@ -40,6 +41,8 @@ export interface StructureModel {
 /** structures and their visibility decoded from dynamic resources */
 export interface DynamicStructures {
 	entities: { entity: ChunkEntity; visibility: ConditionalSetInfo }[];
+	/** local lights in the ECS groups, under their structure's visibility */
+	lights: { light: ChunkLight; visibility: ConditionalSetInfo }[];
 	/** script-group and logic-gate controls; load gates read controls of the game state instead */
 	controls: SceneControl[];
 	/** MapConfig scene state indices the visibility expressions require, as `sceneStateControl` controls */
@@ -94,6 +97,7 @@ export const loadDynamicStructures = async (
 	}
 	const result: DynamicStructures = {
 		entities: [],
+		lights: [],
 		models: [],
 		controls: [],
 		sceneStates: new Set(),
@@ -249,13 +253,16 @@ export const loadDynamicStructures = async (
 		}
 	}
 	const entities = new Map<number, { entity: ChunkEntity; visibility: ConditionalSetInfo }>();
+	const lights = new Map<number, { light: ChunkLight; visibility: ConditionalSetInfo }>();
 	for (const [key, indices] of chunks) {
 		// oxlint-disable-next-line no-await-in-loop -- release each pair after its renderer groups are decoded
 		const [init, streaming] = await Promise.all([
 			read(`${prefix}fb_init_${key}.bytes`),
 			read(`${prefix}fb_streaming_${key}.bytes`),
 		]);
-		const chunk = parseDynamicChunk(unpackHgPayload(init), unpackHgPayload(streaming));
+		const initPayload = unpackHgPayload(init);
+		const chunk = parseDynamicChunk(initPayload, unpackHgPayload(streaming));
+		const chunkLights = new Map(readChunkLights(initPayload, chunk).map((light) => [light.id, light]));
 		for (const [index, visibility] of indices) {
 			const group = chunk.groups[index];
 			if (!group) {
@@ -266,6 +273,14 @@ export const loadDynamicStructures = async (
 				entities
 					.getOrInsertComputed(entity.id, () => ({ entity, visibility: { alternatives: [] } }))
 					.visibility.alternatives.push(...visibility.alternatives);
+			}
+			for (const id of group.ids) {
+				const light = chunkLights.get(id);
+				if (light !== undefined) {
+					lights
+						.getOrInsertComputed(id, () => ({ light, visibility: { alternatives: [] } }))
+						.visibility.alternatives.push(...visibility.alternatives);
+				}
 			}
 		}
 	}
@@ -295,6 +310,7 @@ export const loadDynamicStructures = async (
 				.join(' / ') || control.id;
 	}
 	result.entities = [...entities.values()];
+	result.lights = [...lights.values()];
 	result.models = [...models.values()];
 	result.controls = [...controls.values()];
 	result.counts.models = result.models.length;

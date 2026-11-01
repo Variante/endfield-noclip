@@ -313,7 +313,8 @@ models and ECS entities by their stored reference, merging the visibility altern
 group that shows them. each structure keeps the level tag of its resource group's `levelNum`. prefab
 renderers have no game entity id, so the packer gives them a synthetic one: the level tag over an
 index counted down from the top of the 27-bit id space, away from the game's ids. ECS entities
-already present in static chunks keep their static copy.
+already present in static chunks keep their static copy. the local lights in the selected ECS groups
+are kept the same way ([lighting.md](lighting.md#local-lights)).
 
 ## interactives
 

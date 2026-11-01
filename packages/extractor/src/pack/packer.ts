@@ -955,6 +955,11 @@ const collectEntities = async (
 		pack.uses.note(row.chain, key);
 		counts.dynamicRenderers++;
 	};
+	for (const { light, visibility } of dynamic.lights) {
+		if (subset.includesEntity(light.levelTag, light.position[0], light.position[2])) {
+			lights.addConditional(light, visibility);
+		}
+	}
 	for (const { entity, visibility } of dynamic.entities) {
 		if (
 			seen.has(entity.id) ||
@@ -1192,7 +1197,10 @@ const gateByScene = (
 		const { levelTag, sources } = water.surfaceOwners[i];
 		surface.group = collected.groupOfSources(levelTag, sources);
 	}
-	const lightsTable = lights.finish((levelTag, sources) => collected.groupOfSources(levelTag, sources));
+	const lightsTable = lights.finish(
+		(levelTag, sources) => collected.groupOfSources(levelTag, sources),
+		(levelTag, visibility) => collected.group(levelTag, collected.condition(visibility)),
+	);
 	const controls = sceneStateControls(scene.sceneStates, scene.game, (formula) =>
 		collected.condition(formula),
 	);

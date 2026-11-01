@@ -76,10 +76,13 @@ test('lights carry every file holding them, for gating like instances', () => {
 	collector.add(light({ id: 3, shadowOnly: true }), { sceneState: 0, area: 0 });
 	collector.add(light({ id: 4, type: LightType.Directional }), { sceneState: 0, area: 0 });
 	const seen: [number, ChunkSource[]][] = [];
-	const table = collector.finish((levelTag, sources) => {
-		seen.push([levelTag, [...sources]]);
-		return seen.length;
-	});
+	const table = collector.finish(
+		(levelTag, sources) => {
+			seen.push([levelTag, [...sources]]);
+			return seen.length;
+		},
+		() => assert.fail('no conditional lights'),
+	);
 	assert.deepEqual(
 		table.lights.map((entry) => [entry.id, entry.group]),
 		[
@@ -104,4 +107,29 @@ test('lights carry every file holding them, for gating like instances', () => {
 		],
 	]);
 	assert.deepEqual(collector.skipped, { 'shadow only': 1, 'type 1': 1 });
+});
+
+test('dynamic structure lights merge their visibilities, and chunk files win over them', () => {
+	const collector = new LightCollector();
+	const a = [{ control: 'progression:a', mask: 0b100 }];
+	const b = [{ control: 'progression:a', mask: 0b1000 }];
+	collector.add(light({ id: 1 }), { sceneState: 0, area: 0 });
+	collector.addConditional(light({ id: 1 }), { alternatives: [a] });
+	collector.addConditional(light({ id: 2 }), { alternatives: [a] });
+	collector.addConditional(light({ id: 2 }), { alternatives: [b] });
+	const table = collector.finish(
+		() => 10,
+		(levelTag, visibility) => {
+			assert.equal(levelTag, 2);
+			assert.deepEqual(visibility.alternatives, [a, b]);
+			return 20;
+		},
+	);
+	assert.deepEqual(
+		table.lights.map((entry) => [entry.id, entry.group]),
+		[
+			[1, 10],
+			[2, 20],
+		],
+	);
 });
