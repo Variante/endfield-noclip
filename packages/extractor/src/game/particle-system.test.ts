@@ -277,7 +277,8 @@ test('systems the viewer cannot play say why', () => {
 		return 'reason' in read ? read.reason : null;
 	};
 	assert.equal(reason(system(), renderer({ m_RenderMode: 5 })), 'render mode 5');
-	assert.equal(reason(system({ NoiseModule: { enabled: true } })), 'NoiseModule');
+	// modules the viewer doesn't evaluate are ignored
+	assert.equal(reason(system({ NoiseModule: { enabled: true } })), null);
 	assert.equal(reason(system({ ringBufferMode: 3 })), 'ring buffer mode 3');
 	assert.equal(reason(system({ UVModule: sheet({ mode: 1 }) })), 'sprite sheet');
 	assert.equal(reason(system({ UVModule: sheet({ timeMode: 1 }) })), 'sheet time mode 1');

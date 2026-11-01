@@ -62,23 +62,6 @@ const ALIGNMENT_FACING = 3;
 /** Unity's gravity, m/s² */
 const GRAVITY = 9.81;
 
-/** modules whose effect the viewer doesn't evaluate; a system with any of them enabled isn't played */
-const UNSUPPORTED_MODULES = [
-	'ForceModule',
-	'ExternalForcesModule',
-	'NoiseModule',
-	'CollisionModule',
-	'TriggerModule',
-	'SubModule',
-	'LightsModule',
-	'TrailModule',
-	'ColorBySpeedModule',
-	'SizeBySpeedModule',
-	'RotationBySpeedModule',
-	'CustomDataModule',
-	'LifetimeByEmitterSpeedModule',
-] as const;
-
 /** shapes the viewer emits from, by `ShapeModule.type` */
 const SHAPES = new Set<number>(Object.values(ParticleShapeKind));
 const isShapeKind = (kind: number): kind is ParticleShapeKind => SHAPES.has(kind);
@@ -407,7 +390,9 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
 };
 
 /**
- * reads a particle system that plays on its own once loaded.
+ * reads a particle system that plays on its own once loaded. modules the viewer doesn't evaluate (forces,
+ * noise, collision, sub-emitters, trails, the by-speed modules, …) are ignored, so such systems play without
+ * them.
  *
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
@@ -435,10 +420,6 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 	const ringBuffer = readRingBuffer(system);
 	if (typeof ringBuffer === 'string') {
 		return { reason: ringBuffer };
-	}
-	const unsupported = UNSUPPORTED_MODULES.find((module) => enabled(system, module));
-	if (unsupported !== undefined) {
-		return { reason: unsupported };
 	}
 	// each particle picks one of up to four meshes, evenly or by the weights; other modes draw one quad
 	const meshes: PPtr[] = [];

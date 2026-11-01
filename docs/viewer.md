@@ -258,6 +258,10 @@ emitter's place, the system and its index, so any moment can be evaluated on its
   the speed times the velocity scale, centred on the particle. the transform's scale doesn't size
   the particles under the `Shape` scaling mode.
 
+modules not listed above (forces, noise, collision, sub-emitters, trails, lights, custom data and
+the by-speed modules) are ignored, so systems that enable them play without their effect rather than
+not at all.
+
 the game's random sequence can't be reproduced, so particles start elsewhere than in the game with
 the same distributions. looping systems are evaluated as if they had played since long before the
 package opened; others start when their emitter is first selected. particles move by the time of the
