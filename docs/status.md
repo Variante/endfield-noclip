@@ -22,7 +22,7 @@ packs or renders correctly.
   for the levels it gates; script groups list what sets them in game (quests, switches, areas,
   dungeons), from the level scripts, and follow the quests their scripts check when they run
   ([scene states](game-data/scene-states.md))
-- static stream areas switched by the camera through the game's trigger zones
+- static and dynamic stream areas switched by the camera through the game's trigger zones
   ([world](game-data/world.md#stream-areas))
 - terrain heights, baked surface pages and the close-up layer blend
   ([world](game-data/world.md#terrain))
@@ -90,10 +90,8 @@ packs or renders correctly.
   (it most likely feeds the water's own foam rather than adding to the scene, and its per-placement
   `HGWaterDecalRenderer` values aren't packed); the mist and splash at falls (billboard particles,
   below); other fluid types are unverified
-- waterfalls missing or ungated: some falls are mesh particle systems that store a particle cap of 0
-  and never spawn in the viewer (Jingyu's pool falls near unity −763, 209, −1190), and a falls at
-  Si's Painting (effect row near 589, 483, 1550) shows without the conditional cliff it pours over,
-  with no gate the extractor reads
+- waterfalls missing: some falls are mesh particle systems that store a particle cap of 0 and never
+  spawn in the viewer (Jingyu's pool falls near unity −763, 209, −1190)
 - scene effects ([scene effects](game-data/effects.md)): only VFXBaseV2, VFXDecal, the mist
   (FogSimple, VFXFakeVolumeFog), VFXWater's waterfall sheets and VFXDitherAlpha's plain variant
   draw, without the first two's additive, vertex-offset mask, polar-UV, lighting and particle
@@ -166,8 +164,7 @@ packs or renders correctly.
 - control labels still show internal identifiers or representative mesh names in many places
 - animated poses and nonzero blend shapes; vertex-animation-texture meshes (`_vat`, e.g. floating
   rocks) draw their rest pose
-- DynamicStreaming entities ignore stream areas (their `VisibleAreaGroup` values aren't read), and
-  the game's HLOD-unload triggers aren't decoded
+- the game's HLOD-unload triggers aren't decoded
 - some mesh/material references are missing from the install's path-hash table. failed exact lookups
   stay explicit
 

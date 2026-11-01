@@ -81,7 +81,10 @@ be:
   (a span of the grid's integer vector) holding MapConfig indices directly, without the +1. read by
   [`dynamic-resources.ts`](../../packages/formats/src/endfield/dynamic-resources.ts) as `states` and
   `groupStates`. the resource group's separate `sceneState` field (offset 24) is a different value;
-  use the visible-state lists, never that field, for gating.
+  use the visible-state lists, never that field, for gating. each visible-state span is followed by
+  a visible-area span in the same layout (`VisibleAreaGroup`: `RootComp` +60, resource group +64),
+  read as `areas` and `groupAreas`: stream area ids, any of which shows the entity; a list holding
+  area 0, the default area, is shown everywhere.
 - **irradiance volume**: besides the base bake, the irradiance index stores bakes for these states
   and combinations of them, which the game selects by its active scene-state mask; only the base
   bake is packed (see [irradiance.md](irradiance.md)).
@@ -390,9 +393,10 @@ types in [`states.ts`](../../packages/package-format/src/states.ts) (`StatesInfo
   out-of-range value fails, so a control absent from the manifest hides its content instead of
   showing it.
 - one dynamic resource group yields the conjunction of its progression, logic or harvest
-  requirement, its script requirement, its gates' requirements, and one state from each
-  visible-state list. a model or ECS group referenced by several resource groups collects all their
-  alternatives, so any complete alternative shows it.
+  requirement, its script requirement, its gates' requirements, one state from each visible-state
+  list, and one `area:<id>` from each visible-area list without area 0. a model or ECS group
+  referenced by several resource groups collects all their alternatives, so any complete alternative
+  shows it.
 - static renderers, lights and water surfaces of scene-state or stream-area files get one
   alternative per file holding them: the file's `sceneState:<index>` requirement, its `area:<id>`
   requirement, or both. environment volumes come from default-area files only, so they have state

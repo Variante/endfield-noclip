@@ -128,8 +128,22 @@ const build = (
 	w.link(grid.get(52)!, w.structs(48, [[5, 0, 0, 0, 2, 0, -1, -1, -1, -1, 2, 0]]));
 	w.link(grid.get(31)!, w.structs(4, [[options.scriptDefault ?? 0]]));
 
-	const visibility = (count: number) => [count === 0 ? 1 : 0, 49, GRID, 0, count, 1];
-	w.link(grid.get(3)!, w.structs(4, [[42]]));
+	// a scene state span over 42, then a stream area span over 701
+	const visibility = (states: number, areas: number) => [
+		states === 0 ? 1 : 0,
+		49,
+		GRID,
+		0,
+		states,
+		2,
+		areas === 0 ? 1 : 0,
+		49,
+		GRID,
+		1,
+		areas,
+		2,
+	];
+	w.link(grid.get(3)!, w.structs(4, [[42], [701]]));
 	const models = w.structs(96, [[], [], []]);
 	w.view.setFloat32(models + 4 + 16, 12.5, true);
 	w.view.setBigUint64(models + 4 + 64, 0x123456789n, true);
@@ -147,7 +161,7 @@ const build = (
 		logic,
 		102,
 		-1,
-		...visibility(model === 1 ? 1 : 0),
+		...visibility(model === 1 ? 1 : 0, model === 2 ? 1 : 0),
 	];
 	w.link(grid.get(12)!, w.structs(88, [group(0, 0b00011), group(1, 0b10000), group(2, 0)]));
 
@@ -165,9 +179,9 @@ const build = (
 	w.link(
 		grid.get(33)!,
 		w.structs(84, [
-			[16, 0, ...ref(1, 0, 3), 0, ...visibility(0)],
-			[39, 0, ...ref(1, 3, options.gates ? 6 : 3), 0, ...visibility(1)],
-			...(options.slot ? [[29, 0, ...ref(1, 9, 1), 0, ...visibility(0)]] : []),
+			[16, 0, ...ref(1, 0, 3), 0, ...visibility(0, 0)],
+			[39, 0, ...ref(1, 3, options.gates ? 6 : 3), 0, ...visibility(1, 1)],
+			...(options.slot ? [[29, 0, ...ref(1, 9, 1), 0, ...visibility(0, 0)]] : []),
 		]),
 	);
 	w.link(grid.get(55)!, w.structs(8, [[1, 161]]));
@@ -242,6 +256,11 @@ test('dynamic resources preserve both visibility gates and exact model/ECS refer
 		[[], [42]],
 	);
 	assert.deepEqual(result.entities[0].groupStates, [[], [42], []]);
+	assert.deepEqual(
+		result.entities.map((row) => row.areas),
+		[[], [701]],
+	);
+	assert.deepEqual(result.entities[0].groupAreas, [[], [], [701]]);
 	const grid = result.grids[0];
 	assert.equal(grid.models[0].pathHash, 0x123456789n);
 	assert.deepEqual(grid.models[0].position, [12.5, 0, 0]);

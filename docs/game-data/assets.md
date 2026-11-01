@@ -276,14 +276,14 @@ is a `RootComp` row whose component slice lists `DataIndex` entries `(type, grid
 referenced rows may sit in another grid of the same file. the reader decodes the components that
 matter for visuals and selection:
 
-| component                                        | content                                                                                                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ResourceComp`                                   | a slice of resource groups                                                                                                                                         |
-| resource group                                   | a typed slice of model (5), effect (6) or ECS (7) rows, possibly in another grid; `logicState` mask; `levelNum` (LevelConfig `idNum`); scene-state visibility list |
-| `IdComp`                                         | the entity's global id                                                                                                                                             |
-| settlement / factory-region / POI control        | what drives the entity's logic state (its progression level)                                                                                                       |
-| mission / global-variable / map-variable control | load gates                                                                                                                                                         |
-| script control                                   | default load flag for script-enabled entities                                                                                                                      |
+| component                                        | content                                                                                                                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ResourceComp`                                   | a slice of resource groups                                                                                                                                                          |
+| resource group                                   | a typed slice of model (5), effect (6) or ECS (7) rows, possibly in another grid; `logicState` mask; `levelNum` (LevelConfig `idNum`); scene-state and stream-area visibility lists |
+| `IdComp`                                         | the entity's global id                                                                                                                                                              |
+| settlement / factory-region / POI control        | what drives the entity's logic state (its progression level)                                                                                                                        |
+| mission / global-variable / map-variable control | load gates                                                                                                                                                                          |
+| script control                                   | default load flag for script-enabled entities                                                                                                                                       |
 
 a resource group with `logicState` 0 ignores logic state; otherwise bit `n` shows it while the
 entity's logic state is `n`. the reader validates every slice and throws on a layout change (e.g. a

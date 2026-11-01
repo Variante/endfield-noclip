@@ -219,8 +219,10 @@ at once puts those rocks in front of the inn's view.
 the packer gates non-default-area content by its areas (see
 [scene-states.md](scene-states.md#how-the-package-encodes-conditions)) and ships the table; the
 viewer runs the trigger test at the camera. of the scenes packed (map01, map02, base01_lv001,
-base01_lv002), only map02 has area content. DynamicStreaming entities carry `VisibleAreaGroup`
-values too, which aren't read, so dynamic content ignores areas.
+base01_lv002), only map02 has area content. DynamicStreaming entities carry areas too
+([scene-states.md](scene-states.md#where-states-are-referenced)), and are gated the same way: on
+map02, about 600 of their 11,504 area lists name one of 22 areas other than the default, among them
+the falls pouring over Si's Painting's backdrop cliff.
 
 code: [stream-area.ts](../../packages/formats/src/endfield/stream-area.ts) (parsing),
 [stream-areas.ts](../../packages/package-format/src/stream-areas.ts) (the packaged table and the

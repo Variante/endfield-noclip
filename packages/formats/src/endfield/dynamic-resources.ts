@@ -18,11 +18,15 @@ export interface DynamicEcs {
 	sceneIndex: number;
 }
 
-/** an entity and the scene-state gates stored on it and its resource groups */
+/** an entity and the scene-state and stream-area gates stored on it and its resource groups */
 export interface DynamicResourceEntity {
 	entity: DynamicEntity;
+	/** MapConfig scene state indices, any of which shows the entity; empty for any state */
 	states: number[];
 	groupStates: number[][];
+	/** stream area ids, any of which shows the entity; area 0 is shown everywhere */
+	areas: number[];
+	groupAreas: number[][];
 	/** null without script control; false means scripts must explicitly enable the entity */
 	scriptDefaultLoad: boolean | null;
 }
@@ -121,6 +125,7 @@ export const readDynamicResources = (
 		for (let r = 0; r < roots.length; r++, ordinal++) {
 			const at = roots.start + r * 84;
 			const groupStates: number[][] = [];
+			const groupAreas: number[][] = [];
 			let scriptDefaultLoad: boolean | null = null;
 			const index = fb.i32(at + 20);
 			const count = fb.i32(at + 24);
@@ -142,13 +147,23 @@ export const readDynamicResources = (
 				}
 				const resource = resources.start + fb.i32(component + 12) * 132;
 				for (let g = 0; g < fb.i32(resource + 16); g++) {
-					groupStates.push(visibility(groups.start + (fb.i32(resource + 12) + g) * 88 + 40));
+					// a visible-desc holds the scene state span, then the stream area span in the same layout
+					const group = groups.start + (fb.i32(resource + 12) + g) * 88;
+					groupStates.push(visibility(group + 40));
+					groupAreas.push(visibility(group + 64));
 				}
 			}
 			if (groupStates.length !== raw[ordinal]?.resourceGroups.length) {
 				throw new FormatError('dynamic resource group visibility count mismatch');
 			}
-			entities.push({ entity: raw[ordinal], states: visibility(at + 36), groupStates, scriptDefaultLoad });
+			entities.push({
+				entity: raw[ordinal],
+				states: visibility(at + 36),
+				groupStates,
+				areas: visibility(at + 60),
+				groupAreas,
+				scriptDefaultLoad,
+			});
 		}
 	}
 	return { grids, entities };

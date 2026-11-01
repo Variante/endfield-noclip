@@ -16,6 +16,7 @@ import {
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
 import { unpackHgPayload } from '@endfield-noclip/formats/hg/payload';
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
+import { streamAreaControl } from '@endfield-noclip/package-format/stream-areas';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -47,6 +48,8 @@ export interface DynamicStructures {
 	controls: SceneControl[];
 	/** MapConfig scene state indices the visibility expressions require, as `sceneStateControl` controls */
 	sceneStates: Set<number>;
+	/** stream areas the visibility expressions require, as `streamAreaControl` controls */
+	areas: Set<number>;
 	/** slots for separately stored scenes (Dijiang cabins), one per distinct slot, with the first owner's id */
 	slots: { id: string; slot: ExtraSceneSlot }[];
 	models: StructureModel[];
@@ -101,6 +104,7 @@ export const loadDynamicStructures = async (
 		models: [],
 		controls: [],
 		sceneStates: new Set(),
+		areas: new Set(),
 		slots: [],
 		counts: { owners: owners.length, ecsGroups: 0, models: 0, effects: 0 },
 	};
@@ -207,6 +211,20 @@ export const loadDynamicStructures = async (
 				alternatives = allOf(
 					alternatives,
 					states.map((index) => [{ control: sceneStateControl(index), mask: 2 }]),
+				);
+			}
+			// visible-area lists hold stream areas, shown while the camera is in a trigger zone listing one; area 0
+			// is shown everywhere
+			for (const areas of [owner.areas, owner.groupAreas[i]]) {
+				if (areas.length === 0 || areas.includes(0)) {
+					continue;
+				}
+				for (const area of areas) {
+					result.areas.add(area);
+				}
+				alternatives = allOf(
+					alternatives,
+					areas.map((area) => [{ control: streamAreaControl(area), mask: 2 }]),
 				);
 			}
 			const grid = grids.get(ref.grid);

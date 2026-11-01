@@ -942,6 +942,9 @@ const collectEntities = async (
 	for (const index of dynamic.sceneStates) {
 		collected.sceneStates.add(index);
 	}
+	for (const area of dynamic.areas) {
+		collected.areas.add(area);
+	}
 	const addStructure = (
 		row: InstanceInput,
 		tag: number,
