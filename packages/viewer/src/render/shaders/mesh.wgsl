@@ -221,7 +221,17 @@ fn instance_rel(position: vec3f, ii: u32, draw: Draw) -> vec3f {
 	let row = rows[list[ii]];
 	let p = draw.offset.xyz + position * draw.scale.xyz;
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row.block].xyz;
-	return row_basis(row.t0, row.t1, row.t2, row.info) * p + origin;
+	return row_basis(row.t0, row.t1, row.t2, row.info) * p + origin + grass_lean(draw, p.y);
+}
+
+// `_USE_CAMERA_BASED_TILLING` (`grassParams` in materials.ts): grass leans away from the camera along its up
+// vector flattened onto the ground, by the vertex's object-space height times the intensity in world metres,
+// so seen from above the blades cover more of the ground
+fn grass_lean(draw: Draw, height: f32) -> vec3f {
+	if ((bitcast<u32>(draw.offset.w) & (FOLIAGE | FOLIAGE_LEAF)) != FOLIAGE) {
+		return vec3f(0.0);
+	}
+	return vec3f(frame.view_up.x, 0.0, frame.view_up.z) * (height * draw.foliage.y);
 }
 
 @vertex
@@ -549,6 +559,7 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 	}
 
 	var roughness = draw.surface.y;
+	let grass = (flags & (FOLIAGE | FOLIAGE_LEAF)) == FOLIAGE;
 	if ((has_normal || layered) && in.tangent.w != 0.0) {
 		var tn = vec3f(0.0, 0.0, 1.0);
 		if (has_normal) {
@@ -556,7 +567,11 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 			if ((flags & NORMAL_RAG) != 0u) {
 				rg.x = packed.r * packed.a;
 			}
-			let xy = unpack_normal_xy(rg);
+			var xy = unpack_normal_xy(rg);
+			if (grass) {
+				// `_BendNormalUpward`: towards the blade's up (tangent-space +Y), before the normal scale
+				xy = mix(xy, vec2f(0.0, 1.0), draw.foliage.x);
+			}
 			tn = vec3f(xy * draw.surface.w, normal_z(xy));
 			if (has_detail) {
 				// reoriented normal mapping of the detail onto the base normal
@@ -567,7 +582,9 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 		}
 		var t = normalize(in.tangent.xyz - n * dot(in.tangent.xyz, n));
 		var b = cross(in.normal, in.tangent.xyz) * in.tangent.w;
-		if (!towards_viewer) {
+		// grass with `_TwoSidedNormal` flips only the surface normal on its back faces, so its bent normal keeps
+		// pointing up the blade
+		if (!towards_viewer && !(grass && draw.foliage_ao.w > 0.5)) {
 			b = -b;
 		}
 		b = normalize(b - n * dot(b, n));
@@ -665,6 +682,8 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 		s.transmission = draw.surface2.z;
 		if ((flags & FOLIAGE_LEAF) != 0u) {
 			s = leaf_surface(s, draw, in, has_normal, packed.a);
+		} else {
+			s = grass_surface(s, draw, in, select(1.0, packed.a, has_normal));
 		}
 	}
 	// the game wets what its deferred lighting shades, so not the forward-shaded glass
@@ -716,6 +735,24 @@ fn leaf_surface(surface: Surface, draw: Draw, in: VertexOut, has_normal: bool, n
 		vertex_normal = normalize(in.normal);
 	}
 	s.sun_n_dot_l = saturate(dot(mix(s.normal, vertex_normal, draw.foliage.w), frame.sun.xyz));
+	return s;
+}
+
+// `HGRP/Foliage/Grass` and its card LOD (`grassParams` in materials.ts): occlusion and a sun mask that rise
+// from a floor at the root to 1 up the blade, the sun mask's diffuse and transmission parts masked by the normal
+// map's alpha (`mask`), and transmission where those agree. the game ramps by the distance from a point far
+// below the root, which over a blade's width is the object-space height
+fn grass_surface(surface: Surface, draw: Draw, in: VertexOut, mask: f32) -> Surface {
+	var s = surface;
+	let height = max(in.object_y, 0.0);
+	let ao = draw.foliage_ao;
+	s.occlusion = 1.0 - ao.z * (1.0 - saturate((height - ao.x) * ao.y));
+	let dir = 1.0 - draw.foliage2.w * (1.0 - saturate((height - draw.foliage2.y) * draw.foliage2.z));
+	let diffuse = dir * mix(1.0, mask, draw.foliage.z);
+	let transmitted = dir * mix(1.0, mask, draw.foliage.w);
+	s.sun_shadow = max(diffuse, transmitted);
+	s.transmission = draw.surface2.z * (1.0 - abs(diffuse - transmitted));
+	s.subsurface = draw.foliage2.x;
 	return s;
 }
 

@@ -77,10 +77,11 @@ packs or renders correctly.
 - glass ([glass](game-data/materials.md#glass)): refraction and Fresnel opacity aren't drawn, glass
   in front of water is lost, glass against the sky isn't fogged, and nothing checks whether the game
   lets glass cast shadows
-- foliage ([foliage](game-data/materials.md#foliage)): wind, the grass and card-mesh shaders' own
-  GBuffer inputs, trunk ramps and vertex AO, sphere-shadow proxies; decals, layered materials. grass
-  and tree grids ([world](game-data/world.md#foliage-grids)) draw every instance at the cluster's
-  LOD, without the game's sparsity thinning or per-instance parameters
+- foliage ([foliage](game-data/materials.md#foliage)): wind, the grass's per-instance colour and
+  terrain albedo blend, the card LOD's normal decoding, trunk ramps and vertex AO, sphere-shadow
+  proxies; decals, layered materials. grass and tree grids
+  ([world](game-data/world.md#foliage-grids)) draw every instance at the cluster's LOD, without the
+  game's sparsity thinning
 - Lit layers ([lit layers](game-data/materials.md#lit-layers)): tri-channel switch textures, the
   parallax glow's global highlight and its world-space, PBR and deform variants, the top layer's
   `_BaseHeightMap` and UV set 2, the noise and parallax mask blends, mask layers on emissive-mapped

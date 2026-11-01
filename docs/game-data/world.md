@@ -197,7 +197,8 @@ map02 holds about 981k grass and bush instances in 81k clusters and 17k trees, m
 instances and no tree grids. grids repeat in every file they overlap, under one id. the packer files
 each instance as an ordinary row with its cluster's bounds, so a cluster culls and changes LOD as a
 whole; the game's actual LOD measure for clusters (`rendererHalfSize`), the sparsity (the game thins
-grass by a quality setting) and the instance parameters aren't read.
+grass by a quality setting) and the instance parameters aren't read; the second is the grass
+shader's per-instance colour ([materials](materials.md#foliage)).
 
 code: [foliage-grids.ts](../../packages/formats/src/endfield/foliage-grids.ts)
 

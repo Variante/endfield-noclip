@@ -172,12 +172,31 @@ ambient occlusion, A height in the canopy):
 | `_Reflectance`                                               | F0 `0.08 · (0.5 + 0.75 · r)`, `r` quantized to 3 bits                                                                                                                                    |
 
 on the cherry trees of Marker Stone's pits, whose phases ship an 80–100 klx sun, this is what keeps
-the blossoms from blowing out. grass and card-mesh foliage take the same model with the transmission
-alone (shadow 1, N·L from the shading normal, no wrap); their shaders' own inputs aren't decoded.
-not drawn: trunk ramps and vertex AO (`_EnableTrunkRamp`, `_TrunkVertexAoStrength`; trunks otherwise
-shade as Lit), sphere-shadow proxies (`_UseSphereShadowProxy`), the vertical-normal AO boost,
-broadleaf indirect transmission, contact shadows on foliage, and the per-instance tint some leaves
-get.
+the blossoms from blowing out.
+
+`HGRP/Foliage/Grass` and its card LOD `HGRP/Foliage/Grass Cardmesh Lod` fill the same inputs
+([`grassParams`](../../packages/viewer/src/render/materials.ts)). `h` is the vertex's object-space
+height (the game measures from a point tens of metres below the root, which over a blade comes to
+the same):
+
+| input                                                       | effect                                                                                                                                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_BendNormalUpward` (grass only)                            | the normal map's XY blends toward tangent-space +Y, up the blade, before `_NormalScale` scales it; the shading normal and N·L both take the bent normal, so blades shade evenly |
+| `_TwoSidedNormal` (grass only)                              | back faces flip only the surface normal, so the bent normal still points up the blade                                                                                           |
+| `_AoParams` (x, y, z)                                       | material occlusion `mix(z, 1, sat((h − x) · y))`: darker at the root                                                                                                            |
+| `_DirParams` (x, y, z)                                      | a sun mask `d = mix(z, 1, sat((h − x) · y))`                                                                                                                                    |
+| `_MaskOnDiffuse`, `_MaskOnTransmission` (grass only)        | the diffuse and transmission masks are `d · mix(1, a, …)` with `a` the normal map's alpha; the sun shadow is their maximum and transmission × (1 − their difference)            |
+| `_Transmission`                                             | transmission × 0.5                                                                                                                                                              |
+| `_SubsurfaceIntensity`                                      | the wrap amount                                                                                                                                                                 |
+| `_USE_CAMERA_BASED_TILLING`: `_CameraBasedTillingIntensity` | each vertex moves `h` × intensity metres along the camera's up vector flattened onto the ground: blades lean away from the camera and cover more ground seen from above         |
+
+both write a reflectance of 4/7. the card LOD decodes its normal map differently and masks by its B,
+so it takes neither the bend nor the masks. not drawn: wind, the per-instance colour the grass grids
+carry ([world](world.md#foliage-grids): the second parameter vector's RGB, covering the albedo by
+its A), `_BLEND_TERRAIN_ALBEDO`, the card LOD's own normal decoding, trunk ramps and vertex AO
+(`_EnableTrunkRamp`, `_TrunkVertexAoStrength`; trunks otherwise shade as Lit), sphere-shadow proxies
+(`_UseSphereShadowProxy`), the vertical-normal AO boost, broadleaf indirect transmission, contact
+shadows on foliage, and the per-instance tint some leaves get.
 
 ## glass
 

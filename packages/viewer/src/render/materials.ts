@@ -236,15 +236,19 @@ export const LookRow = {
 	parallaxBright: 104,
 	/**
 	 * leaves: `_OcclusionShadow` (how much the vertex AO shadows the sun), the fake directional shadow's
-	 * strength and power, `_DiffuseUseVertexNormal`. Lit layers reuse this row and the next
-	 * ({@link LayerBlendRow})
+	 * strength and power, `_DiffuseUseVertexNormal`. grass: `_BendNormalUpward`, the camera lean's intensity,
+	 * `_MaskOnDiffuse`, `_MaskOnTransmission`. Lit layers reuse this row and the next ({@link LayerBlendRow})
 	 */
 	foliage: 108,
-	/** leaves: the vertex AO ranges that fade transmission and subsurface in: start, range, start, range */
+	/**
+	 * leaves: the vertex AO ranges that fade transmission and subsurface in: start, range, start, range. grass:
+	 * the occlusion ramp's start height, its rate, its strength (1 − `_AoParams.z`), 1 for `_TwoSidedNormal`
+	 */
 	foliageAo: 112,
 	/**
 	 * leaves: `_SubsurfaceIntensity`, `_TransmissionDistanceFade`, the canopy ramp's intensity (0 without
-	 * `_CANOPY_COLOR_RAMP`), 1 when the ramp starts at the top
+	 * `_CANOPY_COLOR_RAMP`), 1 when the ramp starts at the top. grass: `_SubsurfaceIntensity`, then the sun
+	 * mask ramp's start height, rate and strength (`_DirParams`)
 	 */
 	foliage2: 116,
 	/** leaves: the canopy ramp's range, transition range, colour brighter scale, how much its colour covers */
@@ -589,8 +593,22 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 		// the brighter scale in the row's last float is set above
 		params.set([occlusion, 0.08 * specular, transmission], LookRow.surface2);
 	}
-	if (family === 'leaf') {
-		leafParams(look, entry, shader);
+	switch (family) {
+		case 'leaf': {
+			leafParams(look, entry, shader);
+			break;
+		}
+		case 'grass': {
+			grassParams(look, entry, shader);
+			break;
+		}
+		case 'cardMesh': {
+			// the trees' card LOD shares the family; its inputs aren't decoded
+			if (shader.name === GRASS_CARD_SHADER) {
+				grassParams(look, entry, shader);
+			}
+			break;
+		}
 	}
 
 	// emission (docs/game-data/materials.md#emission): `_EMISSIVE_MAP`, or `_EMISSIVE_MASK` with a channel
@@ -716,6 +734,40 @@ const leafParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntr
 		LookRow.canopy,
 	);
 	params.set(linearRgb(colorOf(entry, shader, '_CanopyRampColor') ?? [1, 1, 1, 1]), LookRow.canopyColor);
+};
+
+const GRASS_CARD_SHADER = 'HGRP/Foliage/Grass Cardmesh Lod';
+
+/**
+ * `HGRP/Foliage/Grass` and its card LOD ({@link GRASS_CARD_SHADER}): their inputs to the two-sided foliage
+ * lighting, the bent normal and the lean away from the camera (`docs/game-data/materials.md#foliage`), in the
+ * leaf rows. zeros leave a row neutral. the card LOD decodes its normal map its own way and masks by the
+ * normal map's B, so it takes neither the bend nor the masks
+ */
+const grassParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
+	const params = look.params;
+	const float = (name: string, fallback: number): number => floatOf(entry, shader, name, fallback);
+	const card = shader.family === 'cardMesh';
+	// both shaders write a reflectance of 4/7 and half the transmission
+	params[LookRow.surface2 + 1] = 0.08 * (0.5 + 0.75 * (4 / 7));
+	params[LookRow.surface2 + 2] = 0.5 * float('_Transmission', 0.2);
+	const tilt = entry.keywords.includes('_USE_CAMERA_BASED_TILLING')
+		? float('_CameraBasedTillingIntensity', 0)
+		: 0;
+	params.set(
+		[
+			card ? 0 : float('_BendNormalUpward', 0),
+			tilt,
+			card ? 0 : float('_MaskOnDiffuse', 0),
+			card ? 0 : float('_MaskOnTransmission', 0),
+		],
+		LookRow.foliage,
+	);
+	// the ramps' floors are stored as strengths, so a missing vector stays neutral
+	const ao = vectorOf(entry, shader, '_AoParams') ?? [0, 0, 1, 0];
+	const dir = vectorOf(entry, shader, '_DirParams') ?? [0, 0, 1, 0];
+	params.set([ao[0], ao[1], 1 - ao[2], !card && float('_TwoSidedNormal', 0) > 0 ? 1 : 0], LookRow.foliageAo);
+	params.set([float('_SubsurfaceIntensity', 0), dir[0], dir[1], 1 - dir[2]], LookRow.foliage2);
 };
 
 /** the tri-channel mask's properties per channel, R, G, B */
