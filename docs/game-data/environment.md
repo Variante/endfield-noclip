@@ -45,10 +45,9 @@ the lens flare's `LensFlareDataSRP`, whose elements carry images
 ## environment volumes
 
 chunk volumes are tag-1 objects (the mono-object rows of InitChunkData, with asset references in
-paired StreamingChunkData; see [world.md](world.md)). other sources are
-[prefabs](#prefab-volumes) and [LevelData](#weather). a chunk volume is
-repeated, under the same object id, in every cell chunk it overlaps. the level tag of the entity id
-says which level owns it (0 = scene-wide).
+paired StreamingChunkData; see [world.md](world.md)). other sources are [prefabs](#prefab-volumes)
+and [LevelData](#weather). a chunk volume is repeated, under the same object id, in every cell chunk
+it overlaps. the level tag of the entity id says which level owns it (0 = scene-wide).
 
 `HGEnvironmentVolume` component fields:
 

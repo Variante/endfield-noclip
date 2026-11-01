@@ -127,7 +127,7 @@ const renderer = (overrides: Record<string, unknown> = {}): TypeTreeObject => ({
 
 test('a looping mesh particle system keeps its emission, shape, gravity, orbit and size over lifetime', () => {
 	const read = readParticleSystem(system(), renderer());
-	assert.ok('info' in read);
+	assert.ok(read !== null && 'info' in read);
 	const { info } = read;
 	assert.deepEqual(
 		read.meshes.map((mesh) => mesh.pathId),
@@ -159,7 +159,7 @@ test('a looping mesh particle system keeps its emission, shape, gravity, orbit a
 test('particles pick among the renderer meshes evenly, or by weight when the distribution says so', () => {
 	const meshes = { m_Mesh1: pointer(8n), m_Mesh2: pointer(0n), m_Mesh3: pointer(9n) };
 	const even = readParticleSystem(system(), renderer(meshes));
-	assert.ok('info' in even);
+	assert.ok(even !== null && 'info' in even);
 	assert.deepEqual(
 		even.meshes.map((mesh) => mesh.pathId),
 		[7n, 8n, 9n],
@@ -175,7 +175,7 @@ test('particles pick among the renderer meshes evenly, or by weight when the dis
 			m_MeshWeighting3: 0.5,
 		}),
 	);
-	assert.ok('info' in weighted);
+	assert.ok(weighted !== null && 'info' in weighted);
 	// a mesh weighted 0 is never picked
 	assert.deepEqual(
 		weighted.meshes.map((mesh) => mesh.pathId),
@@ -210,7 +210,7 @@ const sheet = (overrides: Record<string, unknown> = {}) => ({
 test('a ring-buffered flipbook particle keeps its sheet and how it outlives its lifetime', () => {
 	const faint = { startColor: { minMaxState: 0, minColor: white, maxColor: { ...white, a: 0.25 } } };
 	const read = readParticleSystem(system({ ringBufferMode: 1, UVModule: sheet() }, faint), renderer());
-	assert.ok('info' in read);
+	assert.ok(read !== null && 'info' in read);
 	assert.deepEqual(read.info.startColor.max, [1, 1, 1, 0.25]);
 	assert.equal(read.info.startColor.maxGradient, null);
 	assert.deepEqual(read.info.ringBuffer, { loop: false, loopRange: [0, 1] });
@@ -225,7 +225,7 @@ test('a ring-buffered flipbook particle keeps its sheet and how it outlives its 
 		system({ ringBufferMode: 2, ringBufferLoopRange: { x: 0.2, y: 0.8 } }),
 		renderer(),
 	);
-	assert.ok('info' in looped);
+	assert.ok(looped !== null && 'info' in looped);
 	assert.deepEqual(looped.info.ringBuffer, { loop: true, loopRange: [0.2, 0.8] });
 	assert.equal(looped.info.textureSheet, null);
 
@@ -235,7 +235,7 @@ test('a ring-buffered flipbook particle keeps its sheet and how it outlives its 
 			system({ UVModule: sheet({ animationType: 1, ...overrides }) }),
 			renderer(),
 		);
-		assert.ok('info' in result);
+		assert.ok(result !== null && 'info' in result);
 		return result.info.textureSheet;
 	};
 	assert.equal(row({ rowMode: 0, rowIndex: 3 })?.row, 3);
@@ -263,18 +263,18 @@ test('a cap of 0 becomes what one lifetime of emission holds', () => {
 		),
 		renderer(),
 	);
-	assert.ok('info' in flame);
+	assert.ok(flame !== null && 'info' in flame);
 	assert.equal(flame.info.maxParticles, 1);
 	// 1.1 per second for 80 s
 	const steady = readParticleSystem(system({}, { maxNumParticles: 0 }), renderer());
-	assert.ok('info' in steady);
+	assert.ok(steady !== null && 'info' in steady);
 	assert.equal(steady.info.maxParticles, 88);
 });
 
 test('systems the viewer cannot play say why', () => {
 	const reason = (s: TypeTreeObject, r: TypeTreeObject = renderer()) => {
 		const read = readParticleSystem(s, r);
-		return 'reason' in read ? read.reason : null;
+		return read !== null && 'reason' in read ? read.reason : null;
 	};
 	assert.equal(reason(system(), renderer({ m_RenderMode: 5 })), 'render mode 5');
 	// modules the viewer doesn't evaluate are ignored
@@ -294,11 +294,13 @@ test('systems the viewer cannot play say why', () => {
 		reason(system({ EmissionModule: { enabled: true, rateOverTime: curve([[0, 1]]), m_Bursts: [] } })),
 		'rate curve',
 	);
+	// one a script starts shows nothing until then, so it's neither played nor unsupported
+	assert.equal(readParticleSystem(system({ playOnAwake: false }), renderer()), null);
 });
 
 test('billboards draw one quad, stretched ones keep how they lengthen', () => {
 	const billboard = readParticleSystem(system(), renderer({ m_RenderMode: 0, m_Mesh: pointer(0n) }));
-	assert.ok('info' in billboard);
+	assert.ok(billboard !== null && 'info' in billboard);
 	assert.equal(billboard.info.renderMode, ParticleRenderMode.Billboard);
 	assert.deepEqual(billboard.meshes, []);
 	assert.deepEqual(billboard.info.meshWeights, [1]);
@@ -307,7 +309,7 @@ test('billboards draw one quad, stretched ones keep how they lengthen', () => {
 		system({ scalingMode: 2 }),
 		renderer({ m_RenderMode: 1, m_LengthScale: 1.5, m_VelocityScale: 0.2 }),
 	);
-	assert.ok('info' in stretched);
+	assert.ok(stretched !== null && 'info' in stretched);
 	assert.deepEqual(stretched.info.stretch, { lengthScale: 1.5, velocityScale: 0.2 });
 	assert.equal(stretched.info.shapeScaling, true);
 	assert.equal(billboard.info.shapeScaling, false);
@@ -344,7 +346,7 @@ test('start colours and colour over lifetime keep their gradients and random ran
 		),
 		renderer(),
 	);
-	assert.ok('info' in read);
+	assert.ok(read !== null && 'info' in read);
 	const { startColor, colorOverLifetime } = read.info;
 	assert.equal(startColor.mode, GradientMode.TwoColors);
 	assert.equal(startColor.min[3], 0.2);
@@ -376,13 +378,13 @@ test('linear velocities can be curves', () => {
 		}),
 		renderer(),
 	);
-	assert.ok('info' in read);
+	assert.ok(read !== null && 'info' in read);
 	assert.equal(read.info.velocity?.linear[1].mode, CurveMode.Curve);
 });
 
 test('the reach covers the cone, the rise under gravity and the largest mesh', () => {
 	const read = readParticleSystem(system(), renderer());
-	assert.ok('info' in read);
+	assert.ok(read !== null && 'info' in read);
 	const reach = particleReach(read.info, 1);
 	// radius 65 plus a slight spread, ½ · 9.81 · 0.012 · 80² of rise, a mesh of size 5
 	const rise = 0.5 * 9.81 * 0.012 * 80 * 80;

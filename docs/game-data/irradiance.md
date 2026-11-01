@@ -1,6 +1,7 @@
 # irradiance volume
 
-the game's GI uses a baked probe volume (`HGIrradianceVolume` v3). ambient sampling is described in [lighting.md](lighting.md#ambient); the scene states that select bakes are in
+the game's GI uses a baked probe volume (`HGIrradianceVolume` v3). ambient sampling is described in
+[lighting.md](lighting.md#ambient); the scene states that select bakes are in
 [scene-states.md](scene-states.md).
 
 ## files

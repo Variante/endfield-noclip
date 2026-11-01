@@ -14,9 +14,10 @@ whole-file reads and byte-range reads:
 
 every range read passes the archive's size from the manifest. a source whose file has another size
 throws `PackageChangedError`; the stream manager stops fetching shards, keeps resident content
-drawn, and the stats panel offers a reload. this is a size check, not content verification; it cannot
-detect same-sized edits. repacks normally change [archive names](../package-format.md#layout), so
-an open page may instead get a missing-file error when an old archive is removed.
+drawn, and the stats panel offers a reload. this is a size check, not content verification; it
+cannot detect same-sized edits. repacks normally change
+[archive names](../package-format.md#layout), so an open page may instead get a missing-file error
+when an old archive is removed.
 
 the package panel ([`ui/package-panel.tsx`](../../packages/viewer/src/ui/package-panel.tsx)) offers
 all three. where both `showDirectoryPicker` and OPFS exist, "copy into browser storage" imports the

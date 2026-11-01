@@ -64,8 +64,8 @@ either, so game-format knowledge stays on the extractor side and a package can b
 ### boundaries
 
 - **`formats` is environment-agnostic.** it takes bytes (or a `ByteSource` for random access) and
-  returns plain values; it never opens files or uses `node:` APIs outside tests. code that
-  touches the filesystem, caches open handles or knows install layout (`hg/vfs.ts`, `hg/bundles.ts`,
+  returns plain values; it never opens files or uses `node:` APIs outside tests. code that touches
+  the filesystem, caches open handles or knows install layout (`hg/vfs.ts`, `hg/bundles.ts`,
   `game/assets.ts`) lives in the extractor.
 - **`formats` decodes; the extractor interprets.** a `formats` module describes one layout (a
   catalog, a bundle, a TypeTree, a chunk file). rules about which records to use, how levels and
@@ -102,8 +102,8 @@ output and CLI tooling; the package keeps its own blob index in the core, so the
 any blob without parsing an archive header. blobs are content-addressed, so a mesh or texture used
 by several levels or tiles is stored once.
 
-**a custom WebGPU renderer.** three.js's WebGL renderer has no compute, so culling and LOD
-would stay on the CPU, and its per-object scene graph cost a prototype 15 ms of CPU at 4.2k draws.
+**a custom WebGPU renderer.** three.js's WebGL renderer has no compute, so culling and LOD would
+stay on the CPU, and its per-object scene graph cost a prototype 15 ms of CPU at 4.2k draws.
 three.js's WebGPU renderer keeps per-object render lists and bind groups and compiles node materials
 per material, so GPU-driven rendering would fight the abstraction. Babylon.js would put HGRP shaders
 through ShaderMaterial in a heavy runtime and still leave GPU culling and LOD to us.

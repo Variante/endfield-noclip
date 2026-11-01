@@ -293,7 +293,8 @@ layers with parallax enabled use a parallax-weighted height instead of `Σ w · 
 
 ## LOD and HLOD
 
-the game ships per-entity LODs and three tiers of HLOD clusters with their own materials and atlases.
+the game ships per-entity LODs and three tiers of HLOD clusters with their own materials and
+atlases.
 
 - **per-entity LOD chains.** every static draw carries its LOD index and a
   `(minSquared, maxSquared]` range of squared screen-relative height, as in Unity's LODGroup.

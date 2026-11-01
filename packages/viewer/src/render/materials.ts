@@ -301,9 +301,11 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 
 /**
  * unsupported material: a world-space magenta/black checker, unlit and exposure-independent. draws both faces
- * and casts no shadow
+ * and casts no shadow. also the look of `DrawRole.Unsupported` stand-ins
+ *
+ * @returns a new look
  */
-const unsupportedLook = (): MaterialLook => {
+export const unsupportedLook = (): MaterialLook => {
 	const look = emptyLook({ drawn: true });
 	look.unsupported = true;
 	look.castsShadows = false;

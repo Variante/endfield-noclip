@@ -3,7 +3,7 @@ import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances'
 import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 
 import { CULL_FLOATS, ROW_WORDS } from '../render/instance-rows.ts';
-import { type MaterialLook, alphaTextureOf } from '../render/materials.ts';
+import { type MaterialLook, alphaTextureOf, unsupportedLook } from '../render/materials.ts';
 import type { ParticleField, ParticleView } from '../render/particles.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadow-map.ts';
 import type { TextureBinding, TextureStore } from '../render/texture-store.ts';
@@ -185,7 +185,10 @@ export class MeshSelector {
 	readonly selection: MeshSelection = { buckets: [], boxes: [] };
 	#chains: readonly Chain[];
 	#geometries: readonly GeometryEntry[];
+	/** by material id, then the look stand-ins draw with at {@link #standIn} */
 	#looks: readonly MaterialLook[];
+	/** the material id `DrawRole.Unsupported` draws take, one past the package's */
+	#standIn: number;
 	#stream: StreamManager;
 	#textures: TextureStore;
 	#particles: ParticleField;
@@ -207,7 +210,8 @@ export class MeshSelector {
 	constructor(init: MeshSelectorInit) {
 		this.#chains = init.chains;
 		this.#geometries = init.geometries;
-		this.#looks = init.looks;
+		this.#standIn = init.looks.length;
+		this.#looks = [...init.looks, unsupportedLook()];
 		this.#stream = init.stream;
 		this.#textures = init.textures;
 		this.#particles = init.particles;
@@ -486,7 +490,8 @@ export class MeshSelector {
 		if (slots === null) {
 			slots = [];
 			for (const draw of this.#chains[chain].draws) {
-				const look = draw.material < this.#looks.length ? this.#looks[draw.material] : undefined;
+				const material = draw.role === DrawRole.Unsupported ? this.#standIn : draw.material;
+				const look = material < this.#looks.length ? this.#looks[material] : undefined;
 				const shadowOnly = draw.role === DrawRole.ShadowOnly;
 				// a proxy's material is never seen, only whether it casts
 				if (look === undefined || (shadowOnly ? !look.castsShadows : !look.drawn)) {
@@ -498,7 +503,7 @@ export class MeshSelector {
 					maxSquared: draw.maxSquared,
 					geometry: draw.geometry,
 					submesh: draw.submesh,
-					material: draw.material,
+					material,
 					castsShadows: look.castsShadows,
 					shadowOnly,
 					particles: draw.particles,

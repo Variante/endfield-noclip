@@ -388,9 +388,13 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
  *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
- *   ones, a speed limit, a drag or rate curve, no mesh, or velocity alignment
+ *   ones, a speed limit, a drag or rate curve, no mesh, or velocity alignment. `null` for a system that
+ *   doesn't play on awake, which shows nothing until a script starts it
  */
-export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObject): ParticleSystemRead => {
+export const readParticleSystem = (
+	system: TypeTreeObject,
+	renderer: TypeTreeObject,
+): ParticleSystemRead | null => {
 	const renderMode = numberField(renderer, 'm_RenderMode');
 	switch (renderMode) {
 		case ParticleRenderMode.Billboard:
@@ -405,7 +409,7 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 		}
 	}
 	if (!booleanField(system, 'playOnAwake')) {
-		return { reason: 'not played on awake' };
+		return null;
 	}
 	const ringBuffer = readRingBuffer(system);
 	if (typeof ringBuffer === 'string') {

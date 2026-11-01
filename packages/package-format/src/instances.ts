@@ -22,6 +22,11 @@ export const DrawRole = {
 	Card: 2,
 	/** HLOD cluster mesh */
 	Hlod: 3,
+	/**
+	 * a stand-in for something the game draws that the viewer can't (a particle system it can't play), drawn
+	 * with the viewer's unsupported look rather than its material, which names what it would have drawn
+	 */
+	Unsupported: 4,
 } as const;
 
 export type DrawRole = (typeof DrawRole)[keyof typeof DrawRole];

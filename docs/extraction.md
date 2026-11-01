@@ -1,8 +1,8 @@
 # extraction
 
 the extractor (`packages/extractor`) is a node CLI that reads a local Endfield install and writes
-viewer packages in the [package format](package-format.md). game formats and behaviour are documented
-in [game-data](game-data/); this page covers the CLI and extraction pipeline.
+viewer packages in the [package format](package-format.md). game formats and behaviour are
+documented in [game-data](game-data/); this page covers the CLI and extraction pipeline.
 
 ## running it
 
@@ -16,26 +16,26 @@ pnpm run dev    # the viewer lists packages under out/
 pnpm extract --help
 ```
 
-`cli.ts` loads every file in `commands/` as a subcommand exporting `summary`, `usage` and `run(args)`, so a
-new command is a new file there. shared argument helpers live in `cli-args.ts`, outside `commands/`,
-because every file in that directory is treated as a command. each command exports its usage text; run it
-without arguments or with `--help` / `-h` for details.
-help works without a config or install, including `world find --help`. every command takes
-`--config <file>` (default `endfield.local.json` in the working directory) and, except for `init`, opens the install
+`cli.ts` loads every file in `commands/` as a subcommand exporting `summary`, `usage` and
+`run(args)`, so a new command is a new file there. shared argument helpers live in `cli-args.ts`,
+outside `commands/`, because every file in that directory is treated as a command. each command
+exports its usage text; run it without arguments or with `--help` / `-h` for details. help works
+without a config or install, including `world find --help`. every command takes `--config <file>`
+(default `endfield.local.json` in the working directory) and, except for `init`, opens the install
 through `withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the
 asset resolver on first use.
 
-| command    | what it does                                                                                                                                                                                        |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                           |
-| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                 |
+| command    | what it does                                                                                                                                                                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                                                                                   |
+| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                                                                         |
 | `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and static entity search (`find`) |
-| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                             |
-| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                     |
-| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                      |
-| `asset`    | decodes one mesh, texture or material by bundle and path id, follows an entity's draws, or exports a cell as glTF                                                                                   |
-| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                       |
-| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                    |
+| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                                                                                     |
+| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                                                                             |
+| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                    |
+| `asset`    | decodes one mesh, texture or material by bundle and path id, follows an entity's draws, or exports a cell as glTF                                                                                                                                           |
+| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                               |
+| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                            |
 
 the inspection commands (`world`, `variants`, `vfs`, `bundle`, `asset`, `terrain`, `water`) are for
 research and debugging; only `init` and `pack` are needed to produce a package. their glTF/PNG/KTX2
@@ -50,29 +50,32 @@ pnpm extract bundle find --class Shader --group initial --limit 20
 ```
 
 `world paths` searches both StringPathHash catalogs with a case-insensitive regular expression. rows
-include the hex hash, full path and all matching manifest bundles; identical hash/path pairs are emitted
-once, while different hashes for the same path remain distinguishable. an empty bundle list means the
-catalog entry has no manifest asset. use `world resolve` for its dependency details.
+include the hex hash, full path and all matching manifest bundles; identical hash/path pairs are
+emitted once, while different hashes for the same path remain distinguishable. an empty bundle list
+means the catalog entry has no manifest asset. use `world resolve` for its dependency details.
 
 `world find` searches static chunk entities by name or resolved mesh/material path. `--near x,y,z`
-and `--radius n` select by 3D distance from the pivot (translation, falling back to bounds centre), in
-Unity coordinates. entities without pivots cannot match a spatial query. results follow chunk order,
-not nearest-first order; `--scene-state` and `--area` filter files before entity-id deduplication.
-without those filters all states and areas are searched, including inactive content. dynamic models,
-facilities and cabin placements are outside this command's scope. JSON includes draws, asset bundles,
-source chunk, pivot, distance and state/area ids; text includes the source chunk for follow-up inspection.
+and `--radius n` select by 3D distance from the pivot (translation, falling back to bounds centre),
+in Unity coordinates. entities without pivots cannot match a spatial query. results follow chunk
+order, not nearest-first order; `--scene-state` and `--area` filter files before entity-id
+deduplication. without those filters all states and areas are searched, including inactive content.
+dynamic models, facilities and cabin placements are outside this command's scope. JSON includes
+draws, asset bundles, source chunk, pivot, distance and state/area ids; text includes the source
+chunk for follow-up inspection.
 
 both searches default to 100 results; `--limit` must be positive. summaries and limit notices go to
-stderr, leaving `--json` as one JSON array (including `[]` for no matches). reaching the limit stops the
-scan, so the notice does not imply more matches were found.
+stderr, leaving `--json` as one JSON array (including `[]` for no matches). reaching the limit stops
+the scan, so the notice does not imply more matches were found.
 
-`bundle find --class` prints one row per object with bundle, SerializedFile node, path id, class, name
-and container paths, so the result can be passed to `bundle dump` or `asset`. `--filter` matches container
-paths; combined with `--class`, it selects objects of that class in matching SerializedFiles. `--group`
-selects `main` (default), `initial` or `all`. `--limit` counts output rows and `--scan` counts bundles.
+`bundle find --class` prints one row per object with bundle, SerializedFile node, path id, class,
+name and container paths, so the result can be passed to `bundle dump` or `asset`. `--filter`
+matches container paths; combined with `--class`, it selects objects of that class in matching
+SerializedFiles. `--group` selects `main` (default), `initial` or `all`. `--limit` counts output
+rows and `--scan` counts bundles.
 
-`variants --areas` lists every selected chunk, including area zero. with `--json`, it adds a `selection`
-object containing sorted area ids and chunk file names to the variants object, without trailing text.
+`variants --areas` lists every selected chunk, including area zero. with `--json`, it adds a
+`selection` object containing sorted area ids and chunk file names to the variants object, without
+trailing text.
 
 ## local config and keys
 
@@ -145,9 +148,9 @@ an `ObjectRef` (bundle index, SerializedFile, object info), relying on the game 
 [how a reference reaches an object](game-data/assets.md#how-a-reference-reaches-an-object).
 
 the resolver opens dependency directories in batches and caches each CAB location. sub-asset lookup
-checks the main asset and same-bundle preload pointers, skipping dependency preloads.
-`findUnique` requires exactly one match; missing containers, class mismatches, ambiguous sub-assets
-and invalid preload ranges fail. failed lookups retain their errors in the pack's debug index.
+checks the main asset and same-bundle preload pointers, skipping dependency preloads. `findUnique`
+requires exactly one match; missing containers, class mismatches, ambiguous sub-assets and invalid
+preload ranges fail. failed lookups retain their errors in the pack's debug index.
 
 an `AssetRef` reached through a prefab carries an `ObjectLocator` (bundle, CAB, path id), bypassing
 path lookup. `objectKey` (`CAB-<hex>:<pathId>`) identifies objects for deduplication and caching.
@@ -164,10 +167,9 @@ uses to read only `m_ParsedForm`.
 
 class decoders ([below](#decoders)) read fields through the narrowing accessors in `values.ts`
 (`numberField`, `pptrField`, `aabbField`, …), which throw a `FormatError` naming the field when the
-shape differs.
-`toPlainObject` (`plain-object.ts`) converts configuration objects (the environment's `HG*Config`
-sections) to plain JSON, with Unity math structs as arrays and `UInt8` bools as booleans. code:
-[serialized-file.ts](../packages/formats/src/unity/serialized-file.ts),
+shape differs. `toPlainObject` (`plain-object.ts`) converts configuration objects (the environment's
+`HG*Config` sections) to plain JSON, with Unity math structs as arrays and `UInt8` bools as
+booleans. code: [serialized-file.ts](../packages/formats/src/unity/serialized-file.ts),
 [type-tree.ts](../packages/formats/src/unity/type-tree.ts),
 [values.ts](../packages/formats/src/unity/values.ts),
 [plain-object.ts](../packages/formats/src/unity/plain-object.ts).
@@ -245,8 +247,7 @@ field names, curves as keys and gradients as colour and alpha keys.
   ([layout](game-data/world.md#initchunkdata-layout)). `readChunkEntities` turns a component group
   into `ChunkEntity` rows with id, tag, name, matrix, bounds, decal flag and a `StaticRenderer`
   (draws with mesh/material StringPathHash keys, submesh, flags and LOD range). it throws on any
-  stride or count disagreement.
-  kind-1 object rows are read by
+  stride or count disagreement. kind-1 object rows are read by
   [mono-objects.ts](../packages/formats/src/endfield/mono-objects.ts); local lights' runtime and
   settings blocks are laid out by
   [chunk-lights.ts](../packages/formats/src/endfield/chunk-lights.ts).
@@ -632,6 +633,7 @@ ignores:
 | `water.json`                    | water surfaces and sectors packed versus present, and assets that failed to load                                                                                                                            |
 | `unsupported-interactives.json` | interactive LevelData files skipped as a whole, and templates or models that couldn't be resolved                                                                                                           |
 | `unsupported-prefabs.json`      | prefabs that couldn't be instantiated, with reasons                                                                                                                                                         |
+| `unsupported-particles.json`    | particle systems packed as stand-ins because the viewer can't play them: prefab path, GameObject name and reason                                                                                            |
 
 start from these when something is missing in the viewer: `instances.jsonl` maps a drawn block back
 to entities and chunk files, and `assets.json` says why an asset didn't convert.
@@ -896,7 +898,8 @@ their raw id. the episode label is inferred from the id.
   ([conditional sets](package-format.md#conditional-sets)).
 - present controls as previews. by-name state writers, script overrides, activity conditions and
   server state remain incomplete ([status](status.md#coverage-and-conditional-content)).
-- unknown condition classes, operators, out-of-range spans and invalid flags throw during extraction.
+- unknown condition classes, operators, out-of-range spans and invalid flags throw during
+  extraction.
 
 ## open
 

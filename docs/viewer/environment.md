@@ -5,8 +5,8 @@ describes at the camera, and applies its wetness.
 
 ## environment phases
 
-the package's [phase sections](../extraction.md#environments) retain the game's field names.
-`wind` is packed but unused; the other sections feed lighting, sky, fog and post-processing.
+the package's [phase sections](../extraction.md#environments) retain the game's field names. `wind`
+is packed but unused; the other sections feed lighting, sky, fog and post-processing.
 
 ## environment volumes
 

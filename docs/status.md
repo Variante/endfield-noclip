@@ -168,7 +168,9 @@ packs or renders correctly.
   and move only while frames render; systems that don't play on awake, or use velocity alignment, an
   acting speed limit, drag or rate curves, orbital, radial, speed-modifier or rotation curves,
   sprite-mode sheets, sheet time modes other than lifetime or frames per second, or sheets over 64
-  tiles a side, aren't drawn. drag is approximated (it slows the start velocity and the fall alone),
+  tiles a side, show as one unsupported checker stand-in at the emitter (the swirling green motes
+  around Qingbo Stockade's bamboo tubes use orbital and radial velocity curves); systems that don't
+  play on awake aren't drawn. drag is approximated (it slows the start velocity and the fall alone),
   the maximum on-screen particle size isn't applied, stretched billboards are centred on the
   particle, and colours above 1 and custom data never reach the shaders. all copies of one flipbook
   step in phase. Marker Stone's low mist banks over the valley are still missing; their source is

@@ -18,7 +18,8 @@ import {
 	stringField,
 	type Aabb,
 } from '@endfield-noclip/formats/unity/values';
-import type { ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
+import { ChainFlags } from '@endfield-noclip/package-format/instances';
+import { ParticleRenderMode, type ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
 
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
@@ -41,6 +42,11 @@ export interface PrefabRenderer {
 	 * then the system's frame and the bounds everywhere its particles reach
 	 */
 	particles: ParticleSystemInfo | null;
+	/**
+	 * why the viewer can't play the particle system this renderer draws, `null` for everything else. the
+	 * renderer is then a stand-in: its mesh drawn once at the emitter, turned to the camera for quads
+	 */
+	unsupported: string | null;
 	/**
 	 * the billboard on the renderer's GameObject or its nearest ancestor with one, `null` when nothing turns it
 	 * to the camera. skinned meshes and particle systems don't take it
@@ -91,6 +97,7 @@ export const readPrefabRenderers = async (
 		name: string;
 		mesh: ObjectRef;
 		particles: ParticleSystemInfo | null;
+		unsupported: string | null;
 		billboard: PrefabBillboard | null;
 	}[] = [];
 	const excluded = new Set<string>();
@@ -220,6 +227,7 @@ export const readPrefabRenderers = async (
 						name,
 						mesh,
 						particles: null,
+						unsupported: null,
 						billboard: null,
 					});
 				}
@@ -240,6 +248,7 @@ export const readPrefabRenderers = async (
 							name,
 							mesh,
 							particles: null,
+							unsupported: null,
 							billboard,
 						});
 					}
@@ -263,15 +272,37 @@ export const readPrefabRenderers = async (
 						name,
 						mesh,
 						particles: null,
+						unsupported: null,
 						billboard: null,
 					});
 				}
 			} else {
 				const read = readParticleSystem(system.data, particles.data);
-				if ('info' in read) {
-					// the shape scaling mode scales the shape alone, leaving the particles' sizes
-					const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
-					const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
+				// the shape scaling mode scales the shape alone, leaving the particles' sizes
+				const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
+				const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
+				if (read !== null && 'reason' in read) {
+					// a stand-in shows where the system would play: its first mesh, or a quad facing the camera
+					let mesh: ObjectRef | null = null;
+					if (numberField(particles.data, 'm_RenderMode') === ParticleRenderMode.Mesh) {
+						mesh = await resolver.resolve(particles.ref, pptrField(particles.data, 'm_Mesh'));
+					}
+					const quad = mesh === null;
+					mesh ??= particleQuad;
+					if (mesh !== null) {
+						candidates.push({
+							...particles,
+							matrix: emitter,
+							name,
+							mesh,
+							particles: null,
+							unsupported: read.reason,
+							billboard: quad
+								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: emitter }
+								: null,
+						});
+					}
+				} else if (read !== null) {
 					// one emitter per mesh, each drawing the particles that picked it; quads have none of their own
 					const meshes =
 						read.meshes.length === 0
@@ -285,6 +316,7 @@ export const readPrefabRenderers = async (
 								name,
 								mesh,
 								particles: { ...read.info, mesh: i },
+								unsupported: null,
 								billboard: null,
 							});
 						}
@@ -378,6 +410,7 @@ export const readPrefabRenderers = async (
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,
 			particles: candidate.particles,
+			unsupported: candidate.unsupported,
 			billboard: candidate.billboard,
 		});
 	}

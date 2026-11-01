@@ -470,6 +470,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			water: water.debug,
 			unsupportedInteractives: entities.unsupportedInteractives,
 			unsupportedPrefabs: entities.unsupportedPrefabs,
+			unsupportedParticles: entities.unsupportedParticles,
 		});
 		timer.end('debug');
 
@@ -663,6 +664,8 @@ const collectEntities = async (
 	hlodNameMatches: number;
 	unsupportedInteractives: { path: string; reason: string }[];
 	unsupportedPrefabs: { path: string; reason: string }[];
+	/** particle systems the viewer can't play, drawn as stand-ins */
+	unsupportedParticles: { path: string; name: string; reason: string }[];
 	/** environment volumes that placed prefabs carry */
 	placedVolumes: SceneEnvironmentVolume[];
 	/** Dijiang's cabin slots, with the group that shows their built cabin */
@@ -1123,6 +1126,8 @@ const collectEntities = async (
 	const unsupportedLights: { path: string; reason: string }[] = [];
 	counts.prefabLights = 0;
 	const unsupportedPrefabs: { path: string; reason: string }[] = [];
+	// once per prefab and pose, however many times it's placed
+	const unsupportedParticles: { path: string; name: string; reason: string }[] = [];
 	let modelId = 0;
 	for (const placement of [...dynamic.models, ...facilities.models, ...cabins.models]) {
 		const { model, levelTag } = placement;
@@ -1148,7 +1153,13 @@ const collectEntities = async (
 					{ hash: model.pathHash, path: paths[0] },
 					UnityClass.GameObject,
 				);
-				return readPrefabRenderers(resolver, root, pose, particleQuad);
+				const renderers = await readPrefabRenderers(resolver, root, pose, particleQuad);
+				for (const { name, unsupported } of renderers) {
+					if (unsupported !== null) {
+						unsupportedParticles.push({ path: label, name, reason: unsupported });
+					}
+				}
+				return renderers;
 			})().catch((error: unknown): PrefabRenderer[] => {
 				if (!(error instanceof FormatError)) {
 					throw error;
@@ -1215,6 +1226,12 @@ const collectEntities = async (
 				renderer.pose === null
 					? pack.geometries.internObject(renderer.mesh)
 					: pack.geometries.internPosedObject(renderer.mesh, renderer.pose);
+			let role: DrawRole = DrawRole.Lit;
+			if (renderer.unsupported !== null) {
+				role = DrawRole.Unsupported;
+			} else if (renderer.shadowOnly) {
+				role = DrawRole.ShadowOnly;
+			}
 			const draws = mapDefined(renderer.materials, (material, index): ChainDraw | undefined => {
 				if (material === null) {
 					return undefined;
@@ -1224,7 +1241,7 @@ const collectEntities = async (
 					material: pack.materials.internObject(material),
 					submesh: Math.min(index, renderer.submeshes - 1),
 					lod: 0,
-					role: renderer.shadowOnly ? DrawRole.ShadowOnly : DrawRole.Lit,
+					role,
 					minSquared: -1,
 					maxSquared: 3.4028234663852886e38,
 					sourceFlags: renderer.shadowOnly ? DrawFlags.ShadowOnly : 0,
@@ -1264,6 +1281,7 @@ const collectEntities = async (
 		}
 	}
 	counts.unsupportedPrefabs = unsupportedPrefabs.length;
+	counts.unsupportedParticles = unsupportedParticles.length;
 	return {
 		collected,
 		lights,
@@ -1271,6 +1289,7 @@ const collectEntities = async (
 		hlodNameMatches,
 		unsupportedInteractives: facilities.unsupported,
 		unsupportedPrefabs,
+		unsupportedParticles,
 		placedVolumes: placed.volumes,
 		cabinRooms: cabins.rooms.map(({ control, levelTag, position, roomType }) => ({
 			group: collected.group(levelTag, collected.condition({ alternatives: [[{ control, mask: 2 }]] })),
@@ -2362,6 +2381,7 @@ const writeDebug = async (
 		water: WaterDebug;
 		unsupportedInteractives: { path: string; reason: string }[];
 		unsupportedPrefabs: { path: string; reason: string }[];
+		unsupportedParticles: { path: string; name: string; reason: string }[];
 	},
 ): Promise<void> => {
 	const dir = join(outDir, 'debug');
@@ -2370,6 +2390,7 @@ const writeDebug = async (
 	await writeFile(join(dir, 'water.json'), json(debug.water));
 	await writeFile(join(dir, 'unsupported-interactives.json'), json(debug.unsupportedInteractives));
 	await writeFile(join(dir, 'unsupported-prefabs.json'), json(debug.unsupportedPrefabs));
+	await writeFile(join(dir, 'unsupported-particles.json'), json(debug.unsupportedParticles));
 	await writeFile(
 		join(dir, 'assets.json'),
 		json({

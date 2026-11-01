@@ -81,18 +81,19 @@ pack and survives a failed one, and a reader never sees a mix of the two.
 
 **czar** ([`@mary-ext/czar`](https://www.npmjs.com/package/@mary-ext/czar)) is the container: a
 magic, a JSON header listing members (path, offset, size, CRC-32), then member data in path order on
-16-byte boundaries. **blob index**: `tables/blobs.bin` records each blob's archive,
-offset (relative to the archive's data section) and length, so a reader issues one range read per
-blob and never fetches a shard's JSON header. czar contributes CRCs, deterministic output,
-`list`/`verify`/`extract` tooling and Blob/OPFS readers. 16-byte alignment lets decoders
-view uncompressed members as typed arrays.
+16-byte boundaries. **blob index**: `tables/blobs.bin` records each blob's archive, offset (relative
+to the archive's data section) and length, so a reader issues one range read per blob and never
+fetches a shard's JSON header. czar contributes CRCs, deterministic output,
+`list`/`verify`/`extract` tooling and Blob/OPFS readers. 16-byte alignment lets decoders view
+uncompressed members as typed arrays.
 
 - **blob identity**: the first 128 bits of the SHA-256 of the **stored** (post-codec) bytes, as 32
   lowercase hex digits. equal stored bytes are one blob, kept in the archive of its first use.
   member path is `blobs/<hash>.<ext>` (`BLOB_EXTENSIONS`).
 - **codec** (`BlobCodec`): `0` none, `1` one zstd frame. the packer keeps the zstd frame only when
   it saves at least 1/32 of the bytes, since a frame costs a decode pass and small BC7 mip tails
-  barely compress. compression settings are in [asset conversion](extraction.md#asset-conversion-and-workers).
+  barely compress. compression settings are in
+  [asset conversion](extraction.md#asset-conversion-and-workers).
 - **offsets** are u32, so every archive stays below 4 GiB; groups over 1 GiB split into
   [parts](#layout).
 - **the core's offsets**: `ArchiveInfo.dataOffset` is `null` for the core, because the core's header
@@ -110,12 +111,12 @@ package.
 ## coordinates
 
 everything is in the game's Unity frame: left-handed, +Y up, +Z north, metres
-(`COORDINATE_CONVENTIONS`). a right-handed scene can convert with `viewerRoot: scale(1, 1, -1)`
-and reversed front-face winding. this viewer keeps Unity coordinates and constructs its view-projection
+(`COORDINATE_CONVENTIONS`). a right-handed scene can convert with `viewerRoot: scale(1, 1, -1)` and
+reversed front-face winding. this viewer keeps Unity coordinates and constructs its view-projection
 accordingly ([camera.ts](../packages/viewer/src/scene/camera.ts)). matrices are `rows3x4`: the top
-three rows of object-to-world, row-major,
-matching a WGSL `array<vec4f, 3>`. instance translations and bounds centres are relative to their
-block's origin, which keeps f32 precise anywhere in the world.
+three rows of object-to-world, row-major, matching a WGSL `array<vec4f, 3>`. instance translations
+and bounds centres are relative to their block's origin, which keeps f32 precise anywhere in the
+world.
 
 ## tile tree
 
@@ -144,14 +145,13 @@ stands for.
 **refinement contract** (REPLACE, at HLOD-cell granularity): a node draws its coarse content while
 its screen-space error, `geometricError · viewportHeight / (2 · distance · tan(fovY / 2))`, is
 within the threshold; otherwise it refines to its children, and a refined leaf draws its detail
-blocks. per-instance LOD inside detail uses the
-chain thresholds. conditional blocks have no HLOD stand-in, so they draw by their tile's screen size
-regardless of refinement ([viewer/index.md](viewer/streaming.md#instance-selection)).
-`manifest.global` content (the game's Global chunk scenery) is drawn whenever its group shows and
-never replaced. `geometricError` is a placeholder, `edge / 16` (64 m leaf → 4 m), until the game's
-HLOD switch distances are known; the viewer's SSE threshold tunes it. which entities become HLOD,
-detail, global and conditional content is in
-[extraction.md](extraction.md#how-the-packer-files-instances).
+blocks. per-instance LOD inside detail uses the chain thresholds. conditional blocks have no HLOD
+stand-in, so they draw by their tile's screen size regardless of refinement
+([viewer/index.md](viewer/streaming.md#instance-selection)). `manifest.global` content (the game's
+Global chunk scenery) is drawn whenever its group shows and never replaced. `geometricError` is a
+placeholder, `edge / 16` (64 m leaf → 4 m), until the game's HLOD switch distances are known; the
+viewer's SSE threshold tunes it. which entities become HLOD, detail, global and conditional content
+is in [extraction.md](extraction.md#how-the-packer-files-instances).
 
 **content refs** (`ContentRef`, `ContentKind`):
 
@@ -238,17 +238,19 @@ included.
 thresholds compared by f32 bit pattern ([chains.ts](../packages/extractor/src/pack/chains.ts)). a
 draw shows while `minSquared < s² ≤ maxSquared`, `s` being Unity's LODGroup screen-relative height;
 a negative `minSquared` never culls by size. roles: `Lit`, `ShadowOnly` (shadow proxies), `Card`
-(foliage imposter `_cardmesh` geometry), `Hlod`. `sourceFlags` keeps the game's renderer flag word
-for bits not yet understood. `particles` indexes the [particles table](#particles) when the draw is
-a particle system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has
-(`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`,
-`BillboardUpright`): their transform's rotation is then relative to the camera's, and their bounds
-hold every orientation ([billboards](game-data/assets.md#billboards)). the nearest billboard up the
-hierarchy turns a mesh renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode
-0 flags the chain `BillboardFacing`, the others `BillboardUpright` (about the world's vertical,
-which is their axis on upright placements). the packer stores the offset times the renderer's
-rotation relative to the billboard, at the renderer's own position, so a renderer away from the
-billboard's origin turns in place rather than swinging around it.
+(foliage imposter `_cardmesh` geometry), `Hlod`, `Unsupported` (a stand-in for a
+[particle system](#particles) a viewer can't play, drawn with its unsupported look; the material
+still names what the game draws). `sourceFlags` keeps the game's renderer flag word for bits not yet
+understood. `particles` indexes the [particles table](#particles) when the draw is a particle
+system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has (`HasShadowOnly`,
+`Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`, `BillboardUpright`):
+their transform's rotation is then relative to the camera's, and their bounds hold every orientation
+([billboards](game-data/assets.md#billboards)). the nearest billboard up the hierarchy turns a mesh
+renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
+`BillboardFacing`, the others `BillboardUpright` (about the world's vertical, which is their axis on
+upright placements). the packer stores the offset times the renderer's rotation relative to the
+billboard, at the renderer's own position, so a renderer away from the billboard's origin turns in
+place rather than swinging around it.
 
 ### irradiance cells
 
@@ -345,10 +347,10 @@ each stream is its own vertex buffer. attributes use Unity's channel numbering (
 | 4–11 UV0–7 | `unorm16x2` dequantized when the span is ≤ 16, else `float32x2`; 8-bit sources keep `snorm8x4`/`unorm8x4`; sets with more than two components `float32x4` | half floats step 1/128 at 12, too coarse for tiling UVs; dequantized unorm16 at span ≤ 16 errs below 2^-13                                                                                                                                                                                                                            |
 
 tangents are computed in the game's left-handed frame, so `bitangent = cross(n, t) · sign` holds
-there. the mesh shader multiplies the bitangent sign by the object-to-world determinant's sign
-to handle mirrored instances. vertices whose corners disagree on the tangent frame (mirrored UV seams) are split.
-against `mikktspace` 1.1.1 on 200 meshes (864k corners), meshoptimizer's tangents agree to a mean
-dot product of 0.99978, 99.975 % within 2.5°, with matching bitangent signs in 99.998 %.
+there. the mesh shader multiplies the bitangent sign by the object-to-world determinant's sign to
+handle mirrored instances. vertices whose corners disagree on the tangent frame (mirrored UV seams)
+are split. against `mikktspace` 1.1.1 on 200 meshes (864k corners), meshoptimizer's tangents agree
+to a mean dot product of 0.99978, 99.975 % within 2.5°, with matching bitangent signs in 99.998 %.
 
 **submeshes own their vertices**: each submesh's triangles are compacted to their own vertex range
 and optimized there (vertex cache, then fetch order), indices stay local, and a submesh is one
@@ -466,7 +468,7 @@ lifetime until replaced, held at their end or looping part of it; a texture shee
 tile each particle's mesh UVs are remapped into.
 
 a `ParticleSystemRenderer` ([particle systems](game-data/assets.md#particle-systems)) whose
-`ParticleSystem` plays on awake is packed one of two ways. mesh-mode renderers draw their meshes;
+`ParticleSystem` plays on awake is packed one of three ways. mesh-mode renderers draw their meshes;
 the others (billboard, stretched, horizontal, vertical) draw the render pipeline's unit quad
 (`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx`), which the packer
 looks up once per scene.
@@ -509,6 +511,11 @@ the entry keeps:
 
 a renderer with several meshes (`m_Mesh` … `m_Mesh3`) becomes one emitter per mesh, its entry naming
 which.
+
+**a stand-in**, for any other system: its `m_Mesh` in mesh mode, else the unit quad as a
+`BillboardFacing` chain, drawn once at the emitter's transform with the `Unsupported` role, so the
+viewer marks where particles are missing. the debug index lists each one and why
+([extraction](extraction.md)).
 
 ### textures (`.tex`)
 
@@ -633,14 +640,14 @@ test at the camera. which content a stream area gates is in
 
 ## versioning
 
-`PACKAGE_VERSION` ([manifest.ts](../packages/package-format/src/manifest.ts)) is written to `manifest.version` and covers the manifest, the JSON tables and
-how the parts fit together. each binary encoding (tree, chains, blob table, irradiance table,
-instance blocks, height, surface and splat pages, geometry blobs) carries its own version in its
-header, next to its codec. readers accept exactly the versions they know and reject any other, and
-nothing migrates old packages: a package from another version is re-extracted. bump the package
-version on any incompatible change to the manifest or a table, and an encoding's version when its
-layout changes. the JSON tables carry no version of their own and are trusted once the manifest's
-version matches.
+`PACKAGE_VERSION` ([manifest.ts](../packages/package-format/src/manifest.ts)) is written to
+`manifest.version` and covers the manifest, the JSON tables and how the parts fit together. each
+binary encoding (tree, chains, blob table, irradiance table, instance blocks, height, surface and
+splat pages, geometry blobs) carries its own version in its header, next to its codec. readers
+accept exactly the versions they know and reject any other, and nothing migrates old packages: a
+package from another version is re-extracted. bump the package version on any incompatible change to
+the manifest or a table, and an encoding's version when its layout changes. the JSON tables carry no
+version of their own and are trusted once the manifest's version matches.
 
 the [pack cache](extraction.md#pack-cache) fingerprints the converter's code, which imports only the
 `geometry`, `textures` and `blobs` modules of `package-format` (and the helpers they share).

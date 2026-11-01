@@ -44,10 +44,10 @@
 
 ## optimization candidates
 
-- move per-instance culling and LOD selection to compute, writing the visible list and indirect
-  draw arguments; these dominate CPU time in dense views.
-- cache shadow layers across new selections when their fit and casters are unchanged; terrain
-  still draws into every layer.
+- move per-instance culling and LOD selection to compute, writing the visible list and indirect draw
+  arguments; these dominate CPU time in dense views.
+- cache shadow layers across new selections when their fit and casters are unchanged; terrain still
+  draws into every layer.
 - reduce the AO blur's reads by packing depth with AO or using `textureGather`.
 - profile terrain close-up blending; stochastic projection or fewer anisotropy taps may reduce cost.
 - measure timestamp-query overhead before limiting profiling to the stats panel.
