@@ -183,7 +183,8 @@ and back swapped for mirrored buckets. each mesh phase, shadows included, has a 
 culling and UV format, and draws are sorted by both. the vertex shader dequantizes 16-bit UVs with
 per-draw transforms, so the fragment shader sees one kind of UV.
 
-materials that aren't drawn are dropped from the chain once, when it's first used, as are
+materials the game draws nothing visible with are dropped from the chain once, when it's first used
+(the rest draw, the ones the viewer can't as [unsupported](#unsupported-materials)), as are
 shadow-only draws whose material casts no shadow; the other shadow-only draws go to cast-only
 buckets even for instances in view. textures are then requested per bucket, coarse to fine, down to
 the mip that gives about one texel per pixel across the largest on-screen use, scaled by the UV
@@ -192,6 +193,21 @@ sky, reflection and water textures are streamed whole (`streamWholeTexture`).
 
 the output (a visible row list plus per-bucket ranges) has the shape a GPU cull pass would write
 next to indirect draw arguments ([open](#open)).
+
+### unsupported materials
+
+a material the viewer can't draw shows as an unlit checker of magenta and black, in half-metre cells
+of world space, rather than hiding (`unsupportedLook` in
+[`render/materials.ts`](../packages/viewer/src/render/materials.ts)). it shows both faces, casts no
+shadow and keeps its colour at any exposure. this covers effect shaders without a look of their own
+([effects](game-data/effects.md)), effect materials using keywords, blend modes, stencil operations
+or texture combinations their look doesn't handle, lit decals in variants the viewer lacks or
+without a placement or base colour map, and additive materials outside the effects, since the opaque
+path can't blend.
+
+only materials the game draws nothing visible with aren't drawn: `HGRP/WaterProxy`, whose passes all
+feed the water pipeline ([water](game-data/water.md#waterproxy-and-waterdecal)), and lit decals that
+write nothing the viewer draws.
 
 ### billboards
 

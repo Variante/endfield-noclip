@@ -483,6 +483,14 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 		if ((flags & BASE_MAP) != 0u) {
 			c *= base.rgb;
 		}
+		// materials the viewer can't draw (`unsupportedLook` in materials.ts): a world-space checker of the tint
+		// and black
+		if (draw.surface.z > 0.0) {
+			let cell = vec3i(floor((in.rel + frame.eye.xyz) / draw.surface.z));
+			if (((cell.x + cell.y + cell.z) & 1) != 0) {
+				c = vec3f(0.0);
+			}
+		}
 		c += max(c - vec3f(draw.surface.x), vec3f(0.0)) * draw.surface.y;
 		return unlit(clamp(c * mix(1.0, frame.ambient.y, draw.emissive2.z), vec3f(0.0), vec3f(1000.0)));
 	}

@@ -204,10 +204,12 @@ test('a lit decal placement draws its base and PBR maps through its UV transform
 		),
 		[0.02, 0.05, 1, 1],
 	);
-	// without a placement, with a variant the viewer lacks, or with nothing to change, it isn't drawn
-	assert.equal(unplaced.drawn, false);
-	assert.equal(sludge.drawn, false);
+	// without a placement or with a variant the viewer lacks it's unsupported; with nothing to change it isn't
+	// drawn
+	assert.equal(unplaced.unsupported, true);
+	assert.equal(sludge.unsupported, true);
 	assert.equal(bare.drawn, false);
+	assert.equal(bare.unsupported, false);
 });
 
 test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of that role', () => {
@@ -246,7 +248,7 @@ test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of 
 	assert.equal(look.params[EffectRow.soft], 4);
 });
 
-test('effects with features the viewer lacks, or additive blending, stay hidden', () => {
+test('effects with features the viewer lacks, or additive blending, show as unsupported', () => {
 	const looks = materialLooks({
 		shaders: [shader('HGRP/Effect/VFXBaseV2')],
 		entries: [
@@ -273,8 +275,8 @@ test('effects with features the viewer lacks, or additive blending, stay hidden'
 		],
 	});
 	assert.deepEqual(
-		looks.map((look) => look.drawn),
-		[false, false, false, false, false],
+		looks.map((look) => look.unsupported),
+		[true, true, true, true, true],
 	);
 });
 
@@ -354,7 +356,7 @@ test('a VFXBaseV2 sixth sample texture takes the vertex offset slot and the firs
 	);
 });
 
-test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and stays hidden under 2', () => {
+test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and is unsupported under 2', () => {
 	const additive = { ...shader('HGRP/Effect/VFXBaseV2'), floats: { _BlendMode: 1 } };
 	const looks = materialLooks({
 		shaders: [additive],
@@ -366,7 +368,7 @@ test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and sta
 	});
 	assert.equal(looks[0].params[EffectRow.unfogged + 2], 1);
 	assert.equal(looks[1].params[EffectRow.unfogged + 2], 0);
-	assert.equal(looks[2].drawn, false);
+	assert.equal(looks[2].unsupported, true);
 });
 
 test('a VFXBaseV2 without a main texture draws with its shader default only when that is white', () => {
@@ -387,8 +389,8 @@ test('a VFXBaseV2 without a main texture draws with its shader default only when
 		],
 	});
 	assert.deepEqual(
-		looks.map((look) => look.drawn),
-		[true, false],
+		looks.map((look) => look.unsupported),
+		[false, true],
 	);
 	// slot 0 binds white; the mask still applies
 	assert.deepEqual(looks[0].textures.slice(0, 2), [-1, 2]);
@@ -491,7 +493,7 @@ test('mist: additive FogSimple cards and walk-in fog boxes draw; equal fade ends
 	assert.equal(box.params[MistRow.volume + 1], 4);
 	// walk-in boxes skip the close-up fade
 	assert.equal(box.params[MistRow.volume + 3], 0);
-	assert.equal(looks[2].drawn, false);
+	assert.equal(looks[2].unsupported, true);
 });
 
 test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals and keeps its own rows', () => {
@@ -553,5 +555,5 @@ test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals 
 	// the vertex offset stays off, since its switch shares the last rows
 	assert.equal(sheet.params[EffectRow.offsetMode], 0);
 	assert.equal(sheet.params[EffectRow.soft], 3);
-	assert.equal(refract.drawn, false);
+	assert.equal(refract.unsupported, true);
 });

@@ -6,8 +6,8 @@
  *
  * VFXBaseV2 and VFXDecal combine textures by role ({@link EffectRole}): VFXBaseV2 gives each `_SampleTexN`
  * its role by its `_SampleTexNUseWeightK` properties, VFXDecal has one fixed texture per role. materials
- * using keywords outside each shader's drawn set stay hidden, as do additive VFXBaseV2 and VFXDecal
- * materials.
+ * using keywords outside each shader's drawn set get no effect look, as do additive VFXBaseV2 and VFXDecal
+ * materials; `materials.ts` shows them as unsupported.
  *
  * @module
  */
@@ -690,10 +690,14 @@ export interface LitDecalLook extends EffectLook {
  *
  * @param entry a material of `HGRP/DecalLit`, a placement's copy with its colour and UV transform
  * @param shader its shader
- * @returns its look, or `null` when it uses features that aren't drawn, lacks a placement, or writes neither
- *   albedo, normal nor roughness
+ * @returns its look, `'invisible'` when it changes nothing the viewer draws (it writes neither albedo, normal
+ *   nor roughness, or only the PBR map's, without one), or `null` when it uses features that aren't drawn or
+ *   lacks a placement or base colour map
  */
-export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): LitDecalLook | null => {
+export const decalLitLook = (
+	entry: ReadyMaterial,
+	shader: ShaderEntry,
+): LitDecalLook | 'invisible' | null => {
 	if (entry.keywords.some((keyword) => !DECAL_LIT_KEYWORDS.has(keyword))) {
 		return null;
 	}
@@ -707,7 +711,7 @@ export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): LitDeca
 	const relight = (float('_ColorMask3', 0) & WRITE_RED) === 0;
 	const surfaceMask = float('_ColorMask2', 0);
 	if (relight && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
-		return null;
+		return 'invisible';
 	}
 	const look = emptyEffect(7);
 	const params = look.params;
@@ -758,7 +762,7 @@ export const decalLitLook = (entry: ReadyMaterial, shader: ShaderEntry): LitDeca
 	const hasPbr = pbr !== undefined;
 	// a relit decal changes the surface only through the PBR map
 	if (relight && !hasPbr) {
-		return null;
+		return 'invisible';
 	}
 	params.set(
 		[

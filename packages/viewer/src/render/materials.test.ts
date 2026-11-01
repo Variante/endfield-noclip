@@ -14,7 +14,7 @@ import {
 	UV1_SHIFT,
 } from './materials.ts';
 
-test('effect geometry cannot become opaque walls through the fallback, while ordinary unknown shaders remain visible', () => {
+test('effect geometry without an effect look shows as unsupported rather than shaded walls; ordinary unknown shaders shade', () => {
 	const shaders: ShaderEntry[] = [
 		{
 			name: 'HGRP/Effect/VFXBaseV2',
@@ -61,10 +61,57 @@ test('effect geometry cannot become opaque walls through the fallback, while ord
 		colors: {},
 		vectors: {},
 	}));
+	const looks = materialLooks({ shaders, entries });
 	assert.deepEqual(
-		materialLooks({ shaders, entries }).map((look) => look.drawn),
-		[false, false, true],
+		looks.map((look) => [look.drawn, look.unsupported]),
+		[
+			[true, true],
+			[true, true],
+			[true, false],
+		],
 	);
+	// an unlit, shadowless, two-sided magenta checker
+	const [unsupported] = looks;
+	assert.equal(unsupported.flags, LookFlags.Unlit);
+	assert.equal(unsupported.castsShadows, false);
+	assert.equal(unsupported.cull, 'none');
+	assert.deepEqual(Array.from(unsupported.params.subarray(LookRow.tint, LookRow.tint + 4)), [1, 0, 1, -1]);
+	assert.equal(unsupported.params[LookRow.surface + 2], 0.5);
+});
+
+test('water proxies are not drawn, and additive non-effects show as unsupported', () => {
+	const shader = (name: string, family: ShaderEntry['family']): ShaderEntry => ({
+		name,
+		family,
+		floats: {},
+		colors: {},
+		vectors: {},
+		textures: {},
+		normalMaps: [],
+	});
+	const entry = (id: number, blend: ReadyMaterial['blend']): ReadyMaterial => ({
+		id,
+		status: 'ready',
+		shader: id,
+		keywords: [],
+		renderQueue: 2000,
+		blend,
+		blendFactors: null,
+		alphaClipThreshold: null,
+		cull: 'back',
+		zWrite: true,
+		baseTextureMapCount: null,
+		slots: {},
+		floats: {},
+		colors: {},
+		vectors: {},
+	});
+	const [proxy, additive] = materialLooks({
+		shaders: [shader('HGRP/WaterProxy', 'waterProxy'), shader('HGRP/Lit', 'lit')],
+		entries: [entry(0, 'opaque'), entry(1, 'additive')],
+	});
+	assert.equal(proxy.drawn, false);
+	assert.equal(additive.unsupported, true);
 });
 
 test('matte paintings are unlit, cast no shadows and test the texture alpha against the scaled threshold', () => {
@@ -160,8 +207,9 @@ test('dither-alpha effects shade as opaque two-sided surfaces from the tinted ma
 	);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.surface, LookRow.surface + 4)), [1, 1, 0, 1.5]);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.uv, LookRow.uv + 4)), [4, 4, 0, 0]);
-	assert.equal(colored.drawn, false);
-	assert.equal(dissolving.drawn, false);
+	assert.equal(rock.unsupported, false);
+	assert.equal(colored.unsupported, true);
+	assert.equal(dissolving.unsupported, true);
 });
 
 test('dither-alpha effects without a second texture dither by the scaled alpha of their main texture', () => {
@@ -226,7 +274,7 @@ test('dither-alpha effects without a second texture dither by the scaled alpha o
 	assert.equal(edged.cutout, false);
 });
 
-test('portal effects: an opaque mask writes only the stencil, its effects test it, other stencil operations stay hidden', () => {
+test('portal effects: an opaque mask writes only the stencil, its effects test it, other stencil operations are unsupported', () => {
 	const shaders: ShaderEntry[] = [
 		{
 			name: 'HGRP/Effect/VFXBaseV2',
@@ -306,7 +354,7 @@ test('portal effects: an opaque mask writes only the stencil, its effects test i
 	});
 	assert.equal(plain.drawn, true);
 	assert.equal(plain.stencil, null);
-	assert.equal(inverting.drawn, false);
+	assert.equal(inverting.unsupported, true);
 });
 
 test('glass is transparent, casts no shadow and takes its opacity from the tint alpha and the picked map alpha', () => {

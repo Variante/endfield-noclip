@@ -28,10 +28,16 @@ import {
 } from './effect-looks.ts';
 
 /**
- * shader families that aren't drawn as opaque surfaces (fog volumes, light beams, effects, and the water
- * pipeline's own proxy shader, which the water pass stands in for)
+ * shader families with no pass the game draws in the main view: the water pipeline's proxy meshes, which the
+ * water pass stands in for
  */
-const SKIPPED_FAMILIES = new Set([
+const UNDRAWN_FAMILIES = new Set(['waterProxy']);
+
+/**
+ * shader families drawn only through looks of their own (fog volumes, light beams, effects); materials of
+ * theirs without one get {@link unsupportedLook}, since the opaque path would shade them as solid surfaces
+ */
+const EFFECT_FAMILIES = new Set([
 	'fogSimple',
 	'volumetricBeam',
 	'vfxFakeVolumeFog',
@@ -40,8 +46,13 @@ const SKIPPED_FAMILIES = new Set([
 	'vfxRefract',
 	'vfxDitherAlpha',
 	'waterDecal',
-	'waterProxy',
 ]);
+
+/** {@link unsupportedLook}'s colour, linear magenta */
+const UNSUPPORTED_COLOR: [r: number, g: number, b: number] = [1, 0, 1];
+
+/** the side of {@link unsupportedLook}'s checker cells, in metres */
+const UNSUPPORTED_CELL = 0.5;
 
 const FOLIAGE_FAMILIES = new Set(['leaf', 'grass', 'cardMesh']);
 
@@ -142,8 +153,10 @@ export const LOOK_FLOATS = 128;
 
 /** one material as the mesh shader draws it */
 export interface MaterialLook {
-	/** `false` for materials not drawn at all (effect shaders without a look, additive non-effects) */
+	/** `false` for materials the game draws nothing visible with (water proxies, lit decals that change nothing) */
 	drawn: boolean;
+	/** a material the viewer can't draw, shown as a magenta checker ({@link unsupportedLook}) */
+	unsupported: boolean;
 	/**
 	 * alpha-tested against the alpha of the base colour, or of the normal map with
 	 * {@link LookFlags.AlphaNormal} (`fs_cutout_depth` in mesh.wgsl), once that texture is bound
@@ -203,7 +216,10 @@ export const LookRow = {
 	tint: 0,
 	/** one UV transform per slot */
 	uv: 4,
-	/** roughness min, roughness max, metallic, normal scale; unlit looks: highlight threshold and intensity */
+	/**
+	 * roughness min, roughness max, metallic, normal scale; unlit looks: highlight threshold and intensity, the
+	 * side of the checker cells in metres (0 for none; {@link unsupportedLook})
+	 */
 	surface: 32,
 	/** occlusion strength, f0, transmission, base colour brighter scale */
 	surface2: 36,
@@ -279,6 +295,7 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 	}
 	return {
 		drawn,
+		unsupported: false,
 		cutout: false,
 		transparent: false,
 		cull: 'none',
@@ -290,6 +307,22 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 		stencil: null,
 		relight: false,
 	};
+};
+
+/**
+ * the look of a material the viewer can't draw: an unlit checker of magenta and black in world space, at its
+ * colour whatever the exposure, so what's missing shows instead of hiding. it shows both faces and casts no
+ * shadow
+ */
+const unsupportedLook = (): MaterialLook => {
+	const look = emptyLook({ drawn: true });
+	look.unsupported = true;
+	look.castsShadows = false;
+	look.flags |= LookFlags.Unlit;
+	look.params.set([...UNSUPPORTED_COLOR, -1], LookRow.tint);
+	look.params.set([1, 0, UNSUPPORTED_CELL], LookRow.surface);
+	look.params[LookRow.emissive2 + 2] = 1;
+	return look;
 };
 
 /** Unity's `CompareFunction` values, `Disabled` (0) to `Always` (8), as WebGPU names them */
@@ -405,6 +438,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			continue;
 		}
 		const shader = materials.shaders[entry.shader];
+		if (UNDRAWN_FAMILIES.has(shader.family)) {
+			looks[entry.id] = emptyLook({ drawn: false });
+			continue;
+		}
 		const effect = effectLookOf(entry, shader) ?? portalMaskLook(entry, shader);
 		if (effect !== null) {
 			looks[entry.id] = effect;
@@ -415,14 +452,14 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			looks[entry.id] = dither;
 			continue;
 		}
-		// other effect meshes need their own opacity, distortion and animation passes. the opaque mesh fallback
-		// turns their bounding surfaces into solid walls
+		// other effect meshes need their own opacity, distortion and animation passes, and the opaque path has
+		// no additive blending
 		if (
-			SKIPPED_FAMILIES.has(shader.family) ||
+			EFFECT_FAMILIES.has(shader.family) ||
 			shader.name.startsWith('HGRP/Effect/') ||
 			entry.blend === 'additive'
 		) {
-			looks[entry.id] = emptyLook({ drawn: false });
+			looks[entry.id] = unsupportedLook();
 			continue;
 		}
 		switch (shader.family) {
@@ -443,9 +480,9 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 };
 
 /**
- * @returns the look of a scene effect the viewer draws (effect-looks.ts), else `null`. effects are
- *   alpha-blended and cast no shadows; decal boxes draw their back faces, so they still show with the camera
- *   inside them
+ * @returns the look of a scene effect the viewer draws (effect-looks.ts), a look that isn't drawn for lit
+ *   decals that change nothing, else `null`. effects are alpha-blended and cast no shadows; decal boxes draw
+ *   their back faces, so they still show with the camera inside them
  */
 const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook | null => {
 	let effect: EffectLook | null = null;
@@ -469,6 +506,9 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 		}
 		case 'HGRP/DecalLit': {
 			const decal = decalLitLook(entry, shader);
+			if (decal === 'invisible') {
+				return emptyLook({ drawn: false });
+			}
 			effect = decal;
 			relight = decal?.relight ?? false;
 			flags |= LookFlags.EffectDecal;
@@ -497,6 +537,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 	}
 	return {
 		drawn: true,
+		unsupported: false,
 		cutout: false,
 		transparent: true,
 		cull: (flags & LookFlags.EffectDecal) !== 0 ? 'front' : entry.cull,
