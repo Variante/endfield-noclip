@@ -64,8 +64,10 @@ export interface MeshView {
 	minPixels: number;
 	/** mip levels coarser than needed to stream material textures at (0 for full detail; each halves their size) */
 	textureBias: number;
-	/** select draws in the unsupported look; off skips them as if their chains lacked them */
-	unsupported: boolean;
+	/** select draws of materials in the unsupported look; off skips them as if their chains lacked them */
+	unsupportedMaterials: boolean;
+	/** select `DrawRole.Unsupported` stand-ins; off skips them likewise */
+	missingContent: boolean;
 	/** instances outside the view but in this volume are selected as shadow casters; `null` for none */
 	casters: CasterVolume | null;
 	/** the shadow layers instances are grouped by; `null` without shadows */
@@ -97,8 +99,12 @@ interface ChainSlot {
 	submesh: number;
 	material: number;
 	castsShadows: boolean;
-	/** whether the draw takes the unsupported look, which {@link MeshView.unsupported} can hide */
-	unsupported: boolean;
+	/**
+	 * what hides the draw: `material` for a material in the unsupported look ({@link
+	 * MeshView.unsupportedMaterials}), `stand-in` for a `DrawRole.Unsupported` draw ({@link
+	 * MeshView.missingContent}), `null` for neither
+	 */
+	hiddenBy: 'material' | 'stand-in' | null;
 	/** whether the draw is a shadow proxy, which only the shadow passes draw, even for instances in view */
 	shadowOnly: boolean;
 	/** the particle system the draw plays, whose particles stand in for the instance; `null` for a mesh */
@@ -106,6 +112,32 @@ interface ChainSlot {
 	/** the slot's buckets, once they had rows, by {@link bucketIndex} */
 	buckets: (MeshBucket | null)[];
 }
+
+/** @returns {@link ChainSlot.hiddenBy} for a draw of `role` drawn with `look` */
+const hiddenByOf = (role: DrawRole, look: MaterialLook): ChainSlot['hiddenBy'] => {
+	if (role === DrawRole.Unsupported) {
+		return 'stand-in';
+	}
+	return look.unsupported ? 'material' : null;
+};
+
+/** @returns whether the view's options skip the slot */
+const slotHidden = (
+	slot: ChainSlot,
+	view: Pick<MeshView, 'unsupportedMaterials' | 'missingContent'>,
+): boolean => {
+	switch (slot.hiddenBy) {
+		case 'material': {
+			return !view.unsupportedMaterials;
+		}
+		case 'stand-in': {
+			return !view.missingContent;
+		}
+		case null: {
+			return false;
+		}
+	}
+};
 
 /** @returns the index of a slot's bucket for mirrored (1) or unmirrored (0), cast-only or drawn instances */
 const bucketIndex = (mirrored: 0 | 1, castOnly: boolean): number => mirrored + (castOnly ? 2 : 0);
@@ -315,10 +347,7 @@ export class MeshSelector {
 					let lod = -1;
 					for (let s = 0; s < slots.length; s++) {
 						const slot = slots[s];
-						if (
-							(slot.unsupported && !view.unsupported) ||
-							!(squared > slot.minSquared && squared <= slot.maxSquared)
-						) {
+						if (slotHidden(slot, view) || !(squared > slot.minSquared && squared <= slot.maxSquared)) {
 							continue;
 						}
 						lod = slot.lod;
@@ -336,7 +365,7 @@ export class MeshSelector {
 					}
 					const row = instances.alloc.start + i;
 					if (!ready) {
-						pendingCount = this.#residentLod(slots, lod, { castOnly, unsupported: view.unsupported });
+						pendingCount = this.#residentLod(slots, lod, { castOnly, view });
 						if (pendingCount === 0) {
 							// an emitter's box spans everywhere its particles reach, so it doesn't stand in for them
 							if (
@@ -444,14 +473,14 @@ export class MeshSelector {
 	 * the LOD drawn before the switch, so the instance keeps its shape instead of dropping to its box.
 	 * stand-ins are kept in use but not requested, so they don't add to the streaming queue.
 	 *
-	 * @param filter `castOnly` when only the shadow-casting slots are wanted, `unsupported` as in
-	 *   {@link MeshView}
+	 * @param filter `castOnly` when only the shadow-casting slots are wanted, and the `view` whose options hide
+	 *   slots
 	 * @returns how many of the stand-in's slots were written to `#pending` (0 when no LOD is resident)
 	 */
 	#residentLod(
 		slots: readonly ChainSlot[],
 		wanted: number,
-		{ castOnly, unsupported }: { castOnly: boolean; unsupported: boolean },
+		{ castOnly, view }: { castOnly: boolean; view: MeshView },
 	): number {
 		let maxLod = 0;
 		for (const slot of slots) {
@@ -467,7 +496,7 @@ export class MeshSelector {
 				let count = 0;
 				let resident = true;
 				for (const slot of slots) {
-					if (slot.lod !== lod || (castOnly && !slot.castsShadows) || (slot.unsupported && !unsupported)) {
+					if (slot.lod !== lod || (castOnly && !slot.castsShadows) || slotHidden(slot, view)) {
 						continue;
 					}
 					if (!this.#geometryResident(slot.geometry)) {
@@ -521,7 +550,7 @@ export class MeshSelector {
 					submesh: draw.submesh,
 					material,
 					castsShadows: look.castsShadows,
-					unsupported: look.unsupported,
+					hiddenBy: hiddenByOf(draw.role, look),
 					shadowOnly,
 					particles: draw.particles,
 					buckets: [null, null, null, null],

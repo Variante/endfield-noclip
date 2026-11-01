@@ -22,6 +22,8 @@ import {
 } from '../hg/bundles.ts';
 import type { Vfs } from '../hg/vfs.ts';
 
+import type { SyntheticMesh } from './synthetic-mesh.ts';
+
 // resolves external CAB and .resS files within the referencing bundle's dependency closure, caching each
 // location found. reference rules: docs/game-data/assets.md#how-a-reference-reaches-an-object.
 
@@ -70,6 +72,8 @@ export interface AssetRef {
 	locator?: ObjectLocator;
 	/** mesh-space to prefab-space skinning matrices for a baked authored pose */
 	pose?: Float32Array[];
+	/** a mesh the packer makes itself (see `syntheticMesh`); the asset then reads nothing from the install */
+	synthetic?: SyntheticMesh;
 }
 
 // #endregion

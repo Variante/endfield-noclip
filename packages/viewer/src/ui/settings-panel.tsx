@@ -160,7 +160,8 @@ export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 				<Toggle viewer={viewer} name="terrainSplat" label="terrain splat layers" />
 				<Toggle viewer={viewer} name="instances" label="instances" />
 				<Toggle viewer={viewer} name="boxes" label="boxes" />
-				<Toggle viewer={viewer} name="unsupported" label="unsupported stand-ins" />
+				<Toggle viewer={viewer} name="unsupportedMaterials" label="unsupported materials" />
+				<Toggle viewer={viewer} name="missingContent" label="missing content" />
 				<Toggle viewer={viewer} name="detail" label="detail" />
 				<Toggle viewer={viewer} name="global" label="global scenery" />
 				<Toggle viewer={viewer} name="streamAreas" label="stream areas at camera" />

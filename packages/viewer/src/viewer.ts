@@ -82,11 +82,13 @@ export interface ViewerOptions {
 	wireframe: boolean;
 	/** draw stand-in boxes for instances with no resident mesh LOD, or every instance without geometry */
 	boxes: boolean;
+	/** draw meshes whose material the viewer lacks in the unsupported checker; off skips them */
+	unsupportedMaterials: boolean;
 	/**
-	 * draw what the viewer can't render as the unsupported checker: meshes whose material it lacks and
-	 * stand-ins for particle systems it can't play. off draws neither
+	 * draw the package's stand-ins (`DrawRole.Unsupported`) for content the viewer doesn't draw at all, in the
+	 * unsupported checker; off skips them
 	 */
-	unsupported: boolean;
+	missingContent: boolean;
 	/** instance refinement threshold, px */
 	maxSse: number;
 	/** terrain sample spacing target, px */
@@ -152,7 +154,8 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	hlodTiers: [true, true, true],
 	wireframe: false,
 	boxes: true,
-	unsupported: false,
+	unsupportedMaterials: false,
+	missingContent: false,
 	maxSse: 12,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,
@@ -1519,7 +1522,8 @@ export class Viewer {
 				viewportHeight: this.#targets.outputHeight,
 				minPixels: options.minBoxPixels,
 				textureBias: options.textureBias,
-				unsupported: options.unsupported,
+				unsupportedMaterials: options.unsupportedMaterials,
+				missingContent: options.missingContent,
 				casters: view.casters,
 				shadowLayers: shadows ? this.#shadows.volumes : null,
 				// particles move by the clock the effects' shaders scroll by

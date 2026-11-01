@@ -633,7 +633,7 @@ ignores:
 | `water.json`                    | water surfaces and sectors packed versus present, and assets that failed to load                                                                                                                            |
 | `unsupported-interactives.json` | interactive LevelData files skipped as a whole, and templates or models that couldn't be resolved                                                                                                           |
 | `unsupported-prefabs.json`      | prefabs that couldn't be instantiated, with reasons                                                                                                                                                         |
-| `unsupported-particles.json`    | particle systems packed as stand-ins because the viewer can't play them: prefab path, GameObject name and reason                                                                                            |
+| `stand-ins.json`                | content packed as [stand-ins](package-format.md#stand-ins): what it belongs to, its name, why, and for placed cubes the position of their centre (prefab renderers are listed once per prefab)              |
 
 start from these when something is missing in the viewer: `instances.jsonl` maps a drawn block back
 to entities and chunk files, and `assets.json` says why an asset didn't convert.

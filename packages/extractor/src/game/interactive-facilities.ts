@@ -154,6 +154,19 @@ export interface InteractiveDoor {
 	position: [number, number, number];
 }
 
+/** a placed interactive with a model the reader couldn't find, to draw a stand-in for */
+export interface InteractiveStandIn {
+	/** `<LevelData path>#<row id>` */
+	source: string;
+	template: string;
+	reason: string;
+	levelTag: number;
+	position: [number, number, number];
+	/** Unity Euler angles, degrees */
+	rotation: [number, number, number];
+	scale: [number, number, number];
+}
+
 /**
  * resolves the models of interactives placed by referenced LevelData: the visual forms of the facility
  * templates in {@link TEMPLATES}, each under a `facility:<id>` control, and every other interactive's model
@@ -165,7 +178,9 @@ export interface InteractiveDoor {
  * @param scene owning map
  * @param level restricts decoding to one level, or null for the map
  * @param partition numeric level tags
- * @returns placements, controls and explicit unsupported-file diagnostics; no partial file is used
+ * @returns placements, controls, explicit unsupported-file diagnostics and the placements of interactives
+ *   whose model wasn't found (a template that's missing or can't be read, or a model id the model table
+ *   lacks); no partial file is used
  * @throws {FormatError} for broken authored references or malformed supported records
  */
 export const loadInteractiveFacilities = async (
@@ -178,6 +193,7 @@ export const loadInteractiveFacilities = async (
 	progressions: SceneControl[];
 	doors: InteractiveDoor[];
 	unsupported: { path: string; reason: string }[];
+	standIns: InteractiveStandIn[];
 }> => {
 	const { vfs, world } = context;
 	const reader = await context.memoryPack();
@@ -257,9 +273,16 @@ export const loadInteractiveFacilities = async (
 			data: string;
 		}
 	>();
+	/** by placed template id, why its model wasn't found */
+	const modelless = new Map<string, string>();
 	const templates = new Map<
 		string,
-		{ base: { id: string; scale: number } | null; variants: Map<string, string | null> }
+		{
+			base: { id: string; scale: number } | null;
+			variants: Map<string, string | null>;
+			/** why the template couldn't be read, `null` when it was */
+			failure: string | null;
+		}
 	>();
 	const variantsOf = new Map<string, Set<string>>();
 	for (const [id, template] of interactives.templates) {
@@ -285,6 +308,7 @@ export const loadInteractiveFacilities = async (
 		const data = template === undefined ? undefined : interactives.templatePaths.get(template);
 		if (template === undefined || data === undefined) {
 			unsupported.push({ path: TABLE, reason: `no template for ${key}` });
+			modelless.set(key, 'no template');
 			continue;
 		}
 		let resolved = templates.get(template);
@@ -295,15 +319,21 @@ export const loadInteractiveFacilities = async (
 				resolved = {
 					base: readInteractiveBaseModel(bytes, string),
 					variants: readInteractiveVariantModels(bytes, string, variantsOf.get(template) ?? new Set()),
+					failure: null,
 				};
 			} catch (error) {
 				if (!(error instanceof FormatError)) {
 					throw error;
 				}
 				unsupported.push({ path: data, reason: error.message });
-				resolved = { base: null, variants: new Map() };
+				resolved = { base: null, variants: new Map(), failure: error.message };
 			}
 			templates.set(template, resolved);
+		}
+		if (resolved.failure !== null) {
+			// the template may have had a model, so it gets a stand-in rather than being taken for a trigger
+			modelless.set(key, resolved.failure);
+			continue;
 		}
 		const { base } = resolved;
 		const modelId = resolved.variants.get(key) ?? base?.id;
@@ -313,6 +343,7 @@ export const loadInteractiveFacilities = async (
 		}
 		if (!(modelId in modelData)) {
 			unsupported.push({ path: data, reason: `model ${modelId} of ${key} is not in the model table` });
+			modelless.set(key, `model ${modelId} is not in the model table`);
 			continue;
 		}
 		authored.set(key, {
@@ -498,9 +529,22 @@ export const loadInteractiveFacilities = async (
 	const progressions: SceneControl[] = nexus === null ? [] : [nexus.control];
 	const doors: InteractiveDoor[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
+	const standIns: InteractiveStandIn[] = [];
 	for (const { path, levelId, levelTag, row } of placed) {
 		const template = authored.get(row.template);
 		if (template === undefined) {
+			const reason = modelless.get(row.template);
+			if (reason !== undefined) {
+				standIns.push({
+					source: `${path}#${row.id}`,
+					template: row.template,
+					reason,
+					levelTag,
+					position: row.position,
+					rotation: row.rotation,
+					scale: row.scale,
+				});
+			}
 			continue;
 		}
 		const place = (
@@ -611,5 +655,5 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 	}
-	return { models, progressions, doors, unsupported };
+	return { models, progressions, doors, unsupported, standIns };
 };

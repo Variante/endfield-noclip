@@ -78,8 +78,8 @@ emitter's place, the system and its index, so any moment can be evaluated on its
 modules not listed above (forces, noise, collision, sub-emitters, trails, lights, custom data and
 the by-speed modules) are ignored, so systems that enable them play without their effect rather than
 not at all. systems the packer can't make playable at all arrive as stand-ins
-([package format](../package-format.md#particles)): one mesh or camera-facing quad at the emitter in
-the [unsupported](materials.md#unsupported-materials) checker.
+([package format](../package-format.md#stand-ins)): one mesh or camera-facing quad at the emitter in
+the [unsupported](materials.md#unsupported-materials) checker, shown with "missing content".
 
 the game's random sequence can't be reproduced, so particles start elsewhere than in the game with
 the same distributions. looping systems are evaluated as if they had played since long before the

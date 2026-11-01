@@ -13,6 +13,7 @@ import { bakeSkinPose } from '@endfield-noclip/formats/unity/skin-pose';
 import { errorText } from '../errors.ts';
 import { loadMesh, loadTexture } from '../game/asset-decode.ts';
 import { AssetResolver, objectKey, recordBundleReads } from '../game/assets.ts';
+import { syntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { loadBundleManifest } from '../hg/bundles.ts';
 import { Vfs } from '../hg/vfs.ts';
 import { zstdSync } from '../zstd.ts';
@@ -60,6 +61,17 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 	switch (job.kind) {
 		case 'geometry': {
 			await geometryReady;
+			if (job.asset.synthetic !== undefined) {
+				const converted = convertMesh(syntheticMesh(job.asset.synthetic), job.tangentUv);
+				return {
+					kind: 'geometry',
+					object: syntheticMeshKey(job.asset.synthetic),
+					name: syntheticMeshKey(job.asset.synthetic),
+					entry: converted.entry,
+					gpuBytes: converted.gpuBytes,
+					blob: await store(converted.blob, job.zstdLevel),
+				};
+			}
 			const ref = await resolver.findUnique(job.asset, UnityClass.Mesh);
 			const mesh = await loadMesh(resolver, ref);
 			const posed = job.asset.pose ? bakeSkinPose(mesh, job.asset.pose) : mesh;

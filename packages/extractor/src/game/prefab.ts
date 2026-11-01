@@ -43,8 +43,9 @@ export interface PrefabRenderer {
 	 */
 	particles: ParticleSystemInfo | null;
 	/**
-	 * why the viewer can't play the particle system this renderer draws, `null` for everything else. the
-	 * renderer is then a stand-in: its mesh drawn once at the emitter, turned to the camera for quads
+	 * why the renderer can't draw as the game does, `null` when it can. it's then a stand-in: a particle system
+	 * the viewer can't play draws its mesh once at the emitter (turned to the camera for quads), and a skinned
+	 * mesh the reader can't pose draws unposed at its renderer, or posed without its blend shapes
 	 */
 	unsupported: string | null;
 	/**
@@ -281,7 +282,14 @@ export const readPrefabRenderers = async (
 				// the shape scaling mode scales the shape alone, leaving the particles' sizes
 				const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
 				const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
-				if (read !== null && 'reason' in read) {
+				// a system a script starts is still there to see, so it gets a stand-in too
+				let reason: string | null = null;
+				if (read === null) {
+					reason = `doesn't play on awake`;
+				} else if ('reason' in read) {
+					reason = read.reason;
+				}
+				if (reason !== null) {
 					// a stand-in shows where the system would play: its first mesh, or a quad facing the camera
 					let mesh: ObjectRef | null = null;
 					if (numberField(particles.data, 'm_RenderMode') === ParticleRenderMode.Mesh) {
@@ -296,13 +304,13 @@ export const readPrefabRenderers = async (
 							name,
 							mesh,
 							particles: null,
-							unsupported: read.reason,
+							unsupported: reason,
 							billboard: quad
 								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: emitter }
 								: null,
 						});
 					}
-				} else if (read !== null) {
+				} else if (read !== null && 'info' in read) {
 					// one emitter per mesh, each drawing the particles that picked it; quads have none of their own
 					const meshes =
 						read.meshes.length === 0
@@ -362,42 +370,21 @@ export const readPrefabRenderers = async (
 			);
 		}
 		let skin: Float32Array[] | null = null;
+		let unsupported = candidate.unsupported;
 		if (candidate.ref.info.classId === UnityClass.SkinnedMeshRenderer) {
-			if (arrayField(candidate.data, 'm_BlendShapeWeights').some((weight) => weight !== 0)) {
-				throw new FormatError(`nonzero prefab blend shape in ${candidate.name}`);
-			}
-			const bones = arrayField(candidate.data, 'm_Bones');
-			const bindPoses = arrayField(mesh, 'm_BindPose');
-			if (bones.length !== bindPoses.length || bones.length === 0) {
-				throw new FormatError(`invalid prefab skeleton in ${candidate.name}`);
-			}
-			skin = [];
-			const min = [Infinity, Infinity, Infinity],
-				max = [-Infinity, -Infinity, -Infinity];
-			for (const [i, pointer] of bones.entries()) {
-				const bone = await resolver.resolve(candidate.ref, asPPtr(pointer));
-				const boneMatrix = bone && transforms.get(objectKey(bone));
-				const bind = bindPoses[i];
-				if (!boneMatrix || !isObject(bind)) {
-					throw new FormatError(`unresolved prefab bone in ${candidate.name}`);
-				}
-				const bindMatrix = new Float32Array(
-					Array.from({ length: 16 }, (_, k) => numberField(bind, 'e' + (k % 4) + Math.floor(k / 4))),
-				);
-				const posed = multiplyMatrices(boneMatrix, bindMatrix);
-				skin.push(posed);
-				const transformed = transformBounds(bounds, posed);
-				for (let axis = 0; axis < 3; axis++) {
-					min[axis] = Math.min(min[axis], transformed.center[axis] - transformed.extents[axis]);
-					max[axis] = Math.max(max[axis], transformed.center[axis] + transformed.extents[axis]);
+			// a skinned mesh the reader can't pose stands in unposed, at its renderer, rather than failing the prefab
+			const posed = await poseSkin(resolver, candidate, mesh, bounds, transforms);
+			if ('reason' in posed) {
+				unsupported = posed.reason;
+			} else {
+				skin = posed.skin;
+				bounds = posed.bounds;
+				matrix = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+				// the mesh is baked without its blend shapes, so it isn't the shape the game draws
+				if (arrayField(candidate.data, 'm_BlendShapeWeights').some((weight) => weight !== 0)) {
+					unsupported = 'nonzero blend shape';
 				}
 			}
-			// weighted positions lie inside this union, including poses whose bones move beyond the bind bounds.
-			bounds = {
-				center: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
-				extents: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2],
-			};
-			matrix = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
 		}
 		result.push({
 			name: candidate.name,
@@ -410,9 +397,59 @@ export const readPrefabRenderers = async (
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,
 			particles: candidate.particles,
-			unsupported: candidate.unsupported,
+			unsupported,
 			billboard: candidate.billboard,
 		});
 	}
 	return result;
+};
+
+/**
+ * bakes a skinned renderer's authored pose: each bone's prefab-space matrix times its bind pose
+ *
+ * @returns the bone matrices and the bounds every weighted position lies in, or why the skeleton can't be
+ *   posed
+ */
+const poseSkin = async (
+	resolver: AssetResolver,
+	renderer: { ref: ObjectRef; data: TypeTreeObject },
+	mesh: TypeTreeObject,
+	meshBounds: Aabb,
+	transforms: ReadonlyMap<string, Float32Array>,
+): Promise<{ skin: Float32Array[]; bounds: Aabb } | { reason: string }> => {
+	const bones = arrayField(renderer.data, 'm_Bones');
+	const bindPoses = arrayField(mesh, 'm_BindPose');
+	if (bones.length !== bindPoses.length || bones.length === 0) {
+		return { reason: 'invalid skeleton' };
+	}
+	const skin: Float32Array[] = [];
+	const min = [Infinity, Infinity, Infinity];
+	const max = [-Infinity, -Infinity, -Infinity];
+	for (const [i, pointer] of bones.entries()) {
+		// oxlint-disable-next-line no-await-in-loop -- bones are few and their reads cached
+		const bone = await resolver.resolve(renderer.ref, asPPtr(pointer));
+		const boneMatrix = bone && transforms.get(objectKey(bone));
+		const bind = bindPoses[i];
+		if (!boneMatrix || !isObject(bind)) {
+			return { reason: 'unresolved bone' };
+		}
+		const bindMatrix = new Float32Array(
+			Array.from({ length: 16 }, (_, k) => numberField(bind, 'e' + (k % 4) + Math.floor(k / 4))),
+		);
+		const posed = multiplyMatrices(boneMatrix, bindMatrix);
+		skin.push(posed);
+		const transformed = transformBounds(meshBounds, posed);
+		for (let axis = 0; axis < 3; axis++) {
+			min[axis] = Math.min(min[axis], transformed.center[axis] - transformed.extents[axis]);
+			max[axis] = Math.max(max[axis], transformed.center[axis] + transformed.extents[axis]);
+		}
+	}
+	// weighted positions lie inside this union, including poses whose bones move beyond the bind bounds
+	return {
+		skin,
+		bounds: {
+			center: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
+			extents: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2],
+		},
+	};
 };

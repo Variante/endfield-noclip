@@ -238,15 +238,15 @@ included.
 thresholds compared by f32 bit pattern ([chains.ts](../packages/extractor/src/pack/chains.ts)). a
 draw shows while `minSquared < s² ≤ maxSquared`, `s` being Unity's LODGroup screen-relative height;
 a negative `minSquared` never culls by size. roles: `Lit`, `ShadowOnly` (shadow proxies), `Card`
-(foliage imposter `_cardmesh` geometry), `Hlod`, `Unsupported` (a stand-in for a
-[particle system](#particles) a viewer can't play, drawn with its unsupported look; the material
-still names what the game draws). `sourceFlags` keeps the game's renderer flag word for bits not yet
-understood. `particles` indexes the [particles table](#particles) when the draw is a particle
-system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has (`HasShadowOnly`,
-`Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`, `BillboardUpright`):
-their transform's rotation is then relative to the camera's, and their bounds hold every orientation
-([billboards](game-data/assets.md#billboards)). the nearest billboard up the hierarchy turns a mesh
-renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
+(foliage imposter `_cardmesh` geometry), `Hlod`, `Unsupported` (a [stand-in](#stand-ins) for content
+the viewer can't draw, drawn with its unsupported look). `sourceFlags` keeps the game's renderer
+flag word for bits not yet understood. `particles` indexes the [particles table](#particles) when
+the draw is a particle system's mesh, else it's `0xffffffff`. the chain flags mark which roles it
+has (`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards
+(`BillboardFacing`, `BillboardUpright`): their transform's rotation is then relative to the
+camera's, and their bounds hold every orientation ([billboards](game-data/assets.md#billboards)).
+the nearest billboard up the hierarchy turns a mesh renderer
+([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
 `BillboardFacing`, the others `BillboardUpright` (about the world's vertical, which is their axis on
 upright placements). the packer stores the offset times the renderer's rotation relative to the
 billboard, at the renderer's own position, so a renderer away from the billboard's origin turns in
@@ -512,10 +512,28 @@ the entry keeps:
 a renderer with several meshes (`m_Mesh` … `m_Mesh3`) becomes one emitter per mesh, its entry naming
 which.
 
-**a stand-in**, for any other system: its `m_Mesh` in mesh mode, else the unit quad as a
-`BillboardFacing` chain, drawn once at the emitter's transform with the `Unsupported` role, so the
-viewer marks where particles are missing. the debug index lists each one and why
-([extraction](extraction.md)).
+**a [stand-in](#stand-ins)**, for any other system, including those that don't play on awake (a
+script starts them): its `m_Mesh` in mesh mode, else the unit quad as a `BillboardFacing` chain,
+drawn once at the emitter's transform.
+
+### stand-ins
+
+content the game draws but the viewer can't is packed as `Unsupported` draws, so the viewer can mark
+where something is missing. each is listed with why in the debug index's `stand-ins.json`
+([extraction](extraction.md)):
+
+| content                                                                            | drawn as                                                 |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| particle systems the viewer can't play ([above](#particles))                       | the system's mesh or a camera-facing quad at the emitter |
+| skinned meshes whose skeleton can't be posed                                       | the mesh unposed, at its renderer                        |
+| skinned meshes with nonzero blend shapes                                           | the mesh posed without them                              |
+| prefabs that can't be read (see `unsupported-prefabs.json`)                        | a 1 m cube on the placement's pivot, scaled with it      |
+| interactives whose template is missing or unreadable, or whose model id is unknown | a 1 m cube on the placement's pivot, scaled with it      |
+| decals in dynamic structures (their material isn't read)                           | the decal's box                                          |
+
+the material still names what the game draws where it's known, and is `0xffffffff` otherwise. cubes
+are a synthetic geometry (`synthetic:cube` in the debug index), a unit cube from −0.5 to 0.5 the
+instance transform scales.
 
 ### textures (`.tex`)
 

@@ -168,21 +168,21 @@ packs or renders correctly.
   and move only while frames render; systems that don't play on awake, or use velocity alignment, an
   acting speed limit, drag or rate curves, orbital, radial, speed-modifier or rotation curves,
   sprite-mode sheets, sheet time modes other than lifetime or frames per second, or sheets over 64
-  tiles a side, show as one unsupported checker stand-in at the emitter (the swirling green motes
-  around Qingbo Stockade's bamboo tubes use orbital and radial velocity curves); systems that don't
-  play on awake aren't drawn. drag is approximated (it slows the start velocity and the fall alone),
-  the maximum on-screen particle size isn't applied, stretched billboards are centred on the
-  particle, and colours above 1 and custom data never reach the shaders. all copies of one flipbook
-  step in phase. Marker Stone's low mist banks over the valley are still missing; their source is
-  unknown
+  tiles a side, show as one [stand-in](package-format.md#stand-ins) at the emitter (the swirling
+  green motes around Qingbo Stockade's bamboo tubes use orbital and radial velocity curves). drag is
+  approximated (it slows the start velocity and the fall alone), the maximum on-screen particle size
+  isn't applied, stretched billboards are centred on the particle, and colours above 1 and custom
+  data never reach the shaders. all copies of one flipbook step in phase. Marker Stone's low mist
+  banks over the valley are still missing; their source is unknown
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its emissive, wetness,
   sludge, footprint, UV-noise and arc variants, and placements without their colour and UV, as
   [unsupported](viewer/materials.md#unsupported-materials), and draws overlaps without the game's
   `_DrawOrder`; decals that write no albedo relight the surface from an estimate of its colour, as a
   dielectric, leave its screen-space reflections and ambient occlusion as they were, and don't write
   metallic; under a laid-over decal that doesn't write them, the surface's own occlusion and
-  metallic are taken as 1 and 0; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component
-  28), `HGRP/DecalUnlit` and decals in dynamic structures aren't packed
+  metallic are taken as 1 and 0; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28)
+  and `HGRP/DecalUnlit` aren't packed, and decals in dynamic structures are only
+  [stand-ins](package-format.md#stand-ins)
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the
@@ -225,7 +225,8 @@ packs or renders correctly.
   variant table, door models with an ambiguous open-idle state (not drawn as doors), and LevelData
   with any populated field or condition the reader doesn't implement (the blackbox scenes' blackbox
   settings; LevelData members after the interactive list aren't decoded) are reported in
-  `out/<map>/debug/unsupported-interactives.json` and omitted
+  `out/<map>/debug/unsupported-interactives.json`; those whose template or model wasn't found are
+  [stand-ins](package-format.md#stand-ins), the rest omitted
 - entities controlled only by `ActivityControlComp` aren't gated
   ([dynamic load gates](game-data/scene-states.md#dynamic-load-gates))
 - resource nodes (doodad groups) share one level control per level; the game's per-group level and
@@ -249,8 +250,8 @@ packs or renders correctly.
 - control labels still show internal identifiers or representative mesh names in many places
 - runtime world-space UI, including Dijiang's cabin nameplates and assigned-operator panels, is not
   drawn ([cabins](game-data/scene-states.md#dijiang-cabins))
-- animated poses and nonzero blend shapes; vertex-animation-texture meshes (`_vat`, e.g. floating
-  rocks) draw their rest pose
+- animated poses and nonzero blend shapes (meshes with them are stand-ins); vertex-animation-texture
+  meshes (`_vat`, e.g. floating rocks) draw their rest pose
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
 - billboards turn only mesh renderers; skinned meshes and particle systems under a `VFXBillBoard`
@@ -278,10 +279,10 @@ packs or renders correctly.
 - place global scenery by its own bounds instead of pulling it all into `assets/common`
 - port the game's path hash so lookups stop reverse-scanning the path-hash table (about a second
   each)
-- meshes: collision-only meshes (`m_CollisionMeshBaked`), vertices in `m_CompressedMesh` and
-  non-zero blend shape weights are rejected; PPtrs into Unity's built-in resources don't resolve;
-  prefabs that fail with a `FormatError` are listed in the unsupported-prefab report and skipped
-  ([assets](game-data/assets.md#mesh))
+- meshes: collision-only meshes (`m_CollisionMeshBaked`) and vertices in `m_CompressedMesh` are
+  rejected, leaving their instances as streaming boxes; PPtrs into Unity's built-in resources don't
+  resolve; prefabs that fail with a `FormatError` are listed in the unsupported-prefab report and
+  drawn as [stand-in](package-format.md#stand-ins) cubes ([assets](game-data/assets.md#mesh))
 - move the viewer's environment-agnostic package loading into `package-format` so packer tests read
   packages through the viewer's code
 - the terrain shader assumes 65² pages

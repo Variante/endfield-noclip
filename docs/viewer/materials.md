@@ -75,16 +75,17 @@ everything else, and they're held back until their texture is resident.
 ## unsupported materials
 
 a material the viewer can't draw can show as an unlit checker of magenta and black, in half-metre
-cells of world space, to mark where something is missing. the "unsupported stand-ins" setting shows
-it and is off by default, since the checker covers what lies behind; off, those draws are skipped
-during [mesh selection](../../packages/viewer/src/streaming/mesh-selection.ts) (`unsupportedLook` in
+cells of world space, to mark where something is missing. two settings show it, both off by default
+since the checker covers what lies behind: "unsupported materials" for meshes in materials the
+viewer lacks, and "missing content" for the package's [stand-ins](../package-format.md#stand-ins)
+for content it doesn't draw at all. off, those draws are skipped during
+[mesh selection](../../packages/viewer/src/streaming/mesh-selection.ts) (`unsupportedLook` in
 [`render/materials.ts`](../../packages/viewer/src/render/materials.ts)). it shows both faces, casts
 no shadow and keeps its colour at any exposure. this covers effect shaders without a look of their
 own ([effects](effects.md)), effect materials using keywords, blend modes, stencil operations or
 texture combinations their look doesn't handle, lit decals in variants the viewer lacks or without a
 placement or base colour map, and additive materials outside the effects, since the opaque path
-can't blend. stand-ins for particle systems the viewer can't play (`DrawRole.Unsupported`) take the
-same look whatever their material ([particles](particles.md#particles)).
+can't blend. stand-ins (`DrawRole.Unsupported`) take the same look whatever their material.
 
 only materials the game draws nothing visible with aren't drawn: `HGRP/WaterProxy`, whose passes all
 feed the water pipeline ([water](../game-data/water.md#waterproxy-and-waterdecal)), and lit decals

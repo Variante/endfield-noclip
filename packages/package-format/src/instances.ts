@@ -23,11 +23,16 @@ export const DrawRole = {
 	/** HLOD cluster mesh */
 	Hlod: 3,
 	/**
-	 * a stand-in for something the game draws that the viewer can't (a particle system it can't play), drawn
-	 * with the viewer's unsupported look rather than its material, which names what it would have drawn
+	 * a stand-in for something the game draws that the viewer can't (a particle system it can't play, a prefab
+	 * it can't read), drawn with the viewer's unsupported look rather than its material. the material names
+	 * what it would have drawn, or is {@link NO_MATERIAL} when that isn't known; the geometry is the content's
+	 * own mesh, or a unit cube spanning −0.5 to 0.5 that the instance transform scales to its extent
 	 */
 	Unsupported: 4,
 } as const;
+
+/** {@link ChainDraw.material} of a `DrawRole.Unsupported` stand-in whose material isn't known */
+export const NO_MATERIAL = 0xffff_ffff;
 
 export type DrawRole = (typeof DrawRole)[keyof typeof DrawRole];
 
@@ -58,7 +63,7 @@ export const InstanceBlockFlags = {
 export interface ChainDraw {
 	/** index into the geometry table */
 	geometry: number;
-	/** index into the material table */
+	/** index into the material table, or {@link NO_MATERIAL} for some stand-ins */
 	material: number;
 	submesh: number;
 	/** LOD level, 0 = nearest */

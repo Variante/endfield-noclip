@@ -42,6 +42,7 @@ import {
 	type ChainDraw,
 	DrawRole,
 	type InstanceBlock,
+	NO_MATERIAL,
 } from '@endfield-noclip/package-format/instances';
 import {
 	encodeIrradianceTable,
@@ -470,7 +471,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			water: water.debug,
 			unsupportedInteractives: entities.unsupportedInteractives,
 			unsupportedPrefabs: entities.unsupportedPrefabs,
-			unsupportedParticles: entities.unsupportedParticles,
+			standIns: entities.standIns,
 		});
 		timer.end('debug');
 
@@ -664,8 +665,8 @@ const collectEntities = async (
 	hlodNameMatches: number;
 	unsupportedInteractives: { path: string; reason: string }[];
 	unsupportedPrefabs: { path: string; reason: string }[];
-	/** particle systems the viewer can't play, drawn as stand-ins */
-	unsupportedParticles: { path: string; name: string; reason: string }[];
+	/** content drawn as stand-ins, once each */
+	standIns: StandInReport[];
 	/** environment volumes that placed prefabs carry */
 	placedVolumes: SceneEnvironmentVolume[];
 	/** Dijiang's cabin slots, with the group that shows their built cabin */
@@ -1051,19 +1052,62 @@ const collectEntities = async (
 		pack.uses.note(row.chain, key);
 		counts.dynamicRenderers++;
 	};
+	// content the viewer can't draw as the game does, drawn as stand-ins (`DrawRole.Unsupported`); prefab
+	// renderers are listed once per prefab and pose, however many times it's placed
+	const standIns: StandInReport[] = [];
+	let modelId = 0;
+	/** places a unit cube stand-in, transformed by `matrix`, for content without a mesh of its own to show */
+	const addStandInCube = (
+		{
+			matrix,
+			tag,
+			entityId,
+			visibility,
+		}: { matrix: Float32Array; tag: number; entityId: number; visibility: ConditionalSetInfo },
+		report: Omit<StandInReport, 'position'>,
+	): void => {
+		const bounds = transformBounds(UNIT_CUBE_BOUNDS, matrix);
+		if (!subset.includesEntity(tag, bounds.center[0], bounds.center[2])) {
+			return;
+		}
+		const draw: ChainDraw = {
+			geometry: pack.geometries.internSynthetic('cube'),
+			material: NO_MATERIAL,
+			submesh: 0,
+			lod: 0,
+			role: DrawRole.Unsupported,
+			minSquared: -1,
+			maxSquared: 3.4028234663852886e38,
+			sourceFlags: 0,
+			particles: null,
+		};
+		addStructure(
+			{ chain: pack.chains.intern(1, [draw]), matrix, bounds, entityId },
+			tag,
+			report.name,
+			visibility,
+		);
+		standIns.push({ ...report, position: bounds.center.map((value) => Math.round(value)) });
+	};
 	for (const { light, visibility } of dynamic.lights) {
 		if (subset.includesEntity(light.levelTag, light.position[0], light.position[2])) {
 			lights.addConditional(light, visibility);
 		}
 	}
 	for (const { entity, visibility } of dynamic.entities) {
-		if (
-			seen.has(entity.id) ||
-			entity.renderer === null ||
-			entity.matrix === null ||
-			entity.bounds === null ||
-			entity.decal !== null
-		) {
+		if (seen.has(entity.id) || entity.matrix === null) {
+			continue;
+		}
+		// a dynamic structure's decal material isn't read, so its box stands in for it
+		if (entity.decal !== null) {
+			seen.add(entity.id);
+			addStandInCube(
+				{ matrix: entity.matrix, tag: entity.levelTag, entityId: entity.id, visibility },
+				{ path: entity.name, name: entity.name, reason: 'decal in a dynamic structure' },
+			);
+			continue;
+		}
+		if (entity.renderer === null || entity.bounds === null) {
 			continue;
 		}
 		seen.add(entity.id);
@@ -1093,6 +1137,22 @@ const collectEntities = async (
 		scene.partition,
 	);
 	counts.interactiveFacilities = facilities.progressions.length;
+	for (const standIn of facilities.standIns) {
+		// a metre cube on the interactive's pivot, since its model's size isn't known
+		const matrix = multiplyMatrices(
+			trsMatrix(standIn.position, unityEulerQuaternion(standIn.rotation), standIn.scale),
+			trsMatrix([0, 0.5, 0], [0, 0, 0, 1], [1, 1, 1]),
+		);
+		addStandInCube(
+			{
+				matrix,
+				tag: standIn.levelTag,
+				entityId: syntheticEntityId(standIn.levelTag, modelId++),
+				visibility: { alternatives: [[]] },
+			},
+			{ path: standIn.source, name: standIn.template, reason: standIn.reason },
+		);
+	}
 	const cabins = await loadCabins(context, dynamic.slots, scene.partition);
 	counts.cabinSlots = cabins.rooms.length;
 	{
@@ -1121,14 +1181,12 @@ const collectEntities = async (
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
 	const particleQuad = await findParticleQuad(context, resolver);
-	const prefabs = new Map<string, Promise<PrefabRenderer[]>>();
+	/** by prefab and pose: its renderers, or why it couldn't be read, and how reports name it */
+	const prefabs = new Map<string, Promise<{ label: string; read: PrefabRenderer[] | FormatError }>>();
 	const prefabLights = new Map<bigint, Promise<PrefabLight[]>>();
 	const unsupportedLights: { path: string; reason: string }[] = [];
 	counts.prefabLights = 0;
 	const unsupportedPrefabs: { path: string; reason: string }[] = [];
-	// once per prefab and pose, however many times it's placed
-	const unsupportedParticles: { path: string; name: string; reason: string }[] = [];
-	let modelId = 0;
 	for (const placement of [...dynamic.models, ...facilities.models, ...cabins.models]) {
 		const { model, levelTag } = placement;
 		// ownership filters can reject a prefab before any of its bundles are read.
@@ -1139,13 +1197,13 @@ const collectEntities = async (
 			continue;
 		}
 		const { pose } = placement;
-		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}`, () => {
+		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}`, async () => {
 			const paths = unique(
 				resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
 			);
 			const label = paths.length === 1 ? paths[0] : `0x${model.pathHash.toString(16)}`;
-			// one malformed prefab skips its placements instead of failing the scene
-			return (async () => {
+			// one malformed prefab stands in as a box instead of failing the scene
+			const read = await (async (): Promise<PrefabRenderer[] | FormatError> => {
 				if (paths.length !== 1) {
 					throw new FormatError(`prefab has ${paths.length} manifest paths`);
 				}
@@ -1156,17 +1214,18 @@ const collectEntities = async (
 				const renderers = await readPrefabRenderers(resolver, root, pose, particleQuad);
 				for (const { name, unsupported } of renderers) {
 					if (unsupported !== null) {
-						unsupportedParticles.push({ path: label, name, reason: unsupported });
+						standIns.push({ path: label, name, reason: unsupported, position: null });
 					}
 				}
 				return renderers;
-			})().catch((error: unknown): PrefabRenderer[] => {
+			})().catch((error: unknown): FormatError => {
 				if (!(error instanceof FormatError)) {
 					throw error;
 				}
 				unsupportedPrefabs.push({ path: label, reason: error.message });
-				return [];
+				return error;
 			});
+			return { label, read };
 		});
 		const rotation = unityEulerQuaternion(model.rotation);
 		{
@@ -1208,7 +1267,21 @@ const collectEntities = async (
 		}
 		const rootMatrix = trsMatrix(model.position, rotation, model.scale);
 		// oxlint-disable-next-line no-await-in-loop -- stable asset ids and bounded bundle cache
-		for (const renderer of await prefab) {
+		const { label, read } = await prefab;
+		if (read instanceof FormatError) {
+			// its size isn't known, so a metre cube stands on its pivot, scaled with the placement
+			addStandInCube(
+				{
+					matrix: multiplyMatrices(rootMatrix, trsMatrix([0, 0.5, 0], [0, 0, 0, 1], [1, 1, 1])),
+					tag: levelTag,
+					entityId: syntheticEntityId(levelTag, modelId++),
+					visibility: placement.visibility,
+				},
+				{ path: label, name: label, reason: read.message },
+			);
+			continue;
+		}
+		for (const renderer of read) {
 			let matrix = multiplyMatrices(rootMatrix, renderer.matrix);
 			let bounds = transformBounds(renderer.bounds, matrix);
 			if (renderer.billboard !== null) {
@@ -1281,7 +1354,9 @@ const collectEntities = async (
 		}
 	}
 	counts.unsupportedPrefabs = unsupportedPrefabs.length;
-	counts.unsupportedParticles = unsupportedParticles.length;
+	// placements repeat their prefab's stand-ins
+	const reportedStandIns = [...new Map(standIns.map((report) => [JSON.stringify(report), report])).values()];
+	counts.standIns = reportedStandIns.length;
 	return {
 		collected,
 		lights,
@@ -1289,7 +1364,7 @@ const collectEntities = async (
 		hlodNameMatches,
 		unsupportedInteractives: facilities.unsupported,
 		unsupportedPrefabs,
-		unsupportedParticles,
+		standIns: reportedStandIns,
 		placedVolumes: placed.volumes,
 		cabinRooms: cabins.rooms.map(({ control, levelTag, position, roomType }) => ({
 			group: collected.group(levelTag, collected.condition({ alternatives: [[{ control, mask: 2 }]] })),
@@ -1398,6 +1473,23 @@ const syntheticEntityId = (levelTag: number, index: number): number => {
  * @returns the levels that have height pages, ascending, and the detail section, `null` when the scene's
  *   layers can't be packed
  */
+/** a stand-in in `debug/stand-ins.json`: what it stands in for and why */
+interface StandInReport {
+	/** the prefab, structure or entity it belongs to */
+	path: string;
+	/** the GameObject or entity */
+	name: string;
+	reason: string;
+	/**
+	 * where a placed stand-in's centre is, to the metre; `null` for a prefab renderer's, listed once however
+	 * often the prefab is placed
+	 */
+	position: number[] | null;
+}
+
+/** the synthetic stand-in cube's bounds */
+const UNIT_CUBE_BOUNDS: Aabb = { center: [0, 0, 0], extents: [0.5, 0.5, 0.5] };
+
 /** the render pipeline's unit quad, which billboard particles draw */
 const PARTICLE_QUAD_PATH = 'Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx';
 
@@ -2381,7 +2473,7 @@ const writeDebug = async (
 		water: WaterDebug;
 		unsupportedInteractives: { path: string; reason: string }[];
 		unsupportedPrefabs: { path: string; reason: string }[];
-		unsupportedParticles: { path: string; name: string; reason: string }[];
+		standIns: StandInReport[];
 	},
 ): Promise<void> => {
 	const dir = join(outDir, 'debug');
@@ -2390,7 +2482,7 @@ const writeDebug = async (
 	await writeFile(join(dir, 'water.json'), json(debug.water));
 	await writeFile(join(dir, 'unsupported-interactives.json'), json(debug.unsupportedInteractives));
 	await writeFile(join(dir, 'unsupported-prefabs.json'), json(debug.unsupportedPrefabs));
-	await writeFile(join(dir, 'unsupported-particles.json'), json(debug.unsupportedParticles));
+	await writeFile(join(dir, 'stand-ins.json'), json(debug.standIns));
 	await writeFile(
 		join(dir, 'assets.json'),
 		json({

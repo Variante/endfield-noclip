@@ -17,6 +17,7 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
+import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
 
 import { type AssetArchives, type Place, mergePlaces } from './asset-placement.ts';
@@ -98,6 +99,19 @@ export class AssetIds {
 		this.assets.push({ hash, path: key, locator: locateObject(ref) });
 		return id;
 	}
+	/**
+	 * @param mesh a mesh the packer makes itself
+	 * @returns its asset id
+	 */
+	internSynthetic(mesh: SyntheticMesh): number {
+		const key = syntheticMeshKey(mesh);
+		const hash = -BigInt(`0x${createHash('sha256').update(key).digest('hex')}`);
+		return this.#ids.getOrInsertComputed(
+			hash,
+			() => this.assets.push({ hash, path: key, synthetic: mesh }) - 1,
+		);
+	}
+
 	/**
 	 * @param ref skinned mesh dependency
 	 * @param pose mesh-to-prefab bone matrices, including bind poses
