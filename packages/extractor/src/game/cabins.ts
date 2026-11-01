@@ -1,14 +1,23 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
-import { readDynamicResources, type DynamicModel } from '@endfield-noclip/formats/endfield/dynamic-resources';
-import type { ExtraSceneSlot } from '@endfield-noclip/formats/endfield/dynamic-scene';
+import {
+	readDynamicResources,
+	type DynamicModel,
+	type DynamicResourceEntity,
+} from '@endfield-noclip/formats/endfield/dynamic-resources';
+import { DynamicData, type ExtraSceneSlot } from '@endfield-noclip/formats/endfield/dynamic-scene';
 import { cellOf, levelOfCell, type LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
+import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { isObject } from '@endfield-noclip/formats/unity/values';
 import type { SceneControl } from '@endfield-noclip/package-format/states';
+
+import { unique } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
+import type { AssetResolver } from './assets.ts';
 import type { StructureModel } from './dynamic-structures.ts';
+import { readGrowBoxShutter, readPlantingFieldLevels } from './grow-boxes.ts';
 
 // Dijiang's cabins: rooms the player builds into fixed slots of the spaceship
 // (docs/game-data/scene-states.md#dijiang-cabins). a built cabin's rows are placed at the slot origin, turned
@@ -41,7 +50,65 @@ interface Cabin {
 	/** the rows' pivot extents in x and z, for choosing a slot's type */
 	min: [number, number];
 	max: [number, number];
+	/** planting boxes by row index: the shutter they hide once unlocked, and their field (from 1) */
+	boxes: Map<number, { shutter: string; field: number }>;
 }
+
+/**
+ * @returns the cabin's planting boxes by row index: rows whose prefab has a shutter, numbered as the cabin's
+ *   entity lists them in its resource groups
+ * @throws {FormatError} if a box row isn't in any resource group
+ */
+const findBoxes = async (
+	resolver: AssetResolver,
+	type: string,
+	models: readonly DynamicModel[],
+	rowOf: ReadonlyMap<string, number>,
+	entities: readonly DynamicResourceEntity[],
+): Promise<Map<number, { shutter: string; field: number }>> => {
+	const shutters = new Map<bigint, Promise<string | null>>();
+	const shutterOf = (hash: bigint) =>
+		shutters.getOrInsertComputed(hash, async () => {
+			const paths = unique(
+				resolver.manifest.findAssets(hash).map((asset) => resolver.manifest.assetPath(asset)),
+			);
+			if (paths.length !== 1) {
+				return null;
+			}
+			return readGrowBoxShutter(
+				resolver,
+				await resolver.findUnique({ hash, path: paths[0] }, UnityClass.GameObject),
+			);
+		});
+	const shutterRows = new Map<number, string>();
+	await Promise.all(
+		models.map(async (model, row) => {
+			const shutter = await shutterOf(model.pathHash);
+			if (shutter !== null) {
+				shutterRows.set(row, shutter);
+			}
+		}),
+	);
+	const boxes = new Map<number, { shutter: string; field: number }>();
+	for (const { entity } of entities) {
+		for (const { resources } of entity.resourceGroups) {
+			if (resources.type !== DynamicData.Model) {
+				continue;
+			}
+			for (let i = resources.index; i < resources.index + resources.count; i++) {
+				const row = rowOf.get(`${resources.grid}:${i}`);
+				const shutter = row === undefined ? undefined : shutterRows.get(row);
+				if (row !== undefined && shutter !== undefined && !boxes.has(row)) {
+					boxes.set(row, { shutter, field: boxes.size + 1 });
+				}
+			}
+		}
+	}
+	if (boxes.size !== shutterRows.size) {
+		throw new FormatError(`${type} has planting boxes outside its entities' resource groups`);
+	}
+	return boxes;
+};
 
 /**
  * @param context install readers
@@ -52,7 +119,7 @@ interface Cabin {
  * @throws {FormatError} if the cabin data is missing or names no scene for a cabin type
  */
 export const loadCabins = async (
-	context: Pick<Context, 'vfs'>,
+	context: Pick<Context, 'vfs' | 'resolver'>,
 	slots: readonly { id: string; slot: ExtraSceneSlot }[],
 	partition: LevelPartition | undefined,
 ): Promise<{ controls: SceneControl[]; models: StructureModel[]; rooms: CabinRoom[] }> => {
@@ -77,13 +144,22 @@ export const loadCabins = async (
 			throw new FormatError(`${CABIN_DATA} names no scene for ${type}`);
 		}
 		const models: DynamicModel[] = [];
+		/** row index of each model row, by `<grid>:<index>` */
+		const rowOf = new Map<string, number>();
+		const entities: DynamicResourceEntity[] = [];
 		for (const name of names.filter((entry) =>
 			entry.startsWith(`Data/DynamicStreaming/PC/Extra/${scene}/fb_main_`),
 		)) {
 			// oxlint-disable-next-line no-await-in-loop -- a few small files
-			for (const grid of readDynamicResources(await read(VfsGroup.DynamicStreaming, name)).grids) {
-				models.push(...grid.models, ...grid.effects);
+			const resources = readDynamicResources(await read(VfsGroup.DynamicStreaming, name));
+			for (const grid of resources.grids) {
+				for (const [index, model] of grid.models.entries()) {
+					rowOf.set(`${grid.id}:${index}`, models.length);
+					models.push(model);
+				}
+				models.push(...grid.effects);
 			}
+			entities.push(...resources.entities);
 		}
 		if (models.length > 0) {
 			const xs = models.map((model) => model.position[0]);
@@ -93,9 +169,16 @@ export const loadCabins = async (
 				models,
 				min: [Math.min(...xs), Math.min(...zs)],
 				max: [Math.max(...xs), Math.max(...zs)],
+				// oxlint-disable-next-line no-await-in-loop -- one per cabin type
+				boxes: await findBoxes(await context.resolver(), type, models, rowOf, entities),
 			});
 		}
 	}
+	const fieldLevels = cabins.some((cabin) => cabin.boxes.size > 0)
+		? await readPlantingFieldLevels(vfs)
+		: new Map<number, number>();
+	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
+	const levels = [...new Set(fieldLevels.values())].sort((a, b) => a - b);
 	const area = (cabin: Cabin) => (cabin.max[0] - cabin.min[0]) * (cabin.max[1] - cabin.min[1]);
 	const bySize = cabins.toSorted((a, b) => area(b) - area(a));
 	if (bySize.length === 0) {
@@ -134,14 +217,61 @@ export const loadCabins = async (
 			position: [slot.position[0], slot.position[1], slot.position[2]],
 			roomType: ROOM_TYPES.get(cabin.type) ?? null,
 		});
+		const levelControl = `cabinLevel:${id}`;
+		if (cabin.boxes.size > 0) {
+			controls.push({
+				kind: 'cabinLevel',
+				id: levelControl,
+				name: `Cabin level (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
+				rule: null,
+				assumption: 'level 1, before the player upgrades it',
+				story: null,
+				drivers: [],
+				levelTags: [],
+				values: levels.map((value) => ({ value, label: `Level ${value}` })),
+				default: levels[0],
+				derived: null,
+			});
+		}
 		for (const [index, model] of cabin.models.entries()) {
-			placed.push({
+			const row = {
 				model: place(model, slot.position, turns),
 				levelTag,
 				source: `${cabin.type}#${index}@${id}`,
-				visibility: { alternatives: [[{ control, mask: 2 }]] },
-				pose: null,
-			});
+			};
+			const box = cabin.boxes.get(index);
+			if (box === undefined) {
+				placed.push({ ...row, visibility: { alternatives: [[{ control, mask: 2 }]] }, pose: null });
+				continue;
+			}
+			// a box shows its shutter below the level that unlocks its field, and the open tank from it on
+			const unlock = fieldLevels.get(box.field) ?? Infinity;
+			const mask = (open: boolean) =>
+				levels.reduce((bits, level) => (level >= unlock === open ? bits | (1 << level) : bits), 0) >>> 0;
+			for (const open of [false, true]) {
+				if (mask(open) === 0) {
+					continue;
+				}
+				placed.push({
+					...row,
+					visibility: {
+						alternatives: [
+							[
+								{ control, mask: 2 },
+								{ control: levelControl, mask: mask(open) },
+							],
+						],
+					},
+					pose: open
+						? {
+								key: `growBox:${box.shutter}:open`,
+								animator: null,
+								transforms: new Map(),
+								active: new Map([[box.shutter, false]]),
+							}
+						: null,
+				});
+			}
 		}
 	}
 	return { controls, models: placed, rooms };

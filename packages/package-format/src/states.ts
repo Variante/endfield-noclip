@@ -83,6 +83,7 @@ export interface VisibilityGroup {
  * - `controlNexus`: Dijiang's Control Nexus level, offered at the levels that unlock a construction area; each
  *   area's region wall shows below its level
  * - `cabin`: a Dijiang cabin slot, empty (0) or built (1); building is the player's choice
+ * - `cabinLevel`: a built growth chamber's level, which unlocks its planting boxes
  * - `door`: an interactive door, closed (0) or open (1); derived from its cabin slot for a Dijiang cabin's door
  * - `area`: a stream area, shown (1) or hidden (0). unless the user picks a value, a viewer sets it from the
  *   camera (see {@link StreamAreasInfo}); its `default` is only what holds without a camera
@@ -100,6 +101,7 @@ export type SceneControlKind =
 	| 'harvest'
 	| 'controlNexus'
 	| 'cabin'
+	| 'cabinLevel'
 	| 'door'
 	| 'area'
 	| 'settlement'

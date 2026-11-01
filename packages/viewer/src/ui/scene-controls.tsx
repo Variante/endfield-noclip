@@ -46,7 +46,7 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 		open: true,
 	},
 	{
-		kinds: ['controlNexus', 'cabin'],
+		kinds: ['controlNexus', 'cabin', 'cabinLevel'],
 		title: 'Dijiang',
 		note: null,
 		open: true,

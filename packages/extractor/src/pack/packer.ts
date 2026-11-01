@@ -1018,7 +1018,7 @@ const collectEntities = async (
 	);
 	counts.interactiveFacilities = facilities.progressions.length;
 	const cabins = await loadCabins(context, dynamic.slots, scene.partition);
-	counts.cabinSlots = cabins.controls.length;
+	counts.cabinSlots = cabins.rooms.length;
 	{
 		// a Dijiang cabin's door opens once the cabin is built
 		const linked = cabinDoors(

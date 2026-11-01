@@ -29,6 +29,7 @@ hold.
 | facility visual form       | interactive template model-upgrade list                                                                 | `facility:<interactive id>`                         | the template's base model                                         |
 | doodad group level         | doodad-shell postmodel's form list                                                                      | `doodadGroups:<level id>`                           | the highest level its shells name                                 |
 | Dijiang cabin slot         | `ExtraSceneSlot` entity; cabin scenes named by `SpaceshipCabinData.json`                                | `cabin:<entity id>`, empty / built                  | empty                                                             |
+| growth chamber level       | `SpaceshipGrowCabinLvTable` planting fields; planting-box shutters                                      | `cabinLevel:<entity id>`, the table's levels        | level 1                                                           |
 | door                       | interactive model view states                                                                           | `door:<interactive id>`, closed / open              | closed; a cabin's follows its slot                                |
 | tree harvest state         | resource-group `logicState` on tree entities                                                            | `harvest:<level tag>`, standing / felled            | standing                                                          |
 | script group               | script-control component's default-load flag; level scripts                                             | `script:<entity id>`                                | the stored default, or its scripts' quest checks on activation    |
@@ -266,9 +267,19 @@ each slot holds one cabin type (the room tables allow one type per room); the pa
 the largest cabin whose row pivots fit its box, else the smallest, which puts the growth chamber in
 the medium slot and manufacturing cabins in the small ones. one of the small slots has no door and
 no room-table row; it's offered like the others. each slot is a `cabin:<id>` control, empty by
-default. cabin levels (1–3) change no stored geometry (only the planting boxes' and machine's
-runtime state), so they aren't offered. a built cabin's room is lit by its own irradiance bake
+default. a built cabin's room is lit by its own irradiance bake
 ([region bakes](irradiance.md#region-bakes)).
+
+a growth chamber's level unlocks its planting boxes. each box is a model row whose prefab's script
+names a shutter object (`nonTransparentPlate`) that closes the tank's lower half; the game hides it
+once the box is unlocked. `SpaceshipGrowCabinLvTable` lists the planting fields each level unlocks
+(`unlockPlantingField`: 1–3, 4–6, 7–9). the packer numbers the boxes in the order the cabin scene's
+entity lists them in its resource groups; that this is the game's field order is inferred: it opens
+the three tanks facing the console at level 1, as in game. a growth chamber slot gets a
+`cabinLevel:<id>` control with the table's levels, level 1 by default, and each box gets two rows:
+the prefab as saved below its field's level and with the shutter hidden from it on. a planted crop
+and the box's status bar are player state and runtime UI, and aren't drawn. manufacturing cabins'
+levels change only runtime state.
 
 ## Dijiang region walls
 
@@ -508,7 +519,8 @@ environment blend.
   "Quests". rules elsewhere show quests by mission and quest name instead of id
 - **variables**: a select of ranges, the default marked "(initial)"
 - **progression**: one select per progression, "Level n", "Visual form n" or "Group level n"
-- **Dijiang**: a Control Nexus level select, and a checkbox per cabin slot, built or empty
+- **Dijiang**: a Control Nexus level select, a checkbox per cabin slot, built or empty, and a level
+  select for the growth chamber
 - **doors**: a checkbox per door, open or closed, or "Follow game" for a cabin's door
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
 - **harvest**: standing or felled
