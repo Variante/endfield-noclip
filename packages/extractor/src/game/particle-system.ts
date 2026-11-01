@@ -464,18 +464,28 @@ export const readParticleSystem = (system: TypeTreeObject, renderer: TypeTreeObj
 		textureSheet = read;
 	}
 
+	const duration = Math.max(numberField(system, 'lengthInSec'), 1e-3);
+	const startLifetime = curve(initial, 'startLifetime');
+	let maxParticles = numberField(initial, 'maxNumParticles');
+	if (maxParticles === 0) {
+		// some effects store a cap of 0 yet show in game (the tilted torch flames), so the game must size them
+		// itself. take the most one lifetime's emission can hold, which also keeps a ring buffer from piling up
+		const life = curveReach(startLifetime);
+		const burstsPerLoop = bursts.reduce((sum, burst) => sum + curveReach(burst.count) * burst.cycles, 0);
+		maxParticles = Math.ceil(curveReach(rate) * life + burstsPerLoop * Math.ceil(life / duration - 1e-6));
+	}
 	const delay = curve(system, 'startDelay');
 	return {
 		info: {
-			duration: Math.max(numberField(system, 'lengthInSec'), 1e-3),
+			duration,
 			looping: booleanField(system, 'looping'),
 			// a random delay takes its midpoint, a curve none
 			startDelay: isConstant(delay)
 				? (delay.scalar + (delay.mode === CurveMode.Constant ? delay.scalar : delay.min)) / 2
 				: 0,
-			maxParticles: numberField(initial, 'maxNumParticles'),
+			maxParticles,
 			simulationSpeed: numberField(system, 'simulationSpeed'),
-			startLifetime: curve(initial, 'startLifetime'),
+			startLifetime,
 			startColor,
 			startSpeed: curve(initial, 'startSpeed'),
 			startSize,

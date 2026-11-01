@@ -92,8 +92,9 @@ packs or renders correctly.
   (it most likely feeds the water's own foam rather than adding to the scene, and its per-placement
   `HGWaterDecalRenderer` values aren't packed); the mist and splash at falls (billboard particles,
   below); other fluid types are unverified
-- waterfalls missing: some falls are mesh particle systems that store a particle cap of 0 and never
-  spawn in the viewer (Jingyu's pool falls near unity −763, 209, −1190)
+- waterfalls missing: some falls are mesh particle systems that store a particle cap of 0 (packed
+  with a derived cap, [prefabs](game-data/assets.md#particle-systems)) and still don't show in the
+  viewer (Jingyu's pool falls near unity −763, 209, −1190)
 - scene effects ([scene effects](game-data/effects.md)): only VFXBaseV2, VFXDecal, the mist
   (FogSimple, VFXFakeVolumeFog), VFXWater's waterfall sheets and VFXDitherAlpha's plain variant
   draw, without the first two's additive, vertex-offset mask, polar-UV, lighting and particle

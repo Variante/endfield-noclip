@@ -225,6 +225,33 @@ test('a ring-buffered flipbook particle keeps its sheet and how it outlives its 
 	assert.equal(row({ rowMode: 0, timeMode: 2 })?.frameOverTime, null);
 });
 
+test('a cap of 0 becomes what one lifetime of emission holds', () => {
+	// one particle per 1.6 s loop living 1.6 s, as the tilted torch flame
+	const flame = readParticleSystem(
+		system(
+			{
+				lengthInSec: 1.6,
+				ringBufferMode: 2,
+				EmissionModule: {
+					enabled: true,
+					rateOverTime: constant(0),
+					m_Bursts: [
+						{ time: 0, countCurve: constant(1), cycleCount: 1, repeatInterval: 0.01, probability: 1 },
+					],
+				},
+			},
+			{ startLifetime: constant(1.6), maxNumParticles: 0 },
+		),
+		renderer(),
+	);
+	assert.ok('info' in flame);
+	assert.equal(flame.info.maxParticles, 1);
+	// 1.1 per second for 80 s
+	const steady = readParticleSystem(system({}, { maxNumParticles: 0 }), renderer());
+	assert.ok('info' in steady);
+	assert.equal(steady.info.maxParticles, 88);
+});
+
 test('systems the viewer cannot play say why', () => {
 	const reason = (s: TypeTreeObject, r: TypeTreeObject = renderer()) => {
 		const read = readParticleSystem(s, r);

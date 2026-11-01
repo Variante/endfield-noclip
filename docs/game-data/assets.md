@@ -216,7 +216,11 @@ an emitter whose draw names a particles-table entry
 local scale unless `scalingMode` is Shape) and its bounds a box around everywhere a particle can
 reach. the entry keeps:
 
-- the duration, looping, start delay, particle cap and simulation speed
+- the duration, looping, start delay, particle cap and simulation speed. some systems store a cap
+  (`maxNumParticles`) of 0 yet show in game, such as the tilted torch flames
+  (`P_fxmap_common_tiltedflame_2501`), so the game must size them itself. their cap becomes the most
+  one longest lifetime of emission holds: the top rate times the lifetime, plus each loop's top
+  burst counts times the loops that lifetime spans
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
   `MinMaxCurve`s, the bursts, and the start colour
 - the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
