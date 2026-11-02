@@ -16,7 +16,6 @@ import {
 	TERRAIN_PAGE_SIZE,
 	TERRAIN_SPLAT_CELL,
 	terrainLeafLevel,
-	terrainNodeIndex,
 	type TerrainSurfacesData,
 } from '@endfield-noclip/formats/hg/terrain';
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
@@ -115,8 +114,6 @@ export interface PackedTerrainTile {
 	splat: number | null;
 	/** the tile's footprint between its lowest and highest non-hole sample */
 	bounds: Bounds;
-	/** the game's `maxHeightError` for the tile, m */
-	maxHeightError: number;
 }
 
 /** what {@link packTerrain} stored */
@@ -217,7 +214,6 @@ export const packTerrain = async (
 			surface: hasSurface ? commit(BlobKind.TerrainSurface, stem) : null,
 			splat: hasSplat ? commit(BlobKind.TerrainSplat, stem) : null,
 			bounds: { min: [minX, minY, minZ], max: [minX + size, maxY, minZ + size] },
-			maxHeightError: surface.nodes?.[terrainNodeIndex(tile)]?.maxHeightError ?? 0,
 		} satisfies PackedTerrainTile;
 	});
 	let splat: TerrainSplatInfo | null = null;

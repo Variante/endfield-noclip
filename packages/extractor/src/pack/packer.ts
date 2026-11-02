@@ -1665,7 +1665,7 @@ const packTerrain = async (
 		const { key } = tile;
 		pack.builder.addRef(
 			key,
-			{ ...whole, kind: ContentKind.TerrainHeights, blob: tile.heights, param: tile.maxHeightError },
+			{ ...whole, kind: ContentKind.TerrainHeights, blob: tile.heights, param: 0 },
 			NodeFlags.HasTerrain,
 		);
 		pack.builder.extend(key, tile.bounds);

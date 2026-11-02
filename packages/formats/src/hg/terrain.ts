@@ -321,8 +321,8 @@ export interface TerrainNode {
 	/** metres above `position.y` */
 	localMaxHeight: number;
 	/**
-	 * by its name, the error of rendering this node instead of its children, metres; unchecked (see
-	 * game-data/world.md#terrain)
+	 * metres; despite its name not the error of drawing this node instead of its children, but close to its
+	 * page's largest step between neighbouring samples (see game-data/world.md#terrain)
 	 */
 	maxHeightError: number;
 }

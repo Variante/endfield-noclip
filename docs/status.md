@@ -105,9 +105,9 @@ packs or renders correctly.
 - terrain close up: smooth triplanar replaces the game's random plane choice, and the cliff
   projection (`C` page) and cone-map parallax aren't drawn, nor the `A` page's subsurface curvature;
   the blend's GPU cost is unprofiled. the blend's fade distances are the viewer's own
-  ([viewer](viewer/terrain.md#close-up-layers)), since the game's aren't recovered. `maxHeightError`
-  is packed with each height page but unread, and its meaning is unchecked
-  ([world](game-data/world.md#terrain))
+  ([viewer](viewer/terrain.md#close-up-layers)), since the game's aren't recovered. terrain LOD uses
+  the viewer's own sample-spacing rule, since the game's per-node `maxHeightError` isn't an error
+  bound and what the game uses it for isn't known ([world](game-data/world.md#terrain))
 - puddles ([world](game-data/world.md#puddles)) stop past the leaf splat pages' load distance (only
   leaf `S` pages are packed), ignore the parallax layers' height (their settings aren't packed), and
   have no ripples

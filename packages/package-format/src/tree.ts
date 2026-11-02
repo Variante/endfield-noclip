@@ -12,7 +12,7 @@ import type { Bounds } from './values.ts';
 
 /** what a tile content reference points at */
 export const ContentKind = {
-	/** the node's terrain height page; `param` is the game's `maxHeightError` (m) */
+	/** the node's terrain height page; `param` is 0 */
 	TerrainHeights: 0,
 	/** HLOD cluster rows `[first, first + count)` of an instance block; `tier` is the HLOD tier */
 	Hlod: 1,

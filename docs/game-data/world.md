@@ -284,8 +284,11 @@ MonoBehaviour at
 - `heightScale`: metres spanned by the 15-bit height range
 - `terrainSize`: root edge length, a power-of-two multiple of 64 m
 - `nodeData`: a complete breadth-first quadtree (`index = (4^l − 1)/3 + z·2^l + x`) with per-node
-  min/max height and a `maxHeightError`. by its name, the error of drawing the node instead of its
-  children, in metres; not checked against the heights or the game's LOD
+  min/max height and a `maxHeightError` (metres). despite its name, it isn't the error of drawing
+  the node instead of its children: leaves, with nothing finer, carry up to 295 m on map02, and
+  against the children's samples it runs 1.1–158× the measured error. it follows the node's page's
+  largest step between neighbouring samples (per level, a median of 0.75–0.98 of it, rarely above).
+  what the game uses it for isn't known
 - `layerData`: the close-up material layers by ordinal; see below
 - `sectorSplatInfo`: one u64 per 64 m sector, a bitmask of the layer ordinals the sector uses
   (checked against the index map on map02)

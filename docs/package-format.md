@@ -155,14 +155,14 @@ is in [extraction.md](extraction.md#how-the-packer-files-instances).
 
 **content refs** (`ContentRef`, `ContentKind`):
 
-| kind                 | points at                                                                      | `tier`    | `param`                        |
-| -------------------- | ------------------------------------------------------------------------------ | --------- | ------------------------------ |
-| `TerrainHeights` (0) | one height page                                                                | 0         | the game's `maxHeightError`, m |
-| `Hlod` (1)           | rows `[first, first + count)` of a group's shared HLOD block                   | HLOD tier | 0                              |
-| `Detail` (2)         | a whole instance block the HLODs stand in for                                  | 0         | 0                              |
-| `Conditional` (3)    | a whole instance block no HLOD stands in for (scene-state and dynamic content) | 0         | 0                              |
-| `TerrainSurface` (4) | one surface page, covering the same tile as the height page                    | 0         | 0                              |
-| `TerrainSplat` (5)   | a leaf's splat page                                                            | 0         | 0                              |
+| kind                 | points at                                                                      | `tier`    | `param` |
+| -------------------- | ------------------------------------------------------------------------------ | --------- | ------- |
+| `TerrainHeights` (0) | one height page                                                                | 0         | 0       |
+| `Hlod` (1)           | rows `[first, first + count)` of a group's shared HLOD block                   | HLOD tier | 0       |
+| `Detail` (2)         | a whole instance block the HLODs stand in for                                  | 0         | 0       |
+| `Conditional` (3)    | a whole instance block no HLOD stands in for (scene-state and dynamic content) | 0         | 0       |
+| `TerrainSurface` (4) | one surface page, covering the same tile as the height page                    | 0         | 0       |
+| `TerrainSplat` (5)   | a leaf's splat page                                                            | 0         | 0       |
 
 every ref names a [visibility group](#visibility-groups); terrain refs use group 0 (shared, always
 loaded). detail and conditional blocks are one per (leaf, group); an instance goes to the leaf under
@@ -294,9 +294,9 @@ as two byte planes (all low bytes, then all high bytes) of zigzag deltas. interi
 predicted by `left + above − aboveLeft`, the first row by its left neighbour, the first column by
 the sample above. arithmetic wraps at 16 bits so the hole bit survives. the gradient predictor beats
 left-only prediction by about 10 % after zstd. the packer ships every level of the game's pyramid,
-not only leaves, so the viewer can run CDLOD from native data. each quadtree node's min/max height
-and `maxHeightError` (from `HGTerrainSurfacesData.nodeData`, [terrain](game-data/world.md#terrain))
-go with that node's height page, the error as its ref's `param`. a scene with terrain tiles but no
+not only leaves, so the viewer can run CDLOD from native data. a node's bounds span its page's
+lowest and highest non-hole samples. the game's per-node `maxHeightError` isn't packed: it isn't an
+error bound ([terrain](game-data/world.md#terrain)). a scene with terrain tiles but no
 `HGTerrainSurfacesData` fails the pack rather than guessing a placement. `terrainHeight` and
 `isTerrainHole` decode samples: `y = baseHeight + (h & 0x7fff) · heightScale / 32768`.
 
