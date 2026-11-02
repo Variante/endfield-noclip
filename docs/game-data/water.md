@@ -121,8 +121,10 @@ as a signed 64-bit integer. sector `(x, z)` covers world
 `[center.x + x·sectorSize, +sectorSize) × [center.z + z·sectorSize, +sectorSize)`; this mapping
 places more surface centres in sectors with data than swapped or flipped axes do. each sector
 MonoBehaviour's `waterSectorTexture0` is a flow tile (256², linear BC7, one mip) holding the global
-flow map's content at `flowmapPrecision`. near the camera the game reads the flow (and most authored
-foam) from the sector tiles, blending to the global map at the edge of a 3 × 3 window of sectors.
+flow map's content at `flowmapPrecision`. the data flag doesn't promise a tile: some sector assets
+leave `waterSectorTexture0` empty (8 of map01's 154 sectors with data, 24 of map02's 284). near the
+camera the game reads the flow (and most authored foam) from the sector tiles, blending to the
+global map at the edge of a 3 × 3 window of sectors.
 
 ## shading
 

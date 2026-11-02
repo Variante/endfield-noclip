@@ -45,8 +45,13 @@ export interface WaterDebug {
 	volumes: { scene: number; packed: number };
 	/** the global config asset's name, or `null` */
 	global: string | null;
-	/** sectors with data, and those packed */
-	sectors: { scene: number; packed: number };
+	/**
+	 * sectors with data, those packed, and those of the subset whose sector asset names no tile (its data flag
+	 * is set, but there's nothing to draw; listed in {@link untiledSectors})
+	 */
+	sectors: { scene: number; packed: number; untiled: number };
+	/** grid coordinates of the sectors counted in `sectors.untiled` */
+	untiledSectors: { x: number; z: number }[];
 	/** per packed surface: id, name, source chunk file, mesh and config paths */
 	rows: { id: number; name: string; file: string; mesh: string | null; config: string | null }[];
 	/** assets that couldn't be loaded; surfaces whose config failed are left out */
@@ -121,7 +126,8 @@ export const planWater = async (
 			surfaces: { scene: water.surfaces.length, packed: 0 },
 			volumes: { scene: options.volumes.volumes.length, packed: 0 },
 			global: null,
-			sectors: { scene: 0, packed: 0 },
+			sectors: { scene: 0, packed: 0, untiled: 0 },
+			untiledSectors: [],
 			rows: [],
 			errors: options.volumes.unsupported.map(({ path, reason }) => `water volumes of ${path}: ${reason}`),
 		},
@@ -226,6 +232,7 @@ export const planWater = async (
 		plan.debug.sectors.scene = config.sectors.length;
 		plan.table.global = await planGlobal(resolver, ref, config, plan, options);
 		plan.debug.sectors.packed = plan.table.global.sectors.length;
+		plan.debug.sectors.untiled = plan.debug.untiledSectors.length;
 	} catch (error) {
 		plan.debug.errors.push(`global config: ${errorText(error)}`);
 	}
@@ -355,7 +362,13 @@ const planGlobal = async (
 		sectors: [],
 	};
 	for (const [i, sector] of sectors.entries()) {
-		const texture = add(settled(tiles[i]), options.placeSector(sectorRect(global, sector)));
+		const tile = tiles[i];
+		if (tile === null) {
+			// the sector asset loaded but its tile slot is empty
+			plan.debug.untiledSectors.push({ x: sector.x, z: sector.z });
+			continue;
+		}
+		const texture = add(settled(tile), options.placeSector(sectorRect(global, sector)));
 		if (texture !== null) {
 			global.sectors.push({ x: sector.x, z: sector.z, texture });
 		}

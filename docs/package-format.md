@@ -455,8 +455,9 @@ packing rules:
   environment volumes.
 - **global maps** go to the common archive. **sector tiles** go to the asset archive of the
   shard-level tile under the sector's centre, so a region import carries the tiles it needs. full
-  packages keep every sector with data; subset packages keep the sectors overlapping a packed
-  surface's bounds.
+  packages keep every sector with data and a tile; subset packages keep those overlapping a packed
+  surface's bounds. sectors whose asset names no tile are counted in the pack report and listed in
+  `debug/water.json` (`untiledSectors`).
 - **errors** (failed configs, missing global binding, unresolvable maps or sectors) go to
   `debug/water.json` with per-surface rows (id, name, chunk file, mesh and config paths). they never
   fail the pack.

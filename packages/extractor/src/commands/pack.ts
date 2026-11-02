@@ -168,7 +168,9 @@ const formatReport = (report: PackReport): string => {
 		lines.push(
 			`water: ${water.surfaces.packed} of ${water.surfaces.scene} surfaces, ` +
 				`${water.volumes.packed} of ${water.volumes.scene} volumes, ${water.configs} configs, ` +
-				`global ${water.global ?? '(none)'}, ${water.sectors.packed} of ${water.sectors.scene} sectors, ` +
+				`global ${water.global ?? '(none)'}, ${water.sectors.packed} of ${water.sectors.scene} sectors` +
+				(water.sectors.untiled > 0 ? ` (${water.sectors.untiled} without a tile)` : '') +
+				', ' +
 				`${water.textures} textures` +
 				(water.errors > 0 ? `; ${water.errors} errors (debug/water.json)` : ''),
 		);
