@@ -66,6 +66,7 @@ import type {
 	ConditionalSetInfo,
 	ProximityInfo,
 	SceneControl,
+	ScriptControl,
 	StatesInfo,
 	VisibilityGroup,
 } from '@endfield-noclip/package-format/states';
@@ -1121,7 +1122,7 @@ const collectEntities = async (
 	collected.controls = dynamic.controls;
 	/** script-controlled dynamic entities' controls by global id */
 	const scripted = new Map(
-		mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
+		mapDefined(dynamic.controls, (control): [string, ScriptControl] | undefined =>
 			control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
 		),
 	);
@@ -1942,8 +1943,7 @@ const sceneStates = async (
 			name: `Stream area ${area}`,
 			rule: null,
 			assumption: 'follows the camera, like the game',
-			story: null,
-			drivers: [],
+			followsCamera: true,
 			levelTags: [],
 			values: [
 				{ value: 0, label: 'hidden' },

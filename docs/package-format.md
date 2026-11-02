@@ -691,14 +691,16 @@ fails, so a control absent from the manifest hides its content instead of showin
 ### controls
 
 a `SceneControl` holds one piece of game state: its `kind`, `id`, `name`, the selectable `values`
-(each below 32, with a label), a `default`, the `assumption` the default rests on, and the
-`levelTags` of the content it gates (directly or through a derived control), which a viewer uses to
-list a control only for the levels it matters to. a value is a quest's state, a variable's range, a
-progression's level or form index, or 0/1 for on/off controls. only controls some group requires,
-directly or through a derived scene state, are listed; a derived state passes its level tags on to
-the quests and variables it reads. quests, missions and variables come first in `controls`, then
-progressions, facilities, doodad groups, cabins, doors and bridges, stream areas, script, logic and
-harvest controls, then scene states.
+(each below 32, with a label), a `default`, the `assumption` the default rests on, whether it
+`followsCamera` (stream areas and proximity, which a viewer sets from the camera unless the user
+picks a value), and the `levelTags` of the content it gates (directly or through a derived control),
+which a viewer uses to list a control only for the levels it matters to. it's a union on `kind`:
+only quest and mission controls carry a `story` place, and only script controls `drivers`. a value
+is a quest's state, a variable's range, a progression's level or form index, or 0/1 for on/off
+controls. only controls some group requires, directly or through a derived scene state, are listed;
+a derived state passes its level tags on to the quests and variables it reads. quests, missions and
+variables come first in `controls`, then progressions, facilities, doodad groups, cabins, doors and
+bridges, stream areas, script, logic and harvest controls, then scene states.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
   `conditionalSets[derived]` holds, and its `rule` gives that condition in words (`RuleText`: text

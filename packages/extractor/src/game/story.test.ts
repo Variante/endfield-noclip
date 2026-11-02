@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import type { MissionRuntime } from '@endfield-noclip/formats/endfield/mission-runtime';
 import type { MissionInfo, SceneControl } from '@endfield-noclip/package-format/states';
+import { storyPlace } from '@endfield-noclip/package-format/story';
 
 import { labelStory, mainStoryOrder, stripMarkup } from './story.ts';
 import type { WorldIndex } from './world-index.ts';
@@ -49,8 +50,8 @@ const control = (kind: 'quest' | 'mission', id: string): SceneControl => ({
 	name: id,
 	rule: null,
 	assumption: 'story finished',
+	followsCamera: false,
 	story: null,
-	drivers: [],
 	levelTags: [],
 	values: [],
 	default: 3,
@@ -83,7 +84,7 @@ test('quests take their objective text, step and mission; unknown missions keep 
 		},
 	]);
 	assert.deepEqual(
-		controls.map(({ name, story }) => [name, story?.step ?? null]),
+		controls.map((entry) => [entry.name, storyPlace(entry)?.step ?? null]),
 		[
 			['Climb to the top floor', 2],
 			['The gate is open.', 1],
@@ -93,7 +94,7 @@ test('quests take their objective text, step and mission; unknown missions keep 
 			['x9m1', null],
 		],
 	);
-	assert.equal(controls[4].story, null);
+	assert.equal(storyPlace(controls[4]), null);
 });
 
 test('rich-text tags are stripped from labels', () => {

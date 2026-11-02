@@ -14,7 +14,12 @@ import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-p
 import { parseSparkTable } from '@endfield-noclip/formats/hg/spark-buffer';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
-import type { ConditionalSetInfo, ProximityInfo, SceneControl } from '@endfield-noclip/package-format/states';
+import type {
+	ConditionalSetInfo,
+	ProximityInfo,
+	SceneControl,
+	ScriptControl,
+} from '@endfield-noclip/package-format/states';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -391,7 +396,7 @@ export const loadInteractiveFacilities = async (
 	models: StructureModel[];
 	progressions: SceneControl[];
 	/** by logic id, the controls of the rows level scripts show and hide, shown as placed */
-	scriptControls: Map<string, SceneControl>;
+	scriptControls: Map<string, ScriptControl>;
 	/** per level with rows the game creates later (`createState` ≠ 0), the control that shows them, off */
 	created: SceneControl[];
 	/** controls of interactives whose look follows the player's presence, and where each counts as near */
@@ -499,8 +504,7 @@ export const loadInteractiveFacilities = async (
 				name: `Created later (${entry.levelId})`,
 				rule: null,
 				assumption: 'hidden: the server or a level script creates these interactives during play',
-				story: null,
-				drivers: [],
+				followsCamera: false,
 				levelTags: [],
 				values: [
 					{ value: 0, label: 'not created' },
@@ -821,8 +825,7 @@ export const loadInteractiveFacilities = async (
 					name: 'Control Nexus level',
 					rule: null,
 					assumption: 'level 1, before the player upgrades it',
-					story: null,
-					drivers: [],
+					followsCamera: false,
 					levelTags: [],
 					values: levels.map((value) => ({ value, label: `Level ${value}` })),
 					default: 1,
@@ -861,7 +864,7 @@ export const loadInteractiveFacilities = async (
 				return null;
 			}
 		});
-	const scriptControls = new Map<string, SceneControl>();
+	const scriptControls = new Map<string, ScriptControl>();
 	for (const { path, levelId, levelTag, row, created } of placed) {
 		// a row created later also needs its level's `created` control on, and one a level script shows and hides
 		// its script control
@@ -879,7 +882,7 @@ export const loadInteractiveFacilities = async (
 				name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
 				rule: null,
 				assumption: 'shown as placed until a level script hides it',
-				story: null,
+				followsCamera: false,
 				drivers: [],
 				levelTags: [],
 				values: SWITCH_VALUES,
@@ -947,8 +950,7 @@ export const loadInteractiveFacilities = async (
 					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
 					rule: null,
 					assumption: 'retracted: the player or the server extends it',
-					story: null,
-					drivers: [],
+					followsCamera: false,
 					levelTags: [],
 					values: [
 						{ value: 0, label: 'retracted' },
@@ -974,8 +976,7 @@ export const loadInteractiveFacilities = async (
 					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
 					rule: null,
 					assumption: 'closed: the player or the server opens it',
-					story: null,
-					drivers: [],
+					followsCamera: false,
 					levelTags: [],
 					values: [
 						{ value: 0, label: `closed (${poses.closedState})` },
@@ -994,16 +995,15 @@ export const loadInteractiveFacilities = async (
 		if (rest !== undefined) {
 			const { looks, campfire, radius } = rest;
 			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
-			const activation = `facility:${row.id}`;
+			const activation = `activation:${row.id}`;
 			if (campfire) {
 				progressions.push({
-					kind: 'facility',
+					kind: 'activation',
 					id: activation,
 					name: `Campfire ${where}`,
 					rule: null,
 					assumption: 'not activated: the player activates it, and the server keeps it',
-					story: null,
-					drivers: [],
+					followsCamera: false,
 					levelTags: [],
 					values: [
 						{ value: 0, label: `not activated (${looks.away[0].states.join(', ')})` },
@@ -1022,8 +1022,7 @@ export const loadInteractiveFacilities = async (
 					name: `${campfire ? 'Campfire' : row.template} ${where}`,
 					rule: null,
 					assumption: 'follows the camera, as the game follows the player',
-					story: null,
-					drivers: [],
+					followsCamera: true,
 					levelTags: [],
 					values: [
 						{ value: 0, label: `away (${states(looks.away)})` },

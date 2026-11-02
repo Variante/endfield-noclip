@@ -2,24 +2,37 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
 import { conditionResults, conditionVisible, groupsShown, resolveSceneValues } from './conditions.ts';
-import type { ConditionalSetInfo, SceneControl, StatesInfo } from './states.ts';
+import type { ConditionalSetInfo, SceneControl, SceneControlBase, StatesInfo } from './states.ts';
 
 const control = (
-	fields: Pick<SceneControl, 'kind' | 'id' | 'default'> & Partial<SceneControl>,
-): SceneControl => ({
-	name: fields.id,
-	rule: null,
-	assumption: '',
-	story: null,
-	drivers: [],
-	levelTags: [0],
-	values: [
-		{ value: 0, label: 'off' },
-		{ value: 1, label: 'on' },
-	],
-	derived: null,
-	...fields,
-});
+	fields: Pick<SceneControlBase, 'kind' | 'id' | 'default'> & Partial<SceneControlBase>,
+): SceneControl => {
+	const base: SceneControlBase = {
+		name: fields.id,
+		rule: null,
+		assumption: '',
+		followsCamera: false,
+		levelTags: [0],
+		values: [
+			{ value: 0, label: 'off' },
+			{ value: 1, label: 'on' },
+		],
+		derived: null,
+		...fields,
+	};
+	switch (base.kind) {
+		case 'quest':
+		case 'mission': {
+			return { ...base, kind: base.kind, story: null };
+		}
+		case 'script': {
+			return { ...base, kind: base.kind, drivers: [] };
+		}
+		default: {
+			return { ...base, kind: base.kind };
+		}
+	}
+};
 
 it('selects mutually exclusive upgrades while preserving shared and script-gated resources', () => {
 	const states: StatesInfo = {

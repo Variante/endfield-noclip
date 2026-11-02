@@ -534,7 +534,7 @@ doesn't save is dropped); a renderer whose materials take posed values draws a m
 whose record carries them before conversion. doodad-group shells aren't posed.
 
 - a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
-  `facility:<id>` control (0 not activated, the default; 1 activated), in the viewer's progression
+  `activation:<id>` control (0 not activated, the default; 1 activated), in the viewer's progression
   list.
 - a template whose components drive a [player-set key](game-data/assets.md#keys-the-player-sets)
   (`Distance`, `InZone`) is settled once more with those keys true. where that changes a settled
@@ -745,6 +745,7 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | variable gate              | a requirement on the variable's control            | —                                                                 |
 | progression                | `<kind>:<key>`                                     | lowest authored level; an outpost's, its upgrade missions done    |
 | facility visual form       | `facility:<interactive id>`                        | the template's base model                                         |
+| campfire activation        | `activation:<interactive id>`                      | not activated                                                     |
 | interactive created later  | `created:<level id>`, not created / created        | not created                                                       |
 | doodad group level         | `doodadGroups:<level id>`                          | the highest level its shells name                                 |
 | Dijiang cabin slot         | `cabin:<entity id>`, empty / built                 | empty                                                             |

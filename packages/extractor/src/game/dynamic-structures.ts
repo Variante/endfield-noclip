@@ -114,26 +114,32 @@ export const loadDynamicStructures = async (
 	const models = new Map<string, StructureModel>();
 	const ordinals = new Map<number, number>();
 	const addSwitch = (kind: 'script' | 'logic', id: string, enabled: boolean): void => {
-		if (!controls.has(id)) {
-			controls.set(id, {
-				kind,
-				id,
-				name: id,
-				rule: null,
-				assumption:
-					kind === 'logic'
-						? 'no recovered controller, so off'
-						: enabled
+		if (controls.has(id)) {
+			return;
+		}
+		const base = {
+			id,
+			name: id,
+			rule: null,
+			followsCamera: false,
+			levelTags: [],
+			values: SWITCH_VALUES,
+			default: Number(enabled),
+			derived: null,
+		};
+		controls.set(
+			id,
+			kind === 'logic'
+				? { kind, ...base, assumption: 'no recovered controller, so off' }
+				: {
+						kind,
+						...base,
+						assumption: enabled
 							? 'authored to load until a script hides it'
 							: 'loads only when a level script shows it',
-				story: null,
-				drivers: [],
-				levelTags: [],
-				values: SWITCH_VALUES,
-				default: Number(enabled),
-				derived: null,
-			});
-		}
+						drivers: [],
+					},
+		);
 	};
 	for (const owner of owners) {
 		const { entity } = owner;
@@ -181,8 +187,7 @@ export const loadDynamicStructures = async (
 							name: 'Harvestable trees',
 							rule: null,
 							assumption: 'standing, as before the player fells them',
-							story: null,
-							drivers: [],
+							followsCamera: false,
 							levelTags: [],
 							values: [
 								{ value: 0, label: 'standing' },

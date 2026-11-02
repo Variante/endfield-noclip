@@ -6,7 +6,12 @@ import type {
 	SceneControl,
 	SceneControlKind,
 } from '@endfield-noclip/package-format/states';
-import { storyPointPicks, storyPoints, type StoryPoint } from '@endfield-noclip/package-format/story';
+import {
+	storyPlace,
+	storyPointPicks,
+	storyPoints,
+	type StoryPoint,
+} from '@endfield-noclip/package-format/story';
 
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
@@ -38,7 +43,7 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 		open: false,
 	},
 	{
-		kinds: ['settlement', 'poi', 'factoryRegion', 'facility', 'doodadGroups'],
+		kinds: ['settlement', 'poi', 'factoryRegion', 'facility', 'doodadGroups', 'activation'],
 		title: 'Progression',
 		note: null,
 		open: true,
@@ -199,8 +204,9 @@ const ControlRow = ({
 	const label = (entry: number): string =>
 		control.values.find((candidate) => candidate.value === entry)?.label ?? String(entry);
 	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
+	const drivers = control.kind === 'script' ? control.drivers : [];
 	let follows: string | null = null;
-	if (control.kind === 'area' || control.kind === 'proximity') {
+	if (control.followsCamera) {
 		follows = 'Follow camera';
 	} else if (control.derived !== null) {
 		follows = 'Follow game';
@@ -219,7 +225,7 @@ const ControlRow = ({
 						<small className="muted">{detail}</small>
 					</span>
 				</label>
-				<Drivers viewer={viewer} drivers={control.drivers} />
+				<Drivers viewer={viewer} drivers={drivers} />
 			</div>
 		);
 	}
@@ -246,7 +252,7 @@ const ControlRow = ({
 					))}
 				</select>
 			</label>
-			<Drivers viewer={viewer} drivers={control.drivers} />
+			<Drivers viewer={viewer} drivers={drivers} />
 		</div>
 	);
 };
@@ -265,7 +271,7 @@ const ordered = (entries: readonly SceneControl[]): SceneControl[] =>
 	entries.toSorted(
 		(a, b) =>
 			Number(a.kind !== 'mission') - Number(b.kind !== 'mission') ||
-			(a.story?.step ?? Number.MAX_SAFE_INTEGER) - (b.story?.step ?? Number.MAX_SAFE_INTEGER) ||
+			(storyPlace(a)?.step ?? Number.MAX_SAFE_INTEGER) - (storyPlace(b)?.step ?? Number.MAX_SAFE_INTEGER) ||
 			a.id.localeCompare(b.id),
 	);
 
@@ -357,7 +363,7 @@ const StoryControls = ({
 	/** a level id's display name */
 	levelName: (id: string) => string;
 }) => {
-	const grouped = Map.groupBy(controls, (control) => control.story?.mission ?? null);
+	const grouped = Map.groupBy(controls, (control) => storyPlace(control)?.mission ?? null);
 	const rows = (entries: readonly SceneControl[]) =>
 		ordered(entries).map((entry) => (
 			<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
@@ -445,7 +451,8 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	const byId = new Map(manifest.states.controls.map((entry) => [entry.id, entry]));
 	/** @returns a quest or mission control's name with its mission's, else the control's name */
 	const storyName = (control: SceneControl): string => {
-		const mission = control.story && missions.get(control.story.mission);
+		const story = storyPlace(control);
+		const mission = story && missions.get(story.mission);
 		if (!mission?.name || control.kind === 'mission') {
 			return control.name;
 		}
@@ -455,7 +462,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	const describe = (rule: RuleText): string =>
 		ruleText(rule, (reference) => {
 			const control = byId.get(reference.control);
-			return control?.story ? `“${storyName(control)}”` : reference.text;
+			return control && storyPlace(control) ? `“${storyName(control)}”` : reference.text;
 		});
 	// a control is listed for the levels whose content it gates
 	const controls = manifest.states.controls.filter(

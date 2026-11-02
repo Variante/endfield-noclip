@@ -113,6 +113,8 @@ export interface VisibilityGroup {
  *   holds without a camera
  * - `settlement` / `poi` / `factoryRegion`: a progression level; `facility`: an interactive's visual form;
  *   `doodadGroups`: one level's resource node group level (1 to 4)
+ * - `activation`: whether the player has activated an interactive (a campfire), not activated (0) or activated
+ *   (1)
  */
 export type SceneControlKind =
 	| 'quest'
@@ -135,10 +137,31 @@ export type SceneControlKind =
 	| 'poi'
 	| 'factoryRegion'
 	| 'facility'
-	| 'doodadGroups';
+	| 'doodadGroups'
+	| 'activation';
 
-/** one selectable piece of game state */
-export interface SceneControl {
+/**
+ * one selectable piece of game state. quest and mission controls also say where they sit in the story, and
+ * script controls what sets them in game
+ */
+export type SceneControl =
+	| (SceneControlBase & {
+			kind: 'quest' | 'mission';
+			/** where it sits in the story, for a control of a known mission; `null` otherwise */
+			story: StoryPlace | null;
+	  })
+	| (SceneControlBase & {
+			kind: 'script';
+			/** what sets it in game, deduplicated; empty when no client script does */
+			drivers: ControlDriver[];
+	  })
+	| (SceneControlBase & { kind: Exclude<SceneControlKind, 'quest' | 'mission' | 'script'> });
+
+/** a `script` control */
+export type ScriptControl = Extract<SceneControl, { kind: 'script' }>;
+
+/** what every {@link SceneControl} has */
+export interface SceneControlBase {
 	kind: SceneControlKind;
 	/** `<kind>:<key>`, e.g. `quest:e1m8_q#3`, `sceneState:0`, `script:<entity id>`; keys are the game's ids */
 	id: string;
@@ -147,10 +170,11 @@ export interface SceneControl {
 	rule: RuleText | null;
 	/** what the default assumes, e.g. "story finished" */
 	assumption: string;
-	/** for a quest or mission control of a known mission, where it sits in the story; `null` otherwise */
-	story: StoryPlace | null;
-	/** for a script control, what sets it in game, deduplicated; empty when no client script does */
-	drivers: ControlDriver[];
+	/**
+	 * whether a viewer sets it from the camera unless the user picks a value, as the game sets it from the
+	 * player (stream areas, proximity); its `default` is then only what holds without a camera
+	 */
+	followsCamera: boolean;
 	/** level tags whose content (or derived controls) this control gates; 0 means content every level shows */
 	levelTags: number[];
 	/** the selectable values, ascending; each below 32 */
