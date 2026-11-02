@@ -158,6 +158,22 @@ drives that entity's logic state.
 trees (entity type 19, no controller) use bits 0/1 for standing/felled under the same mechanism;
 that is harvest state, not progression, and the player fells each tree at runtime.
 
+### outpost upgrade missions
+
+an outpost's levels are `SettlementBasicDataTable`'s `settlementLevelMap` (levels 1 to 4, the last
+flagged `isFinalMaxLevel`). each level but the last names an `upgradeMissionId`, the outpost mission
+that takes it past that level; the later ones open with "Raise Outpost Prosperity to the current
+limit". Cardiac Remediation Station (`stm_hongs_2`, Marker Stone) lists `f1m19d1`, `f1m19d2` and
+`f1m19d3` ("OD Project: Remediation Station I–III") at levels 1, 2 and 3, and every other outpost
+follows the same pattern. so an outpost stands above a level once that level's mission is complete.
+unverified: whether completing it raises the level at once or only unlocks the raise; the viewer
+treats the two as one. the level numbers match logic-state bits: groups named for an outpost level
+(`lt_Map02_据点_lv4_r`, `…lv3_r`, `…lv2_r`) are shown at the same bit.
+
+scenery gated on a level-up mission is per-level outpost scenery: the station's green light column
+(`p_fxmap_map02_lv004_landmark_poi_801`) loads once `f1m19d3` is complete, that is at level 4,
+beside the level-4 form of its landmark building.
+
 ## facility visual forms
 
 stock redistribution facilities (`int_system_domain_shop`), depots (`int_system_domain_depot`),

@@ -223,10 +223,29 @@ interface Range {
 	value: number | null;
 }
 
+/** a mission whose completion a progression level stands for, e.g. an outpost's level-up mission */
+export interface ProgressionLink {
+	/** the progression's control id */
+	control: string;
+	/** its selectable levels, ascending */
+	levels: readonly number[];
+	/** the mission is complete at this level and above */
+	completedFrom: number;
+}
+
 /** the game state a scene's conditions read, as controls */
 export class GameState {
 	readonly #quests = new Map<string, 'quest' | 'mission'>();
 	readonly #variables = new Map<string, Variable>();
+	readonly #links: ReadonlyMap<string, ProgressionLink>;
+
+	/**
+	 * @param links by mission id, the progression level its completion stands for. a test that only tells that
+	 *   mission's completion apart reads the progression's control instead of a mission control
+	 */
+	constructor(links: ReadonlyMap<string, ProgressionLink> = new Map()) {
+		this.#links = links;
+	}
 
 	/**
 	 * notes the values conditions compare variables against. a variable's values are fixed when a condition on
@@ -344,6 +363,20 @@ export class GameState {
 		switch (condition.kind) {
 			case 'quest':
 			case 'mission': {
+				const link = condition.kind === 'mission' ? this.#links.get(condition.id) : undefined;
+				if (link !== undefined) {
+					const done = compare(COMPLETED, condition.compare, condition.target);
+					const pending = [0, 1, 2, 4, 5].map((value) => compare(value, condition.compare, condition.target));
+					// a test that holds for some unfinished states but not others still needs the mission's own state
+					if (pending.every((result) => result === pending[0])) {
+						return leaf(
+							link.control,
+							link.levels.map((level) => (level >= link.completedFrom ? done : pending[0])),
+							[...link.levels],
+							negate,
+						);
+					}
+				}
 				const known = this.#quests.get(condition.id);
 				if (known !== undefined && known !== condition.kind) {
 					throw new Error(`${condition.id} is read both as a quest and as a mission`);

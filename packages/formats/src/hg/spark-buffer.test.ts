@@ -217,6 +217,51 @@ test('decodes an int-keyed bean table with enum and array fields', () => {
 	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [[2, { roomType: 2, fields: [4, 5] }]]);
 });
 
+test('decodes a map field stored like the root map, keyed by its key strings', () => {
+	const b = new Buffer();
+	const header = [b.u32(12), b.u32(0), b.u32(0)];
+	// types: a bean { levels: map<int, string> }, like SettlementBasicData.settlementLevelMap
+	b.u32(1);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	b.cString('SettlementData');
+	b.u32(1);
+	b.cString('levels');
+	b.u8(SparkType.Map);
+	b.u8(SparkType.Int);
+	b.u8(SparkType.String);
+	// root
+	b.patch(header[1], b.pos);
+	b.u8(SparkType.Map);
+	b.cString('SettlementTable');
+	b.u8(SparkType.String);
+	b.u8(SparkType.Bean);
+	b.u32(0xaaaa);
+	const key = b.cString('stm_hongs_2');
+	const first = b.cString('f1m19d1');
+	const second = b.cString('f1m19d2');
+	// the field's map: two slots, the second holding two entries
+	const nested = b.u32(2);
+	const slots = [b.u32(0), b.u32(0), b.u32(0), b.u32(2)];
+	b.patch(slots[2], b.pos);
+	b.u32(1);
+	b.u32(first);
+	b.u32(2);
+	b.u32(second);
+	const bean = b.u32(nested);
+	// data
+	b.patch(header[2], b.pos);
+	b.u32(1);
+	const slot = b.u32(0);
+	b.u32(1);
+	b.patch(slot, b.pos);
+	b.u32(key);
+	b.u32(bean);
+	assert.deepEqual(parseSparkTable(new Uint8Array(b.bytes)).entries, [
+		['stm_hongs_2', { levels: { 1: 'f1m19d1', 2: 'f1m19d2' } }],
+	]);
+});
+
 test('decodes bool, byte, float and double fields with natural alignment', () => {
 	const b = new Buffer();
 	const header = [b.u32(12), b.u32(0), b.u32(0)];

@@ -819,6 +819,14 @@ its variable gate with the outpost's level `n`, so level 0 shows none.
 other server-set variable gates stay plain variable controls: Yinglung Pass's energy point towers
 (`defenceFnish`) follow their own control.
 
+**outpost upgrade missions.** [upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)
+are read from `SettlementBasicDataTable` by
+[settlement-upgrades.ts](../packages/extractor/src/game/settlement-upgrades.ts) and passed to
+`GameState`, which reads a test of one completing (`= completed`, `≠ completed`) as the outpost's
+level control instead of a mission control: complete above the level that names the mission. a test
+that tells the mission's unfinished states apart keeps the mission control. a mission whose outpost
+isn't in the scene, or has no authored level above that one, stays a mission control.
+
 ### progressions
 
 [progressions](game-data/scene-states.md#progressions) are implemented in

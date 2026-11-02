@@ -279,9 +279,11 @@ packs or renders correctly.
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
 - variable ids are unnamed (MapConfig's `mapVarName2NumId` names map variables but isn't read);
   outpost tier variables are matched to their outpost's levels by layout, not by a recovered table
-  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
-  or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
-  controls yet
+  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); outpost level-up missions are
+  read as complete above their level, unverified against whether completion raises the level or only
+  unlocks it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)); variables
+  that drive entity level or animator state (doors, bridges, puzzles: `ModelViewStateControllerData`
+  state machines) aren't controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
   aren't represented; script-driven water levels are picked by hand, not tied to the switches,
   clocks and quests that drive them; the shop, depot and terminal level → visual form mapping, and

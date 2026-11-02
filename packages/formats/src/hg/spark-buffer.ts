@@ -3,17 +3,19 @@ import { ByteView } from '../binary/byte-view.ts';
 
 // SparkBuffer config tables (`Data/TableCfg/*.bytes`, Table group). layout recovered from MapIdTable,
 // LevelDescTable, I18nTextTable_*, SpaceshipAreaUnlockNeedCenterLvTable, SpaceshipGrowCabinLvTable and the
-// Dungeon* tables. map-typed fields aren't supported and throw FormatError.
+// Dungeon* tables; map fields from SettlementBasicDataTable.
 //
 //   u32 typesOffset, u32 rootOffset, u32 dataOffset
 //   types: u32 count, count × { u8 kind (6 = enum, 8 = bean), pad4, u32 hash, cstring name, pad4, then
 //          bean: u32 fieldCount, fieldCount × { cstring name, type ref }
 //          enum: u32 valueCount, valueCount × { cstring name, pad4, i32 value } }
-//   type ref: u8 type, then [pad4, u32 typeHash] for beans and enums, or the element's type ref for arrays
+//   type ref: u8 type, then [pad4, u32 typeHash] for beans and enums, the element's type ref for arrays, or
+//             the key's and the value's type refs for maps
 //   root:  u8 0x0a (map), cstring name, key type ref, value type ref
 //   data:  u32 slotCount, slotCount × (u32 entriesOffset, u32 entryCount); entries are `key ‖ value` packed
-//          with natural alignment. bools and bytes are u8, enums i32, floats f32, doubles f64. strings, beans and arrays are stored as u32 absolute offsets
-//          (0xFFFFFFFF = null); a bean's fields follow the same packing, an array is `u32 count ‖ elements`.
+//          with natural alignment. bools and bytes are u8, enums i32, floats f32, doubles f64. strings, beans,
+//          arrays and maps are stored as u32 absolute offsets (0xFFFFFFFF = null); a bean's fields follow the
+//          same packing, an array is `u32 count ‖ elements`, and a map field has the root's data layout.
 
 /** value type codes (the game's `SparkType`) */
 export const SparkType = {
@@ -30,7 +32,10 @@ export const SparkType = {
 	Map: 10,
 } as const;
 
-/** a decoded SparkBuffer value; enums decode to their numeric value */
+/**
+ * a decoded SparkBuffer value; enums decode to their numeric value, maps to objects keyed by their keys as
+ * strings
+ */
 export type SparkValue =
 	| boolean
 	| number
@@ -42,7 +47,7 @@ export type SparkValue =
 
 /**
  * @param value a decoded value
- * @returns whether it's a bean (an object of fields), not null, a scalar or an array
+ * @returns whether it's a bean or a map (an object), not null, a scalar or an array
  */
 export const isSparkBean = (value: SparkValue | undefined): value is { [field: string]: SparkValue } =>
 	value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -52,7 +57,9 @@ interface TypeRef {
 	type: number;
 	/** the bean's type hash, for beans */
 	typeHash: number;
-	/** the element type, for arrays */
+	/** the key type, for maps */
+	key: TypeRef | null;
+	/** the element type, for arrays; the value type, for maps */
 	element: TypeRef | null;
 }
 
@@ -92,16 +99,21 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 			case SparkType.Float:
 			case SparkType.Double:
 			case SparkType.String: {
-				return [{ type, typeHash: 0, element: null }, at + 1];
+				return [{ type, typeHash: 0, key: null, element: null }, at + 1];
 			}
 			case SparkType.Enum:
 			case SparkType.Bean: {
 				const p = align(at + 1, 4);
-				return [{ type, typeHash: u32(p), element: null }, p + 4];
+				return [{ type, typeHash: u32(p), key: null, element: null }, p + 4];
 			}
 			case SparkType.Array: {
 				const [element, after] = readRef(at + 1, where);
-				return [{ type, typeHash: 0, element }, after];
+				return [{ type, typeHash: 0, key: null, element }, after];
+			}
+			case SparkType.Map: {
+				const [key, afterKey] = readRef(at + 1, `${where} key`);
+				const [element, after] = readRef(afterKey, `${where} value`);
+				return [{ type, typeHash: 0, key, element }, after];
 			}
 			default: {
 				throw new FormatError(`unsupported spark type ${type} in ${where}`);
@@ -203,6 +215,18 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 				}
 				return [items, p + 4];
 			}
+			case SparkType.Map: {
+				const p = align(pos, 4);
+				const offset = u32(p);
+				if (offset === 0xffffffff) {
+					return [null, p + 4];
+				}
+				const out: { [key: string]: SparkValue } = {};
+				for (const [key, value] of readMap(ref.key!, ref.element!, offset, 'nested map')) {
+					out[String(key)] = value;
+				}
+				return [out, p + 4];
+			}
 			default: {
 				throw new FormatError(`unsupported spark value type ${ref.type}`);
 			}
@@ -223,28 +247,41 @@ export const parseSparkTable = (bytes: Uint8Array): SparkTable => {
 		return out;
 	};
 
-	if (keyRef.type !== SparkType.Int && keyRef.type !== SparkType.Long && keyRef.type !== SparkType.String) {
-		throw new FormatError(`unsupported spark key type ${keyRef.type}`);
-	}
-	const entries: SparkTable['entries'] = [];
-	const data = u32(8);
-	const slots = u32(data);
-	for (let s = 0; s < slots; s++) {
-		const offset = u32(data + 4 + s * 8);
-		const count = u32(data + 8 + s * 8);
-		let p = offset;
-		for (let i = 0; i < count; i++) {
-			const [key, afterKey] = read(keyRef, p);
-			const [value, afterValue] = read(valueRef, afterKey);
-			// the key type was checked above; this narrows the value for TypeScript
-			if (key === null || typeof key === 'object' || typeof key === 'boolean') {
-				throw new FormatError(`null spark key in ${name}`);
-			}
-			entries.push([key, value]);
-			p = afterValue;
+	/** reads a hash map stored at `data` (the root's and nested maps' layout) */
+	const readMap = (
+		keyType: TypeRef,
+		valueType: TypeRef,
+		data: number,
+		where: string,
+	): SparkTable['entries'] => {
+		if (
+			keyType.type !== SparkType.Int &&
+			keyType.type !== SparkType.Long &&
+			keyType.type !== SparkType.String
+		) {
+			throw new FormatError(`unsupported spark key type ${keyType.type} in ${where}`);
 		}
-	}
-	return { name, entries };
+		const entries: SparkTable['entries'] = [];
+		const slots = u32(data);
+		for (let s = 0; s < slots; s++) {
+			const offset = u32(data + 4 + s * 8);
+			const count = u32(data + 8 + s * 8);
+			let p = offset;
+			for (let i = 0; i < count; i++) {
+				const [key, afterKey] = read(keyType, p);
+				const [value, afterValue] = read(valueType, afterKey);
+				// the key type was checked above; this narrows the value for TypeScript
+				if (key === null || typeof key === 'object' || typeof key === 'boolean') {
+					throw new FormatError(`null spark key in ${where}`);
+				}
+				entries.push([key, value]);
+				p = afterValue;
+			}
+		}
+		return entries;
+	};
+
+	return { name, entries: readMap(keyRef, valueRef, u32(8), name) };
 };
 
 const align = (at: number, to: number): number => Math.ceil(at / to) * to;

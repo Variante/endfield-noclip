@@ -121,3 +121,23 @@ test('conjunctions merge requirements on the same control and drop impossible on
 	assert.deepEqual(allOf([[]], [[{ control: 'a', mask: 1 }]]), [[{ control: 'a', mask: 1 }]]);
 	assert.deepEqual(allOf([[{ control: 'a', mask: 1 }]], [[{ control: 'a', mask: 2 }]]), []);
 });
+
+test('a test of an outpost level-up mission completing reads the outpost level instead', () => {
+	// Cardiac Remediation Station: f1m19d3 raises it from level 3, so it's complete at level 4
+	const game = new GameState(
+		new Map([['f1m19d3', { control: 'settlement:stm_hongs_2', levels: [0, 1, 2, 3, 4], completedFrom: 4 }]]),
+	);
+	const mission = (compare: 0 | 1, target: number): GameCondition => ({
+		kind: 'mission',
+		id: 'f1m19d3',
+		compare,
+		target,
+	});
+	assert.deepEqual(game.requirements(mission(0, 3)), [[{ control: 'settlement:stm_hongs_2', mask: 1 << 4 }]]);
+	assert.deepEqual(game.requirements(mission(1, 3)), [
+		[{ control: 'settlement:stm_hongs_2', mask: 0b01111 }],
+	]);
+	assert.deepEqual(game.controls(), []);
+	// telling unfinished states apart still needs the mission's own state
+	assert.deepEqual(game.requirements(mission(0, 2)), [[{ control: 'mission:f1m19d3', mask: 1 << 2 }]]);
+});

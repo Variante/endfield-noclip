@@ -120,6 +120,7 @@ import {
 } from '../game/scene-conditions.ts';
 import { loadProgressions, progressionControl, progressionId } from '../game/scenery-variants.ts';
 import { activationCondition, loadScriptDrivers } from '../game/script-drivers.ts';
+import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
 import { labelStory } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
 import { readScriptWaterLevels } from '../game/water-volume-scripts.ts';
@@ -612,7 +613,7 @@ const indexScene = async (
 	options: PackOptions,
 ): Promise<SceneIndex> => {
 	const { world } = context;
-	const [pathOf, bundleManifest, names, partition, terrainIndex, surface, chunkFiles, sceneStates] =
+	const [pathOf, bundleManifest, names, partition, terrainIndex, surface, chunkFiles, sceneStates, links] =
 		await Promise.all([
 			world.pathLookup(),
 			world.manifest(),
@@ -622,8 +623,9 @@ const indexScene = async (
 			loadTerrainSurfacesData(context, options.scene),
 			world.chunkFiles(),
 			loadSceneStates(world, options.scene),
+			loadUpgradeLinks(context, options.scene),
 		]);
-	const game = new GameState();
+	const game = new GameState(links);
 	game.note(mapDefined(sceneStates, ({ condition }) => condition ?? undefined));
 	const terrainScene = terrainIndex.get(options.scene);
 	if (terrainScene !== undefined && surface === undefined) {
