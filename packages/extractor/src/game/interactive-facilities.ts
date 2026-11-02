@@ -28,35 +28,18 @@ import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
 import { readViewStates, settledPose } from './view-state-poses.ts';
 
-// these facility templates share the validated model-upgrade component, so their visual forms become a
-// progression control. every other template draws its base model only.
-const TEMPLATES = new Map([
-	[
-		'int_system_domain_shop',
-		{
-			name: 'Stock redistribution facility',
-			data: 'Data/Json/Interactive/InteractiveData/data_int_system_domain_shop.json',
-		},
-	],
-	[
-		'int_system_domain_depot',
-		{ name: 'Depot', data: 'Data/Json/Interactive/InteractiveData/data_int_system_domain_depot.json' },
-	],
-	[
-		'int_doodad_core_recycle',
-		{
-			name: 'Recycling station',
-			data: 'Data/Json/Interactive/InteractiveData/data_int_doodad_core_recycle.json',
-		},
-	],
-	[
-		'int_system_kite_station',
-		{
-			name: 'Environment monitoring terminal',
-			data: 'Data/Json/Interactive/InteractiveData/data_int_system_kite_station.json',
-		},
-	],
+// templates with the model-upgrade component have their visual forms as a progression control; every other
+// template draws its base model only. templates carry no display name, so these labels are ours; other
+// upgrade-capable templates are labelled by their id
+const FACILITY_NAMES = new Map([
+	['int_system_domain_shop', 'Stock redistribution facility'],
+	['int_system_domain_depot', 'Depot'],
+	['int_doodad_core_recycle', 'Recycling station'],
+	['int_system_kite_station', 'Environment monitoring terminal'],
 ]);
+
+/** the component that lists a template's upgrade models */
+const MODEL_UPGRADE_COMPONENTS = ['_InteractiveModelLevelUpComponentDataForMemoryPack'];
 
 /** the MemoryPack wrapper of interactive templates */
 const TEMPLATE_ROOT = 'Beyond_Gameplay_InteractiveTemplateDataForMemoryPack';
@@ -558,25 +541,40 @@ export const loadInteractiveFacilities = async (
 			variantsOf.getOrInsertComputed(template, () => new Set()).add(id);
 		}
 	}
+	/** by template data file, its upgrade models, or `null` without the model-upgrade component */
+	const upgrades = new Map<string, ReturnType<typeof facilityModels> | null>();
 	for (const key of new Set(placed.map(({ row }) => row.template))) {
-		const facility = TEMPLATES.get(key);
-		if (facility !== undefined) {
-			// oxlint-disable-next-line no-await-in-loop -- small templates, read once per map
-			const model = facilityModels(reader.decode(await read(facility.data), TEMPLATE_ROOT), facility.data);
-			authored.set(key, {
-				name: facility.name,
-				initial: model.levels.indexOf(model.id),
-				forms: model.levels.map((modelId) => formOf(modelId, model.scale)),
-				model: null,
-				data: facility.data,
-			});
-			continue;
-		}
 		const template = interactives.templates.get(key);
 		const data = template === undefined ? undefined : interactives.templatePaths.get(template);
 		if (template === undefined || data === undefined) {
 			unsupported.push({ path: TABLE, reason: `no template for ${key}` });
 			modelless.set(key, 'no template');
+			continue;
+		}
+		let upgrade = upgrades.get(data);
+		if (upgrade === undefined) {
+			try {
+				// oxlint-disable-next-line no-await-in-loop -- small templates, read once per map
+				const decoded = reader.decode(await read(data), TEMPLATE_ROOT);
+				upgrade = hasComponent(decoded, MODEL_UPGRADE_COMPONENTS) ? facilityModels(decoded, data) : null;
+			} catch (error) {
+				if (!(error instanceof FormatError)) {
+					throw error;
+				}
+				// drawn with its base model only, as read below
+				unsupported.push({ path: data, reason: `model upgrades: ${error.message}` });
+				upgrade = null;
+			}
+			upgrades.set(data, upgrade);
+		}
+		if (upgrade !== null) {
+			authored.set(key, {
+				name: FACILITY_NAMES.get(key) ?? key,
+				initial: upgrade.levels.indexOf(upgrade.id),
+				forms: upgrade.levels.map((modelId) => formOf(modelId, upgrade.scale)),
+				model: null,
+				data,
+			});
 			continue;
 		}
 		let resolved = templates.get(template);

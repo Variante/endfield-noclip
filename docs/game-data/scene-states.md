@@ -182,9 +182,11 @@ beside the level-4 form of its landmark building.
 ## facility visual forms
 
 stock redistribution facilities (`int_system_domain_shop`), depots (`int_system_domain_depot`),
-recycling stations (`int_doodad_core_recycle`) and environment monitoring terminals
-(`int_system_kite_station`, in Wuling City and Marker Stone) are placed by LevelData interactive
-rows rather than DynamicStreaming. their template's model component
+recycling stations (`int_doodad_core_recycle`), environment monitoring terminals
+(`int_system_kite_station`, in Wuling City and Marker Stone), farm terminals
+(`int_system_farm_terminal`) and simulation training (`int_system_simulation_training`) are the
+templates with a model-upgrade component ([interactives](assets.md#interactives)), placed by
+LevelData interactive rows rather than DynamicStreaming. their template's model component
 (`InteractiveModelComponentData`) names the base model, and its model-upgrade component
 (`InteractiveModelLevelUpComponentData`, `modelLevelList`) lists ModelTable ids in authored order;
 each entry is one visual form with its own prefab (a terminal's five forms are its upgrades,

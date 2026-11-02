@@ -322,10 +322,13 @@ a placement's model is its variant's, else the template's. templates without a m
 logic) have nothing to draw. a model that is a doodad-group shell draws nothing itself; one form per
 group level attaches to it instead ([scene-states.md](scene-states.md#doodad-groups)).
 
-four facility templates (`int_system_domain_shop`, `int_system_domain_depot`,
-`int_doodad_core_recycle`, `int_system_kite_station`) have a model-upgrade component
+six of the install's 332 interactive templates have a model-upgrade component
 (`InteractiveModelLevelUpComponentData`), which lists model ids in visual-form order and contains
-the base model id ([scene-states.md](scene-states.md#facility-visual-forms)).
+the base model id: `int_system_domain_shop`, `int_system_domain_depot`, `int_doodad_core_recycle`,
+`int_system_kite_station`, `int_system_farm_terminal` (placed in map02_lv002 and map02_lv010) and
+`int_system_simulation_training` (map02_lv006)
+([scene-states.md](scene-states.md#facility-visual-forms)). templates carry no display name, only
+their id.
 
 ### interactive view states
 

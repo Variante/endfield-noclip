@@ -500,9 +500,12 @@ so the reader locates the [variant table](game-data/assets.md#the-variant-table)
 file. a position frames the table when the parse ends exactly at the end of the file and its keys
 are exactly the InteractiveTable ids that name this template (other than the template's own id).
 
-the four facility templates are decoded whole, through the MemoryPack schema, for their
-model-upgrade component. their placements are emitted one model per visual form, each visible under
-its form's bit of a per-facility control ([facility visual forms](#facility-visual-forms)).
+every placed template is decoded whole, through the MemoryPack schema, for a model-upgrade
+component. the placements of a template that has one are emitted one model per visual form, each
+visible under its form's bit of a per-facility control
+([facility visual forms](#facility-visual-forms)). the four known facilities get our own English
+labels; others are labelled by template id. a model-upgrade component the reader can't use is
+reported in `unsupported-interactives.json` and the template draws its base model.
 
 the extractor treats an interactive as a door when its template has a door component and its model's
 states include exactly one settled state whose clip is an open idle
