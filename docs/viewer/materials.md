@@ -36,7 +36,10 @@ object-space height.
 
 [glass](../game-data/materials.md#glass) is shaded like Lit, with the opacity taken from the alpha
 `_AlphaMaskChannel` picks, times `_BaseColor.a`; with the map still streaming, the tint's alpha
-alone. glass casts no shadows.
+alone. glass casts no shadows. premultiplied glass (source factor one) adds its whole radiance and
+lets the opacity only dim what lies behind: the alpha-weighted share goes into the layers below, the
+rest into the pass's glow, which the fog doesn't reach. that it doesn't multiply by its alpha is
+read from the blend state, unchecked against the game's shader.
 
 the transparent pass draws it after the main pass, tested against its depth, with weighted blended
 order-independent transparency (McGuire and Bavoil 2013): one target sums each layer's premultiplied

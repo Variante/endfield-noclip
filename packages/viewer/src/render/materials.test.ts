@@ -120,6 +120,42 @@ test('water proxies and reflection-only effects are not drawn, and additive non-
 	assert.deepEqual([reflection.drawn, reflection.unsupported], [false, false]);
 });
 
+test('unconverted materials show as unsupported, and premultiplied glass is transparent with its flag set', () => {
+	const glass: ShaderEntry = {
+		name: 'HGRP/LitTransparent',
+		family: 'litTransparent',
+		floats: {},
+		colors: {},
+		vectors: {},
+		textures: {},
+		normalMaps: [],
+	};
+	const entry = (id: number, blend: ReadyMaterial['blend']): ReadyMaterial => ({
+		id,
+		status: 'ready',
+		shader: 0,
+		keywords: [],
+		renderQueue: 3000,
+		blend,
+		blendFactors: null,
+		alphaClipThreshold: null,
+		cull: 'back',
+		zWrite: false,
+		baseTextureMapCount: 2,
+		slots: {},
+		floats: {},
+		colors: {},
+		vectors: {},
+	});
+	const [failed, blended, premultiplied] = materialLooks({
+		shaders: [glass],
+		entries: [{ id: 0, status: 'failed' }, entry(1, 'alphaBlend'), entry(2, 'premultiplied')],
+	});
+	assert.equal(failed.unsupported, true);
+	assert.deepEqual([blended.transparent, blended.params[LookRow.detail2 + 2]], [true, 0]);
+	assert.deepEqual([premultiplied.transparent, premultiplied.params[LookRow.detail2 + 2]], [true, 1]);
+});
+
 test('matte paintings are unlit, cast no shadows and test the texture alpha against the scaled threshold', () => {
 	const shaders: ShaderEntry[] = [
 		{

@@ -254,8 +254,9 @@ export const LookRow = {
 	/** `_DetailMode` (0 colour overlay, 1 PBR), `_DetailMaskMode`, normal intensity, PBR intensity */
 	detail: 76,
 	/**
-	 * view depths where the detail starts and finishes fading out, overlay brighter scale, 1 when the surface
-	 * keeps lit decals off ({@link keepsLitDecalsOff})
+	 * view depths where the detail starts and finishes fading out, overlay brighter scale (transparent looks,
+	 * which have no detail map: 1 for premultiplied blending), 1 when the surface keeps lit decals off ({@link
+	 * keepsLitDecalsOff})
 	 */
 	detail2: 80,
 	/** `_DetailOverlayColor`: linear colour, how much it covers */
@@ -687,11 +688,13 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 			look.flags |= LookFlags.AlphaNormal;
 		}
 		// alpha-blended (`HGRP/LitTransparent` glass): the opacity is the alpha the alpha test would read, times
-		// `_BaseColor.a`. glass casting a solid shadow would darken what lies behind it, so it casts none
-		if (entry.blend === 'alphaBlend') {
+		// `_BaseColor.a`. glass casting a solid shadow would darken what lies behind it, so it casts none.
+		// premultiplied glass adds its radiance whole, the opacity only dimming what lies behind
+		if (entry.blend === 'alphaBlend' || entry.blend === 'premultiplied') {
 			look.transparent = true;
 			look.castsShadows = false;
 			params[LookRow.emissive2 + 3] = tint?.[3] ?? 1;
+			params[LookRow.detail2 + 2] = entry.blend === 'premultiplied' ? 1 : 0;
 		}
 		look.cutout =
 			!look.transparent &&

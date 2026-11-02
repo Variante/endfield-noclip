@@ -448,7 +448,9 @@ fn fs_transparent(in: VertexOut) -> Accumulated {
 	var out: Accumulated;
 	out.sum = vec4f(shaded.radiance.rgb * weight, weight);
 	out.revealage = vec4f(alpha);
-	out.glow = vec4f(0.0);
+	// premultiplied glass (detail2.z) adds its whole radiance: the alpha-weighted share above, the rest as glow
+	let premultiplied = select(0.0, 1.0, draw.detail2.z > 0.5);
+	out.glow = vec4f(shaded.radiance.rgb * (1.0 - alpha) * premultiplied, 0.0);
 	return out;
 }
 
