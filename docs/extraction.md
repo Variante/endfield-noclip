@@ -886,9 +886,13 @@ labels them "Visual form", not "Level".
 [Dijiang cabins](game-data/scene-states.md#dijiang-cabins) are implemented in
 [cabins.ts](../packages/extractor/src/game/cabins.ts). the packer gives a slot the largest cabin
 whose row pivots fit its box, else the smallest, which puts the growth chamber in the medium slot
-and manufacturing cabins in the small ones. the small slot with no door and no room-table row is
-offered like the others. each slot is a `cabin:<id>` control, empty by default. a slot's region bake
-goes with the built cabin ([irradiance cells](package-format.md#irradiance-cells)).
+and manufacturing cabins in the small ones. that rule is ours: no client data assigning a cabin type
+to a slot was found, so a slot shows the type that fits, not necessarily the one the game builds
+there. the small slot with no door and no room-table row is offered like the others. the cabin
+types' room type ids (which name their rooms' bakes) are matched to `SpaceshipRoomTypeTable` rows by
+hand, by the rows' icon names (`…_icon_manufacturing_station` is 1, `…_icon_grow_cabin` 2): the
+table names no cabin types. each slot is a `cabin:<id>` control, empty by default. a slot's region
+bake goes with the built cabin ([irradiance cells](package-format.md#irradiance-cells)).
 
 the packer numbers a growth chamber's planting boxes in the order the cabin scene's entity lists
 them in its resource groups. a growth chamber slot gets a `cabinLevel:<id>` control with the table's

@@ -22,11 +22,16 @@ import { readGrowBoxShutter, readPlantingFieldLevels } from './grow-boxes.ts';
 // Dijiang's cabins: rooms the player builds into fixed slots of the spaceship
 // (docs/game-data/scene-states.md#dijiang-cabins). a built cabin's rows are placed at the slot origin, turned
 // by its direction in quarter turns of yaw; with that convention each cabin's entrance meets the slot's door.
-// a slot gets the largest cabin type whose row pivots fit its box, else the smallest.
+// a slot gets the largest cabin type whose row pivots fit its box, else the smallest: our rule, since no client
+// data assigning types to slots was found.
 
 const CABIN_DATA = 'Data/Json/SpaceshipCabinData.json';
 
-/** the game's room type ids (`SpaceshipRoomTypeTable`) of the cabin types, which name their rooms' bakes */
+/**
+ * the game's room type ids (`SpaceshipRoomTypeTable`) of the cabin types, which name their rooms' bakes. the
+ * table names no cabin types, so these are matched by hand by its rows' icon names
+ * (`icon_sapceship_room_icon_manufacturing_station`, `…_grow_cabin`)
+ */
 const ROOM_TYPES = new Map([
 	['ManufacturingStation', 1],
 	['GrowCabin', 2],
