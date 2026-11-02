@@ -119,8 +119,11 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   cap of 1 lets in one ring per 6 s lifetime. some systems store a cap of 0 yet show in game, such
   as the tilted torch flames (`P_fxmap_common_tiltedflame_2501`), though the engine reads 0 as no
   particles; why isn't traced.
-- **scaling.** under `scalingMode` Shape the transform's scale moves particles but leaves their
-  size.
+- **scaling.** `scalingMode` picks the scale that sizes particles: Hierarchy the whole hierarchy's,
+  Local the system's own transform's, and Shape none, where the scale moves particles but leaves
+  their size. effects stretch a spawn box this way: Jingyu Valley's bird flock
+  (`p_fxmap_map_bird_03`) sits under a parent scaled 363 × 150 × 148 m, in Shape mode, so its birds
+  stay their start size.
 - **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its
   drag: an amount, optionally scaled by the particle's size and by its speed squared. the splashes
   at the foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on

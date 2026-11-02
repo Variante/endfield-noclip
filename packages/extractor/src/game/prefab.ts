@@ -24,7 +24,12 @@ import { ParticleRenderMode, type ParticleSystemInfo } from '@endfield-noclip/pa
 
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
-import { frozenParticleMatrix, type LocalTransform, SCALING_SHAPE } from './particle-mesh.ts';
+import {
+	frozenParticleMatrix,
+	type LocalTransform,
+	particleStandInMatrix,
+	SCALING_SHAPE,
+} from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
@@ -450,15 +455,16 @@ export const readPrefabRenderers = async (
 					const quad = mesh === null;
 					mesh ??= particleQuad;
 					if (mesh !== null) {
+						const placed = particleStandInMatrix(parent, local, numberField(system.data, 'scalingMode'));
 						candidates.push({
 							...particles,
-							matrix: emitter,
+							matrix: placed,
 							name,
 							mesh,
 							particles: null,
 							unsupported: reason,
 							billboard: quad
-								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: emitter }
+								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: placed }
 								: null,
 							posedMaterials,
 						});

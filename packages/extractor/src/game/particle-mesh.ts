@@ -37,8 +37,42 @@ const Alignment = {
 /** `ShapeModule.type` of a box, which emits along the emitter's forward axis */
 const SHAPE_BOX = 5;
 
+/** `ParticleSystem.scalingMode` that sizes particles by the whole hierarchy's scale */
+const SCALING_HIERARCHY = 0;
+
 /** `ParticleSystem.scalingMode` that leaves particle sizes unscaled */
 export const SCALING_SHAPE = 2;
+
+/**
+ * where a particle system the viewer can't play stands in: at its transform, sized as the game sizes its
+ * particles. `Hierarchy` takes the whole hierarchy's scale, `Local` only the system's own and `Shape` none,
+ * so a system whose parent stretches a wide spawn box doesn't stand in as a quad as wide as the box.
+ *
+ * @param parent the parent's world matrix
+ * @param local the system's local transform
+ * @param scalingMode `ParticleSystem.scalingMode`
+ * @returns the stand-in's world matrix
+ */
+export const particleStandInMatrix = (
+	parent: Float32Array,
+	local: LocalTransform,
+	scalingMode: number,
+): Float32Array => {
+	if (scalingMode === SCALING_HIERARCHY) {
+		return multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
+	}
+	const matrix = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, [1, 1, 1]));
+	// rescaling each axis to the system's own scale drops the parents' scale and keeps where the axes point
+	const own = scalingMode === SCALING_SHAPE ? [1, 1, 1] : local.scale;
+	for (let axis = 0; axis < 3; axis++) {
+		const length = Math.hypot(matrix[axis * 4], matrix[axis * 4 + 1], matrix[axis * 4 + 2]);
+		const factor = length > 0 ? own[axis] / length : 0;
+		for (let i = 0; i < 3; i++) {
+			matrix[axis * 4 + i] *= factor;
+		}
+	}
+	return matrix;
+};
 
 /**
  * a MinMaxCurve's value: a constant, or the midpoint of a random range between two constants, since the

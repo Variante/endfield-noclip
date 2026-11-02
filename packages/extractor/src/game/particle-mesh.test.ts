@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { trsMatrix } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 
-import { frozenParticleMatrix } from './particle-mesh.ts';
+import { frozenParticleMatrix, particleStandInMatrix } from './particle-mesh.ts';
 
 const constant = (value: number) => ({ minMaxState: 0, scalar: value, minScalar: 0 });
 const between = (min: number, max: number) => ({ minMaxState: 3, scalar: max, minScalar: min });
@@ -56,4 +57,16 @@ test('mesh particles that die, multiply, face the camera, follow curves or flip 
 	assert.equal(frozenParticleMatrix(system({ initial: { maxNumParticles: 5 } }), renderer(1), emitter), null);
 	const curve = { minMaxState: 1, scalar: 1, minScalar: 0 };
 	assert.equal(frozenParticleMatrix(system({ initial: { startSize: curve } }), renderer(1), emitter), null);
+});
+
+test('a stand-in takes the scale the game sizes particles by, not a parent that stretches the spawn box', () => {
+	// the Jingyu bird flock's parent scales its box shape 363 × 150 × 148 m
+	const parent = trsMatrix([-19.6, 0, 93.2], [0, 0, 0, 1], [363, 150, 148]);
+	const local = { position: [0, 1, 0], rotation: [0, 0, 0, 1], scale: [2, 2, 2] };
+	const axes = (m: Float32Array) => [m[0], m[5], m[10]].map(round);
+	const shape = particleStandInMatrix(parent, local, 2);
+	assert.deepEqual(axes(shape), [1, 1, 1]);
+	assert.deepEqual(Array.from(shape.subarray(12, 15), round), [-19.6, 150, 93.2]);
+	assert.deepEqual(axes(particleStandInMatrix(parent, local, 1)), [2, 2, 2]);
+	assert.deepEqual(axes(particleStandInMatrix(parent, local, 0)), [726, 300, 296]);
 });
