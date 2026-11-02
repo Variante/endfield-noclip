@@ -121,11 +121,12 @@ import {
 	entityVisibilityTargets,
 	loadLevelScripts,
 	loadScriptDrivers,
+	type LevelScripts,
 } from '../game/script-drivers.ts';
 import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
 import { labelStory } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
-import { readScriptWaterLevels } from '../game/water-volume-scripts.ts';
+import { scriptWaterLevels } from '../game/water-volume-scripts.ts';
 import { readWaterVolumes } from '../game/water-volumes.ts';
 import type { ChunkFile, ChunkSource, WorldIndex } from '../game/world-index.ts';
 import { orderedPool } from '../pool.ts';
@@ -381,8 +382,8 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 		const terrainPacked = await packTerrain(context, pack);
 		timer.end('terrain');
 
-		const scriptWater = await readScriptWaterLevels(context, options.scene);
-		entities.counts.waterScriptsUndecoded = scriptWater.undecoded;
+		const scriptWater = scriptWaterLevels(entities.levelScripts);
+		entities.counts.waterScriptActionsComputed = scriptWater.computed;
 		// independent; only water interns geometries, so ids stay deterministic
 		const [environments, water] = await Promise.all([
 			planEnvironments(
@@ -767,6 +768,8 @@ const collectEntities = async (
 	 * LevelData files they couldn't be read from
 	 */
 	waterVolumes: WaterVolumeInput;
+	/** the scene's decoded level scripts, for the water levels they set */
+	levelScripts: LevelScripts;
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1569,6 +1572,7 @@ const collectEntities = async (
 			roomType,
 		})),
 		waterVolumes: { volumes: waterVolumes.volumes, floaterRows, unsupported: waterVolumes.unsupported },
+		levelScripts,
 	};
 };
 

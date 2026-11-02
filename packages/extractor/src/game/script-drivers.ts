@@ -1,3 +1,4 @@
+import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import {
 	readLevelInteractives,
 	UnsupportedLevelData,
@@ -691,7 +692,10 @@ export const loadLevelScripts = async (
 		let script: Script | null;
 		try {
 			script = toScript(id, level, reader.decode(bytes, ROOT));
-		} catch {
+		} catch (error) {
+			if (!(error instanceof FormatError)) {
+				throw error;
+			}
 			undecoded++;
 			continue;
 		}

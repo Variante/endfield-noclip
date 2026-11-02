@@ -1,8 +1,6 @@
-import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
-import type { Context } from '../context.ts';
-import { VfsGroup } from '../hg/vfs.ts';
+import type { LevelScripts } from './script-drivers.ts';
 
 // the fills level scripts set water volumes to: `WaterVolumeInfiniteSetHeight` sets a fraction of the volume's
 // height, `WaterVolumeSetAmount` an amount out of its maximum, and a `WaterVolumeSetFillSpeed` run just before
@@ -23,48 +21,28 @@ export interface ScriptWaterLevel {
 	speed: number | null;
 }
 
-const ROOT = 'Beyond_Gameplay_LevelScriptDataForMemoryPack';
-const SCRIPT_PATH = /^Data\/Json\/LevelScriptData\/([^/]+)\/(\d+)\.json$/;
+/** a script's file name under its level directory, the order fills are listed in */
+const scriptFile = ({ level, id }: { level: string; id: string }): string => `${level}/${id}.json`;
 
 /**
- * reads the constant water volume fills of a scene's level scripts. scripts the schema can't decode are
- * counted and skipped; fills a script computes at runtime aren't listed
- *
- * @param context install readers
- * @param scene owning map
- * @returns fills in script order, and how many scripts couldn't be decoded
+ * @param levelScripts the scene's decoded level scripts
+ * @returns the constant water volume fills of the scene's own levels' scripts, in script order (by level,
+ *   then id), and how many water actions compute their volume or value at runtime, which aren't listed
  */
-export const readScriptWaterLevels = async (
-	context: Pick<Context, 'vfs' | 'world' | 'memoryPack'>,
-	scene: string,
-): Promise<{ levels: ScriptWaterLevel[]; undecoded: number }> => {
-	const { vfs, world } = context;
-	const reader = await context.memoryPack();
-	const levels = new Set(
-		[...(await world.levelConfigs()).values()].filter((config) => config.mapId === scene).map(({ id }) => id),
-	);
-	const result: ScriptWaterLevel[] = [];
-	let undecoded = 0;
-	for (const name of [...(await vfs.group(VfsGroup.JsonData)).files.keys()].toSorted()) {
-		const match = SCRIPT_PATH.exec(name);
-		if (match === null || !levels.has(match[1])) {
-			continue;
-		}
-		// oxlint-disable-next-line no-await-in-loop -- scripts are small and released after decoding
-		const bytes = await vfs.readVerified((await vfs.find(VfsGroup.JsonData, name))!);
-		let decoded: MemoryPackValue;
-		try {
-			decoded = reader.decode(bytes, ROOT);
-		} catch (error) {
-			if (!(error instanceof FormatError)) {
-				throw error;
-			}
-			undecoded++;
-			continue;
-		}
-		result.push(...scriptLevels(match[2], decoded));
+export const scriptWaterLevels = (
+	levelScripts: LevelScripts,
+): { levels: ScriptWaterLevel[]; computed: number } => {
+	const levels: ScriptWaterLevel[] = [];
+	let computed = 0;
+	const own = levelScripts.scripts
+		.filter((script) => levelScripts.ownLevels.has(script.level))
+		.toSorted((a, b) => (scriptFile(a) < scriptFile(b) ? -1 : 1));
+	for (const script of own) {
+		const found = scriptLevels(script.id, script.data);
+		levels.push(...found.levels);
+		computed += found.computed;
 	}
-	return { levels: result, undecoded };
+	return { levels, computed };
 };
 
 type Node = { [key: string]: MemoryPackValue };
@@ -86,9 +64,12 @@ const targetOf = (node: Node): string | null => {
 /**
  * @param script the script's id
  * @param decoded the decoded `LevelScriptData`
- * @returns its constant water volume fills
+ * @returns its constant water volume fills, and how many of its water actions compute their volume or value
  */
-export const scriptLevels = (script: string, decoded: MemoryPackValue): ScriptWaterLevel[] => {
+export const scriptLevels = (
+	script: string,
+	decoded: MemoryPackValue,
+): { levels: ScriptWaterLevel[]; computed: number } => {
 	const actions: { type: string; node: Node }[] = [];
 	const walk = (value: MemoryPackValue): void => {
 		if (Array.isArray(value)) {
@@ -109,10 +90,12 @@ export const scriptLevels = (script: string, decoded: MemoryPackValue): ScriptWa
 	};
 	walk(decoded);
 	const result: ScriptWaterLevel[] = [];
+	let computed = 0;
 	for (const { type, node } of actions) {
 		const volume = targetOf(node);
-		const value = constant(node.value);
+		const value = constant(node[type === 'SetFillSpeed' ? 'speed' : 'value']);
 		if (volume === null || typeof value !== 'number') {
+			computed++;
 			continue;
 		}
 		if (type === 'InfiniteSetHeight') {
@@ -136,5 +119,5 @@ export const scriptLevels = (script: string, decoded: MemoryPackValue): ScriptWa
 			result.push({ volume, script, kind: 'amount', value, smooth: true, speed: null });
 		}
 	}
-	return result;
+	return { levels: result, computed };
 };

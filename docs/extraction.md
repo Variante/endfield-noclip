@@ -352,7 +352,10 @@ interactives whose component 39 names one (the floaters), skipping a file the sc
 whole (only Dijiang's two, whose spaceship data holds a tuple the schema has no wrapper for).
 [water-volume-scripts.ts](../packages/extractor/src/game/water-volume-scripts.ts) collects the
 constant fills the scene's level scripts set volumes to, with the fill speed set just before a
-smooth move.
+smooth move. it reads the scripts the packer decoded once for [script groups](#script-groups); water
+actions whose volume or value the script computes at runtime aren't listed, and the pack report
+counts them (`waterScriptActionsComputed`). `WaterVolumeSetAmount` is listed as moving the surface
+at the volume's speed, a guess: whether it moves or snaps isn't recovered.
 
 for inspection without packing, `water surfaces|census|config` dumps placements, counts per level,
 chunk file, mask, mesh and config, and single config assets
