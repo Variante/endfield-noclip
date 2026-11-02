@@ -26,6 +26,7 @@ import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import { frozenParticleMatrix, type LocalTransform, SCALING_SHAPE } from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
+import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
 	animatorHiddenNodes,
 	isOneShotEffect,
@@ -248,6 +249,7 @@ export const readPrefabRenderers = async (
 					]
 				: [UnityClass.Transform];
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
+		const movers: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		let board: TypeTreeObject | null = null;
 		for (const item of arrayField(data, 'm_Component')) {
 			if (!isObject(item)) {
@@ -261,6 +263,15 @@ export const readPrefabRenderers = async (
 				components.push({ ref, data: await resolver.read(ref) });
 			} else if (wanted.length > 1 && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
 				board = await resolver.read(ref);
+			} else if (
+				wanted.length > 1 &&
+				ref.info.classId === UnityClass.MonoBehaviour &&
+				isSplineMoverType(ref)
+			) {
+				const moverData = await resolver.read(ref);
+				if (booleanField(moverData, 'm_Enabled')) {
+					movers.push({ ref, data: moverData });
+				}
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isViewStateControllerType(ref)) {
 				for (const node of await playedEffectNodes(resolver, ref, await resolver.read(ref))) {
 					played.add(node);
@@ -463,6 +474,12 @@ export const readPrefabRenderers = async (
 						}
 					}
 				}
+			}
+		}
+		for (const mover of movers) {
+			// the objects draw their LOD groups' first-LOD renderers, which live in other prefabs
+			for (const renderer of await splineMoverRenderers(resolver, mover.ref, mover.data, standIn)) {
+				candidates.push({ ...renderer, matrix, name, billboard: null, posedMaterials: [] });
 			}
 		}
 		for (const pointer of arrayField(t, 'm_Children')) {

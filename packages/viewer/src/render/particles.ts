@@ -9,6 +9,7 @@ import {
 	ParticleRenderMode,
 	ParticleShapeKind,
 	type ParticleSpeedLimitInfo,
+	type ParticleSplineInfo,
 	type ParticleSystemInfo,
 	type ParticlesTable,
 	type ParticleTextureSheetInfo,
@@ -98,6 +99,7 @@ const Channel = {
 	ColorOverLifetime: 33,
 	Drag: 34,
 	SpeedLimit: 35,
+	SplineSpeed: 36,
 } as const;
 
 /**
@@ -372,6 +374,40 @@ export const travelled = (curve: MinMaxCurveInfo, age: number, life: number, r: 
 };
 
 /**
+ * a point along a particle path, as the game finds it: the segment the distance falls in, at the Bézier
+ * parameter its share of that segment's length
+ *
+ * @param spline the path
+ * @param distance m along it
+ * @returns the point and the derivative per metre of distance, or `null` past the path's end
+ */
+export const splinePoint = (
+	spline: ParticleSplineInfo,
+	distance: number,
+): { position: Vec3; tangent: Vec3 } | null => {
+	let start = 0;
+	for (const segment of spline.segments) {
+		if (distance < start + segment.length) {
+			const u = Math.max(distance - start, 0) / segment.length;
+			const [p0, p1, p2, p3] = segment.points;
+			const v = 1 - u;
+			const b = [v * v * v, 3 * u * v * v, 3 * u * u * v, u * u * u];
+			const d = [-3 * v * v, 3 * v * v - 6 * u * v, 6 * u * v - 3 * u * u, 3 * u * u];
+			const position: Vec3 = [0, 0, 0];
+			const tangent: Vec3 = [0, 0, 0];
+			for (let axis = 0; axis < 3; axis++) {
+				position[axis] = b[0] * p0[axis] + b[1] * p1[axis] + b[2] * p2[axis] + b[3] * p3[axis];
+				tangent[axis] =
+					(d[0] * p0[axis] + d[1] * p1[axis] + d[2] * p2[axis] + d[3] * p3[axis]) / segment.length;
+			}
+			return { position, tangent };
+		}
+		start += segment.length;
+	}
+	return null;
+};
+
+/**
  * @param lived a ring-buffered particle's age over its lifetime, which can pass 1
  * @param loopRange the span of the lifetime it replays once it reaches the span's end, or `null` to hold it
  *   at the end of its lifetime
@@ -624,6 +660,10 @@ export class ParticleSimulation {
 			if (ringBuffer !== null && life > 0) {
 				age = life * ringBufferAge(age / life, ringBuffer.loop ? ringBuffer.loopRange : null);
 			}
+			// a particle that runs off its path's end is gone
+			if (this.#splineAt(id, age, life) === null) {
+				continue;
+			}
 			alive++;
 			if (this.#drawsMesh(id)) {
 				this.#place(id, born, age, down, worldToLocal, out, count * PARTICLE_FLOATS);
@@ -631,6 +671,25 @@ export class ParticleSimulation {
 			}
 		}
 		return count;
+	}
+
+	/**
+	 * @returns where a particle is along the system's path and how it moves there, in the path's frame:
+	 *   `undefined` without a path, `null` once it has run off the end
+	 */
+	#splineAt(id: number, age: number, life: number): { position: Vec3; moving: Vec3 } | null | undefined {
+		const spline = this.info.spline;
+		if (spline === null) {
+			return undefined;
+		}
+		const r = random(this.#seed, id, Channel.SplineSpeed);
+		const point = splinePoint(spline, travelled(spline.speed, age, life, r));
+		if (point === null) {
+			return null;
+		}
+		const speed = evaluateMinMax(spline.speed, life > 0 ? Math.min(age / life, 1) : 0, r);
+		const t = point.tangent;
+		return { position: point.position, moving: [t[0] * speed, t[1] * speed, t[2] * speed] };
 	}
 
 	/** the emissions whose particles could be alive at `time` */
@@ -982,10 +1041,19 @@ export class ParticleSimulation {
 			down,
 			worldToLocal,
 		};
-		const path =
-			info.speedLimit === null
-				? this.#freePath({ ...motion, startSize })
-				: this.#limitedPath(info.speedLimit, motion);
+		let path: { position: Vec3; moving: Vec3 };
+		const along = this.#splineAt(id, age, life);
+		if (along) {
+			// a path's particles start at their place in the shape, offset from it
+			path = {
+				position: [start[0] + along.position[0], start[1] + along.position[1], start[2] + along.position[2]],
+				moving: along.moving,
+			};
+		} else if (info.speedLimit === null) {
+			path = this.#freePath({ ...motion, startSize });
+		} else {
+			path = this.#limitedPath(info.speedLimit, motion);
+		}
 		let position = path.position;
 		const moving = path.moving;
 

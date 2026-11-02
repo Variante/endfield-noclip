@@ -193,7 +193,11 @@ packs or renders correctly.
   curves). drag is approximated (it slows the start velocity and the fall alone), the maximum
   on-screen particle size isn't applied, stretched billboards are centred on the particle, and
   colours above 1 and custom data never reach the shaders. all copies of one flipbook step in phase.
-  Marker Stone's low mist banks over the valley are still missing; their source is unknown
+  Marker Stone's low mist banks over the valley are still missing; their source is unknown.
+  [spline movers](game-data/assets.md#spline-movers) (Dijiang's shaft cargo) take their lifetime
+  span as the spline's length over the speed, which isn't verified, and draw each LOD group's
+  renderers at the group's origin; those with noise, rotation over lifetime or an alpha fade stand
+  in
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its wetness, sludge,
   footprint, UV-noise and arc variants, and placements without their colour and UV, as
   [unsupported](viewer/materials.md#unsupported-materials), and draws overlaps without the game's

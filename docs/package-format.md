@@ -479,7 +479,15 @@ that its render mode turns to the camera, stretches along the particle's velocit
 emitter is an ordinary instance row: its transform is the system's frame and its bounds cover
 everywhere a particle reaches, so the row culls like any other. a ring-buffered system's particles
 outlive their lifetime until replaced, held at their end or looping part of it; a texture sheet
-names the flipbook tile each particle's mesh UVs are remapped into.
+names the flipbook tile each particle's mesh UVs are remapped into. a system with a `spline` moves
+its particles along that path at its speed instead of by their start speed, velocity and gravity.
+
+a [spline mover](game-data/assets.md#spline-movers) packs as such a system
+([spline-movers.ts](../packages/extractor/src/game/spline-movers.ts)): one entry per renderer of
+each LOD group's first LOD, the mesh index naming the group, all at the mover's GameObject. its
+start lifetime becomes seconds: the clamped fraction times the spline's length over the speed. a
+mover with noise, rotation over lifetime, an alpha fade, another emission type, a lifetime or speed
+curve, or more than four groups draws its first group once at its origin as a stand-in.
 
 a `ParticleSystemRenderer` ([particle systems](game-data/assets.md#particle-systems)) whose
 `ParticleSystem` plays on awake is packed one of three ways. mesh-mode renderers draw their meshes;

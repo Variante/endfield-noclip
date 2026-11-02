@@ -246,6 +246,31 @@ export interface ParticleSystemInfo {
 	ringBuffer: ParticleRingBufferInfo | null;
 	/** a flipbook the particles step through (Unity's `TextureSheetAnimationModule`); `null` without */
 	textureSheet: ParticleTextureSheetInfo | null;
+	/**
+	 * a path the particles follow instead of moving by their speed, velocity and gravity; `null` for an
+	 * ordinary system
+	 */
+	spline: ParticleSplineInfo | null;
+}
+
+/** one cubic Bézier segment of a {@link ParticleSplineInfo}, in the emitter's frame */
+export interface SplineSegmentInfo {
+	/** the start point, its two control points and the end point */
+	points: [Vec3, Vec3, Vec3, Vec3];
+	/** m along the path this segment takes up, the length the game gives it */
+	length: number;
+}
+
+/**
+ * a path of cubic Bézier segments laid end to end (Beyond's `HGSplineMovingObjects`). a particle `d` metres
+ * along it lies in the segment its distance falls in, at the Bézier parameter `(d − segment start) / length`,
+ * which is linear in distance only for evenly spaced control points. it dies once `d` passes the last
+ * segment's end, even within its lifetime
+ */
+export interface ParticleSplineInfo {
+	segments: SplineSegmentInfo[];
+	/** m/s along the path, read at the particle's age over its lifetime; the distance is its integral */
+	speed: MinMaxCurveInfo;
 }
 
 /** how a ring-buffered particle carries on past its lifetime */

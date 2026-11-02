@@ -612,6 +612,7 @@ export const readParticleSystem = (
 			mesh: 0,
 			ringBuffer,
 			textureSheet,
+			spline: null,
 		},
 		meshes,
 	};
@@ -627,6 +628,23 @@ export const readParticleSystem = (
  * @returns the box
  */
 export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aabb => {
+	if (info.spline !== null) {
+		// a Bézier segment stays inside its control points' hull
+		let farthest = 0;
+		for (const segment of info.spline.segments) {
+			for (const point of segment.points) {
+				farthest = Math.max(farthest, Math.hypot(...point));
+			}
+		}
+		const start =
+			info.shape === null ? 0 : Math.hypot(...info.shape.position) + Math.hypot(...info.shape.scale) / 2;
+		const size =
+			meshRadius *
+			Math.max(...info.startSize.map(curveReach)) *
+			Math.max(1, ...(info.sizeOverLifetime ?? []).map(curveReach));
+		const half = farthest + start + size;
+		return { center: [0, 0, 0], extents: [half, half, half] };
+	}
 	const life = curveReach(info.startLifetime);
 	const speedScale = info.velocity === null ? 1 : curveReach(info.velocity.speedModifier);
 	let speed = curveReach(info.startSpeed);

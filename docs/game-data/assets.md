@@ -146,6 +146,38 @@ examples:
   ring-buffered particle stepping through an 8×8 flipbook every loop.
 - the spray and stretched mist cards at the foot of falls are `shuihua` and `shuiwu`.
 
+### spline movers
+
+Beyond's `HGSplineMovingObjects` MonoBehaviour emits whole prefabs along a spline, simulated in
+native code rather than by a `ParticleSystem`. the cargo crates riding up and down Dijiang's central
+shaft are such movers: ten of them in `p_fxmap_base01_lv001_zmdlogistics_02_01` (and `_01_01` for
+the other scene state), placed with the shaft's effects in base01_lv001. it is recognised by its
+`desc`, `knotData` and `fixedPostion` fields. `desc` holds Unity `MinMaxCurve`s in their managed
+form (`m_Mode`, `m_ConstantMin/Max`, `m_CurveMultiplier`, `m_CurveMin/Max`), and the game:
+
+- **emits** `emissionRateOverTime` objects per second of the mover's own time, the frame's time
+  times `simulateSpeed` (the logic clock's with `useLogicDeltaTime`). an object emitted partway
+  through a frame starts aged by the rest of it. each picks one of `lodGroups` at random and draws
+  that LOD group's renderers as one object.
+- **places** an object `d` metres along `knotData`, cubic Bézier segments (`p0`–`p3`) laid end to
+  end, each taking up its stored `length`. the segment's parameter is `d`'s share of that length, so
+  the speed along the curve follows the control points' spacing: the shaft's straight segments, with
+  their handles on their ends, ease objects in and out. `d` grows by `velocityOverLifeTime`, read at
+  the object's age over its lifetime, times the step. past the last segment the object is removed.
+  with `emissionType` 0 it starts at a random point of the `aabb` box, an offset added to every
+  spline point.
+- **lives** `startLifeTime` clamped to 0–1, times a span the game derives per mover: a fraction of
+  the trip, so the shaft's descending crates (lifetime 5) ride the whole 60 m and the rising ones
+  (0.6–0.75) stop part of the way up. the span read as the spline's length over the speed is
+  unverified.
+- **sizes and turns** it: uniform scale `startSize` times `sizeOverLifeTime`, Euler angles in
+  degrees from `startRotationX/Y/Z` in Unity's order (only z without `has3dStartRotation`), plus
+  rotation over lifetime with `hasRotation` and a noise offset with `hasNoise`; the shaft's movers
+  use neither. the object's matrix is the mover's `objectToWorld`, updated from its transform.
+- **fades** with `hasAlphaControl`: an object whose `alphaOverLifeTime` falls below
+  `transparentAlpha` draws transparent at that alpha. the shaft's movers set `transparentAlpha` 0,
+  so they stay opaque.
+
 ### billboards
 
 an enabled `VFXBillBoard` MonoBehaviour (HG's effect billboard, recognised by its `billboardMode`,

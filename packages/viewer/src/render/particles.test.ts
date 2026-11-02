@@ -28,6 +28,7 @@ import {
 	limitedPath,
 	ringBufferAge,
 	sheetTile,
+	splinePoint,
 	travelled,
 } from './particles.ts';
 
@@ -127,6 +128,7 @@ const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo
 	mesh: 0,
 	ringBuffer: null,
 	textureSheet: null,
+	spline: null,
 	...overrides,
 });
 
@@ -155,6 +157,51 @@ const run = (info: ParticleSystemInfo, time: number, seed = 7) => {
 		tile: out[i * PARTICLE_FLOATS + 10],
 	}));
 };
+
+describe('spline paths', () => {
+	// Dijiang's central shaft lifts its cargo 70 m up a straight segment whose handles sit on its ends
+	const lift = {
+		segments: [
+			{
+				points: [
+					[0, -20, 0],
+					[0, -20, 0],
+					[0, 50, 0],
+					[0, 50, 0],
+				] as [Vec3, Vec3, Vec3, Vec3],
+				length: 70,
+			},
+		],
+		speed: constant(1),
+	};
+	it('places a distance at its share of the segment as a Bézier parameter, so the lift eases in and out', () => {
+		assert.deepEqual(splinePoint(lift, 35)?.position, [0, 15, 0]);
+		// smoothstep(0.25) of the way up
+		assert.ok(Math.abs((splinePoint(lift, 17.5)?.position[1] ?? 0) - (-20 + 70 * 0.15625)) < 1e-9);
+		assert.equal(splinePoint(lift, 70.5), null);
+	});
+	it('moves particles by the speed along the path, from their box offset', () => {
+		const info = system({
+			startLifetime: constant(49),
+			rate: constant(0.5),
+			maxParticles: 26,
+			shape: { ...system().shape!, kind: ParticleShapeKind.Box, position: [2, 0, 0], scale: [0, 0, 0] },
+			startRotation: [constant(0), constant(0), constant(0)],
+			spline: lift,
+		});
+		const particles = run(info, 1000);
+		assert.ok(particles.length > 20);
+		for (const { position } of particles) {
+			assert.equal(position[0], 2);
+			// 49 m of 70 at most
+			assert.ok(position[1] >= -20 && position[1] <= -20 + 70 * (3 * 0.7 ** 2 - 2 * 0.7 ** 3) + 1e-4);
+		}
+	});
+	it('drops particles that run off the end within their lifetime', () => {
+		const info = system({ startLifetime: constant(200), rate: constant(1), maxParticles: 201, spline: lift });
+		assert.ok(run(info, 1000).length <= 71);
+	});
+});
 
 describe('gradients', () => {
 	const fade: GradientInfo = {

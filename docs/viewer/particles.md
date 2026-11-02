@@ -74,6 +74,10 @@ system and its index, so any moment can be evaluated on its own:
   module's terms are its linear velocity, the orbit's velocity at the particle's current place
   (`ω × r` about the orbit's centre, rather than the closed form's turn of the whole path) and the
   radial push away from that centre. the limit's random value is the particle's own, not the game's.
+- a system with a spline ([spline movers](../game-data/assets.md#spline-movers)) ignores the above:
+  a particle lies at the path's point its travelled distance reaches (the speed curve integrated
+  over its age, as linear velocities are), plus its start position in the shape, and leaves once
+  that distance passes the path's end. `splinePoint` finds the point as the game does.
 - colour is the start colour (read at the emission's place in its loop) times the colour over
   lifetime, blended in the authored colour space, then made linear into the row's colour word.
 - quads turn by the render mode: billboards with the camera (their rotation rolls them), vertical
