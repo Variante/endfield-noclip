@@ -723,25 +723,25 @@ hold.
 
 the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a-glance):
 
-| selector                   | package control                                     | default                                                           |
-| -------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
-| quest / mission state      | `quest:<id>` / `mission:<id>` (state values)        | completed (a finished story)                                      |
-| map / global variable      | `mapVar:<map>:<name>` / `globalVar:<name>` (ranges) | the highest value the scene compares it against                   |
-| MapConfig scene state      | `sceneState:<index>`, derived from its condition    | its condition under the defaults above; condition-less states off |
-| mission gate               | requirements on quest and mission controls          | —                                                                 |
-| variable gate              | a requirement on the variable's control             | —                                                                 |
-| progression                | `<kind>:<key>`                                      | lowest authored level                                             |
-| facility visual form       | `facility:<interactive id>`                         | the template's base model                                         |
-| interactive created later  | `created:<level id>`, not created / created         | not created                                                       |
-| doodad group level         | `doodadGroups:<level id>`                           | the highest level its shells name                                 |
-| Dijiang cabin slot         | `cabin:<entity id>`, empty / built                  | empty                                                             |
-| growth chamber level       | `cabinLevel:<entity id>`, the table's levels        | level 1                                                           |
-| Dijiang region wall        | `controlNexus:<level id>`                           | level 1                                                           |
-| door                       | `door:<interactive id>`, closed / open              | closed; a cabin's follows its slot                                |
-| telescopic bridge          | `bridge:<interactive id>`, retracted / extended     | retracted                                                         |
-| tree harvest state         | `harvest:<level tag>`, standing / felled            | standing                                                          |
-| script group               | `script:<entity id>`                                | the stored default, or its scripts' quest checks on activation    |
-| controller-less logic gate | `logic:<entity id>:<mask>`                          | off                                                               |
+| selector                   | package control                                    | default                                                           |
+| -------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
+| quest / mission state      | `quest:<id>` / `mission:<id>` (state values)       | completed (a finished story)                                      |
+| map / global variable      | `mapVar:<map>:#<id>` / `globalVar:<name>` (ranges) | the highest value the scene compares it against                   |
+| MapConfig scene state      | `sceneState:<index>`, derived from its condition   | its condition under the defaults above; condition-less states off |
+| mission gate               | requirements on quest and mission controls         | —                                                                 |
+| variable gate              | a requirement on the variable's control            | —                                                                 |
+| progression                | `<kind>:<key>`                                     | lowest authored level                                             |
+| facility visual form       | `facility:<interactive id>`                        | the template's base model                                         |
+| interactive created later  | `created:<level id>`, not created / created        | not created                                                       |
+| doodad group level         | `doodadGroups:<level id>`                          | the highest level its shells name                                 |
+| Dijiang cabin slot         | `cabin:<entity id>`, empty / built                 | empty                                                             |
+| growth chamber level       | `cabinLevel:<entity id>`, the table's levels       | level 1                                                           |
+| Dijiang region wall        | `controlNexus:<level id>`                          | level 1                                                           |
+| door                       | `door:<interactive id>`, closed / open             | closed; a cabin's follows its slot                                |
+| telescopic bridge          | `bridge:<interactive id>`, retracted / extended    | retracted                                                         |
+| tree harvest state         | `harvest:<level tag>`, standing / felled           | standing                                                          |
+| script group               | `script:<entity id>`                               | the stored default, or its scripts' quest checks on activation    |
+| controller-less logic gate | `logic:<entity id>:<mask>`                         | off                                                               |
 
 ### MapConfig scene states
 
@@ -807,8 +807,12 @@ reading that the story moves variables forward (erosion cleansed, machines repai
 of a staged change). the guess fails at Origin Lodespring (map01_lv006), where an in-game shot
 matches value 2 of the light column's variable, not the default 4; the red-ringed spires there are
 gated on a sentinel-looking 9999, which shouldn't set the default
-([variables](game-data/scene-states.md#variables)). MapConfig variables and gate variables never
-share a control, since one is named and the other numeric.
+([variables](game-data/scene-states.md#variables)). a map variable is keyed by the map's numeric id
+and its numeric variable id (`mapVar:85:#125`) wherever the scene's MapConfig names it: a MapConfig
+condition's name resolves through `mapVarName2NumId`, and the control is labelled from
+`mapVarNumId2Name`, so a scene state and a load gate on the same variable share one control. a map
+variable the MapConfig doesn't name (map01 names none) keeps the key its source gives it. global
+variables have no name table, so MapConfig's named ones and gates' numbered ones stay apart.
 
 ### dynamic load gates
 

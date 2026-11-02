@@ -125,7 +125,10 @@ every gate on an entity must pass.
   (e.g. a bridge raised or lowered in place).
 
 variable keys are numeric client game-variable ids, not root strings. MapConfig's `mapVarName2NumId`
-names a map's variables.
+and `mapVarNumId2Name` map a map's variable names to these ids and back, and a gate's map id is the
+MapConfig's numeric `mapId` (85 for map02), so a MapConfig condition and a gate can read the same
+variable: map02's `map02lv005stateflower` is #125, which 5 dynamic entities gate on. map01's tables
+are empty.
 
 **outpost tiers.** Yinglung Pass (`stm_hongs_3`) has per-level scenery (its beacon beam, boards and
 screens) on map variables rather than logic-state masks: one `ResourceWithIdControlByMapVar` owner

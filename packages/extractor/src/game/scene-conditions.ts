@@ -2,7 +2,14 @@ import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-
 
 import { mapDefined } from '@mary-ext/array-fns';
 
-import { describeCondition, mapConfigCondition, type GameCondition, type GameState } from './game-state.ts';
+import {
+	describeCondition,
+	mapConfigCondition,
+	mapVariables,
+	type GameCondition,
+	type GameState,
+	type MapVariables,
+} from './game-state.ts';
 import type { WorldIndex } from './world-index.ts';
 
 // MapConfig scene states and the conditions that switch them; see
@@ -43,6 +50,16 @@ export const loadSceneStates = async (world: WorldIndex, map: string): Promise<S
 			const condition = conditions.get(name);
 			return { index, name, condition: condition === undefined ? null : mapConfigCondition(condition) };
 		});
+};
+
+/**
+ * @param world world index
+ * @param map the scene's MapConfig id
+ * @returns how the MapConfig names its map's variables, or `null` without a MapConfig
+ */
+export const loadMapVariables = async (world: WorldIndex, map: string): Promise<MapVariables | null> => {
+	const config = await world.mapConfig(map);
+	return config === undefined ? null : mapVariables(config);
 };
 
 /**

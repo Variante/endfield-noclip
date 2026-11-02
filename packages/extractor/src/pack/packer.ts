@@ -114,6 +114,7 @@ import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/pr
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
 import {
 	defaultSceneStates,
+	loadMapVariables,
 	loadSceneStates,
 	sceneStateControl,
 	sceneStateControls,
@@ -642,19 +643,30 @@ const indexScene = async (
 	options: PackOptions,
 ): Promise<SceneIndex> => {
 	const { world } = context;
-	const [pathOf, bundleManifest, names, partition, terrainIndex, surface, chunkFiles, sceneStates, links] =
-		await Promise.all([
-			world.pathLookup(),
-			world.manifest(),
-			world.names(),
-			world.partition(options.scene),
-			indexTerrain(context.vfs),
-			loadTerrainSurfacesData(context, options.scene),
-			world.chunkFiles(),
-			loadSceneStates(world, options.scene),
-			loadUpgradeLinks(context, options.scene),
-		]);
-	const game = new GameState(links);
+	const [
+		pathOf,
+		bundleManifest,
+		names,
+		partition,
+		terrainIndex,
+		surface,
+		chunkFiles,
+		sceneStates,
+		links,
+		variables,
+	] = await Promise.all([
+		world.pathLookup(),
+		world.manifest(),
+		world.names(),
+		world.partition(options.scene),
+		indexTerrain(context.vfs),
+		loadTerrainSurfacesData(context, options.scene),
+		world.chunkFiles(),
+		loadSceneStates(world, options.scene),
+		loadUpgradeLinks(context, options.scene),
+		loadMapVariables(world, options.scene),
+	]);
+	const game = new GameState({ links, variables });
 	game.note(mapDefined(sceneStates, ({ condition }) => condition ?? undefined));
 	const terrainScene = terrainIndex.get(options.scene);
 	if (terrainScene !== undefined && surface === undefined) {

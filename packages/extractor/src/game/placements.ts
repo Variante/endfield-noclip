@@ -8,6 +8,7 @@ import { loadCabins } from './cabins.ts';
 import { loadDynamicStructures, type StructureModel } from './dynamic-structures.ts';
 import { GameState, type Alternatives } from './game-state.ts';
 import { loadInteractiveFacilities, type InteractiveStandIn } from './interactive-facilities.ts';
+import { loadMapVariables } from './scene-conditions.ts';
 import { loadUpgradeLinks } from './settlement-upgrades.ts';
 import { pivotOf, type IndexedEntity } from './world-index.ts';
 
@@ -157,7 +158,10 @@ export const loadDynamicPlacements = async (
 	let structures: Awaited<ReturnType<typeof loadDynamicStructures>> | undefined;
 	if (needsStructures) {
 		try {
-			const game = new GameState(await loadUpgradeLinks(context, scene));
+			const game = new GameState({
+				links: await loadUpgradeLinks(context, scene),
+				variables: await loadMapVariables(context.world, scene),
+			});
 			structures = await loadDynamicStructures(context, scene, partition, game);
 		} catch (error) {
 			for (const kind of ['dynamic', 'model', 'effect', 'cabin'] as const) {

@@ -1,5 +1,9 @@
 import type { DynamicGate } from '@endfield-noclip/formats/endfield/dynamic-scene';
-import type { CompareOperator, SceneCondition } from '@endfield-noclip/formats/endfield/map-config';
+import type {
+	CompareOperator,
+	MapConfig,
+	SceneCondition,
+} from '@endfield-noclip/formats/endfield/map-config';
 import { conditionVisible } from '@endfield-noclip/package-format/conditions';
 import type {
 	SceneControl,
@@ -208,8 +212,8 @@ export const allOf = (a: Alternatives, b: Alternatives): Alternatives => {
 
 interface Variable {
 	kind: 'mapVar' | 'globalVar';
-	name: string;
-	mapId: string | null;
+	/** the control's name */
+	label: string;
 	targets: Set<number>;
 	/** whether a test tells an unset variable apart from 0 */
 	unset: boolean;
@@ -233,18 +237,53 @@ export interface ProgressionLink {
 	completedFrom: number;
 }
 
+/**
+ * how a MapConfig names its map's variables. MapConfig conditions name a variable (`map02`, `stateflower`)
+ * while load gates give numeric ids (`85`, `#125`); both name the same game variable
+ */
+export interface MapVariables {
+	/** the map's string id, as MapConfig conditions give it */
+	map: string;
+	/** its numeric id, as load gates give it */
+	mapId: number;
+	/** name → numeric variable id */
+	ids: Readonly<Record<string, number>>;
+	/** numeric variable id → name */
+	names: Readonly<Record<number, string>>;
+}
+
+/**
+ * @param config the scene's MapConfig
+ * @returns how it names its map's variables
+ */
+export const mapVariables = (config: MapConfig): MapVariables => ({
+	map: config.mapId,
+	mapId: config.mapIdNum,
+	ids: config.mapVarIds,
+	names: config.mapVarNames,
+});
+
 /** the game state a scene's conditions read, as controls */
 export class GameState {
 	readonly #quests = new Map<string, 'quest' | 'mission'>();
 	readonly #variables = new Map<string, Variable>();
 	readonly #links: ReadonlyMap<string, ProgressionLink>;
+	readonly #mapVariables: MapVariables | null;
 
 	/**
-	 * @param links by mission id, the progression level its completion stands for. a test that only tells that
-	 *   mission's completion apart reads the progression's control instead of a mission control
+	 * @param options.links by mission id, the progression level its completion stands for. a test that only
+	 *   tells that mission's completion apart reads the progression's control instead of a mission control
+	 * @param options.variables how the scene's MapConfig names its map's variables, so a variable a condition
+	 *   names and one a gate numbers share a control
 	 */
-	constructor(links: ReadonlyMap<string, ProgressionLink> = new Map()) {
-		this.#links = links;
+	constructor(
+		options: {
+			links?: ReadonlyMap<string, ProgressionLink>;
+			variables?: MapVariables | null;
+		} = {},
+	) {
+		this.#links = options.links ?? new Map();
+		this.#mapVariables = options.variables ?? null;
 	}
 
 	/**
@@ -263,11 +302,10 @@ export class GameState {
 				}
 				case 'mapVar':
 				case 'globalVar': {
-					const id = variableId(condition);
+					const { id, label } = this.#variable(condition);
 					const variable = this.#variables.getOrInsertComputed(id, () => ({
 						kind: condition.kind,
-						name: condition.name,
-						mapId: condition.kind === 'mapVar' ? condition.mapId : null,
+						label,
 						targets: new Set(),
 						unset: false,
 						ranges: null,
@@ -345,7 +383,7 @@ export class GameState {
 			controls.push({
 				kind: variable.kind,
 				id,
-				name: variable.kind === 'mapVar' ? `${variable.name} (map ${variable.mapId})` : variable.name,
+				name: variable.label,
 				rule: null,
 				assumption: `assumed ${highest}, the highest value the scene compares it against`,
 				story: null,
@@ -392,7 +430,7 @@ export class GameState {
 			}
 			case 'mapVar':
 			case 'globalVar': {
-				const id = variableId(condition);
+				const { id } = this.#variable(condition);
 				const ranges = this.#ranges(id);
 				return leaf(
 					id,
@@ -416,6 +454,36 @@ export class GameState {
 		}
 	}
 
+	/** @returns the variable's control id and name, by numeric id where the MapConfig names it */
+	#variable(condition: Extract<GameCondition, { kind: 'mapVar' | 'globalVar' }>): {
+		id: string;
+		label: string;
+	} {
+		if (condition.kind === 'globalVar') {
+			return { id: `globalVar:${condition.name}`, label: condition.name };
+		}
+		const known = this.#mapVariables;
+		let numeric: number | undefined;
+		if (known !== null) {
+			if (condition.mapId === known.map && Object.hasOwn(known.ids, condition.name)) {
+				numeric = known.ids[condition.name];
+			} else if (condition.mapId === String(known.mapId) && /^#\d+$/.test(condition.name)) {
+				numeric = Number(condition.name.slice(1));
+			}
+		}
+		if (known === null || numeric === undefined) {
+			return {
+				id: `mapVar:${condition.mapId}:${condition.name}`,
+				label: `${condition.name} (map ${condition.mapId})`,
+			};
+		}
+		const name = known.names[numeric]?.trim();
+		return {
+			id: `mapVar:${known.mapId}:#${numeric}`,
+			label: `${name ?? `#${numeric}`} (map ${known.map}${name === undefined ? '' : `, #${numeric}`})`,
+		};
+	}
+
 	#ranges(id: string): Range[] {
 		const variable = this.#variables.get(id);
 		if (variable === undefined) {
@@ -428,9 +496,6 @@ export class GameState {
 
 /** `QuestState.Completed` / `MissionState.Completed` */
 const COMPLETED = 3;
-
-const variableId = (condition: Extract<GameCondition, { kind: 'mapVar' | 'globalVar' }>): string =>
-	condition.kind === 'mapVar' ? `mapVar:${condition.mapId}:${condition.name}` : `globalVar:${condition.name}`;
 
 /**
  * @returns the variable's distinguishable ranges: unset when a test tells it apart, then below, at and
@@ -452,7 +517,7 @@ const variableRanges = (variable: Variable): Range[] => {
 		}
 	}
 	if (ranges.length > 32) {
-		throw new RangeError(`variable ${variable.name} has ${ranges.length} distinguishable values`);
+		throw new RangeError(`variable ${variable.label} has ${ranges.length} distinguishable values`);
 	}
 	return ranges;
 };

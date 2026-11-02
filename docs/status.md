@@ -315,13 +315,14 @@ packs or renders correctly.
 - interactive facilities are gathered from levels whose map is the packed scene, so a scene streamed
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
-- variable ids are unnamed (MapConfig's `mapVarName2NumId` names map variables but isn't read);
-  Yinglung Pass's server-set outpost tier variables are separate controls, so all four tiers show by
-  default ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); outpost level-up missions
-  are read as complete above their level, unverified against whether completion raises the level or
-  only unlocks it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions));
-  variables that drive entity level or animator state (doors, bridges, puzzles:
-  `ModelViewStateControllerData` state machines) aren't controls yet
+- global variables gates number and MapConfig names stay separate controls (no name table is known);
+  map variables map01's MapConfig doesn't name show as numbers; Yinglung Pass's server-set outpost
+  tier variables are separate controls, so all four tiers show by default
+  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); outpost level-up missions are
+  read as complete above their level, unverified against whether completion raises the level or only
+  unlocks it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)); variables
+  that drive entity level or animator state (doors, bridges, puzzles: `ModelViewStateControllerData`
+  state machines) aren't controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
   aren't represented; script-driven water levels are picked by hand, not tied to the switches,
   clocks and quests that drive them; the shop, depot and terminal level → visual form mapping, and

@@ -81,6 +81,34 @@ test('a variable takes one value per range between the targets the scene compare
 	);
 });
 
+test('a variable a MapConfig condition names and one a gate numbers share a control', () => {
+	const game = new GameState({
+		variables: { map: 'map02', mapId: 85, ids: { stateflower: 125 }, names: { 125: 'stateflower' } },
+	});
+	const named: GameCondition = {
+		kind: 'mapVar',
+		mapId: 'map02',
+		name: 'stateflower',
+		compare: 0,
+		target: 1,
+		unsetFails: false,
+	};
+	const gated = gateCondition({ kind: 'mapVar', key: 125, compare: 0, value: 1, mapId: 85 });
+	game.note([named, gated]);
+	// the MapConfig test reads unset as 0, the gate fails while unset
+	assert.deepEqual(game.requirements(named), [[{ control: 'mapVar:85:#125', mask: 0b0100 }]]);
+	assert.deepEqual(game.requirements(gated), [[{ control: 'mapVar:85:#125', mask: 0b0100 }]]);
+	const controls = game.controls();
+	assert.deepEqual(
+		controls.map(({ id, name }) => [id, name]),
+		[['mapVar:85:#125', 'stateflower (map map02, #125)']],
+	);
+	assert.deepEqual(
+		controls[0].values.map(({ label }) => label),
+		['unset', '< 1', '= 1', '> 1'],
+	);
+});
+
 test('a MapConfig variable test reads an unset variable as 0, so it has no unset value', () => {
 	const game = new GameState();
 	const day: GameCondition = {
@@ -124,9 +152,11 @@ test('conjunctions merge requirements on the same control and drop impossible on
 
 test('a test of an outpost level-up mission completing reads the outpost level instead', () => {
 	// Cardiac Remediation Station: f1m19d3 raises it from level 3, so it's complete at level 4
-	const game = new GameState(
-		new Map([['f1m19d3', { control: 'settlement:stm_hongs_2', levels: [0, 1, 2, 3, 4], completedFrom: 4 }]]),
-	);
+	const game = new GameState({
+		links: new Map([
+			['f1m19d3', { control: 'settlement:stm_hongs_2', levels: [0, 1, 2, 3, 4], completedFrom: 4 }],
+		]),
+	});
 	const mission = (compare: 0 | 1, target: number): GameCondition => ({
 		kind: 'mission',
 		id: 'f1m19d3',

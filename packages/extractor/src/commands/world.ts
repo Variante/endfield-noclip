@@ -42,7 +42,12 @@ import {
 	PLACEMENT_KINDS,
 	type PlacementKind,
 } from '../game/placements.ts';
-import { defaultSceneStates, loadSceneStates, sceneStateControl } from '../game/scene-conditions.ts';
+import {
+	defaultSceneStates,
+	loadMapVariables,
+	loadSceneStates,
+	sceneStateControl,
+} from '../game/scene-conditions.ts';
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 
 export const summary = 'browse scenes and levels; search asset paths and everything placed in a scene';
@@ -725,7 +730,7 @@ const showEnvironment = async (context: Context, target: string): Promise<void> 
 		context.resolver(),
 		loadSceneStates(world, scene.mapId),
 	]);
-	const game = new GameState();
+	const game = new GameState({ variables: await loadMapVariables(world, scene.mapId) });
 	game.note(mapDefined(states, ({ condition }) => condition ?? undefined));
 	const enabled = defaultSceneStates(states, game);
 	console.log(

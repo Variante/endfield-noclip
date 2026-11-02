@@ -30,6 +30,10 @@ export interface MapConfig {
 	 * one only changes when the game sets it by name
 	 */
 	sceneStateConditions: { state: string; condition: SceneCondition }[];
+	/** the map's variables: name → numeric game-variable id (`mapVarName2NumId`), as conditions name them */
+	mapVarIds: Record<string, number>;
+	/** the map's variables: numeric id → name (`mapVarNumId2Name`), as load gates' ids resolve */
+	mapVarNames: Record<number, string>;
 }
 
 /** `CompareOperator`: Equal, NotEqual, GreaterThan, GreaterEqual, LessThan, LessEqual */
@@ -95,8 +99,21 @@ export const parseMapConfig = (text: string): MapConfig => {
 					return { state: entry.stateName, condition: sceneCondition(entry.condition) };
 				})
 			: [],
+		mapVarIds: numberValues(raw.mapVarName2NumId),
+		mapVarNames: Object.fromEntries(
+			Object.entries(isObject(raw.mapVarNumId2Name) ? raw.mapVarNumId2Name : {}).flatMap(([id, name]) =>
+				typeof name === 'string' && /^\d+$/.test(id) ? [[Number(id), name]] : [],
+			),
+		),
 	};
 };
+
+const numberValues = (value: unknown): Record<string, number> =>
+	Object.fromEntries(
+		Object.entries(isObject(value) ? value : {}).filter(
+			(entry): entry is [string, number] => typeof entry[1] === 'number',
+		),
+	);
 
 /** `$type` names of the condition classes, without the assembly suffix */
 const CONDITION_TYPE = /^Beyond\.Gameplay\.(\w+), Gameplay\.Beyond$/;
