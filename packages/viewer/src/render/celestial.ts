@@ -219,9 +219,12 @@ const starLook = (star: StarConfig | undefined): StarLook | null => {
 	};
 };
 
-/** a material's properties by their Unity names */
+/**
+ * a material's properties by their Unity names. the package fills in every property the shader declares, so a
+ * missing one is a shader that doesn't declare it, read as 0
+ */
 const propertiesOf = (material: EnvironmentMaterial) => ({
-	float: (name: string, fallback = 0): number => material.floats[name] ?? fallback,
+	float: (name: string): number => material.floats[name] ?? 0,
 	color: (name: string): Color | undefined => material.colors[name],
 	texture: (name: string): number | null => material.textures[name] ?? null,
 	transform: (name: string): Vec4 | undefined => material.textureTransforms[name],
@@ -243,9 +246,9 @@ const rayPlanetLook = (material: EnvironmentMaterial): RayPlanetLook | null => {
 	const radius = f('_RealPlanetRadius');
 	const offset = f('_GlobalRadiusOffset');
 	const groundRadius = 0.92 * radius + offset;
-	const topRadius = f('_AtmosphereRatios', 1) * radius + offset;
+	const topRadius = f('_AtmosphereRatios') * radius + offset;
 	const rayleighHeight = 0.06 * (topRadius - groundRadius);
-	const density = f('_Density_Multiplier', 1);
+	const density = f('_Density_Multiplier');
 	const phi = f('_Phi2') * DEG;
 	const theta = f('_Theta2') * DEG;
 	const distance = f('_Dist');
@@ -264,17 +267,17 @@ const rayPlanetLook = (material: EnvironmentMaterial): RayPlanetLook | null => {
 		groundRadius,
 		topRadius,
 		cloudRadius: radius + f('_CloudsHeight'),
-		viewSamples: f('_StepsI', 3),
-		scaleHeights: [rayleighHeight, rayleighHeight * f('_Mie_Height_Scale', 1)],
+		viewSamples: f('_StepsI'),
+		scaleHeights: [rayleighHeight, rayleighHeight * f('_Mie_Height_Scale')],
 		mieAnisotropy: f('_g'),
 		useLut: f('_Use_Lut') !== 0,
 		rayleigh: linear(color('_Ray'), density),
 		mie: linear(color('_Mie'), density),
-		brightness: f('_Light_Intensity_Multiplier', 1),
+		brightness: f('_Light_Intensity_Multiplier'),
 		cloudShadows: material.keywords.split(' ').includes('_ENABLE_CLOUDS_SHADOW'),
 		light: f('_CustomLightDirection') !== 0 ? normalize(rgb(color('_CustomLightDir'))) : null,
 		lightColor: f('_CustomLightColorPla') !== 0 ? linear(color('_CustomLightColPla')) : null,
-		lightScale: f('_DirectLightIntensityBillboard', 1),
+		lightScale: f('_DirectLightIntensityBillboard'),
 		tilt: [
 			[Math.cos(roll), -Math.sin(roll) * Math.cos(pitch), Math.sin(roll) * Math.sin(pitch)],
 			[Math.sin(roll), Math.cos(roll) * Math.cos(pitch), -Math.cos(roll) * Math.sin(pitch)],
@@ -286,12 +289,12 @@ const rayPlanetLook = (material: EnvironmentMaterial): RayPlanetLook | null => {
 		seaShallow: linear(color('_SeaShallow')),
 		seaDeep: linear(color('_SeaDeep')),
 		fresnel: linear(color('_FresnelColor')),
-		indirect: linear(color('_IndirectColor'), f('_IndirectIntensity', 1)),
+		indirect: linear(color('_IndirectColor'), f('_IndirectIntensity')),
 		cloudShadow: linear(color('_CloudsShadowColor') ?? [1, 1, 1, 1]),
 		ambient: linear(ambient, density * ambient[3]),
 		cloudAlpha: f('_CloudsAlphaMain'),
-		cloudBrightness: f('_Light_Intensity_Clouds_Multiplier', 1),
-		roughness: f('_Roughness', 1),
+		cloudBrightness: f('_Light_Intensity_Clouds_Multiplier'),
+		roughness: f('_Roughness'),
 		roughnessFromMap: f('_UseRoughnessMap') !== 0,
 	};
 };
@@ -386,9 +389,9 @@ const skyPlanetLook = (
 		ringColor: [...linearRgb(ringColor), ringColor[3]],
 		color: materialColor(color('_Color'), [1, 1, 1, 1]),
 		emissive: materialColor(color('_PlanetEmissive'), [1, 1, 1, 1]),
-		sharpness: float('_StarNdlSharp', 1),
+		sharpness: float('_StarNdlSharp'),
 		backFace: float('_StarBackFaceAlpha'),
-		ringShadowSoftness: float('_RingShadowSoftness', 0.1),
+		ringShadowSoftness: float('_RingShadowSoftness'),
 		horizonFade: planet.drawPlanetBelowHorizon ? 1 : 0,
 		atmosphere:
 			atmosphere === null

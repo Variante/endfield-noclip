@@ -608,8 +608,10 @@ section values keep the game's field names. colours stay raw (no sRGB decode; HD
 because the game feeds them to its shaders raw. `SphericalHarmonicsL2` is 27 numbers, channel-major.
 `m_*` editor fields and object references other than textures, materials and lens flare data are
 dropped; texture references become texture-table ids. material references (the celestial bodies'
-draw materials) become the material flattened: shader name, keywords, floats, colours as stored,
-texture-table ids and texture scale/offset per slot. the lens flare's `LensFlareDataSRP` reference
+draw materials) become the material flattened: shader name, keywords, every float and colour
+property the shader declares (the material's value, else the declared default; properties left from
+earlier shaders are dropped, as the [material table](package-format.md#materials) does), and
+texture-table ids and scale/offset per declared slot. the lens flare's `LensFlareDataSRP` reference
 becomes the flare's elements ([lens flare data](#asset-classes)), each image a texture-table id. the
 textures that resolve in practice are the sky reflection cubemap (BC6H), the cloud panorama, its
 flow map, the cloud-shadow texture and the flares' images. editor-only previews (`*ForEdit`) are

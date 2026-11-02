@@ -7,6 +7,7 @@ import {
 	type EnvironmentSectionName,
 } from '@endfield-noclip/formats/hg/environment-phase';
 import { type LensFlareDataSRP, readLensFlareData } from '@endfield-noclip/formats/unity/lens-flare-data';
+import { ShaderPropertyType } from '@endfield-noclip/formats/unity/material';
 import type { PlainKinds, PlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import type {
@@ -614,6 +615,56 @@ const buildPhase = (
 };
 
 /**
+ * a material's values as its shader sees them: every property the shader declares, with the material's value
+ * or else the declared default. Unity keeps properties from a material's earlier shaders, so undeclared ones
+ * are dropped; a shader that declares nothing keeps the material's values as they are
+ *
+ * @returns the floats (ints included), the colours and vectors, and whether a texture slot is declared
+ */
+const materialValues = (
+	material: LoadedMaterial,
+): {
+	floats: Record<string, number>;
+	colors: Record<string, [number, number, number, number]>;
+	declares: (slot: string) => boolean;
+} => {
+	const { record, shader } = material;
+	if (shader.properties.length === 0) {
+		return {
+			floats: { ...record.ints, ...record.floats },
+			colors: { ...record.colors },
+			declares: () => true,
+		};
+	}
+	const floats: Record<string, number> = {};
+	const colors: Record<string, [number, number, number, number]> = {};
+	const textures = new Set<string>();
+	for (const { name, type, default: fallback } of shader.properties) {
+		switch (type) {
+			case ShaderPropertyType.Float:
+			case ShaderPropertyType.Range:
+			case ShaderPropertyType.Int: {
+				floats[name] = record.floats[name] ?? record.ints[name] ?? fallback[0];
+				break;
+			}
+			case ShaderPropertyType.Color:
+			case ShaderPropertyType.Vector: {
+				colors[name] = record.colors[name] ?? fallback;
+				break;
+			}
+			case ShaderPropertyType.Texture: {
+				textures.add(name);
+				break;
+			}
+			default: {
+				break;
+			}
+		}
+	}
+	return { floats, colors, declares: (slot) => textures.has(slot) };
+};
+
+/**
  * nulls a section's texture fields and records where each resolved texture goes; material fields become
  * flattened materials whose texture slots are recorded the same way
  */
@@ -647,10 +698,11 @@ const fillTextureSlots = (
 			continue;
 		}
 		const { record } = material;
+		const { floats, colors, declares } = materialValues(material);
 		const materialTextures: PlainObject = {};
 		const textureTransforms: PlainObject = {};
 		for (const [slot, resolved] of Object.entries(material.textures)) {
-			if (resolved.ref === null) {
+			if (resolved.ref === null || !declares(slot)) {
 				continue;
 			}
 			const { scale, offset } = record.textures[slot];
@@ -660,8 +712,8 @@ const fillTextureSlots = (
 		holder[key] = {
 			shader: material.shader.name,
 			keywords: record.keywords.join(' '),
-			floats: { ...record.floats },
-			colors: { ...record.colors },
+			floats,
+			colors,
 			textures: materialTextures,
 			textureTransforms,
 		};

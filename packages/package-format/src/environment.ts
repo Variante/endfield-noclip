@@ -335,9 +335,15 @@ export interface EnvironmentMaterial {
 	shader: string;
 	/** enabled keywords, space-separated as in Unity's `m_ShaderKeywords` */
 	keywords: string;
+	/**
+	 * every float, range and int property the shader declares, with the material's value or the declared
+	 * default; properties left from the material's earlier shaders are dropped. a shader that declares nothing
+	 * keeps the material's values as stored
+	 */
 	floats: Record<string, number>;
+	/** every colour and vector property the shader declares, as for {@link floats} */
 	colors: Record<string, Color>;
-	/** texture slots that resolved, by property name */
+	/** texture slots the shader declares that resolved, by property name */
 	textures: Record<string, TextureRef>;
 	/** texture scale (xy) and offset (zw) per slot, as the material stores them */
 	textureTransforms: Record<string, Vec4>;
