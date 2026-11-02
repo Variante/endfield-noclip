@@ -507,15 +507,16 @@ looks up once per scene.
 particle and keeps it past its lifetime (`ringBufferMode` not 0), without a texture sheet. the
 particle takes the renderer's `m_Mesh` and materials at the shape's centre, oriented by world, local
 or (for a box shape, which emits along the emitter's forward axis) velocity alignment, then its
-start rotation (Euler, Z then X then Y) and start size, scaled by the emitter's local scale unless
-`scalingMode` is Shape. random ranges between two constants take their midpoint, since the game's
-draws can't be reproduced; curves and camera-facing alignments disqualify a system.
+start rotation (Euler, Z then X then Y) and start size, scaled and placed as its scaling mode sizes
+and moves played particles (below). random ranges between two constants take their midpoint, since
+the game's draws can't be reproduced; curves and camera-facing alignments disqualify a system.
 
 **a played system**, mesh or quad, when a viewer can play it from the package alone
 ([particle-system.ts](../packages/extractor/src/game/particle-system.ts)): the renderer becomes an
-emitter whose draw names a particles-table entry, its matrix the emitter's transform (with its local
-scale unless `scalingMode` is Shape) and its bounds a box around everywhere a particle can reach.
-the entry keeps:
+emitter whose draw names a particles-table entry, its matrix the emitter's world transform (with
+only its own scale, not its parents', when `scalingMode` is Local) and its bounds a box around
+everywhere a particle can reach. the matrix's scale moves the particles in every mode and sizes them
+unless the mode is Shape. the entry keeps:
 
 - the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
   is `Shape`

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { trsMatrix } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 
-import { frozenParticleMatrix, particleStandInMatrix } from './particle-mesh.ts';
+import { frozenParticleMatrix, particleEmitterMatrix, particleStandInMatrix } from './particle-mesh.ts';
 
 const constant = (value: number) => ({ minMaxState: 0, scalar: value, minScalar: 0 });
 const between = (min: number, max: number) => ({ minMaxState: 3, scalar: max, minScalar: min });
@@ -38,8 +38,10 @@ const emitter = { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [2, 1, 1] 
 
 const round = (v: number) => Math.round(v * 1000) / 1000 + 0;
 
+const identity = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+
 test('a frozen mesh particle sits at the emitter with its start size, scaled by the emitter, and its mid start rotation', () => {
-	const m = frozenParticleMatrix(system(), renderer(4), emitter);
+	const m = frozenParticleMatrix(system(), renderer(4), identity, emitter);
 	assert.ok(m !== null);
 	// a quarter turn about z at the midpoint of 0…π maps x to y; the emitter's scale stretches its own x
 	assert.deepEqual(Array.from(m.subarray(0, 3), round), [0, 12, 0]);
@@ -49,14 +51,29 @@ test('a frozen mesh particle sits at the emitter with its start size, scaled by 
 });
 
 test('mesh particles that die, multiply, face the camera, follow curves or flip through a sheet are not frozen', () => {
-	assert.equal(frozenParticleMatrix(system({ ringBufferMode: 0 }), renderer(4), emitter), null);
-	assert.equal(frozenParticleMatrix(system({ UVModule: { enabled: true } }), renderer(1), emitter), null);
-	assert.notEqual(frozenParticleMatrix(system({ UVModule: { enabled: false } }), renderer(1), emitter), null);
-	assert.equal(frozenParticleMatrix(system(), renderer(0), emitter), null);
-	assert.equal(frozenParticleMatrix(system(), { m_RenderMode: 0, m_RenderAlignment: 1 }, emitter), null);
-	assert.equal(frozenParticleMatrix(system({ initial: { maxNumParticles: 5 } }), renderer(1), emitter), null);
+	assert.equal(frozenParticleMatrix(system({ ringBufferMode: 0 }), renderer(4), identity, emitter), null);
+	assert.equal(
+		frozenParticleMatrix(system({ UVModule: { enabled: true } }), renderer(1), identity, emitter),
+		null,
+	);
+	assert.notEqual(
+		frozenParticleMatrix(system({ UVModule: { enabled: false } }), renderer(1), identity, emitter),
+		null,
+	);
+	assert.equal(frozenParticleMatrix(system(), renderer(0), identity, emitter), null);
+	assert.equal(
+		frozenParticleMatrix(system(), { m_RenderMode: 0, m_RenderAlignment: 1 }, identity, emitter),
+		null,
+	);
+	assert.equal(
+		frozenParticleMatrix(system({ initial: { maxNumParticles: 5 } }), renderer(1), identity, emitter),
+		null,
+	);
 	const curve = { minMaxState: 1, scalar: 1, minScalar: 0 };
-	assert.equal(frozenParticleMatrix(system({ initial: { startSize: curve } }), renderer(1), emitter), null);
+	assert.equal(
+		frozenParticleMatrix(system({ initial: { startSize: curve } }), renderer(1), identity, emitter),
+		null,
+	);
 });
 
 test('a stand-in takes the scale the game sizes particles by, not a parent that stretches the spawn box', () => {
@@ -69,4 +86,43 @@ test('a stand-in takes the scale the game sizes particles by, not a parent that 
 	assert.deepEqual(Array.from(shape.subarray(12, 15), round), [-19.6, 150, 93.2]);
 	assert.deepEqual(axes(particleStandInMatrix(parent, local, 1)), [2, 2, 2]);
 	assert.deepEqual(axes(particleStandInMatrix(parent, local, 0)), [726, 300, 296]);
+});
+
+test('a frozen particle under a scaled parent is sized and placed as its scaling mode sizes and moves particles', () => {
+	const parent = trsMatrix([10, 0, 0], [0, 0, 0, 1], [4, 4, 4]);
+	const shape = { enabled: true, type: 5, m_Position: { x: 1, y: 0, z: 0 } };
+	const unrotated = { startRotation: constant(0) };
+	const placed = (scalingMode: number) =>
+		frozenParticleMatrix(
+			system({ scalingMode, ShapeModule: shape, initial: unrotated }),
+			renderer(2),
+			parent,
+			emitter,
+		);
+	const columns = (m: Float32Array | null) => [m![0], m![5], m![10], m![12]].map(round);
+	// Hierarchy: the parent's 4 and the emitter's 2 × 1 × 1 size it, and the shape's centre moves 4 × 2 m out
+	assert.deepEqual(columns(placed(0)), [96, 48, 28, 22]);
+	// Local: only the emitter's own scale sizes it and moves the centre from where the parent puts the emitter
+	assert.deepEqual(columns(placed(1)), [24, 12, 7, 16]);
+	// Shape: the start size alone, though the hierarchy's scale still moves the shape's centre
+	assert.deepEqual(columns(placed(2)), [12, 12, 7, 22]);
+});
+
+test('world-aligned frozen particles keep the world axes under a turned parent', () => {
+	const turned = trsMatrix([0, 0, 0], [0, 0, Math.SQRT1_2, Math.SQRT1_2], [1, 1, 1]);
+	const m = frozenParticleMatrix(
+		system({ initial: { startRotation: constant(0) } }),
+		renderer(1),
+		turned,
+		emitter,
+	);
+	assert.deepEqual(Array.from(m!.subarray(0, 3), round), [24, 0, 0]);
+});
+
+test('a played Local-mode emitter drops the parent scale, others keep the whole hierarchy scale', () => {
+	const parent = trsMatrix([0, 0, 0], [0, 0, 0, 1], [3, 3, 3]);
+	const local = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [2, 2, 2] };
+	assert.equal(round(particleEmitterMatrix(parent, local, 0)[0]), 6);
+	assert.equal(round(particleEmitterMatrix(parent, local, 1)[0]), 2);
+	assert.equal(round(particleEmitterMatrix(parent, local, 2)[0]), 6);
 });

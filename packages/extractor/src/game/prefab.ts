@@ -27,8 +27,8 @@ import { isBillboardType, type PrefabBillboard, readBillboard } from './billboar
 import {
 	frozenParticleMatrix,
 	type LocalTransform,
+	particleEmitterMatrix,
 	particleStandInMatrix,
-	SCALING_SHAPE,
 } from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
@@ -453,13 +453,14 @@ export const readPrefabRenderers = async (
 				rendererData = { ...rendererData, m_Pivot: { x, y, z } };
 			}
 			// a switched-off system stands in at its emitter whatever it would play
-			const particle = standIn === null ? frozenParticleMatrix(system.data, rendererData, local) : null;
+			const particle =
+				standIn === null ? frozenParticleMatrix(system.data, rendererData, parent, local) : null;
 			if (particle !== null) {
 				const mesh = await resolver.resolve(particles.ref, pptrField(particles.data, 'm_Mesh'));
 				if (mesh !== null) {
 					candidates.push({
 						...particles,
-						matrix: multiplyMatrices(parent, particle),
+						matrix: particle,
 						name,
 						mesh,
 						particles: null,
@@ -471,9 +472,7 @@ export const readPrefabRenderers = async (
 				}
 			} else {
 				const read = readParticleSystem(system.data, rendererData);
-				// the shape scaling mode scales the shape alone, leaving the particles' sizes
-				const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
-				const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
+				const emitter = particleEmitterMatrix(parent, local, numberField(system.data, 'scalingMode'));
 				// a system a script starts is still there to see, so it gets a stand-in too
 				let reason = standIn;
 				if (reason === null && read === null) {

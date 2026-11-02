@@ -40,8 +40,33 @@ const SHAPE_BOX = 5;
 /** `ParticleSystem.scalingMode` that sizes particles by the whole hierarchy's scale */
 const SCALING_HIERARCHY = 0;
 
+/**
+ * `ParticleSystem.scalingMode` that sizes and moves particles by the system's own scale, ignoring its
+ * parents'
+ */
+const SCALING_LOCAL = 1;
+
 /** `ParticleSystem.scalingMode` that leaves particle sizes unscaled */
 export const SCALING_SHAPE = 2;
+
+/**
+ * the matrix a played particle system's particles move in: its whole world matrix, except under the `Local`
+ * scaling mode, which drops the parents' scale. the `Shape` mode keeps the hierarchy's scale here, since that
+ * scale still moves its particles; only their size ignores it.
+ *
+ * @param parent the parent's world matrix
+ * @param local the system's local transform
+ * @param scalingMode `ParticleSystem.scalingMode`
+ * @returns the emitter's world matrix
+ */
+export const particleEmitterMatrix = (
+	parent: Float32Array,
+	local: LocalTransform,
+	scalingMode: number,
+): Float32Array =>
+	scalingMode === SCALING_LOCAL
+		? particleStandInMatrix(parent, local, SCALING_LOCAL)
+		: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 
 /**
  * where a particle system the viewer can't play stands in: at its transform, sized as the game sizes its
@@ -93,20 +118,24 @@ const curveValue = (curve: TypeTreeObject): number | null => {
 };
 
 /**
- * the placement of the one particle a frozen mesh particle system shows, relative to the emitter's parent.
- * the particle keeps its start size and start rotation, at the shape's centre; the drift and spin it picks up
- * over its lifetime are left out, so the system's lifetime should be short against its speeds.
+ * the placement of the one particle a frozen mesh particle system shows. the particle keeps its start size
+ * and start rotation, at the shape's centre; the drift and spin it picks up over its lifetime are left out,
+ * so the system's lifetime should be short against its speeds. the scaling mode sizes it as it sizes played
+ * particles ({@link particleStandInMatrix}) and moves the shape's centre as {@link particleEmitterMatrix}
+ * does.
  *
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
+ * @param parent the emitter's parent's world matrix
  * @param emitter the emitter's local transform
- * @returns the particle mesh's matrix in the emitter's parent space, or `null` when the system doesn't keep a
- *   single mesh particle from awake in a fixed orientation and look (camera-facing alignment, velocity
- *   alignment without a box shape, several particles, curves, a texture sheet)
+ * @returns the particle mesh's world matrix, or `null` when the system doesn't keep a single mesh particle
+ *   from awake in a fixed orientation and look (camera-facing alignment, velocity alignment without a box
+ *   shape, several particles, curves, a texture sheet)
  */
 export const frozenParticleMatrix = (
 	system: TypeTreeObject,
 	renderer: TypeTreeObject,
+	parent: Float32Array,
 	emitter: LocalTransform,
 ): Float32Array | null => {
 	const initial = objectField(system, 'InitialModule');
@@ -122,15 +151,21 @@ export const frozenParticleMatrix = (
 	) {
 		return null;
 	}
-	const alignment = numberField(renderer, 'm_RenderAlignment');
-	let rotation: readonly number[];
-	switch (alignment) {
+	const scalingMode = numberField(system, 'scalingMode');
+	// the emitter's axes, each as long as the scale that sizes its particles
+	const sizing = particleStandInMatrix(parent, emitter, scalingMode);
+	let frame: Float32Array;
+	switch (numberField(renderer, 'm_RenderAlignment')) {
 		case Alignment.World: {
-			rotation = [0, 0, 0, 1];
+			// the world's axes, keeping the sizing scale
+			const lengths = [0, 1, 2].map((axis) =>
+				Math.hypot(sizing[axis * 4], sizing[axis * 4 + 1], sizing[axis * 4 + 2]),
+			);
+			frame = trsMatrix([0, 0, 0], [0, 0, 0, 1], lengths);
 			break;
 		}
 		case Alignment.Local: {
-			rotation = emitter.rotation;
+			frame = sizing;
 			break;
 		}
 		case Alignment.Velocity: {
@@ -138,7 +173,7 @@ export const frozenParticleMatrix = (
 			if (!booleanField(shape, 'enabled') || numberField(shape, 'type') !== SHAPE_BOX) {
 				return null;
 			}
-			rotation = emitter.rotation;
+			frame = sizing;
 			break;
 		}
 		default: {
@@ -167,9 +202,12 @@ export const frozenParticleMatrix = (
 		}
 		degrees.push((value * 180) / Math.PI);
 	}
-	const scale = numberField(system, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : emitter.scale;
-	const offset = booleanField(shape, 'enabled') ? vector3Field(shape, 'm_Position') : [0, 0, 0];
-	const emitterMatrix = trsMatrix(emitter.position, rotation, scale);
-	const particle = trsMatrix(offset, unityEulerQuaternion(degrees), size);
-	return multiplyMatrices(emitterMatrix, particle);
+	// the shape's centre moves with the emitter's matrix, as played particles do
+	const [x, y, z] = booleanField(shape, 'enabled') ? vector3Field(shape, 'm_Position') : [0, 0, 0];
+	const moving = particleEmitterMatrix(parent, emitter, scalingMode);
+	const placed = Float32Array.from(frame);
+	for (let r = 0; r < 3; r++) {
+		placed[12 + r] = moving[r] * x + moving[4 + r] * y + moving[8 + r] * z + moving[12 + r];
+	}
+	return multiplyMatrices(placed, trsMatrix([0, 0, 0], unityEulerQuaternion(degrees), size));
 };
