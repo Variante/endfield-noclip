@@ -17,6 +17,11 @@ on leaves whose splat page is resident, `detail_surface` blends the
 [close-up layers](../game-data/world.md#close-up-layers) and fades them into the baked page by
 distance.
 
+- **distances**: the fade runs from 96 to 144 m (`DETAIL_FADE_START`/`END` in the shader), and
+  leaves within 160 m load their splat page (`DETAIL_DISTANCE`,
+  [streaming](streaming.md#terrain-selection)). these are the viewer's choices; the game's are
+  unknown.
+
 - **weights**: `sample_control` keeps its filtering half a texel inside the 8 m cell, since the
   weights belong to that cell's layers.
 - **projection**: the three planes are blended by the baked normal's `|n|⁸` weights instead of the

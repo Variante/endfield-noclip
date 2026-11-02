@@ -284,7 +284,8 @@ MonoBehaviour at
 - `heightScale`: metres spanned by the 15-bit height range
 - `terrainSize`: root edge length, a power-of-two multiple of 64 m
 - `nodeData`: a complete breadth-first quadtree (`index = (4^l − 1)/3 + z·2^l + x`) with per-node
-  min/max height and a `maxHeightError`
+  min/max height and a `maxHeightError`. by its name, the error of drawing the node instead of its
+  children, in metres; not checked against the heights or the game's LOD
 - `layerData`: the close-up material layers by ordinal; see below
 - `sectorSplatInfo`: one u64 per 64 m sector, a bitmask of the layer ordinals the sector uses
   (checked against the index map on map02)
@@ -294,7 +295,8 @@ keep a plausible height in the low bits, which suits skirts and morphing but not
 
 ### close-up layers
 
-near the camera the game draws a blend of tiling material layers instead of the baked pages:
+near the camera the game draws a blend of tiling material layers instead of the baked pages. the
+distance it switches at, and how it fades between the two, aren't recovered.
 
 - **index**: `terrain/splatindexmap.tga`, an RGBA32 Texture2D of `terrainSize / 8` texels (row 0 at
   the minimum z), names 4 layer ordinals per 8 m cell, each stored times 4

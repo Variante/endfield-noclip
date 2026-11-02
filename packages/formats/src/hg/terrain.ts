@@ -320,7 +320,10 @@ export interface TerrainNode {
 	localMinHeight: number;
 	/** metres above `position.y` */
 	localMaxHeight: number;
-	/** presumably the error of rendering this node instead of its children, metres; unverified */
+	/**
+	 * by its name, the error of rendering this node instead of its children, metres; unchecked (see
+	 * game-data/world.md#terrain)
+	 */
 	maxHeightError: number;
 }
 
