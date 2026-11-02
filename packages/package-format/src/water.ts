@@ -60,11 +60,7 @@ export interface WaterVolumeLevel {
 	label: string;
 }
 
-/**
- * the scene's `Global_Water_Config`: maps shared by every surface. textures are the game's, unchanged. the
- * global flow map covers the square of edge {@link mapSize} around {@link center}, i.e. (assumed from the
- * game's tooling, not its shaders) `uv = (world.xz - center) / mapSize + 0.5`
- */
+/** the scene's `Global_Water_Config`: maps shared by every surface. textures are the game's, unchanged */
 export interface WaterGlobal {
 	/** edge of the square the global flow map and the sector grid cover, metres */
 	mapSize: number;
@@ -74,10 +70,13 @@ export interface WaterGlobal {
 	center: [x: number, z: number];
 	/** metres per texel of a sector tile */
 	flowmapPrecision: number;
-	/** flow over the whole grid: RG direction, B foam, A amplitude (channel meanings unconfirmed) */
+	/**
+	 * flow over the whole grid, at `uv = (world.xz - center) / mapSize + 0.5`: RG direction (green negated), B
+	 * foam, A wave amplitude
+	 */
 	flowMap: TextureRef;
 	causticMap: TextureRef;
-	/** a `2d-array` of wave normals (RG normal; A foam shape on the small-wave layer, unconfirmed) */
+	/** a `2d-array` of wave normals: RG normal, B height, A foam shape (read on the small-wave layer only) */
 	normalMaps: TextureRef;
 	rainMap: TextureRef;
 	/**
