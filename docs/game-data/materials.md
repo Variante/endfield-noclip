@@ -211,6 +211,12 @@ occlusion (G). the editor derives them from `_AffectNormal`, `_AffectRoughness` 
 moss writes albedo and roughness only. some decals write no albedo at all: they roughen or bump the
 surface beneath (Wuling City's terraces), or make it look wet.
 
+`_BLEND_EMISSIVE` decals also glow, as Deep Dale Street's purple patches do (dung02_rdg008 near
+unity 13, 92, −21). the GBuffer's emission target is always written, its RGB laid over by the same
+alpha, whatever the colour masks: `_EmissiveColor` × a channel picked by `_EmissiveChannel` (0–3
+`_SampleTex1`'s R–A, 4 the base map's alpha) × the albedo above, or 1 with `_AlbedoAffectEmissive`;
+under `_IgnorePostExposure` it's divided by the post exposure.
+
 `_BLEND_WATER_FLOW` is the wet rock beside waterfalls (Jingyu Valley's falls near unity −1075, 207,
 −1414). it writes only normal and roughness, from `_WaterNormalTex` sampled at world positions
 rather than the box's UVs:

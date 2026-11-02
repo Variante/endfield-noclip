@@ -218,6 +218,58 @@ test('a lit decal placement draws its base and PBR maps through its UV transform
 	assert.equal(bare.unsupported, false);
 });
 
+test('an emissive lit decal glows by its PBR map channel, and decal variants the viewer lacks show as unsupported', () => {
+	// the real shader's family and defaults, and the opaque blend state the packer reads off decal materials
+	const decalShader: ShaderEntry = {
+		...shader('HGRP/DecalLit'),
+		family: 'decal',
+		floats: { _EmissiveChannel: 0, _AlbedoAffectEmissive: 1, _IgnorePostExposure: 1 },
+		colors: { _EmissiveColor: [1, 1, 1, 1] },
+	};
+	const placed = {
+		renderQueue: 2000,
+		blend: 'opaque' as const,
+		slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+		colors: { [DECAL_COLOR_PROPERTY]: [0.23, 0.3, 0.69, 0.88] as [number, number, number, number] },
+		vectors: { [DECAL_UV_PROPERTY]: [1, 1, 1, 1] as [number, number, number, number] },
+	};
+	// Deep Dale Street's purple glow decals (dung02_rdg008)
+	const [emissive, sludge] = materialLooks({
+		shaders: [decalShader],
+		entries: [
+			material({
+				id: 0,
+				keywords: ['_BLEND_EMISSIVE', '_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
+				floats: {
+					_AffectNormal: 1,
+					_AlbedoAffectEmissive: 0,
+					_BlendEmissive: 1,
+					_ColorMask2: 14,
+					_ColorMask3: 14,
+					_EmissiveChannel: 3,
+					_RoughnessMin: 0.656,
+				},
+				...placed,
+			}),
+			material({ id: 1, keywords: ['_BLEND_SLUDGE_EROSION'], floats: { _ColorMask3: 14 }, ...placed }),
+		],
+	});
+	assert.equal(emissive.unsupported, false);
+	assert.equal(emissive.transparent, true);
+	assert.equal(emissive.relight, false);
+	assert.deepEqual(
+		[...emissive.params.subarray(DecalLitRow.emissive, DecalLitRow.emissive + 4)],
+		[1, 1, 1, 1],
+	);
+	// `_SampleTex1`'s alpha, times the albedo, ignoring the post exposure
+	assert.deepEqual(
+		[...emissive.params.subarray(DecalLitRow.emissiveMask, DecalLitRow.emissiveMask + 3)],
+		[3, 0, 1],
+	);
+	// an undrawn variant must not fall through to the opaque path, which draws its projection box as a solid
+	assert.equal(sludge.unsupported, true);
+});
+
 test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of that role', () => {
 	const [look] = materialLooks({
 		shaders: [shader('HGRP/Effect/VFXBaseV2')],

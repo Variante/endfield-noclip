@@ -175,15 +175,15 @@ packs or renders correctly.
   isn't applied, stretched billboards are centred on the particle, and colours above 1 and custom
   data never reach the shaders. all copies of one flipbook step in phase. Marker Stone's low mist
   banks over the valley are still missing; their source is unknown
-- decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its emissive, wetness,
-  sludge, footprint, UV-noise and arc variants, and placements without their colour and UV, as
+- decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its wetness, sludge,
+  footprint, UV-noise and arc variants, and placements without their colour and UV, as
   [unsupported](viewer/materials.md#unsupported-materials), and draws overlaps without the game's
   `_DrawOrder`; decals that write no albedo relight the surface from an estimate of its colour, as a
-  dielectric, leave its screen-space reflections and ambient occlusion as they were, and don't write
-  metallic; under a laid-over decal that doesn't write them, the surface's own occlusion and
-  metallic are taken as 1 and 0; terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28)
-  and `HGRP/DecalUnlit` aren't packed, and decals in dynamic structures are only
-  [stand-ins](package-format.md#stand-ins)
+  dielectric, leave its screen-space reflections and ambient occlusion as they were, don't write
+  metallic, and add their emission over the surface's instead of replacing it; under a laid-over
+  decal that doesn't write them, the surface's own occlusion and metallic are taken as 1 and 0;
+  terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28) and `HGRP/DecalUnlit` aren't
+  packed, and decals in dynamic structures are only [stand-ins](package-format.md#stand-ins)
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the

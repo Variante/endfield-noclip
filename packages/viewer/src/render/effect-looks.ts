@@ -652,6 +652,13 @@ export const DecalLitRow = {
 	flow: 88,
 	/** `_BLEND_WATER_FLOW`: `_AngleBlendFallOff2`, the power of the fade towards level surfaces, then 0, 0, 0 */
 	flowFade: 92,
+	/** `_BLEND_EMISSIVE`: `_EmissiveColor` rgb, then 1 when on */
+	emissive: 96,
+	/**
+	 * `_BLEND_EMISSIVE`: `_EmissiveChannel` (0–3 pick `_SampleTex1`'s R–A, 4 the base map's alpha),
+	 * `_AlbedoAffectEmissive` (1: emission ignores the albedo), `_IgnorePostExposure`, 0
+	 */
+	emissiveMask: 100,
 } as const;
 
 /**
@@ -662,7 +669,12 @@ export const DecalLitRow = {
 export const DECAL_PBR_SLOT = 1;
 
 /** lit decal keywords that are drawn; the others change the surface in ways the viewer doesn't */
-const DECAL_LIT_KEYWORDS = new Set(['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND', '_BLEND_WATER_FLOW']);
+const DECAL_LIT_KEYWORDS = new Set([
+	'_COMPLETE_PBR',
+	'_NORMAL_ANGLE_BLEND',
+	'_BLEND_WATER_FLOW',
+	'_BLEND_EMISSIVE',
+]);
 
 /** Unity's `ColorWriteMask` bits */
 const WRITE_RED = 8;
@@ -706,9 +718,11 @@ export const decalLitLook = (
 		return null;
 	}
 	const waterFlow = entry.keywords.includes('_BLEND_WATER_FLOW');
+	// the emission target's mask is fixed, so emissive decals always write it
+	const emissive = !waterFlow && entry.keywords.includes('_BLEND_EMISSIVE');
 	const relight = (float('_ColorMask3', 0) & WRITE_RED) === 0;
 	const surfaceMask = float('_ColorMask2', 0);
-	if (relight && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
+	if (relight && !emissive && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
 		return 'invisible';
 	}
 	const look = emptyEffect(7);
@@ -758,8 +772,8 @@ export const decalLitLook = (
 	);
 	const pbrMask = float('_ColorMask1', 0);
 	const hasPbr = pbr !== undefined;
-	// a relit decal changes the surface only through the PBR map
-	if (relight && !hasPbr) {
+	// a relit decal changes the surface only through the PBR map and its emission
+	if (relight && !hasPbr && !emissive) {
 		return 'invisible';
 	}
 	params.set(
@@ -790,6 +804,14 @@ export const decalLitLook = (
 		);
 		params.set(color('_UVMovement') ?? [0, 0, 1, 1], DecalLitRow.flow);
 		params[DecalLitRow.flowFade] = Math.max(float('_AngleBlendFallOff2', 1), 1e-3);
+	}
+	if (emissive) {
+		const emission = color('_EmissiveColor') ?? [0, 0, 0, 1];
+		params.set([emission[0], emission[1], emission[2], 1], DecalLitRow.emissive);
+		params.set(
+			[float('_EmissiveChannel', 0), float('_AlbedoAffectEmissive', 1), float('_IgnorePostExposure', 1)],
+			DecalLitRow.emissiveMask,
+		);
 	}
 	params.set([0, EffectKind.LitDecal], EffectRow.unfogged);
 	return { ...look, relight };

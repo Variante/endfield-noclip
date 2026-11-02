@@ -753,6 +753,8 @@ const LD_CHANNELS = 20u;
 const LD_WATER = 21u;
 const LD_FLOW = 22u;
 const LD_FLOW_FADE = 23u;
+const LD_EMISSIVE = 24u;
+const LD_EMISSIVE_MASK = 25u;
 
 // one of four map channels by `_MetallicChannel`/`_OcclusionChannel`'s numbering, as the game blends them:
 // `offset` 1 for the occlusion's (R at 1, … A at 4) and 0 for the metallic's (R at 2, … A at 5)
@@ -781,6 +783,8 @@ struct LitDecal {
 	occlusion: f32,
 	writes_metallic: bool,
 	writes_occlusion: bool,
+	// `_BLEND_EMISSIVE`'s light, in pre-exposed units like the surface's own; zero without it
+	emission: vec3f,
 }
 
 // `HGRP/DecalLit` boxes (`decalLitLook` in effect-looks.ts) over a surface of normal `n` and roughness `roughness`
@@ -792,7 +796,10 @@ struct LitDecal {
 // with `_BLEND_WATER_FLOW` the normal and roughness come from two layers of a water normal map scrolling down
 // the world's y, each projected along x and z (at world zy and xy) and blended by how much the surface faces
 // either axis, its UVs pushed further down on steep walls by `_NormalFactor`; the decal fades in towards
-// vertical surfaces by `_AngleBlendFallOff2`, and its roughness is the first layer's B times `_WaterRoughness`
+// vertical surfaces by `_AngleBlendFallOff2`, and its roughness is the first layer's B times `_WaterRoughness`.
+//
+// with `_BLEND_EMISSIVE` it also emits `_EmissiveColor` times a channel of `_SampleTex1` (or the base map's
+// alpha) by `_EmissiveChannel`, times the decal's colour unless `_AlbedoAffectEmissive`
 fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, dx: vec2f, dy: vec2f, n: vec3f,
 	roughness: f32) -> LitDecal {
 	let id = in.draw;
@@ -816,6 +823,7 @@ fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, 
 	d.occlusion = 1.0;
 	d.writes_metallic = false;
 	d.writes_occlusion = false;
+	d.emission = vec3f(0.0);
 	var alpha = base.a * tint.a;
 	if (surface_row.w > 0.0) {
 		alpha *= pow(max(saturate(dot(in.up, n)), 5.96e-8), surface_row.w);
@@ -856,6 +864,16 @@ fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, 
 		tangent_n = vec3f(t.xy * surface_row.z, t.z);
 		if (writes.y > 0.5) {
 			d.roughness = mix(surface_row.x, surface_row.y, pbr.b);
+		}
+		let emissive = fx_row(id, LD_EMISSIVE);
+		if (emissive.w > 0.5) {
+			// the channel blends R → G → B → A → the base map's alpha as it rises from 0 to 4, from `_SampleTex1`
+			// itself even when the base map stands in for the PBR map
+			let mask = fx_row(id, LD_EMISSIVE_MASK);
+			let c = mask.x;
+			let rgba = mix(mix(sampled.r, sampled.g, saturate(c)), mix(sampled.b, sampled.a, saturate(c - 2.0)), saturate(c - 1.0));
+			let strength = mix(rgba, base.a, saturate(c - 3.0));
+			d.emission = emissive.rgb * strength * mix(d.albedo, vec3f(1.0), mask.y) * mix(1.0, frame.ambient.y, mask.z);
 		}
 	}
 	d.alpha = saturate(alpha);
@@ -907,6 +925,7 @@ fn fx_lit_decal(in: EffectOut, px: vec2i, rel: vec3f, rel_dx: vec3f, rel_dy: vec
 	if (d.writes_occlusion) {
 		s.occlusion = d.occlusion;
 	}
+	s.emission = d.emission;
 	let shaded = shade_surface(s, rel, in.position.xy);
 	return fx_accumulate(shaded.radiance.rgb * d.alpha, d.alpha, length(rel), 0.0);
 }
@@ -948,8 +967,9 @@ fn fs_decal_relight(in: EffectOut) -> @location(0) vec4f {
 	if (d.writes_occlusion) {
 		after.occlusion = d.occlusion;
 	}
+	// the decal's emission is added over the surface's rather than replacing it by the alpha
 	let change = shade_surface(after, rel, in.position.xy).radiance.rgb - shade_surface(before, rel, in.position.xy).radiance.rgb;
-	return vec4f(change * d.alpha, 0.0);
+	return vec4f((change + d.emission) * d.alpha, 0.0);
 }
 
 // #endregion

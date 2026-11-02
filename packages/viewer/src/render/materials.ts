@@ -24,10 +24,12 @@ import {
 const UNDRAWN_FAMILIES = new Set(['waterProxy']);
 
 /**
- * shader families drawn only through looks of their own (fog volumes, light beams, effects); materials of
- * theirs without one get {@link unsupportedLook}, since the opaque path would shade them as solid surfaces
+ * shader families drawn only through looks of their own (fog volumes, light beams, effects, projected
+ * decals); materials of theirs without one get {@link unsupportedLook}, since the opaque path would shade them
+ * as solid surfaces (a decal as its projection box)
  */
 const EFFECT_FAMILIES = new Set([
+	'decal',
 	'fogSimple',
 	'volumetricBeam',
 	'vfxFakeVolumeFog',

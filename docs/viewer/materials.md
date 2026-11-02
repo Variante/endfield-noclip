@@ -59,6 +59,11 @@ and with the decal's, and adds the difference times the decal's alpha to the rad
 colour comes from the main pass's diffuse ambient divided by the ambient light at its normal, taken
 as a dielectric's; its emission and everything else stay as drawn.
 
+an emissive decal's glow is part of the decal's own shading when it's laid over; a relit one adds
+it, times its alpha, on top of the surface's emission rather than replacing it. lit decals in
+variants the viewer lacks are [unsupported](#unsupported-materials): drawn by the opaque path, their
+box would show as a solid block.
+
 ## matte paintings
 
 [matte paintings](../game-data/materials.md#matte-paintings) are drawn by
