@@ -106,8 +106,6 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
-import { readScriptWaterLevels } from '../game/water-volume-scripts.ts';
-import { readWaterVolumes } from '../game/water-volumes.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
@@ -123,6 +121,8 @@ import { loadProgressions, progressionControl, progressionId } from '../game/sce
 import { activationCondition, loadScriptDrivers } from '../game/script-drivers.ts';
 import { labelStory } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
+import { readScriptWaterLevels } from '../game/water-volume-scripts.ts';
+import { readWaterVolumes } from '../game/water-volumes.ts';
 import type { ChunkFile, ChunkSource, WorldIndex } from '../game/world-index.ts';
 import { orderedPool } from '../pool.ts';
 import { zstd } from '../zstd.ts';
