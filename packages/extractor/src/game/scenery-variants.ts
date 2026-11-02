@@ -51,7 +51,7 @@ export interface SceneProgression {
 	levelName: string | null;
 	/** levels (logic-state bits) at least one group is shown at, ascending */
 	levels: number[];
-	/** the lowest authored level, used for the initial appearance */
+	/** the highest authored level, the finished world's appearance */
 	defaultLevel: number;
 	/** controlling entities (settlements have a main and a secondary one) */
 	entities: number;
@@ -273,7 +273,7 @@ export const summarizeProgressions = (entities: Iterable<DynamicEntity>): Progre
 			kind: entry.kind,
 			key: entry.key,
 			levels,
-			defaultLevel: levels[0],
+			defaultLevel: levels.at(-1)!,
 			entities: entry.entities,
 			groupsPerLevel: Object.fromEntries(levels.map((level) => [level, entry.perLevel.get(level) ?? 0])),
 			levelNum: entry.levelNums.size === 1 ? [...entry.levelNums][0] : null,

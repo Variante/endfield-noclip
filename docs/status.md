@@ -301,8 +301,8 @@ packs or renders correctly.
   draw open or closed ([interactive doors](game-data/assets.md#interactive-doors)), closed by
   default except a Dijiang cabin's, since what opens each in game (a level script reacting to a
   mission's cutscene, the server) isn't followed. campfires draw not activated or activated
-  ([campfires](game-data/assets.md#campfires)), not activated by default; their fight look and the
-  color layer's VAT clips aren't drawn. telescopic bridges likewise draw retracted or extended
+  ([campfires](game-data/assets.md#campfires)), activated by default; their fight look and the color
+  layer's VAT clips aren't drawn. telescopic bridges likewise draw retracted or extended
   ([telescopic bridges](game-data/assets.md#telescopic-bridges)), retracted by default. rows created
   later (`createState` ≠ 0) draw only with their level's "created during play" toggle, off by
   default; one toggle covers a level's rows, since which of them the server or a script creates
@@ -323,11 +323,12 @@ packs or renders correctly.
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
   map variables map01's MapConfig doesn't name show as numbers; Yinglung Pass's server-set outpost
   tier variables are separate controls, so all four tiers show by default
-  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); outpost level-up missions are
-  read as complete above their level, unverified against whether completion raises the level or only
-  unlocks it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)); variables
-  that drive entity level or animator state (doors, bridges, puzzles: `ModelViewStateControllerData`
-  state machines) aren't controls yet
+  ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
+  or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
+  controls yet
+- whether completing an outpost's `upgradeMissionId` raises its level at once or only unlocks the
+  raise is unverified; the viewer treats them as one, reading the mission as complete exactly above
+  the level that names it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions))
 - scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
   aren't represented; script-driven water levels are picked by hand: their controls list what sets
   each fill but don't follow it; scripted environment volumes (blend mode 3) default off and preview

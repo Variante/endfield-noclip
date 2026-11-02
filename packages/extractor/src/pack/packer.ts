@@ -1621,30 +1621,23 @@ const defaultValues = (
 };
 
 /**
- * @returns one control per progression of the scene. an outpost whose level-up missions are read as its level
- *   stands where the finished story's completed missions put it, so content gated on those missions agrees
- *   with it; other progressions stand at their lowest authored level
+ * @returns one control per progression of the scene, at its highest authored level as in a finished world,
+ *   like quests at completed; an outpost's completed upgrade missions agree with that level
  */
 const progressionControls = async (
 	world: WorldIndex,
-	scene: Pick<SceneIndex, 'options' | 'game'>,
-): Promise<SceneControl[]> => {
-	const linked = scene.game.linkedDefaults();
-	return (await loadProgressions(world, scene.options.scene)).map((progression) => {
-		const id = progressionId(progression.kind, progression.key);
-		const level = linked.get(id);
-		return progressionControl(
+	scene: Pick<SceneIndex, 'options'>,
+): Promise<SceneControl[]> =>
+	(await loadProgressions(world, scene.options.scene)).map((progression) =>
+		progressionControl(
 			progression.kind,
-			id,
+			progressionId(progression.kind, progression.key),
 			progression.key,
 			progression.levels,
-			level ?? progression.defaultLevel,
-			level === undefined
-				? 'the lowest authored level'
-				: 'the level its completed upgrade missions raise it to',
-		);
-	});
-};
+			progression.defaultLevel,
+			'the highest authored level, as in a finished world',
+		),
+	);
 
 /**
  * gives environment volumes, water surfaces and lights their visibility groups (their level, and the scene

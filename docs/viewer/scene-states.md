@@ -44,9 +44,11 @@ panel:
   ([quest and mission labels](../game-data/scene-states.md#quest-and-mission-labels)), the panel
   lists a quest for the levels it gates and shows where its mission takes place
 - **variables**: a select of ranges, the default marked "(initial)"
-- **progression**: one select per progression, "Level n", "Visual form n" or "Group level n";
-  facility forms are labelled "Visual form", not "Level", because form numbers aren't gameplay
-  levels ([facility visual forms](../game-data/scene-states.md#facility-visual-forms))
+- **progression**: one select per progression, "Level n", "Visual form n" or "Group level n",
+  starting at the highest (the finished world) with every lower one selectable, and one per
+  campfire, activated by default; facility forms are labelled "Visual form", not "Level", because
+  form numbers aren't gameplay levels
+  ([facility visual forms](../game-data/scene-states.md#facility-visual-forms))
 - **Dijiang**: a Control Nexus level select, a checkbox per cabin slot, built or empty, and a level
   select for the growth chamber
 - **doors and bridges**: a checkbox per door, open or closed, or "Follow game" for a cabin's door; a

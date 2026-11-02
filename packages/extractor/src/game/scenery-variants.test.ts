@@ -44,14 +44,14 @@ const tree: DynamicEntity = {
 	extraScene: null,
 };
 
-test('summarizes progressions with their levels and defaults to the lowest authored level', () => {
+test('summarizes progressions with their levels and defaults to the highest authored level', () => {
 	const [progression, ...rest] = summarizeProgressions([outpost, tree]);
 	assert.deepEqual(rest, []);
 	assert.deepEqual(progression, {
 		kind: 'settlement',
 		key: 'stm_hongs_1',
 		levels: [0, 1, 2, 3, 4],
-		defaultLevel: 0,
+		defaultLevel: 4,
 		entities: 1,
 		groupsPerLevel: { 0: 1, 1: 1, 2: 2, 3: 1, 4: 1 },
 		levelNum: 101,
@@ -95,11 +95,11 @@ test('area selections resolve to chunk files of state 0 plus the chosen areas', 
 	assert.deepEqual(loaded([7]), [0, 7]);
 });
 
-test('secondary progression entities do not choose their own later starting level', () => {
-	const secondary = { ...outpost, uid: 99n, resourceGroups: [group(5, 0b10000)] };
+test("a progression's levels and default cover every entity it controls", () => {
+	const secondary = { ...outpost, uid: 99n, resourceGroups: [group(5, 0b100000)] };
 	const [progression] = summarizeProgressions([outpost, secondary]).map((summary) =>
 		labelProgression(summary, null, null),
 	);
-	assert.equal(progression.defaultLevel, 0);
+	assert.equal(progression.defaultLevel, 5);
 	assert.equal(progression.entities, 2);
 });

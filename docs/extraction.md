@@ -547,7 +547,7 @@ doesn't save is dropped); a renderer whose materials take posed values draws a m
 whose record carries them before conversion. doodad-group shells aren't posed.
 
 - a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
-  `activation:<id>` control (0 not activated, the default; 1 activated), in the viewer's progression
+  `activation:<id>` control (0 not activated; 1 activated, the default), in the viewer's progression
   list.
 - a template whose components drive a [player-set key](game-data/assets.md#keys-the-player-sets)
   (`Distance`, `InZone`) is settled once more with those keys true. where that changes a settled
@@ -775,9 +775,9 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | MapConfig scene state      | `sceneState:<index>`, derived from its condition   | its condition under the defaults above; condition-less states off |
 | mission gate               | requirements on quest and mission controls         | —                                                                 |
 | variable gate              | a requirement on the variable's control            | —                                                                 |
-| progression                | `<kind>:<key>`                                     | lowest authored level; an outpost's, its upgrade missions done    |
-| facility visual form       | `facility:<interactive id>`                        | the template's base model                                         |
-| campfire activation        | `activation:<interactive id>`                      | not activated                                                     |
+| progression                | `<kind>:<key>`                                     | highest authored level (a finished world)                         |
+| facility visual form       | `facility:<interactive id>`                        | the last visual form (fully upgraded)                             |
+| campfire activation        | `activation:<interactive id>`                      | activated (a finished save)                                       |
 | interactive created later  | `created:<level id>`, not created / created        | not created                                                       |
 | doodad group level         | `doodadGroups:<level id>`                          | the highest level its shells name                                 |
 | Dijiang cabin slot         | `cabin:<entity id>`, empty / built                 | empty                                                             |
@@ -884,11 +884,10 @@ are read from `SettlementBasicDataTable` by
 level control instead of a mission control: complete above the level that names the mission. a test
 that tells the mission's unfinished states apart keeps the mission control. a mission whose outpost
 isn't in the scene, or has no authored level above that one, stays a mission control. an outpost
-with linked missions defaults to the lowest authored level at or above every one of them completing,
-as quests and missions default to completed, so content gated on its upgrade missions (Cardiac
-Remediation Station's light column, on `f1m19d3`) shows by default. the upgrade missions are factory
-missions, not main story ones, so "Main story progress" doesn't move these outposts; the outpost's
-own level control does.
+defaults to its highest authored level like every progression, which is at or above every one of its
+missions completing, so content gated on its upgrade missions (Cardiac Remediation Station's light
+column, on `f1m19d3`) shows by default. the upgrade missions are factory missions, not main story
+ones, so "Main story progress" doesn't move these outposts; the outpost's own level control does.
 
 ### progressions
 
@@ -898,10 +897,11 @@ them with the scene's stream areas.
 
 a progression is keyed `<kind>:<key>` (settlement id, POI id, or region level id); a settlement's
 main and secondary controlling entity share one progression. its selectable levels are the bits any
-of its groups use, and its default is the lowest. since whether bit 0 means "unbuilt" or "level 1"
-is unknown, the default shows the first authored appearance rather than claiming a progress point.
-each progression is selected independently, because the player's progress is per facility and no
-single completion percentage describes it.
+of its groups use, and its default is the highest: the finished world, as quests default to
+completed and facilities to their last visual form. groups shown only at lower levels (scaffolding,
+an unbuilt site) are hidden by default; the control still picks any authored level. each progression
+is selected independently, because the player's progress is per facility and no single completion
+percentage describes it.
 
 a resource group with a non-zero mask on an entity with no controller: if bit 0 is set it shows in
 the default state and needs no control; otherwise it gets a `logic:<entity id>:<mask>` toggle, off,
@@ -920,9 +920,10 @@ placements are deduplicated by id, a row created with its level (`createState` 0
 created later. a row created later (any other `createState`) is placed like the rest and also
 requires its level's `created:<level id>` control, one per level, off by default, since the server
 or a level script creates those rows during play. every facility placement becomes a `facility:<id>`
-progression whose levels are the list indices and whose default is the index of the template's base
-model (a recycling station starts at form 1). since form numbers aren't gameplay levels, the viewer
-labels them "Visual form", not "Level".
+progression whose levels are the list indices and whose default is the last form, fully upgraded as
+in a finished world (the template's base model, form 1 for a recycling station, is still
+selectable). since form numbers aren't gameplay levels, the viewer labels them "Visual form", not
+"Level".
 
 ### Dijiang cabins and region walls
 

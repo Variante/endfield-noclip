@@ -520,7 +520,6 @@ export const loadInteractiveFacilities = async (
 		string,
 		{
 			name: string | null;
-			initial: number;
 			forms: { prefab: string; scale: number }[];
 			/** the ModelTable id of a single-model interactive, `null` for facilities */
 			model: string | null;
@@ -574,7 +573,6 @@ export const loadInteractiveFacilities = async (
 		if (upgrade !== null) {
 			authored.set(key, {
 				name: FACILITY_NAMES.get(key) ?? key,
-				initial: upgrade.levels.indexOf(upgrade.id),
 				forms: upgrade.levels.map((modelId) => formOf(modelId, upgrade.scale)),
 				model: null,
 				data,
@@ -618,7 +616,6 @@ export const loadInteractiveFacilities = async (
 		}
 		authored.set(key, {
 			name: null,
-			initial: 0,
 			forms: [formOf(modelId, base?.scale ?? 1)],
 			model: modelId,
 			data,
@@ -1002,14 +999,14 @@ export const loadInteractiveFacilities = async (
 					id: activation,
 					name: `Campfire ${where}`,
 					rule: null,
-					assumption: 'not activated: the player activates it, and the server keeps it',
+					assumption: 'activated, as in a finished save: the player activates it, and the server keeps it',
 					followsCamera: false,
 					levelTags: [],
 					values: [
 						{ value: 0, label: `not activated (${looks.away[0].states.join(', ')})` },
 						{ value: 1, label: `activated (${looks.away[1].states.join(', ')})` },
 					],
-					default: 0,
+					default: 1,
 					derived: null,
 				});
 			}
@@ -1092,8 +1089,8 @@ export const loadInteractiveFacilities = async (
 				id,
 				`${template.name} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
 				template.forms.map((_, i) => i),
-				template.initial,
-				"the template's base model",
+				template.forms.length - 1,
+				'fully upgraded: its last visual form, as in a finished world',
 			),
 		);
 		for (const [form, model] of template.forms.entries()) {

@@ -366,28 +366,6 @@ export class GameState {
 		return conditionVisible({ alternatives: this.requirements(condition) }, this.defaults());
 	}
 
-	/**
-	 * @returns by progression control, the level its linked missions put it at once they're all complete, as
-	 *   the finished story has them: the lowest selectable level at or above every mission's `completedFrom`
-	 */
-	linkedDefaults(): Map<string, number> {
-		const highest = new Map<string, ProgressionLink>();
-		for (const link of this.#links.values()) {
-			const known = highest.get(link.control);
-			if (known === undefined || link.completedFrom > known.completedFrom) {
-				highest.set(link.control, link);
-			}
-		}
-		const defaults = new Map<string, number>();
-		for (const [control, { levels, completedFrom }] of highest) {
-			const level = levels.find((value) => value >= completedFrom);
-			if (level !== undefined) {
-				defaults.set(control, level);
-			}
-		}
-		return defaults;
-	}
-
 	/** @returns the default value of every control a translated condition reads */
 	defaults(): Record<string, number> {
 		return Object.fromEntries(this.controls().map((control) => [control.id, control.default]));
