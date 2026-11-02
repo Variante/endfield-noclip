@@ -28,6 +28,8 @@ export interface ConvertedTexture {
 	pieces: TexturePieceData[];
 	/** equal for textures with the same shape, format, sampler and texels */
 	contentKey: string;
+	/** settings WebGPU can't express and the stand-in used, e.g. Unity's mirror-once wrap */
+	approximations: string[];
 }
 
 /**
@@ -62,7 +64,15 @@ export const convertTexture = (texture: DecodedTexture): ConvertedTexture => {
 	for (const level of texture.levels) {
 		hash.update(level);
 	}
-	return { entry, pieces, contentKey: hash.digest('hex') };
+	const approximations: string[] = [];
+	{
+		const { wrapU, wrapV, wrapW } = texture.sampler;
+		const axes = texture.kind === '3d' ? [wrapU, wrapV, wrapW] : [wrapU, wrapV];
+		if (axes.includes(WRAP_MIRROR_ONCE)) {
+			approximations.push('mirror-once wrap drawn as mirror-repeat');
+		}
+	}
+	return { entry, pieces, contentKey: hash.digest('hex'), approximations };
 };
 
 /**
@@ -95,15 +105,28 @@ export const splitLevels = (levels: readonly Uint8Array[]): TexturePieceData[] =
 	return pieces;
 };
 
+/**
+ * Unity's `TextureWrapMode.MirrorOnce`, which WebGPU lacks; recorded in
+ * {@link ConvertedTexture.approximations}
+ */
+const WRAP_MIRROR_ONCE = 3;
+
+/** WebGPU address modes by Unity `TextureWrapMode` */
 const ADDRESS_MODES: TextureSampler['addressModeU'][] = [
 	'repeat',
 	'clamp-to-edge',
 	'mirror-repeat',
-	// Unity's mirror-once has no WebGPU counterpart
+	// mirror-once mirrors the texture once and then clamps
 	'mirror-repeat',
 ];
 
-const address = (mode: number): TextureSampler['addressModeU'] => ADDRESS_MODES[mode] ?? 'repeat';
+const address = (mode: number): TextureSampler['addressModeU'] => {
+	const gpuMode = ADDRESS_MODES[mode];
+	if (gpuMode === undefined) {
+		throw new FormatError(`unknown texture wrap mode ${mode}`);
+	}
+	return gpuMode;
+};
 
 const gpuSampler = (sampler: UnitySamplerSettings): TextureSampler => {
 	const linear = sampler.filterMode >= 1;

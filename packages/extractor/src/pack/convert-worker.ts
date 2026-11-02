@@ -95,6 +95,7 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 				name: texture.name,
 				entry: converted.entry,
 				contentKey: converted.contentKey,
+				approximations: converted.approximations,
 				pieces: converted.pieces.map(({ firstLevel, levelCount }, i) => ({
 					firstLevel,
 					levelCount,

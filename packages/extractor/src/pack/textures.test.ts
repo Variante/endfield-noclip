@@ -123,4 +123,14 @@ describe('convertTexture', () => {
 		assert.throws(() => convertTexture(texture({ levels })), /level 3/);
 		assert.throws(() => convertTexture(texture({ vkFormat: VkFormat.R8_SRGB })), /no WebGPU format/);
 	});
+
+	it('records mirror-once on the axes a texture samples, and rejects unknown wrap modes', () => {
+		const sampler = { filterMode: 2, aniso: 1, mipBias: 0, wrapU: 0, wrapV: 0, wrapW: 3 };
+		// a 2D texture never wraps in W
+		assert.deepEqual(convertTexture(texture({ sampler })).approximations, []);
+		assert.deepEqual(convertTexture(texture({ sampler: { ...sampler, wrapV: 3 } })).approximations, [
+			'mirror-once wrap drawn as mirror-repeat',
+		]);
+		assert.throws(() => convertTexture(texture({ sampler: { ...sampler, wrapU: 7 } })), /wrap mode 7/);
+	});
 });

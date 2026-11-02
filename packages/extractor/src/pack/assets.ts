@@ -251,8 +251,11 @@ export interface AssetConversion {
 	debug: {
 		geometries: AssetDebug[];
 		materials: MaterialDebug[];
-		/** by texture object, in first-use order; `id` is its texture-table entry */
-		textures: (AssetDebug & { id: number })[];
+		/**
+		 * by texture object, in first-use order; `id` is its texture-table entry, `approximations` the settings
+		 * WebGPU can't express (absent when there are none)
+		 */
+		textures: (AssetDebug & { id: number; approximations?: string[] })[];
 	};
 	stats: {
 		timings: Record<string, number>;
@@ -268,6 +271,8 @@ export interface AssetConversion {
 		/** texture objects whose content equalled an earlier texture's */
 		textureDuplicates: number;
 		failures: Record<string, number>;
+		/** texture objects with a setting WebGPU can't express, by approximation */
+		textureApproximations: Record<string, number>;
 		/** materials whose shader has no look in the viewer, by shader */
 		unsupportedShaders: Record<string, number>;
 		/** materials with a surface keyword the viewer doesn't draw, by `<shader> <keyword>` */
@@ -490,6 +495,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 	const texturePieces: Record<string, BlobTally> = {};
 	const textureFormats: Record<string, number> = {};
 	let textureDuplicates = 0;
+	const textureApproximations: Record<string, number> = {};
 	await orderedPool(
 		textureObjects,
 		CONVERSIONS_IN_FLIGHT,
@@ -507,11 +513,16 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 				return;
 			}
 			const { name, pieces } = result;
+			for (const approximation of result.approximations) {
+				textureApproximations[approximation] = (textureApproximations[approximation] ?? 0) + 1;
+			}
+			const approximations =
+				result.approximations.length === 0 ? {} : { approximations: result.approximations };
 			const twin = byContent.get(result.contentKey);
 			if (twin !== undefined) {
 				textureDuplicates++;
 				textureIds.push(twin);
-				textureDebug.push({ object: object.key, name, error: null, id: twin });
+				textureDebug.push({ object: object.key, name, error: null, id: twin, ...approximations });
 				return;
 			}
 			const id = textureEntries.length;
@@ -537,7 +548,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 					};
 				}),
 			});
-			textureDebug.push({ object: object.key, name, error: null, id });
+			textureDebug.push({ object: object.key, name, error: null, id, ...approximations });
 		},
 	);
 	// slots referenced textures by object; point them at the deduplicated entries
@@ -567,6 +578,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			textureFormats,
 			textureDuplicates,
 			failures,
+			textureApproximations,
 			unsupportedShaders,
 			keywordsNotDrawn: keywordsNotDrawnCounts,
 		},

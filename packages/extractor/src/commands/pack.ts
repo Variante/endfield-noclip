@@ -145,6 +145,9 @@ const formatReport = (report: PackReport): string => {
 				.map(([format, count]) => `${format} ${count}`)
 				.join(', ')}; ${conversion.textureDuplicates} duplicate objects merged`,
 		);
+		for (const [approximation, count] of Object.entries(conversion.textureApproximations)) {
+			lines.push(`  approximated ${String(count).padStart(5)} × texture: ${approximation}`);
+		}
 		for (const [reason, count] of Object.entries(conversion.failures).toSorted((a, b) => b[1] - a[1])) {
 			lines.push(`  failed ${String(count).padStart(5)} × ${reason}`);
 		}

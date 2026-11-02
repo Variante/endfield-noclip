@@ -49,6 +49,8 @@ export type ConvertOutput =
 			entry: Omit<ReadyTexture, 'id' | 'status' | 'pieces'>;
 			/** equal for textures with the same shape, format, sampler and texels */
 			contentKey: string;
+			/** settings WebGPU can't express and the stand-in used, e.g. Unity's mirror-once wrap */
+			approximations: string[];
 			/** coarse to fine */
 			pieces: { firstLevel: number; levelCount: number; blob: BlobMeta }[];
 	  };
