@@ -1167,7 +1167,7 @@ const collectEntities = async (
 				matrix,
 				tag: standIn.levelTag,
 				entityId: syntheticEntityId(standIn.levelTag, modelId++),
-				visibility: { alternatives: [[]] },
+				visibility: standIn.visibility,
 			},
 			{ path: standIn.source, name: standIn.template, reason: standIn.reason },
 		);
@@ -1213,6 +1213,7 @@ const collectEntities = async (
 	// doors derived from cabin slots come after them
 	collected.facilities = [
 		...facilities.progressions,
+		...facilities.created,
 		...cabins.controls,
 		...facilities.doors.map(({ control }) => control),
 		...facilities.bridges,

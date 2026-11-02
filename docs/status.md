@@ -260,14 +260,16 @@ packs or renders correctly.
   mission's cutscene, the server) isn't followed. campfires draw not activated or activated
   ([campfires](game-data/assets.md#campfires)), not activated by default; their fight look and the
   color layer's VAT clips aren't drawn. telescopic bridges likewise draw retracted or extended
-  ([telescopic bridges](game-data/assets.md#telescopic-bridges)), retracted by default. only
-  `createState` 0 rows are drawn, once per id. interactives whose model id is missing from the model
-  table, templates without a data file of their own (weapon-wall racks, some doors), templates where
-  zero or several positions frame the variant table, door models with an ambiguous open-idle state
-  (not drawn as doors), and LevelData with any populated field or condition the reader doesn't
-  implement (the blackbox scenes' blackbox settings; LevelData members after the interactive list
-  aren't decoded) are reported in `out/<map>/debug/unsupported-interactives.json`; those whose
-  template or model wasn't found are [stand-ins](package-format.md#stand-ins), the rest omitted
+  ([telescopic bridges](game-data/assets.md#telescopic-bridges)), retracted by default. rows created
+  later (`createState` ≠ 0) draw only with their level's "created during play" toggle, off by
+  default; one toggle covers a level's rows, since which of them the server or a script creates
+  isn't followed. interactives whose model id is missing from the model table, templates without a
+  data file of their own (weapon-wall racks, some doors), templates where zero or several positions
+  frame the variant table, door models with an ambiguous open-idle state (not drawn as doors), and
+  LevelData with any populated field or condition the reader doesn't implement (the blackbox scenes'
+  blackbox settings; LevelData members after the interactive list aren't decoded) are reported in
+  `out/<map>/debug/unsupported-interactives.json`; those whose template or model wasn't found are
+  [stand-ins](package-format.md#stand-ins), the rest omitted
 - entities controlled only by `ActivityControlComp` aren't gated
   ([dynamic load gates](game-data/scene-states.md#dynamic-load-gates))
 - resource nodes (doodad groups) share one level control per level; the game's per-group level and
@@ -280,11 +282,10 @@ packs or renders correctly.
   ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
   or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
   controls yet
-- scene states that scripts set by name (`SetOverrideSceneState`), LevelData rows created later
-  (`createState` ≠ 0; Dijiang's Control Nexus terminal and summon point are server-created) and
-  map02's sprayable sludge aren't represented; script-driven water levels are picked by hand, not
-  tied to the switches, clocks and quests that drive them; the shop, depot and terminal level →
-  visual form mapping, and the resource-node level's link to regional development, aren't recovered
+- scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
+  aren't represented; script-driven water levels are picked by hand, not tied to the switches,
+  clocks and quests that drive them; the shop, depot and terminal level → visual form mapping, and
+  the resource-node level's link to regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server
   sets show as "server", and groups no client script names have none
 - story-state expressions and script relationships beyond what client data proves; event and server

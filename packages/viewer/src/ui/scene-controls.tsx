@@ -53,6 +53,12 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 		open: true,
 	},
 	{
+		kinds: ['created'],
+		title: 'Created during play',
+		note: 'Interactives the server or a level script adds after the level loads, hidden by default.',
+		open: false,
+	},
+	{
 		kinds: ['door', 'bridge'],
 		title: 'Doors and bridges',
 		note: null,
@@ -153,6 +159,7 @@ const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set([
 	'script',
 	'logic',
 	'cabin',
+	'created',
 	'door',
 	'bridge',
 ]);

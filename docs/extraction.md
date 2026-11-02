@@ -722,6 +722,7 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | variable gate              | a requirement on the variable's control             | —                                                                 |
 | progression                | `<kind>:<key>`                                      | lowest authored level                                             |
 | facility visual form       | `facility:<interactive id>`                         | the template's base model                                         |
+| interactive created later  | `created:<level id>`, not created / created         | not created                                                       |
 | doodad group level         | `doodadGroups:<level id>`                           | the highest level its shells name                                 |
 | Dijiang cabin slot         | `cabin:<entity id>`, empty / built                  | empty                                                             |
 | growth chamber level       | `cabinLevel:<entity id>`, the table's levels        | level 1                                                           |
@@ -844,10 +845,13 @@ default, since the player fells each tree at runtime.
 [facility visual forms](game-data/scene-states.md#facility-visual-forms) are implemented in
 [interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts), with the
 templates decoded as MemoryPack (`InteractiveTemplateData`, see [level scripts](#level-scripts)).
-every placement (`createState` 0, deduplicated by id) becomes a `facility:<id>` progression whose
-levels are the list indices and whose default is the index of the template's base model (a recycling
-station starts at form 1). since form numbers aren't gameplay levels, the viewer labels them "Visual
-form", not "Level".
+placements are deduplicated by id, a row created with its level (`createState` 0) winning over one
+created later. a row created later (any other `createState`) is placed like the rest and also
+requires its level's `created:<level id>` control, one per level, off by default, since the server
+or a level script creates those rows during play. every facility placement becomes a `facility:<id>`
+progression whose levels are the list indices and whose default is the index of the template's base
+model (a recycling station starts at form 1). since form numbers aren't gameplay levels, the viewer
+labels them "Visual form", not "Level".
 
 ### Dijiang cabins and region walls
 

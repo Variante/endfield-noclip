@@ -374,6 +374,8 @@ export interface InteractiveStandIn {
 	/** Unity Euler angles, degrees */
 	rotation: [number, number, number];
 	scale: [number, number, number];
+	/** when it shows: always, or with its level's `created` control for a row the game creates later */
+	visibility: ConditionalSetInfo;
 }
 
 /**
@@ -382,7 +384,9 @@ export interface InteractiveStandIn {
  * (its template variant's, else the template's), always shown. a model that is a doodad-group shell also
  * places its form models, one per group level, under a per-level `doodadGroups:<level id>` control. a model
  * with door poses is placed closed and open, under a `door:<id>` control, closed by default. a telescopic
- * bridge is placed retracted and extended, under a `bridge:<id>` control, retracted by default
+ * bridge is placed retracted and extended, under a `bridge:<id>` control, retracted by default. rows the game
+ * creates later (`createState` ≠ 0) are placed the same way and also require their level's `created:<level
+ * id>` control, off by default
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
@@ -401,6 +405,8 @@ export const loadInteractiveFacilities = async (
 ): Promise<{
 	models: StructureModel[];
 	progressions: SceneControl[];
+	/** per level with rows the game creates later (`createState` ≠ 0), the control that shows them, off */
+	created: SceneControl[];
 	/** controls of interactives whose look follows the player's presence, and where each counts as near */
 	proximityControls: SceneControl[];
 	proximities: ProximityInfo[];
@@ -440,9 +446,19 @@ export const loadInteractiveFacilities = async (
 
 	// placements first, so only the templates they use are read
 	const pathOf = await world.pathLookup();
-	const placed: { path: string; levelId: string; levelTag: number; row: LevelInteractive }[] = [];
+	const placed: {
+		path: string;
+		levelId: string;
+		levelTag: number;
+		row: LevelInteractive;
+		/** the `created:<level id>` control of a row the game creates later, `null` for one created with the level */
+		created: string | null;
+	}[] = [];
+	/** by level id, the control of its rows created later */
+	const createdControls = new Map<string, SceneControl>();
 	{
 		const seen = new Set<bigint>();
+		const later: typeof placed = [];
 		for (const config of (await world.levelConfigs()).values()) {
 			if (config.mapId !== scene || (level !== null && config.id !== level)) {
 				continue;
@@ -465,13 +481,41 @@ export const loadInteractiveFacilities = async (
 					continue;
 				}
 				for (const row of rows) {
-					if (row.createState !== 0 || seen.has(row.id)) {
+					if (row.createState !== 0) {
+						later.push({ path, levelId: config.id, levelTag, row, created: `created:${config.id}` });
+						continue;
+					}
+					if (seen.has(row.id)) {
 						continue;
 					}
 					seen.add(row.id);
-					placed.push({ path, levelId: config.id, levelTag, row });
+					placed.push({ path, levelId: config.id, levelTag, row, created: null });
 				}
 			}
+		}
+		// a row created with its level wins over the same id created later in another layer
+		for (const entry of later) {
+			if (seen.has(entry.row.id)) {
+				continue;
+			}
+			seen.add(entry.row.id);
+			placed.push(entry);
+			createdControls.getOrInsertComputed(entry.levelId, () => ({
+				kind: 'created',
+				id: `created:${entry.levelId}`,
+				name: `Created later (${entry.levelId})`,
+				rule: null,
+				assumption: 'hidden: the server or a level script creates these interactives during play',
+				story: null,
+				drivers: [],
+				levelTags: [],
+				values: [
+					{ value: 0, label: 'not created' },
+					{ value: 1, label: 'created' },
+				],
+				default: 0,
+				derived: null,
+			}));
 		}
 	}
 
@@ -809,7 +853,17 @@ export const loadInteractiveFacilities = async (
 				return null;
 			}
 		});
-	for (const { path, levelId, levelTag, row } of placed) {
+	for (const { path, levelId, levelTag, row, created } of placed) {
+		// a row created later also needs its level's `created` control on
+		const gate = (visibility: ConditionalSetInfo): ConditionalSetInfo =>
+			created === null
+				? visibility
+				: {
+						alternatives: visibility.alternatives.map((requirements) => [
+							...requirements,
+							{ control: created, mask: 2 },
+						]),
+					};
 		const template = authored.get(row.template);
 		if (template === undefined) {
 			const reason = modelless.get(row.template);
@@ -822,15 +876,17 @@ export const loadInteractiveFacilities = async (
 					position: row.position,
 					rotation: row.rotation,
 					scale: row.scale,
+					visibility: gate({ alternatives: [[]] }),
 				});
 			}
 			continue;
 		}
 		const place = (
 			model: { prefab: string; scale: number },
-			visibility: ConditionalSetInfo,
+			shown: ConditionalSetInfo,
 			pose: PrefabPose | null,
 		): void => {
+			const visibility = gate(shown);
 			// zero is the authored "no scale override" sentinel on LevelInteractiveData.
 			const scale = row.modelScale > 0 ? row.modelScale : model.scale;
 			models.push({
@@ -1028,5 +1084,15 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 	}
-	return { models, progressions, proximityControls, proximities, doors, bridges, unsupported, standIns };
+	return {
+		models,
+		progressions,
+		created: [...createdControls.values()],
+		proximityControls,
+		proximities,
+		doors,
+		bridges,
+		unsupported,
+		standIns,
+	};
 };

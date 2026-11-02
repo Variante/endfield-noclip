@@ -98,6 +98,8 @@ export interface VisibilityGroup {
  *   area's region wall shows below its level
  * - `cabin`: a Dijiang cabin slot, empty (0) or built (1); building is the player's choice
  * - `cabinLevel`: a built growth chamber's level, which unlocks its planting boxes
+ * - `created`: one level's interactives the game creates during play rather than with the level (by the server
+ *   or a level script), shown (1) or not (0)
  * - `door`: an interactive door, closed (0) or open (1); derived from its cabin slot for a Dijiang cabin's door
  * - `area`: a stream area, shown (1) or hidden (0). unless the user picks a value, a viewer sets it from the
  *   camera (see {@link StreamAreasInfo}); its `default` is only what holds without a camera
@@ -119,6 +121,7 @@ export type SceneControlKind =
 	| 'controlNexus'
 	| 'cabin'
 	| 'cabinLevel'
+	| 'created'
 	| 'door'
 	| 'bridge'
 	| 'area'
