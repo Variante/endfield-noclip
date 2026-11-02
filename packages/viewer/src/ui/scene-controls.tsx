@@ -52,8 +52,8 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 		open: true,
 	},
 	{
-		kinds: ['door'],
-		title: 'Doors',
+		kinds: ['door', 'bridge'],
+		title: 'Doors and bridges',
 		note: null,
 		open: false,
 	},
@@ -147,6 +147,7 @@ const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set([
 	'logic',
 	'cabin',
 	'door',
+	'bridge',
 ]);
 
 /**

@@ -1177,7 +1177,9 @@ const collectEntities = async (
 		...facilities.progressions,
 		...cabins.controls,
 		...facilities.doors.map(({ control }) => control),
+		...facilities.bridges,
 	];
+	counts.bridges = facilities.bridges.length;
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
 	const particleQuad = await findParticleQuad(context, resolver);

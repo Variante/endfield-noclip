@@ -623,8 +623,8 @@ list a control only for the levels it matters to. a value is a quest's state, a 
 progression's level or form index, or 0/1 for on/off controls. only controls some group requires,
 directly or through a derived scene state, are listed; a derived state passes its level tags on to
 the quests and variables it reads. quests, missions and variables come first in `controls`, then
-progressions, facilities, doodad groups, cabins and doors, stream areas, script, logic and harvest
-controls, then scene states.
+progressions, facilities, doodad groups, cabins, doors and bridges, stream areas, script, logic and
+harvest controls, then scene states.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
   `conditionalSets[derived]` holds, and its `rule` gives that condition in words. derived controls

@@ -3,8 +3,8 @@
 everything that decides whether a piece of authored content is visible: MapConfig scene states and
 their quest, mission and variable conditions; the load gates on DynamicStreaming entities;
 progression levels (outposts, POI facilities, factory regions); facility visual forms, Dijiang's
-cabins, doors and resource-node groups; script-loaded groups; and quest labels. spatial stream areas
-(interiors, caves, off-map places) are a separate axis, covered in
+cabins, doors, telescopic bridges and resource-node groups; script-loaded groups; and quest labels.
+spatial stream areas (interiors, caves, off-map places) are a separate axis, covered in
 [world.md](world.md#stream-areas). the dynamic ECS scene's format and the interactives' models are
 in [assets.md](assets.md#dynamic-structures).
 
@@ -23,6 +23,7 @@ in [assets.md](assets.md#dynamic-structures).
 | Dijiang cabin slot         | `ExtraSceneSlot` entity; cabin scenes named by `SpaceshipCabinData.json`                                |
 | growth chamber level       | `SpaceshipGrowCabinLvTable` planting fields; planting-box shutters                                      |
 | door                       | interactive model view states                                                                           |
+| telescopic bridge          | the interactive's `state` property                                                                      |
 | tree harvest state         | resource-group `logicState` on tree entities                                                            |
 | script group               | script-control component's default-load flag; level scripts                                             |
 | controller-less logic gate | resource-group `logicState` on an entity with no controller                                             |
@@ -173,11 +174,11 @@ levels or terminal levels (`KiteStationLevelTable`) map onto the list isn't reco
 
 every other interactive has one model (its variant's, else its template's; see
 [assets.md](assets.md#interactives)): Dijiang's guest terminal desk and screens, for instance.
-[doors](#doors) and [region walls](#dijiang-region-walls) follow runtime state. rows with another
-`createState` aren't created from client data: Dijiang's Control Nexus terminal is one, so the
-server creates it; its mission condition, `e1m9` completed, only locks interaction with it. some
-templates have no data file of their own (the weapon-wall racks, some doors), and some templates
-name no model.
+[doors](#doors), [telescopic bridges](#telescopic-bridges) and [region walls](#dijiang-region-walls)
+follow runtime state. rows with another `createState` aren't created from client data: Dijiang's
+Control Nexus terminal is one, so the server creates it; its mission condition, `e1m9` completed,
+only locks interaction with it. some templates have no data file of their own (the weapon-wall
+racks, some doors), and some templates name no model.
 
 ## destructible props
 
@@ -235,6 +236,12 @@ from a mission's cutscene and calls the server).
   tables don't unlock it; the client gets its unlocked systems from the server, and no client table
   maps a mission to them. no mission or level script unlocks it either. mission `f1m22` (Control
   Nexus level 3) places an NPC in the room, so it's open by then, but that's no link to follow
+
+## telescopic bridges
+
+a telescopic bridge ([assets.md](assets.md#telescopic-bridges)) is retracted or extended by its
+interactive's `state` property, which starts at 0 (retracted) in the template. what sets it in game
+(a switch, a script, the server) isn't followed. map01 places ten, five in The Hub.
 
 ## doodad groups
 

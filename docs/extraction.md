@@ -470,11 +470,19 @@ switches), sets the bound local transforms and switches while walking the hierar
 leaves follow their bones. the placement is emitted once per pose, under a door control
 ([doors](#doors)).
 
+a template whose logic controller is a [telescopic bridge](game-data/assets.md#telescopic-bridges)
+is drawn through the same poses, all with the prefab root as the Animator: retracted (the end port
+moved back, track and piece switched off), extended (the end port moved out, the track scaled), and
+one more placement of the whole prefab per piece that switches everything but the piece off, moves
+it to its slot and applies its open-idle clip. that clip binds below the piece's own Animator, so
+its paths are re-keyed to paths below the root ([bridges](#bridges)).
+
 code: [interactive-model.ts](../packages/formats/src/endfield/interactive-model.ts),
 [level-interactives.ts](../packages/formats/src/endfield/level-interactives.ts),
 [interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts),
 [animation-clip.ts](../packages/formats/src/unity/animation-clip.ts),
 [door-poses.ts](../packages/extractor/src/game/door-poses.ts),
+[telescopic-bridge.ts](../packages/extractor/src/game/telescopic-bridge.ts),
 [prefab.ts](../packages/extractor/src/game/prefab.ts)
 
 ### environments
@@ -667,6 +675,7 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | growth chamber level       | `cabinLevel:<entity id>`, the table's levels        | level 1                                                           |
 | Dijiang region wall        | `controlNexus:<level id>`                           | level 1                                                           |
 | door                       | `door:<interactive id>`, closed / open              | closed; a cabin's follows its slot                                |
+| telescopic bridge          | `bridge:<interactive id>`, retracted / extended     | retracted                                                         |
 | tree harvest state         | `harvest:<level tag>`, standing / felled            | standing                                                          |
 | script group               | `script:<entity id>`                                | the stored default, or its scripts' quest checks on activation    |
 | controller-less logic gate | `logic:<entity id>:<mask>`                          | off                                                               |
@@ -822,6 +831,15 @@ it. since what opens doors in game isn't in client data:
   while it's empty. each door goes to the nearest slot origin within 12 m in plan; the spare small
   slot has none
 - Dijiang's reception room door stays closed by default, since its unlock is server-only
+
+### bridges
+
+[telescopic bridges](game-data/scene-states.md#telescopic-bridges) are implemented in
+[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts). each placed
+bridge gets a `bridge:<interactive id>` control, retracted (0, the default and the template's
+initial state) or extended (1), with its poses from [interactives](#interactives) placed under it. a
+bridge whose prefab can't be read as one is reported in `unsupported-interactives.json` and drawn as
+saved.
 
 ### doodad groups
 

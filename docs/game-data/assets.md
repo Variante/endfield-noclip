@@ -244,6 +244,29 @@ rotation, one per other float, none per PPtr curve. a binding's `path` is the CR
 GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
 GameObject.
 
+### telescopic bridges
+
+`int_telescopic` is a bridge that extends out of a wall in pieces. its template's logic controller
+has `logicType` 8, an int `state` property (0 retracted, 1 extended) and a `pieces` config property
+(3; a placement's own `pieces` would override it, but no map01 placement sets one). its prefab's
+root has a MonoBehaviour (`InteractiveTelescopicPostmodelMono`) naming four children: the start
+port, the end port, the horizontal track and a platform piece, plus the piece's length (4 m), width
+and thickness. the piece is switched off in the prefab: the game draws copies of it, never the piece
+itself, so its saved position (5.3 m out) means nothing.
+
+all offsets are along the prefab root's +z, with n pieces of length L:
+
+| part       | retracted (`state` 0)       | extended (`state` 1)               |
+| ---------- | --------------------------- | ---------------------------------- |
+| start port | as saved                    | as saved                           |
+| end port   | at the start port (0, 0, 0) | (0, 0, n·L)                        |
+| track      | switched off                | switched on, local scale (1, 1, n) |
+| copies     | switched off                | copy i at (0, 0, i·L), unrotated   |
+
+each copy's Animator plays its open idle state when extended, which raises the piece's rails (bones
+below the piece), and its close idle state when retracted. the prefab as saved is neither: its end
+port sits 13.35 m out with no pieces between.
+
 ### the variant table
 
 between the model component and the variant table sit hundreds of component and action-graph types.

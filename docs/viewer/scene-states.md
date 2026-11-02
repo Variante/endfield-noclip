@@ -41,7 +41,8 @@ panel:
   levels ([facility visual forms](../game-data/scene-states.md#facility-visual-forms))
 - **Dijiang**: a Control Nexus level select, a checkbox per cabin slot, built or empty, and a level
   select for the growth chamber
-- **doors**: a checkbox per door, open or closed, or "Follow game" for a cabin's door
+- **doors and bridges**: a checkbox per door, open or closed, or "Follow game" for a cabin's door; a
+  checkbox per telescopic bridge, extended or retracted
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
 - **harvest**: standing or felled
 - **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a

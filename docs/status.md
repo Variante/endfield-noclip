@@ -220,14 +220,15 @@ packs or renders correctly.
   every state's effects show at once (range rings, lock marks). doors are the exception: they draw
   open or closed ([interactive doors](game-data/assets.md#interactive-doors)), closed by default
   except a Dijiang cabin's, since what opens each in game (a level script reacting to a mission's
-  cutscene, the server) isn't followed. only `createState` 0 rows are drawn, once per id.
-  interactives whose model id is missing from the model table, templates without a data file of
-  their own (weapon-wall racks, some doors), templates where zero or several positions frame the
-  variant table, door models with an ambiguous open-idle state (not drawn as doors), and LevelData
-  with any populated field or condition the reader doesn't implement (the blackbox scenes' blackbox
-  settings; LevelData members after the interactive list aren't decoded) are reported in
-  `out/<map>/debug/unsupported-interactives.json`; those whose template or model wasn't found are
-  [stand-ins](package-format.md#stand-ins), the rest omitted
+  cutscene, the server) isn't followed. telescopic bridges likewise draw retracted or extended
+  ([telescopic bridges](game-data/assets.md#telescopic-bridges)), retracted by default. only
+  `createState` 0 rows are drawn, once per id. interactives whose model id is missing from the model
+  table, templates without a data file of their own (weapon-wall racks, some doors), templates where
+  zero or several positions frame the variant table, door models with an ambiguous open-idle state
+  (not drawn as doors), and LevelData with any populated field or condition the reader doesn't
+  implement (the blackbox scenes' blackbox settings; LevelData members after the interactive list
+  aren't decoded) are reported in `out/<map>/debug/unsupported-interactives.json`; those whose
+  template or model wasn't found are [stand-ins](package-format.md#stand-ins), the rest omitted
 - entities controlled only by `ActivityControlComp` aren't gated
   ([dynamic load gates](game-data/scene-states.md#dynamic-load-gates))
 - resource nodes (doodad groups) share one level control per level; the game's per-group level and

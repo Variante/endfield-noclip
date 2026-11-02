@@ -103,6 +103,7 @@ export type SceneControlKind =
 	| 'cabin'
 	| 'cabinLevel'
 	| 'door'
+	| 'bridge'
 	| 'area'
 	| 'settlement'
 	| 'poi'

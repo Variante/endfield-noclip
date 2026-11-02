@@ -24,6 +24,7 @@ import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
 import type { PrefabPose } from './prefab.ts';
 import { progressionControl } from './scenery-variants.ts';
+import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
 
 // these facility templates share the validated model-upgrade component, so their visual forms become a
 // progression control. every other template draws its base model only.
@@ -126,6 +127,69 @@ const hasComponent = (template: MemoryPackValue, suffixes: readonly string[]): b
 	);
 };
 
+/** the interactive logic type of telescopic bridges */
+const TELESCOPIC_LOGIC = 8;
+
+/** the template and placement property holding a telescopic bridge's piece count */
+const PIECES_KEY = 'pieces';
+
+/**
+ * @param template a decoded interactive template
+ * @param path its file, for errors
+ * @returns its piece count when its logic is a telescopic bridge, otherwise `null`
+ * @throws {FormatError} if a telescopic bridge lacks a valid piece count
+ */
+const telescopicPieces = (template: MemoryPackValue, path: string): number | null => {
+	if (template === null || typeof template !== 'object' || Array.isArray(template)) {
+		return null;
+	}
+	const components = Array.isArray(template.componentList) ? template.componentList : [];
+	const telescopic = components.some(
+		(component) =>
+			component !== null &&
+			typeof component === 'object' &&
+			!Array.isArray(component) &&
+			typeof component.$type === 'string' &&
+			component.$type.endsWith('_InteractiveLogicControllerComponentDataForMemoryPack') &&
+			component.logicType === TELESCOPIC_LOGIC,
+	);
+	if (!telescopic) {
+		return null;
+	}
+	const properties = Array.isArray(template.configProperties) ? template.configProperties : [];
+	for (const property of properties) {
+		if (property === null || typeof property !== 'object' || Array.isArray(property)) {
+			continue;
+		}
+		const value = property.value;
+		if (property.key !== PIECES_KEY || value === null || typeof value !== 'object' || Array.isArray(value)) {
+			continue;
+		}
+		const [atom] = Array.isArray(value.valueArray) ? value.valueArray : [];
+		const bits =
+			atom !== null && typeof atom === 'object' && !Array.isArray(atom) ? atom.valueBit64 : undefined;
+		const pieces = typeof bits === 'string' || typeof bits === 'number' ? Number(bits) : Number.NaN;
+		if (Number.isInteger(pieces) && pieces > 0 && pieces <= 64) {
+			return pieces;
+		}
+	}
+	throw new FormatError(`${path} is a telescopic bridge without a valid ${PIECES_KEY} count`);
+};
+
+/**
+ * @param row a placed interactive
+ * @returns its piece count override on any component, or null
+ */
+const piecesOf = (row: LevelInteractive): number | null => {
+	for (const params of row.componentProperties.values()) {
+		const bits = params.find((param) => param.key === PIECES_KEY)?.values[0]?.bits;
+		if (bits !== undefined) {
+			return Number(bits);
+		}
+	}
+	return null;
+};
+
 const TABLE = 'Data/Json/Interactive/InteractiveTable.json';
 
 /** construction area → the Control Nexus level that unlocks it */
@@ -172,7 +236,8 @@ export interface InteractiveStandIn {
  * templates in {@link TEMPLATES}, each under a `facility:<id>` control, and every other interactive's model
  * (its template variant's, else the template's), always shown. a model that is a doodad-group shell also
  * places its form models, one per group level, under a per-level `doodadGroups:<level id>` control. a model
- * with door poses is placed closed and open, under a `door:<id>` control, closed by default
+ * with door poses is placed closed and open, under a `door:<id>` control, closed by default. a telescopic
+ * bridge is placed retracted and extended, under a `bridge:<id>` control, retracted by default
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
@@ -192,6 +257,7 @@ export const loadInteractiveFacilities = async (
 	models: StructureModel[];
 	progressions: SceneControl[];
 	doors: InteractiveDoor[];
+	bridges: SceneControl[];
 	unsupported: { path: string; reason: string }[];
 	standIns: InteractiveStandIn[];
 }> => {
@@ -431,8 +497,13 @@ export const loadInteractiveFacilities = async (
 	// walls, by key, are drawn while their construction area is locked
 	const doorPoses = new Map<string, DoorPoses>();
 	const regionWalls = new Set<string>();
+	/** telescopic bridges' piece counts and prefab roots, by key */
+	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	{
-		const templateKinds = new Map<string, 'door' | 'regionWall' | null>();
+		const templateKinds = new Map<
+			string,
+			'door' | 'regionWall' | { kind: 'telescopic'; pieces: number } | null
+		>();
 		const byModel = new Map<string, DoorPoses | null>();
 		// a failed read reports and leaves the model drawn as saved
 		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
@@ -446,7 +517,7 @@ export const loadInteractiveFacilities = async (
 				return failed;
 			}
 		};
-		for (const [key, { model, data }] of authored) {
+		for (const [key, { model, data, forms }] of authored) {
 			if (model === null) {
 				continue;
 			}
@@ -463,7 +534,8 @@ export const loadInteractiveFacilities = async (
 						if (hasComponent(decoded, REGION_WALL_COMPONENTS)) {
 							return 'regionWall';
 						}
-						return null;
+						const pieces = telescopicPieces(decoded, data);
+						return pieces === null ? null : { kind: 'telescopic' as const, pieces };
 					},
 					null,
 				);
@@ -471,6 +543,9 @@ export const loadInteractiveFacilities = async (
 			}
 			if (kind === 'regionWall') {
 				regionWalls.add(key);
+			}
+			if (kind !== null && typeof kind === 'object') {
+				telescopic.set(key, { pieces: kind.pieces, prefab: forms[0].prefab });
 			}
 			if (kind !== 'door') {
 				continue;
@@ -528,8 +603,29 @@ export const loadInteractiveFacilities = async (
 	const models: StructureModel[] = [];
 	const progressions: SceneControl[] = nexus === null ? [] : [nexus.control];
 	const doors: InteractiveDoor[] = [];
+	const bridges: SceneControl[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
 	const standIns: InteractiveStandIn[] = [];
+	/** by prefab and piece count; `null` when the prefab isn't a readable telescopic bridge (drawn as saved) */
+	const bridgeLooks = new Map<string, Promise<TelescopicPoses | null>>();
+	const telescopicLooks = (prefab: string, pieces: number): Promise<TelescopicPoses | null> =>
+		bridgeLooks.getOrInsertComputed(`${prefab}:${pieces}`, async () => {
+			try {
+				const resolver = await context.resolver();
+				const root = await resolver.findUnique({ hash: hashOf(prefab), path: prefab }, UnityClass.GameObject);
+				const looks = await readTelescopicPoses(resolver, root, prefab, pieces);
+				if (looks === null) {
+					unsupported.push({ path: prefab, reason: 'telescopic bridge prefab has no bridge MonoBehaviour' });
+				}
+				return looks;
+			} catch (error) {
+				if (!(error instanceof FormatError)) {
+					throw error;
+				}
+				unsupported.push({ path: prefab, reason: error.message });
+				return null;
+			}
+		});
 	for (const { path, levelId, levelTag, row } of placed) {
 		const template = authored.get(row.template);
 		if (template === undefined) {
@@ -567,6 +663,36 @@ export const loadInteractiveFacilities = async (
 				pose,
 			});
 		};
+		const bridge = telescopic.get(row.template);
+		if (bridge !== undefined) {
+			const pieces = piecesOf(row) ?? bridge.pieces;
+			// oxlint-disable-next-line no-await-in-loop -- one read per prefab and piece count
+			const looks = await telescopicLooks(bridge.prefab, pieces);
+			if (looks !== null) {
+				const control = `bridge:${row.id}`;
+				bridges.push({
+					kind: 'bridge',
+					id: control,
+					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+					rule: null,
+					assumption: 'retracted: the player or the server extends it',
+					story: null,
+					drivers: [],
+					levelTags: [],
+					values: [
+						{ value: 0, label: 'retracted' },
+						{ value: 1, label: `extended (${pieces} pieces)` },
+					],
+					default: 0,
+					derived: null,
+				});
+				place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, looks.retracted);
+				for (const pose of [looks.extended, ...looks.pieces]) {
+					place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, pose);
+				}
+				continue;
+			}
+		}
 		const poses = doorPoses.get(row.template);
 		if (poses !== undefined) {
 			const control = `door:${row.id}`;
@@ -655,5 +781,5 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 	}
-	return { models, progressions, doors, unsupported, standIns };
+	return { models, progressions, doors, bridges, unsupported, standIns };
 };
