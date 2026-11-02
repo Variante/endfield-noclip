@@ -153,7 +153,10 @@ const formatReport = (report: PackReport): string => {
 		const { environments } = report;
 		lines.push(
 			`environments: ${environments.profiles} profiles referencing ${environments.textures} textures ` +
-				'(per level in debug/environments.json, `world env` explains the choice)',
+				'(per level in debug/environments.json, `world env` explains the choice)' +
+				(environments.problems > 0
+					? `; ${environments.problems} inputs left out (debug/environments.json)`
+					: ''),
 		);
 		for (const level of environments.levels) {
 			const inherited = Object.entries(level.sections).map(([name, source]) => `${name} ${source}`);

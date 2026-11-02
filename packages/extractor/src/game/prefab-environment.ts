@@ -78,6 +78,10 @@ export const loadPlacedVolumes = async (
 			),
 		];
 		if (paths.length !== 1) {
+			unsupported.push({
+				path: paths[0] ?? `hash ${model.pathHash}`,
+				reason: `the prefab hash names ${paths.length} asset paths, so its volumes aren't read`,
+			});
 			continue;
 		}
 		let found: PrefabEnvironmentVolume[];

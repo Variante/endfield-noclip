@@ -13,6 +13,7 @@ import { type LensFlareDataSRP, readLensFlareData } from '@endfield-noclip/forma
 import type { PlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import type {
+	CelestialConfig,
 	EnvironmentPhaseInfo,
 	EnvironmentProfile,
 	EnvironmentSections,
@@ -81,6 +82,17 @@ export interface LevelEnvironmentDebug {
 	error: string | null;
 }
 
+/** an environment input the plan left out or couldn't read, for the debug index */
+export type EnvironmentProblem =
+	/** a volume dropped for its shape */
+	| { kind: 'volume'; volume: string; reason: string }
+	/** a volume kept without a phase, so the blend skips it */
+	| { kind: 'phase'; volume: string; reason: string }
+	/** a texture, material or lens flare a phase references that couldn't be read (left `null`) */
+	| { kind: 'reference'; phase: string; section: EnvironmentSectionName; path: string; reason: string }
+	/** a render pipeline resource the environments sample that couldn't be found */
+	| { kind: 'resource'; path: string; reason: string };
+
 /** environments planned before asset conversion */
 export interface EnvironmentPlan {
 	/** per level, in partition order: index into {@link profiles}, or `null` */
@@ -100,6 +112,8 @@ export interface EnvironmentPlan {
 	/** index into {@link textures} of the height fog's flow noise, or `null` if the install lacks it */
 	flowNoise: number | null;
 	debug: LevelEnvironmentDebug[];
+	/** what was left out, deduplicated */
+	problems: EnvironmentProblem[];
 }
 
 /** a texture field to fill in once texture ids are known */
@@ -136,21 +150,26 @@ export interface FinishedEnvironments {
 const FLOW_NOISE_PATH =
 	'Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Texture/HeightFogFlowNoise.asset';
 
-/** @returns the flow noise texture, or `null` if the install doesn't have it where expected */
+/** @returns the flow noise texture, or why the install doesn't have it where expected */
 const findFlowNoise = async (
 	context: Pick<Context, 'world'>,
 	resolver: AssetResolver,
-): Promise<ObjectRef | null> => {
+): Promise<ObjectRef | string> => {
 	const [hash] = await context.world.hashesOf(FLOW_NOISE_PATH);
 	if (hash === undefined) {
-		return null;
+		return 'no path hash';
 	}
 	try {
 		return await resolver.findUnique({ hash, path: FLOW_NOISE_PATH }, UnityClass.Texture3D);
-	} catch {
-		return null;
+	} catch (error) {
+		return errorMessage(error);
 	}
 };
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** records an environment problem */
+type ReportProblem = (problem: EnvironmentProblem) => void;
 
 /**
  * resolves every level's environment and loads the phases and profiles involved
@@ -179,6 +198,7 @@ export const planEnvironments = async (
 		textures: [],
 		flowNoise: null,
 		debug: [],
+		problems: [],
 	};
 	if (levels.length === 0) {
 		return plan;
@@ -189,8 +209,18 @@ export const planEnvironments = async (
 		context.resolver(),
 	]);
 	const volumes: SceneVolumes = { ...chunkVolumes, environment: [...chunkVolumes.environment, ...placed] };
+	const reported = new Set<string>();
+	const report: ReportProblem = (problem) => {
+		const key = JSON.stringify(problem);
+		if (!reported.has(key)) {
+			reported.add(key);
+			plan.problems.push(problem);
+		}
+	};
 	const flowNoise = await findFlowNoise(context, resolver);
-	if (flowNoise !== null) {
+	if (typeof flowNoise === 'string') {
+		report({ kind: 'resource', path: FLOW_NOISE_PATH, reason: flowNoise });
+	} else {
 		plan.flowNoise = plan.textures.push(flowNoise) - 1;
 	}
 
@@ -260,7 +290,7 @@ export const planEnvironments = async (
 		plan.levels.push(
 			byKey.getOrInsertComputed(
 				`${phases.own.phase.name}\n${post?.name ?? ''}`,
-				() => pending.push({ phases, post, textures: resolveTextures(resolver, phases) }) - 1,
+				() => pending.push({ phases, post, textures: resolveTextures(resolver, phases, report) }) - 1,
 			),
 		);
 	}
@@ -277,25 +307,30 @@ export const planEnvironments = async (
 		volumes.environment.map(async ({ volume }) => {
 			const load = phase(volume);
 			if (load === null) {
-				return null;
+				return 'no phase set';
 			}
 			try {
 				const loadedPhase = await load;
-				return { loaded: loadedPhase, textures: await resolvePhaseTextures(resolver, loadedPhase) };
-			} catch {
-				return null;
+				return { loaded: loadedPhase, textures: await resolvePhaseTextures(resolver, loadedPhase, report) };
+			} catch (error) {
+				return errorMessage(error);
 			}
 		}),
 	);
 	const phaseIndex = new Map<string, number>();
 	for (const [i, { tag, sceneStates, condition, volume }] of volumes.environment.entries()) {
+		const name = volume.name.replace(/#.*$/, '');
 		const shape = volumeShape(volume);
-		if (shape === null) {
+		if (typeof shape === 'string') {
+			report({ kind: 'volume', volume: name, reason: shape });
 			continue;
 		}
 		const loadedPhase = volumePhases[i];
+		if (typeof loadedPhase === 'string') {
+			report({ kind: 'phase', volume: name, reason: loadedPhase });
+		}
 		const index =
-			loadedPhase === null
+			typeof loadedPhase === 'string'
 				? null
 				: phaseIndex.getOrInsertComputed(
 						loadedPhase.loaded.phase.name,
@@ -305,7 +340,7 @@ export const planEnvironments = async (
 							) - 1,
 					);
 		plan.volumes.push({
-			name: volume.name.replace(/#.*$/, ''),
+			name,
 			group: 0,
 			shape,
 			blendMode: volume.blendMode,
@@ -318,11 +353,51 @@ export const planEnvironments = async (
 		});
 		plan.volumeOwners.push({ levelTag: tag, sceneStates, condition });
 	}
+	for (const { profile } of plan.profiles) {
+		checkRayPlanet(profile.name, profile.celestial, report);
+	}
+	for (const { phase: info } of plan.phases) {
+		if (info.active.includes('celestial')) {
+			checkRayPlanet(info.name, info.sections.celestial, report);
+		}
+	}
 	return plan;
 };
 
-/** @returns where a volume applies, or `null` for shapes not understood */
-const volumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | null => {
+/** the textures the ray-traced planet's shader samples; without any of them it isn't drawn */
+const RAY_PLANET_TEXTURES = ['_BaseColorMap', '_RSM', '_CloudsTexMain', '_TransmittanceLLUT'];
+
+/** reports a ray-traced planet that's on but lacks its material or one of its textures */
+const checkRayPlanet = (phase: string, celestial: CelestialConfig, report: ReportProblem): void => {
+	const { drawAdvancedPlanet, advancedPlanetMat } = celestial.advancedPlanetConfig;
+	if (!drawAdvancedPlanet) {
+		return;
+	}
+	const path = 'advancedPlanetConfig.advancedPlanetMat';
+	if (advancedPlanetMat === null) {
+		report({
+			kind: 'reference',
+			phase,
+			section: 'celestialConfig',
+			path,
+			reason: 'the ray-traced planet is on without a material',
+		});
+		return;
+	}
+	const missing = RAY_PLANET_TEXTURES.filter((slot) => !Object.hasOwn(advancedPlanetMat.textures, slot));
+	if (missing.length > 0) {
+		report({
+			kind: 'reference',
+			phase,
+			section: 'celestialConfig',
+			path,
+			reason: `the ray-traced planet's material has no ${missing.join(', ')}, so it isn't drawn`,
+		});
+	}
+};
+
+/** @returns where a volume applies, or why its shape isn't understood */
+const volumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | string => {
 	switch (volume.volumeType) {
 		case EnvironmentVolumeType.Global: {
 			return { kind: 'global' };
@@ -330,19 +405,19 @@ const volumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | null =
 		case EnvironmentVolumeType.Box: {
 			const transform = volume.transform;
 			return transform === null
-				? null
+				? 'box volume without a transform'
 				: { kind: 'box', position: transform.position, rotation: transform.rotation, scale: transform.scale };
 		}
 		case EnvironmentVolumeType.PolyArea: {
 			const shape = volume.shape;
 			if (shape === null || shape.points.length < 3) {
-				return null;
+				return `polygon volume with ${shape?.points.length ?? 0} points`;
 			}
 			const bottom = shape.position[1] + shape.baseHeightOffset;
 			return { kind: 'prism', points: shape.points, bottom, top: bottom + shape.height };
 		}
 		default: {
-			return null;
+			return `volume type ${volume.volumeType} isn't supported`;
 		}
 	}
 };
@@ -351,12 +426,20 @@ const volumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | null =
 const resolvePhaseTextures = async (
 	resolver: AssetResolver,
 	loaded: LoadedPhase,
+	report: ReportProblem,
 ): Promise<SectionTextures> => {
 	const entries = await Promise.all(
-		ENVIRONMENT_SECTIONS.map(
-			async (name) =>
-				[name, await resolveSection(resolver, loaded.ref, loaded.phase.sections[name])] as const,
-		),
+		ENVIRONMENT_SECTIONS.map(async (name) => {
+			const fail = (path: string, error: unknown): void =>
+				report({
+					kind: 'reference',
+					phase: loaded.phase.name,
+					section: name,
+					path,
+					reason: errorMessage(error),
+				});
+			return [name, await resolveSection(resolver, loaded.ref, loaded.phase.sections[name], fail)] as const;
+		}),
 	);
 	return new Map(entries);
 };
@@ -374,46 +457,74 @@ interface SectionRefs {
 	flares: (LoadedFlare | null)[];
 }
 
+/** records a reference that couldn't be read, by its field path */
+type ReferenceFailure = (path: string, error: unknown) => void;
+
 /** @returns the flare asset at `ref`, its element textures resolved against its own file */
-const loadFlare = async (resolver: AssetResolver, ref: ObjectRef): Promise<LoadedFlare> => {
+const loadFlare = async (
+	resolver: AssetResolver,
+	ref: ObjectRef,
+	fail: ReferenceFailure,
+): Promise<LoadedFlare> => {
 	const data = readLensFlareData(await ref.file.objectBytes(ref.info), {
 		littleEndian: ref.file.file.header.littleEndian,
 	});
 	const textures = await Promise.all(
-		data.elements.map(async ({ lensFlareTexture }) =>
-			lensFlareTexture === null ? null : resolver.resolve(ref, lensFlareTexture).catch(() => null),
+		data.elements.map(async ({ lensFlareTexture }, i) =>
+			lensFlareTexture === null
+				? null
+				: resolver.resolve(ref, lensFlareTexture).catch((error: unknown) => {
+						fail(`elements.${i}.lensFlareTexture`, error);
+						return null;
+					}),
 		),
 	);
 	return { data, textures };
 };
 
-/** @returns the section's references, resolved against the phase file `from` */
+/** @returns the section's references, resolved against the phase file `from`; unreadable ones are `null` */
 const resolveSection = async (
 	resolver: AssetResolver,
 	from: ObjectRef,
 	section: EnvironmentSection,
+	fail: ReferenceFailure,
 ): Promise<SectionRefs> => {
+	const guarded = async <T>(path: readonly string[], load: () => Promise<T | null>): Promise<T | null> => {
+		try {
+			return await load();
+		} catch (error) {
+			fail(path.join('.'), error);
+			return null;
+		}
+	};
 	const [textures, materials, flares] = await Promise.all([
-		Promise.all(section.textures.map(({ pptr }) => resolver.resolve(from, pptr).catch(() => null))),
+		Promise.all(section.textures.map(({ path, pptr }) => guarded(path, () => resolver.resolve(from, pptr)))),
 		Promise.all(
-			section.materials.map(async ({ pptr }) => {
-				try {
+			section.materials.map(({ path, pptr }) =>
+				guarded(path, async () => {
 					const ref = await resolver.resolve(from, pptr);
-					return ref === null ? null : await loadMaterial(resolver, ref);
-				} catch {
-					return null;
-				}
-			}),
+					if (ref === null) {
+						return null;
+					}
+					const material = await loadMaterial(resolver, ref);
+					for (const [slot, { error }] of Object.entries(material.textures)) {
+						if (error !== undefined) {
+							fail(`${path.join('.')}.${slot}`, new Error(error));
+						}
+					}
+					return material;
+				}),
+			),
 		),
 		Promise.all(
-			section.flares.map(async ({ pptr }) => {
-				try {
+			section.flares.map(({ path, pptr }) =>
+				guarded(path, async () => {
 					const ref = await resolver.resolve(from, pptr);
-					return ref === null ? null : await loadFlare(resolver, ref);
-				} catch {
-					return null;
-				}
-			}),
+					return ref === null
+						? null
+						: await loadFlare(resolver, ref, (element, error) => fail(`${path.join('.')}.${element}`, error));
+				}),
+			),
 		),
 	]);
 	return { textures, materials, flares };
@@ -564,13 +675,22 @@ type SectionTextures = Map<EnvironmentSectionName, SectionRefs>;
 const resolveTextures = async (
 	resolver: AssetResolver,
 	{ own, global, composed }: LevelPhases,
+	report: ReportProblem,
 ): Promise<SectionTextures> => {
 	const entries = await Promise.all(
 		ENVIRONMENT_SECTIONS.map(async (name) => {
 			const { source, section } = composed[name];
 			// PPtrs are relative to the file of the phase the section came from
 			const from = source === 'global' && global !== null ? global : own;
-			return [name, await resolveSection(resolver, from.ref, section)] as const;
+			const fail = (path: string, error: unknown): void =>
+				report({
+					kind: 'reference',
+					phase: from.phase.name,
+					section: name,
+					path,
+					reason: errorMessage(error),
+				});
+			return [name, await resolveSection(resolver, from.ref, section, fail)] as const;
 		}),
 	);
 	return new Map(entries);

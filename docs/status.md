@@ -59,9 +59,10 @@ packs or renders correctly.
   automatic gating: every loaded, non-manual volume counts as enabled, which is visibly wrong at The
   Hub (night and destruction volumes) and Snowy Forest (night volume), and the base-environment vote
   is wrong wherever level scripts switch volumes. dynamic LevelData volumes aren't extracted,
-  cylinder volumes (`volumeType` 4) aren't packed, local post `Volume`s are read but not applied, a
-  prefab prism volume under a non-identity placement is rejected, `world env` votes on chunk volumes
-  only, and scenes without levels get no environment
+  cylinder volumes (`volumeType` 4) aren't packed (listed with other dropped volumes and unreadable
+  phases in `debug/environments.json`), local post `Volume`s are read but not applied, a prefab
+  prism volume under a non-identity placement is rejected, `world env` votes on chunk volumes only,
+  and scenes without levels get no environment
   ([environment](game-data/environment.md#environment-volumes))
 - sky ([sky](game-data/sky-and-fog.md#sky)): its absolute brightness is the viewer's `sky_scale`
   approximation; the sky planets are always added (the game's blend is unchecked), and their ring

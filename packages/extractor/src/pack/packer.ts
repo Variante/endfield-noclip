@@ -149,6 +149,7 @@ import { sourceVisibility } from './chunk-sources.ts';
 import { ConvertPool } from './convert-pool.ts';
 import {
 	type EnvironmentPlan,
+	type EnvironmentProblem,
 	finishEnvironments,
 	type LevelEnvironmentDebug,
 	planEnvironments,
@@ -213,8 +214,11 @@ export interface PackReport {
 	};
 	/** asset conversion details, or `null` when assets weren't converted */
 	conversion: AssetConversion['stats'] | null;
-	/** environment profiles, the textures they reference, and what each level resolved to */
-	environments: { profiles: number; textures: number; levels: LevelEnvironmentDebug[] };
+	/**
+	 * environment profiles, the textures they reference, what each level resolved to, and how many inputs were
+	 * left out (listed in `debug/environments.json`)
+	 */
+	environments: { profiles: number; textures: number; levels: LevelEnvironmentDebug[]; problems: number };
 	/** water surfaces in the scene and packed, configs, the global config's name, sectors and maps */
 	water: Pick<WaterDebug, 'surfaces' | 'volumes' | 'global' | 'sectors'> & {
 		configs: number;
@@ -493,7 +497,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			geometries: pack.geometries.assets,
 			materials: pack.materials.assets,
 			conversion: conversion?.debug ?? null,
-			environments: environments.debug,
+			environments: { levels: environments.debug, problems: environments.problems },
 			water: water.debug,
 			terrain: terrainPacked.debug,
 			unsupportedInteractives: entities.unsupportedInteractives,
@@ -540,6 +544,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				profiles: environments.profiles.length,
 				textures: environments.textures.length,
 				levels: environments.debug,
+				problems: environments.problems.length,
 			},
 			water: {
 				surfaces: water.debug.surfaces,
@@ -2578,7 +2583,7 @@ const writeDebug = async (
 		geometries: { hash: bigint; path: string | null }[];
 		materials: { hash: bigint; path: string | null }[];
 		conversion: AssetConversion['debug'] | null;
-		environments: LevelEnvironmentDebug[];
+		environments: { levels: LevelEnvironmentDebug[]; problems: EnvironmentProblem[] };
 		water: WaterDebug;
 		/** `null` without terrain, which writes no file */
 		terrain: TerrainDebug | null;
