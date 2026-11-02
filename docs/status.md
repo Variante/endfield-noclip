@@ -158,11 +158,10 @@ packs or renders correctly.
   vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog
   (`_USE_FOG`), the mist boxes' depth prepass and vertex colour, and the game's global scene-effect
   colour adjustment (`_VFXParams1`, set by native code; the Jingyu blight reads less saturated than
-  in game, and Suiming's cave-exit mist card, near unity −145, 149, −188, whose colour is about 30,
-  reads as a white wall from above the cave; both unchecked against in-game shots). stencil
-  [portals](game-data/effects.md#portals) draw without their masks' own colour and depth, stencil
-  operations other than keep and replace are unsupported, and none draw unless the GPU has
-  `depth32float-stencil8`
+  in game, and Suiming's [cave-exit light card](game-data/effects.md#mist) is unchecked against an
+  in-game shot). stencil [portals](game-data/effects.md#portals) draw without their masks' own
+  colour and depth, stencil operations other than keep and replace are unsupported, and none draw
+  unless the GPU has `depth32float-stencil8`
 - particles ([particle systems](game-data/assets.md#particle-systems),
   [viewer](viewer/particles.md#particles)): mesh particles frozen in place lose their start colour
   and their drift and spin over lifetime, and take the midpoint of random start values. other

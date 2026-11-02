@@ -521,6 +521,8 @@ test('mist: additive FogSimple cards and walk-in fog boxes draw; equal fade ends
 					_NearCameraFadeDistanceEnd: 2500,
 					_SoftDistance: 12,
 				},
+				// Suiming's cave-exit card (`M_fog_indie_dg016_001`)
+				colors: { _BaseColor: [16.07, 19.84, 29.89, 1], _IndirectColor: [0.5, 0.25, 2, 1] },
 			}),
 			material({
 				id: 1,
@@ -541,7 +543,12 @@ test('mist: additive FogSimple cards and walk-in fog boxes draw; equal fade ends
 	assert.equal(card.flags, LookFlags.Effect | LookFlags.EffectMist);
 	assert.deepEqual(card.textures.slice(0, 2), [1, 2]);
 	assert.equal(card.params[MistRow.card], 2);
-	assert.equal(card.params[MistRow.indirect + 3], 1);
+	// both colours are [HDR], authored linear: as stored, not gamma-decoded
+	assert.deepEqual(
+		Array.from(card.params.subarray(MistRow.color, MistRow.color + 4), (v) => Number(v.toFixed(2))),
+		[16.07, 19.84, 29.89, 1],
+	);
+	assert.deepEqual([...card.params.subarray(MistRow.indirect, MistRow.indirect + 4)], [0.5, 0.25, 2, 1]);
 	assert.deepEqual(
 		Array.from(card.params.subarray(MistRow.fade, MistRow.fade + 4), (v) => Number(v.toFixed(4))),
 		[0.001, 0.0011, 3000, 2500],
@@ -619,7 +626,7 @@ test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals 
 					_SoftDistance: 3,
 					_Roughness: 0.6,
 				},
-				colors: { _TintColor: [0, 0, 0, 1] },
+				colors: { _TintColor: [0.5, 0.25, 2, 1] },
 				vectors: { _SequenceFrameSize: [8, 4, 0, 0] },
 			}),
 			material({ id: 1, keywords: ['VFX_WATER_REFRACT'] }),
@@ -630,6 +637,8 @@ test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals 
 	assert.equal(sheet.flags, LookFlags.Effect);
 	// main (white default), mask, flipbook colour and motion, normals in slot 6
 	assert.deepEqual(sheet.textures, [-1, -1, 2, -1, 5, 6, 7]);
+	// `_TintColor` is [HDR]: as stored, its alpha times `_TintColorAlpha`
+	assert.deepEqual([...sheet.params.subarray(EffectRow.tint, EffectRow.tint + 4)], [0.5, 0.25, 2, 2]);
 	// the flipbook's frames are sampled as they are, not through its `_ST`
 	assert.deepEqual([...sheet.params.subarray(EffectRow.uv + 16, EffectRow.uv + 20)], [1, 1, 0, 0]);
 	const flags = sheet.params[WaterSheetRow.flags];

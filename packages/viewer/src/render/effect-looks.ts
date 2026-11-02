@@ -936,15 +936,10 @@ export const vfxWaterLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	const look = emptyEffect(7);
 	const params = look.params;
 	const intensity = float('_TintColorIntensity', 1);
+	// VFXWater's `_TintColor` and `_DissolveEmissiveColor` are [HDR]: authored linear, used as stored
 	const tint = color('_TintColor') ?? [1, 1, 1, 1];
-	const linear = linearRgb(tint);
 	params.set(
-		[
-			linear[0] * intensity,
-			linear[1] * intensity,
-			linear[2] * intensity,
-			tint[3] * float('_TintColorAlpha', 1),
-		],
+		[tint[0] * intensity, tint[1] * intensity, tint[2] * intensity, tint[3] * float('_TintColorAlpha', 1)],
 		EffectRow.tint,
 	);
 	// first, since the rows below reuse some of the stack's
@@ -1059,7 +1054,7 @@ export const vfxWaterLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 		],
 		WaterSheetRow.dissolve,
 	);
-	const edge = linearRgb(color('_DissolveEmissiveColor') ?? [0, 0, 0, 0]);
+	const edge = color('_DissolveEmissiveColor') ?? [0, 0, 0, 0];
 	params.set([edge[0] * intensity, edge[1] * intensity, edge[2] * intensity, 0], WaterSheetRow.dissolveColor);
 	const frames = color('_SequenceFrameSize') ?? [1, 1, 0, 0];
 	params.set(
@@ -1191,8 +1186,9 @@ export const fogSimpleLook = (entry: ReadyMaterial, shader: ShaderEntry): Effect
 		}
 		setSlot(look, i, slot, { speed: [0, 0], cos: 1, sin: 0 }, ROLE_NONE);
 	}
+	// `_BaseColor` and `_IndirectColor` are [HDR]: authored linear, used as stored
 	const base = color('_BaseColor') ?? [1, 1, 1, 1];
-	params.set([...linearRgb(base), base[3]], MistRow.color);
+	params.set(base, MistRow.color);
 	params.set(
 		[
 			float('_BaseAlphaIntensity', 1),
@@ -1219,7 +1215,7 @@ export const fogSimpleLook = (entry: ReadyMaterial, shader: ShaderEntry): Effect
 		MistRow.light,
 	);
 	const indirect = color('_IndirectColor') ?? [0, 0, 0, 1];
-	params.set([...linearRgb(indirect), entry.blend === 'additive' ? 1 : 0], MistRow.indirect);
+	params.set([indirect[0], indirect[1], indirect[2], entry.blend === 'additive' ? 1 : 0], MistRow.indirect);
 	params.set(
 		[
 			...fadeRange(float('_DistanceFadeStart', 0), float('_DistanceFadeEnd', 0)),

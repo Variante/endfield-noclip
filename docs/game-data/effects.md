@@ -162,14 +162,20 @@ the drifting mist banks are effects too: `HGRP/FogSimple` cards (841 on map02, `
   (`_NoiseTex` red) times `_BaseColor.a`. with `_UseWind`, a second `_NoiseTex` sample at the UV ×
   `_WindScale` (× `_WindScaleX/Y` with `_UseSeparateScale`), scrolling by
   `(−_WindDirX, _WindDirY) · _WindSpeed` per second, remapped by `_WindNoiseContrast` and mixed in
-  by `_WindNoiseIntensity`, scales both colour and alpha. the colour is `_BaseColor`; with
-  `_USE_LIGHTING` it's `_BaseColor` times the sun's light colour, mixed towards `_IndirectColor`
-  away from the sun by `_LightFactor`. alpha then fades in over `_DistanceFadeStart…End` and out
-  over `_NearCameraFadeDistanceStart…End` metres of view depth, upwards
-  (`saturate(h · _TopFadeContract + _TopFadeOffset)`, where `h` is the world height below the card's
-  origin divided by the length of its y axis, so a card placed upside down, like the 77 m one at
-  Suiming's cave exit, still fades towards the sky rather than the ground), with `_USE_SOFTBLEND`
-  within `_SoftDistance` metres of what lies behind, and is scaled by `_BaseAlphaIntensity`.
+  by `_WindNoiseIntensity`, scales both colour and alpha. the colour is `_BaseColor` (`[HDR]`, like
+  `_IndirectColor`, so used as stored); with `_USE_LIGHTING` it's `_BaseColor` times the sun's light
+  colour, mixed towards `_IndirectColor` away from the sun by `_LightFactor`. alpha then fades in
+  over `_DistanceFadeStart…End` and out over `_NearCameraFadeDistanceStart…End` metres of view
+  depth, upwards (`saturate(h · _TopFadeContract + _TopFadeOffset)`, where `h` is the world height
+  below the card's origin divided by the length of its y axis, so a card placed upside down, like
+  the 77 m one at Suiming's cave exit, still fades towards the sky rather than the ground), with
+  `_USE_SOFTBLEND` within `_SoftDistance` metres of what lies behind, and is scaled by
+  `_BaseAlphaIntensity`.
+- **light through openings.** some cards fake daylight falling into a cave rather than mist. at
+  Suiming's cave exit (near unity −145, 149, −188) a 77 m card, flipped so its mask
+  (`T_fog_smoothradial_grad_01_M`, a half-radial glow brightest along v = 0) lights its top edge,
+  glows at `_BaseColor` ≈ (16, 20, 30). from the ledge below it reads as a soft shaft through the
+  gap; from above the cave's rocks its straight, nearly opaque top edge shows as a white wall.
 - **boxes.** from the nearer of the surface behind and the box's far side, the fog's thickness is
   the distance along the view ray through the unit cube towards the camera (stopping at the camera
   inside it), and alpha is
