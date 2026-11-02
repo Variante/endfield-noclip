@@ -149,7 +149,10 @@ export interface SkyConfig {
 	skyDirectIntensity: number;
 	giSkyMultiplier: number;
 	useCustomIVDefaultSH: boolean;
-	/** ambient SH used outside irradiance-volume coverage when {@link useCustomIVDefaultSH} is set */
+	/**
+	 * an ambient SH, presumably used outside irradiance-volume coverage when {@link useCustomIVDefaultSH} is set
+	 * (unverified)
+	 */
 	customIVDefaultSH: number[];
 	skyMaterialType: number;
 	proceduralSkyLuxFactor: number;
@@ -167,8 +170,8 @@ export interface SkyConfig {
 	reflectionMap: TextureRef;
 	culloff: number;
 	/**
-	 * ambient light, Unity `SphericalHarmonicsL2` order: 9 coefficients of red, then green, then blue; scaled
-	 * by {@link LightConfig.indirectDiffuseFactor}
+	 * ambient light, Unity `SphericalHarmonicsL2` order: 9 coefficients of red, then green, then blue.
+	 * presumably scaled by {@link LightConfig.indirectDiffuseFactor}; how the game combines them is unknown
 	 */
 	skyAmbientSH: number[];
 	skyboxCubeMap: TextureRef;

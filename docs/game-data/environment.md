@@ -36,6 +36,22 @@ values. read sections only after checking `m_active`.
 
 the phase has other sections too (`snowConfig`, `volumetricCloudConfig`, …).
 
+fields whose effect isn't known, with what shipped phases set (map01, map02 and the dungeon, base
+and race scenes checked):
+
+- `cloudConfig.cloudFlowType` is 1 or 2 in most phases with clouds, usually with a nonzero
+  `flowSpeed`; type 2 phases also reference a `cloudFlowMap`. presumably they move the panorama.
+- `skyConfig.skyMaterialType` is 1 in three phases (`Env_map01_lv006_art_boss_area_01`, which also
+  references a `skyboxCubeMap`, `Env_dung02_rdg008_sword` and `Env_indie_race001_art_bossS1_end2`),
+  0 elsewhere; 1 presumably swaps the procedural sky for the cubemap.
+- `skyConfig.reflectionType` is 0 or 1, roughly evenly.
+- `skyConfig.useCustomIVDefaultSH` is set in about a third of phases, with `customIVDefaultSH`
+  holding an SH presumably used where the irradiance volume has no coverage
+  ([lighting](lighting.md#open)).
+- `heightFogConfig.enableVolumetricFog` is false in 46 phases (among them map02's base
+  `Env_map02_lv003_global`), while `volumetricFogConfig.enable` is true wherever that section is
+  active; which of the two switches the PC fog path isn't known.
+
 colours are fed to the shaders raw (no sRGB decode; HDR colours exceed 1). `SphericalHarmonicsL2` is
 27 numbers, channel-major. sections reference textures (the sky reflection cubemap in BC6H, the
 cloud panorama, its flow map, the cloud-shadow texture), the celestial bodies' draw materials, and
@@ -216,3 +232,6 @@ wetness on at 0.5–1 in both dry and rainy phases, so its stone floors read wet
 - where a `volumeType` 4 (cylinder) volume keeps its shape: map02's one, a waterfall volume, has no
   shape blob.
 - the game's order among equal-priority volumes.
+- the plain-field lerp: integers, enums, effect directions and the fog's deferred Rayleigh scale.
+- what the cloud flow, `skyMaterialType`, `reflectionType`, `useCustomIVDefaultSH` and
+  `heightFogConfig.enableVolumetricFog` do ([environment phases](#environment-phases)).

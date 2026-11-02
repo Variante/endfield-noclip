@@ -54,7 +54,13 @@ packs or renders correctly.
 - environment phases ([environment](game-data/environment.md#environment-phases)): `windConfig` is
   packed but unused, and `snowConfig`, `volumetricCloudConfig` and other sections aren't extracted;
   blending is a generic per-section lerp without the game's special cases (precipitation
-  transitions)
+  transitions), and its rules for directions, integers and the fog's deferred Rayleigh scale are the
+  viewer's ([blending](viewer/environment.md#blending-at-the-camera)). fields set in shipped phases
+  but unread: the cloud flow (`cloudFlowType`, `cloudFlowMap`, `flowSpeed`, so the panorama never
+  moves), `skyMaterialType` 1 and its `skyboxCubeMap` (three boss phases), `reflectionType`,
+  `useCustomIVDefaultSH` and `heightFogConfig.enableVolumetricFog` (the viewer switches the PC fog
+  path on `volumetricFogConfig.enable` alone)
+  ([environment phases](game-data/environment.md#environment-phases))
 - environment volume initial enablement and `EnvironmentEnable` script conditions, needed before any
   automatic gating: every loaded, non-manual volume counts as enabled, which is visibly wrong at The
   Hub (night and destruction volumes) and Snowy Forest (night volume), and the base-environment vote

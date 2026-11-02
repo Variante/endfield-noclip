@@ -67,7 +67,8 @@ sun there.
   the flare may show off screen. the game compares against the sun's depth at the far plane, which
   everything drawn is in front of.
 
-map01's flares use no polygon elements or inverse SDFs.
+no flare an environment references in map01, map02 or the 12 dungeon, base and race scenes checked
+uses polygon elements or inverse SDFs.
 
 ## auto exposure
 

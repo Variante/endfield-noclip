@@ -623,8 +623,9 @@ over the level's `levelGrids`, among volumes the level owns that load with the d
 
 heights are ignored here: the vote is 2D, on the volume's footprint. the base phase is then stacked
 over the scene's global phase per section (`composeEnvironment`): the level's section if active
-there, else the global's if active, else the level's own inactive values. the post profile is the
-level's own global `Volume`, else the scene's, highest priority first. its `Bloom`,
+there, else the global's if active, else the level's own inactive values. that last fallback is an
+assumption: what the game shows for a section no applying phase sets isn't known. the post profile
+is the level's own global `Volume`, else the scene's, highest priority first. its `Bloom`,
 `GTAmbientOcclusion`, `Vignette` and `ScreenSpaceReflectionVolume` components go into the profile's
 `post`.
 
