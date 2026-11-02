@@ -5,7 +5,7 @@ import type {
 	EnvironmentVolumeInfo,
 } from '@endfield-noclip/package-format/environment';
 import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
-import type { PackageManifest } from '@endfield-noclip/package-format/manifest';
+import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
 
 import type { Vec3 } from '../scene/camera.ts';
 
@@ -29,7 +29,9 @@ export interface BlendedEnvironment {
 
 /** what the blend may use */
 export interface BlendOptions {
-	/** apply only this phase over the base, instead of the volumes */
+	/** whether volumes apply by where the camera is, rather than only the level's own look */
+	volumes: boolean;
+	/** apply only this phase over the level's own look, instead of the volumes */
 	pinnedPhase: number | null;
 	/** manual preview overrides, keyed by manifest volume index; they win over scene states */
 	enabled?: Readonly<Record<number, boolean>>;
@@ -172,27 +174,63 @@ export interface BlendTime {
 
 /**
  * @param manifest the loaded package's manifest
- * @param base the shown level's base profile (sections no volume sets keep its values)
+ * @param environment a level's base environment
+ * @returns the profile its blend starts from: every section of the base volume's phase, inactive ones
+ *   included, and the level's post profile; `null` if the package lacks them
+ */
+export const seedProfile = (
+	manifest: PackageManifest,
+	environment: LevelEnvironment,
+): EnvironmentProfile | null => {
+	const index = manifest.environmentVolumes[environment.volume]?.phase ?? null;
+	const phase = index === null ? undefined : manifest.environmentPhases[index];
+	if (phase === undefined) {
+		return null;
+	}
+	const post = environment.post === null ? null : (manifest.environmentPosts[environment.post] ?? null);
+	return { name: phase.name, ...structuredClone(phase.sections), post: structuredClone(post) };
+};
+
+/**
+ * blends the environment at the camera, starting from the level's {@link seedProfile}. with volumes off (or a
+ * phase pinned), the scene-wide global volumes and the level's base volume apply fully wherever the camera
+ * is: the level's own look, which a pinned phase then goes over
+ *
+ * @param manifest the loaded package's manifest
+ * @param environment the shown level's base environment
  * @param eye the camera's world position
  * @param options which volumes may apply
  * @param time the fade state, advanced by this call; without it, time-faded volumes are fully in or out
- * @returns the profile in effect at the camera
+ * @returns the profile in effect at the camera, or `null` if the package lacks the base phase
  */
 export const blendEnvironment = (
 	manifest: PackageManifest,
-	base: EnvironmentProfile,
+	environment: LevelEnvironment,
 	eye: Vec3,
 	options: BlendOptions,
 	time?: BlendTime,
-): BlendedEnvironment => {
-	const profile: EnvironmentProfile = structuredClone(base);
+): BlendedEnvironment | null => {
+	const profile = seedProfile(manifest, environment);
+	if (profile === null) {
+		return null;
+	}
 	const applied: AppliedVolume[] = [];
-	const phases = manifest.environmentPhases;
-	if (options.pinnedPhase !== null) {
-		const phase = phases[options.pinnedPhase];
-		if (phase !== undefined) {
-			applyPhase(profile, phase, 1);
-			applied.push({ id: -1, name: 'pinned', phase: phase.name, factor: 1 });
+	const apply = (id: number, name: string, index: number, factor: number): void => {
+		const phase = manifest.environmentPhases[index];
+		if (phase !== undefined && factor > 1e-4) {
+			applyPhase(profile, phase, factor);
+			applied.push({ id, name, phase: phase.name, factor });
+		}
+	};
+	if (options.pinnedPhase !== null || !options.volumes) {
+		for (const { id, volume } of volumesOf(manifest)) {
+			const sceneWide = volume.shape.kind === 'global' && volumeLevelTag(manifest, volume) === 0;
+			if ((id === environment.volume || sceneWide) && volumeApplies(manifest, volume, id, options)) {
+				apply(id, volume.name, volume.phase, 1);
+			}
+		}
+		if (options.pinnedPhase !== null) {
+			apply(-1, 'pinned', options.pinnedPhase, 1);
 		}
 	} else {
 		const speed = time?.fades.step(eye) ?? JUMP_SPEED;
@@ -200,57 +238,53 @@ export const blendEnvironment = (
 			if (!volumeApplies(manifest, volume, id, options)) {
 				continue;
 			}
-			const distance = distanceInsideVolume(volume.shape, eye);
-			const inside = distance > 0;
-			let factor: number;
-			switch (volume.blendMode) {
-				case 0: {
-					factor = inside ? 1 : 0;
-					break;
-				}
-				case 1: {
-					factor = !inside
-						? 0
-						: volume.shape.kind === 'global'
-							? 1
-							: Math.min(1, distance / (volume.blendDistance + 1e-45));
-					break;
-				}
-				case 2: {
-					// fades in over fadeInDuration seconds while inside, out over fadeOutDuration after leaving
-					const duration = inside ? volume.fadeInDuration : volume.fadeOutDuration;
-					const change = ((time?.dt ?? 0) * speed) / duration;
-					factor =
-						time === undefined
-							? inside
-								? 1
-								: 0
-							: time.fades.fade(id, inside, Number.isNaN(change) ? 1 : change);
-					break;
-				}
-				case 3: {
-					factor = inside ? 1 : 0;
-					break;
-				}
-				default: {
-					continue;
-				}
+			const factor = volumeFactor(id, volume, distanceInsideVolume(volume.shape, eye), speed, time);
+			if (factor !== null) {
+				apply(id, volume.name, volume.phase, factor);
 			}
-			const phase = phases[volume.phase];
-			if (phase === undefined || factor <= 1e-4) {
-				continue;
-			}
-			applyPhase(profile, phase, factor);
-			applied.push({ id, name: volume.name, phase: phase.name, factor });
 		}
 	}
-	const top = applied.at(-1);
-	profile.name = top?.phase ?? base.name;
+	profile.name = applied.at(-1)?.phase ?? profile.name;
 	return {
 		profile,
 		applied,
 		key: applied.map(({ name, phase, factor }) => `${name}/${phase}@${factor.toFixed(2)}`).join('|'),
 	};
+};
+
+/** @returns how strongly a volume applies `distance` m inside it, or `null` for an unknown blend mode */
+const volumeFactor = (
+	id: number,
+	volume: EnvironmentVolumeInfo,
+	distance: number,
+	speed: number,
+	time: BlendTime | undefined,
+): number | null => {
+	const inside = distance > 0;
+	switch (volume.blendMode) {
+		case 0:
+		case 3: {
+			return inside ? 1 : 0;
+		}
+		case 1: {
+			if (!inside) {
+				return 0;
+			}
+			return volume.shape.kind === 'global' ? 1 : Math.min(1, distance / (volume.blendDistance + 1e-45));
+		}
+		case 2: {
+			// fades in over fadeInDuration seconds while inside, out over fadeOutDuration after leaving
+			if (time === undefined) {
+				return inside ? 1 : 0;
+			}
+			const duration = inside ? volume.fadeInDuration : volume.fadeOutDuration;
+			const change = (time.dt * speed) / duration;
+			return time.fades.fade(id, inside, Number.isNaN(change) ? 1 : change);
+		}
+		default: {
+			return null;
+		}
+	}
 };
 
 // #region viewpoints
@@ -266,7 +300,7 @@ const VIEW_STEPS = 64;
  *
  * @param manifest the loaded package's manifest
  * @param level the shown level's tag
- * @param base the level's base profile; its volume is the level's (or scene-wide) one applying that phase
+ * @param environment the level's base environment
  * @param target the point the view looks at
  * @param eye the viewpoint
  * @param options optionally which points are clear to view from (off the ground and out of the scenery), and
@@ -276,7 +310,7 @@ const VIEW_STEPS = 64;
 export const eyeInLevelVolume = (
 	manifest: PackageManifest,
 	level: number,
-	base: EnvironmentProfile,
+	environment: LevelEnvironment,
 	target: Vec3,
 	eye: Vec3,
 	options: { clear?: (point: Vec3) => boolean } & Pick<BlendOptions, 'enabled' | 'loaded'>,
@@ -285,12 +319,8 @@ export const eyeInLevelVolume = (
 		volumeApplies(manifest, volume, id, options),
 	);
 	const owner = (volume: EnvironmentVolumeInfo): number => volumeLevelTag(manifest, volume);
-	const own = applicable.find(
-		(volume) =>
-			(owner(volume) === level || owner(volume) === 0) &&
-			manifest.environmentPhases[volume.phase].name === base.name,
-	);
-	if (own === undefined) {
+	const own = manifest.environmentVolumes[environment.volume];
+	if (own === undefined || !volumeApplies(manifest, own, environment.volume, options)) {
 		return null;
 	}
 	const others = applicable.filter((volume) => owner(volume) !== 0 && owner(volume) !== level);

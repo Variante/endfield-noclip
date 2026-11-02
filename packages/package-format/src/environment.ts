@@ -3,15 +3,13 @@ import type { TextureRef } from './textures.ts';
 import type { Color, Vec2, Vec3, Vec4, Quat } from './values.ts';
 
 /**
- * one environment: an `HGEnvironmentPhase` (`EnvParse/Env_*.asset`) plus the post-processing profile of the
- * level's global `Volume`. each section is the game's `HG*Config` with the game's field names: colours as
- * {@link Color}, vectors as arrays, `SphericalHarmonicsL2` as 27 numbers in the game's order, flags as
- * booleans, nested structs as objects, textures as {@link TextureRef}s and materials as
- * {@link EnvironmentMaterial}s. colour curves, editor state and other object references are left out.
- *
- * the game blends environment volumes by priority, and a phase only sets the sections it marks active. a
- * section the level's phase leaves inactive is taken from the scene's global volume's phase (what the game
- * applies under it), so every section here is the one in effect
+ * one environment in effect: every section of an `HGEnvironmentPhase` (`EnvParse/Env_*.asset`) plus the
+ * post-processing profile of the level's global `Volume`, as a viewer blends them from a level's base phase
+ * (`LevelEnvironment`) and the volumes applying over it. each section is the game's `HG*Config` with the
+ * game's field names: colours as {@link Color}, vectors as arrays, `SphericalHarmonicsL2` as 27 numbers in
+ * the game's order, flags as booleans, nested structs as objects, textures as {@link TextureRef}s and
+ * materials as {@link EnvironmentMaterial}s. colour curves, editor state and other object references are left
+ * out
  */
 export interface EnvironmentProfile {
 	/** the level phase's asset name, e.g. `Env_map02_lv001_art_Global_01` */

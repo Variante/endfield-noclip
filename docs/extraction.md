@@ -627,8 +627,8 @@ default scene values ([defaults](#defaults)).
 
 #### the level's base environment
 
-`resolveLevelEnvironment` picks one volume per level, used as `LevelInfo.environment` and as the
-profile the viewer blends over. the game has no per-level environment setting, so this "base"
+`resolveLevelEnvironment` picks one volume per level, which `LevelInfo.environment` names and whose
+phase the viewer's blend starts from. the game has no per-level environment setting, so this "base"
 environment is something the extractor derives. it samples a 32 m grid (4 × 4 per 128 m level cell)
 over the level's `levelGrids`, among volumes the level owns that load with the default scene states:
 
@@ -640,13 +640,15 @@ over the level's `levelGrids`, among volumes the level owns that load with the d
    priority on a tie. a volume always beaten everywhere can't be the level's look.
 3. without one, the scene's global volume stands in.
 
-heights are ignored here: the vote is 2D, on the volume's footprint. the base phase is then stacked
-over the scene's global phase per section (`composeEnvironment`): the level's section if active
-there, else the global's if active, else the level's own inactive values. that last fallback is an
-assumption: what the game shows for a section no applying phase sets isn't known. the post profile
-is the level's own global `Volume`, else the scene's, highest priority first. its `Bloom`,
-`GTAmbientOcclusion`, `Vignette` and `ScreenSpaceReflectionVolume` components go into the profile's
-`post`.
+heights are ignored here: the vote is 2D, on the volume's footprint. the package doesn't stack the
+base phase over anything: the viewer seeds its blend with every section of the base phase, inactive
+ones included, and the scene's global volume applies over it like any other. so a section is the
+level's if active there, else the global's if active, else the level's own inactive values. that
+last fallback is an assumption: what the game shows for a section no applying phase sets isn't
+known. the debug index records the same per-section sources (`composeEnvironment`). the post profile
+is the level's own global `Volume`, else the scene's, highest priority first; its `Bloom`,
+`GTAmbientOcclusion`, `Vignette` and `ScreenSpaceReflectionVolume` components become a manifest
+`environmentPosts` entry that `LevelInfo.environment.post` names.
 
 every loaded volume counts as enabled during this vote (see
 [activation](game-data/environment.md#activation)). the pack report lists each level's base volume,

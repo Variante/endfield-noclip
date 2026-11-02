@@ -17,6 +17,7 @@ import type {
 	EnvironmentVolumeInfo,
 	PostProfile,
 } from '@endfield-noclip/package-format/environment';
+import type { LevelEnvironment } from '@endfield-noclip/package-format/manifest';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import type { Context } from '../context.ts';
@@ -25,7 +26,6 @@ import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts
 import {
 	environmentVolumeShape,
 	type LevelEnvironmentChoice,
-	type LevelPhases,
 	type LoadedPhase,
 	type LoadedVolumeProfile,
 	loadEnvironmentPhase,
@@ -40,9 +40,9 @@ import {
 	type SectionSource,
 } from '../game/environment.ts';
 
-// the manifest's environments: each level's base environment phase (stacked over the scene's global one) and
-// its post-processing profile, deduplicated. textures they reference are converted with the other assets, so
-// planning happens before conversion and the texture ids are filled in after.
+// the manifest's environments: every volume with its phase, each level's base volume and its post-processing
+// profile. textures the phases reference are converted with the other assets, so planning happens before
+// conversion and the texture ids are filled in after.
 
 /** the package section each phase section becomes */
 const SECTION_KEYS = {
@@ -92,9 +92,10 @@ export type EnvironmentProblem =
 
 /** environments planned before asset conversion */
 export interface EnvironmentPlan {
-	/** per level, in partition order: index into {@link profiles}, or `null` */
-	levels: (number | null)[];
-	profiles: PendingProfile[];
+	/** per level, in partition order: its base volume (indexing {@link volumes}) and post profile, or `null` */
+	levels: (LevelEnvironment | null)[];
+	/** the levels' post-processing profiles, deduplicated */
+	posts: PostProfile[];
 	/** every phase a volume applies, uncomposed */
 	phases: PendingPhase[];
 	/** owned; `group` is 0 until the packer interns {@link volumeOwners} */
@@ -104,7 +105,7 @@ export interface EnvironmentPlan {
 	 * for prefab volumes, their placement's load condition
 	 */
 	volumeOwners: { levelTag: number; sceneStates: number[]; condition: ConditionalSetInfo | null }[];
-	/** textures the profiles and phases reference; slots index this list */
+	/** textures the phases reference; slots index this list */
 	textures: ObjectRef[];
 	/** index into {@link textures} of the height fog's flow noise, or `null` if the install lacks it */
 	flowNoise: number | null;
@@ -120,12 +121,6 @@ interface TextureSlot {
 	texture: number;
 }
 
-interface PendingProfile {
-	/** owned; texture fields are `null` until {@link finishEnvironments} */
-	profile: EnvironmentProfile;
-	slots: TextureSlot[];
-}
-
 interface PendingPhase {
 	/** owned; texture fields are `null` until {@link finishEnvironments} */
 	phase: EnvironmentPhaseInfo;
@@ -134,7 +129,7 @@ interface PendingPhase {
 
 /** the manifest's environment lists */
 export interface FinishedEnvironments {
-	environments: EnvironmentProfile[];
+	environmentPosts: PostProfile[];
 	environmentPhases: EnvironmentPhaseInfo[];
 	environmentVolumes: EnvironmentVolumeInfo[];
 	heightFogFlowNoise: number | null;
@@ -188,7 +183,7 @@ export const planEnvironments = async (
 ): Promise<EnvironmentPlan> => {
 	const plan: EnvironmentPlan = {
 		levels: [],
-		profiles: [],
+		posts: [],
 		phases: [],
 		volumes: [],
 		volumeOwners: [],
@@ -245,6 +240,7 @@ export const planEnvironments = async (
 			const choice = resolveLevelEnvironment(level, volumes, enabled);
 			const profile = resolveLevelPost(level, volumes, enabled)?.profile ?? null;
 			try {
+				// the level's and the global phase, for the debug index's section sources
 				const phases = await loadLevelPhases(choice, phase);
 				// the post profile is only used with a phase
 				return {
@@ -257,46 +253,6 @@ export const planEnvironments = async (
 			}
 		}),
 	);
-
-	const byKey = new Map<string, number>();
-	const pending: {
-		phases: LevelPhases;
-		post: LoadedVolumeProfile | null;
-		textures: Promise<SectionTextures>;
-	}[] = [];
-	for (const [i, { choice, phases, post }] of loaded.entries()) {
-		const debug = levelDebug(levels[i], choice);
-		plan.debug.push(debug);
-		if (phases === null) {
-			plan.levels.push(null);
-			continue;
-		}
-		if (phases instanceof Error) {
-			debug.error = phases.message;
-			plan.levels.push(null);
-			continue;
-		}
-		debug.phase = phases.own.phase.name;
-		debug.post = post?.name ?? null;
-		for (const name of ENVIRONMENT_SECTIONS) {
-			const { source } = phases.composed[name];
-			if (source !== 'level') {
-				debug.sections[name] = source;
-			}
-		}
-		plan.levels.push(
-			byKey.getOrInsertComputed(
-				`${phases.own.phase.name}\n${post?.name ?? ''}`,
-				() => pending.push({ phases, post, textures: resolveTextures(resolver, phases, report) }) - 1,
-			),
-		);
-	}
-
-	const textureIndex = new Map<string, number>();
-	for (const { phases, post, textures } of pending) {
-		// oxlint-disable-next-line no-await-in-loop -- all lookups are in flight; profiles are built in order
-		plan.profiles.push(buildProfile(phases, await textures, post, plan.textures, textureIndex));
-	}
 
 	// every volume with its own phase, for blending at the camera. a phase that can't be read leaves its volume
 	// without one, which the viewer skips
@@ -314,7 +270,9 @@ export const planEnvironments = async (
 			}
 		}),
 	);
+	const textureIndex = new Map<string, number>();
 	const phaseIndex = new Map<string, number>();
+	const volumeIndex = new Map<EnvironmentVolume, number>();
 	for (const [i, { tag, sceneStates, condition, volume }] of volumes.environment.entries()) {
 		const name = volume.name.replace(/#.*$/, '');
 		const shape = environmentVolumeShape(volume);
@@ -336,6 +294,9 @@ export const planEnvironments = async (
 								buildPhase(loadedPhase.loaded.phase, loadedPhase.textures, plan.textures, textureIndex),
 							) - 1,
 					);
+		if (index !== null) {
+			volumeIndex.set(volume, plan.volumes.length);
+		}
 		plan.volumes.push({
 			name,
 			group: 0,
@@ -350,9 +311,38 @@ export const planEnvironments = async (
 		});
 		plan.volumeOwners.push({ levelTag: tag, sceneStates, condition });
 	}
-	for (const { profile } of plan.profiles) {
-		checkRayPlanet(profile.name, profile.celestial, report);
+
+	const postIndex = new Map<string, number>();
+	for (const [i, { choice, phases, post }] of loaded.entries()) {
+		const debug = levelDebug(levels[i], choice);
+		plan.debug.push(debug);
+		if (phases instanceof Error) {
+			debug.error = phases.message;
+		} else if (phases !== null) {
+			debug.phase = phases.own.phase.name;
+			debug.post = post?.name ?? null;
+			for (const name of ENVIRONMENT_SECTIONS) {
+				const { source } = phases.composed[name];
+				if (source !== 'level') {
+					debug.sections[name] = source;
+				}
+			}
+		}
+		const volume = choice.volume === null ? undefined : volumeIndex.get(choice.volume);
+		if (volume === undefined || phases === null || phases instanceof Error) {
+			// the base volume's phase is unset or unreadable (recorded with the volume)
+			plan.levels.push(null);
+			continue;
+		}
+		plan.levels.push({
+			volume,
+			post:
+				post === null
+					? null
+					: postIndex.getOrInsertComputed(post.name, () => plan.posts.push(postProfileOf(post)) - 1),
+		});
 	}
+
 	for (const { phase: info } of plan.phases) {
 		if (info.active.includes('celestial')) {
 			checkRayPlanet(info.name, info.sections.celestial, report);
@@ -618,10 +608,7 @@ export const finishEnvironments = (
 		}
 	};
 	return {
-		environments: plan.profiles.map(({ profile, slots }) => {
-			fill(slots);
-			return profile;
-		}),
+		environmentPosts: plan.posts,
 		environmentPhases: plan.phases.map(({ phase, slots }) => {
 			fill(slots);
 			return phase;
@@ -648,59 +635,6 @@ const levelDebug = (level: PartitionLevel, choice: LevelEnvironmentChoice): Leve
 
 /** per section, its resolved references */
 type SectionTextures = Map<EnvironmentSectionName, SectionRefs>;
-
-const resolveTextures = async (
-	resolver: AssetResolver,
-	{ own, global, composed }: LevelPhases,
-	report: ReportProblem,
-): Promise<SectionTextures> => {
-	const entries = await Promise.all(
-		ENVIRONMENT_SECTIONS.map(async (name) => {
-			const { source, section } = composed[name];
-			// PPtrs are relative to the file of the phase the section came from
-			const from = source === 'global' && global !== null ? global : own;
-			const fail = (path: string, error: unknown): void =>
-				report({
-					kind: 'reference',
-					phase: from.phase.name,
-					section: name,
-					path,
-					reason: errorMessage(error),
-				});
-			return [name, await resolveSection(resolver, from.ref, section, fail)] as const;
-		}),
-	);
-	return new Map(entries);
-};
-
-const buildProfile = (
-	{ own, composed }: LevelPhases,
-	textureRefs: SectionTextures,
-	post: LoadedVolumeProfile | null,
-	textures: ObjectRef[],
-	textureIndex: Map<string, number>,
-): PendingProfile => {
-	const slots: TextureSlot[] = [];
-	const sections: Partial<Record<keyof EnvironmentProfile, PlainObject>> = {};
-	for (const name of ENVIRONMENT_SECTIONS) {
-		const { section } = composed[name];
-		// inherited sections are shared between profiles, so each profile gets its own copy
-		const value = structuredClone(section.value);
-		fillTextureSlots(value, section, textureRefs.get(name), slots, textures, textureIndex);
-		sections[SECTION_KEYS[name]] = value;
-	}
-	return { profile: profileOf(own.phase, sections, post), slots };
-};
-
-const profileOf = (
-	phase: EnvironmentPhase,
-	sections: Partial<Record<keyof EnvironmentProfile, PlainObject>>,
-	post: LoadedVolumeProfile | null,
-): EnvironmentProfile => {
-	const profile = { name: phase.name, ...sections, post: post === null ? null : postProfileOf(post) };
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the sections are the game's TypeTree, which the interfaces transcribe
-	return profile as unknown as EnvironmentProfile;
-};
 
 /** @returns the package's post profile; components keep the game's field names */
 const postProfileOf = (profile: LoadedVolumeProfile): PostProfile => {

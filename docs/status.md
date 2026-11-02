@@ -377,7 +377,6 @@ packs or renders correctly.
   reference point, and without its fade or the game's LOD bias
 - a mesh or material reached both by path hash (static entities) and by object (prefabs) gets two
   table entries and converts twice
-- a level's base environment is found by matching phase names; `LevelInfo` could name its volume
 - texture zstd level and a max-texture-size option for a lite package (textures dominate package
   size)
 - place global scenery by its own bounds instead of pulling it all into `assets/common`

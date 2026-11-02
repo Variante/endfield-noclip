@@ -24,7 +24,9 @@ satisfy.
 [game's blend](../game-data/environment.md#blending-at-the-camera). a "profile" here is a phase plus
 the post profile, not a Unity `VolumeProfile`.
 
-- start from the shown level's base profile.
+- start from every section of the shown level's base phase, inactive ones included, plus its post
+  profile (`seedProfile`). the scene's global volume and the level's base volume then apply as
+  volumes like any other.
 - visit volumes in ascending priority, then shape kind (global, box, prism). the game's order among
   equal priorities isn't known, so this tie-break is an assumption. the order and the shape tests
   are
@@ -46,9 +48,10 @@ the post profile, not a Unity `VolumeProfile`.
   fog whose `rayleighScatteringScale` defers to the atmosphere's (negative) takes its atmosphere's
   scale before lerping against one that doesn't.
 
-the "volumes at camera" toggle turns blending off (the base profile alone). a pinned phase replaces
-the volume blend with that one phase over the base. per-volume checkboxes override the scene-state
-decision either way.
+the "volumes at camera" toggle turns blending by position off: the scene-wide global volumes and the
+level's base volume apply fully wherever the camera is, giving the level's own look. a pinned phase
+goes over that look instead of the volume blend. per-volume checkboxes override the scene-state
+decision either way; `volumeApplies` is the one place that decides whether a volume may apply.
 
 ## activation
 

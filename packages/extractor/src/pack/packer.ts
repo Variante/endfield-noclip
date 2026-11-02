@@ -27,7 +27,7 @@ import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs
 import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type {
 	EnvironmentPhaseInfo,
-	EnvironmentProfile,
+	PostProfile,
 	EnvironmentVolumeInfo,
 } from '@endfield-noclip/package-format/environment';
 import type { GeometryTable } from '@endfield-noclip/package-format/geometry';
@@ -50,6 +50,7 @@ import {
 	COORDINATE_CONVENTIONS,
 	CORE_ARCHIVE,
 	CORE_PATHS,
+	type LevelEnvironment,
 	type LevelInfo,
 	PACKAGE_FORMAT,
 	PACKAGE_VERSION,
@@ -225,10 +226,10 @@ export interface PackReport {
 	/** asset conversion details, or `null` when assets weren't converted */
 	conversion: AssetConversion['stats'] | null;
 	/**
-	 * environment profiles, the textures they reference, what each level resolved to, and how many inputs were
+	 * post profiles, the textures the phases reference, what each level resolved to, and how many inputs were
 	 * left out (listed in `debug/environments.json`)
 	 */
-	environments: { profiles: number; textures: number; levels: LevelEnvironmentDebug[]; problems: number };
+	environments: { posts: number; textures: number; levels: LevelEnvironmentDebug[]; problems: number };
 	/** water surfaces in the scene and packed, configs, the global config's name, sectors and maps */
 	water: Pick<WaterDebug, 'surfaces' | 'volumes' | 'global' | 'sectors'> & {
 		configs: number;
@@ -563,7 +564,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			},
 			conversion: conversion?.stats ?? null,
 			environments: {
-				profiles: environments.profiles.length,
+				posts: environments.posts.length,
 				textures: environments.textures.length,
 				levels: environments.debug,
 				problems: environments.problems.length,
@@ -1912,8 +1913,8 @@ const sceneStates = async (
 	world: WorldIndex,
 	scene: SceneIndex,
 	collected: Collector,
-	/** per partition level: its index into the manifest's environments */
-	environments: readonly (number | null)[],
+	/** per partition level: its base environment */
+	environments: readonly (LevelEnvironment | null)[],
 ): Promise<SceneStateInfo> => {
 	const { partition } = scene;
 	const progressions = await progressionControls(world, scene);
@@ -2064,7 +2065,7 @@ const writePackage = async (
 	/** where to write, and the package being replaced (whose unchanged archives are cloned), or `null` */
 	{ dir, previous }: { dir: string; previous: string | null },
 	states: SceneStateInfo & {
-		environments: EnvironmentProfile[];
+		environmentPosts: PostProfile[];
 		environmentPhases: EnvironmentPhaseInfo[];
 		environmentVolumes: EnvironmentVolumeInfo[];
 		heightFogFlowNoise: number | null;
@@ -2143,7 +2144,7 @@ const writePackage = async (
 				? null
 				: { ...scene.terrain, levels: states.terrainLevels, splat: states.terrainSplat },
 		levels: states.levels,
-		environments: states.environments,
+		environmentPosts: states.environmentPosts,
 		environmentPhases: states.environmentPhases,
 		environmentVolumes: states.environmentVolumes,
 		irradianceRegions: states.irradianceRegions,
@@ -2637,7 +2638,7 @@ const levelInfo = (
 	level: PartitionLevel,
 	scene: SceneIndex,
 	collected: Collector,
-	environment: number | null,
+	environment: LevelEnvironment | null,
 ): LevelInfo => {
 	const { config } = level;
 	return {

@@ -4,8 +4,7 @@ import {
 	groupsShown,
 	resolveSceneValues,
 } from '@endfield-noclip/package-format/conditions';
-import type { EnvironmentProfile } from '@endfield-noclip/package-format/environment';
-import type { LevelInfo } from '@endfield-noclip/package-format/manifest';
+import type { LevelEnvironment, LevelInfo } from '@endfield-noclip/package-format/manifest';
 import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import {
 	areasShownIn,
@@ -365,7 +364,7 @@ export class Viewer {
 	/** `Frame.wetness` for {@link #environment}'s profile */
 	#wetness: Float32Array = wetnessParams(undefined);
 	/** the shown level's base environment, which the volumes blend over */
-	#baseProfile: EnvironmentProfile | null = null;
+	#baseEnvironment: LevelEnvironment | null = null;
 	/** what the environment was last blended for */
 	#blendEye: Vec3 = [Infinity, Infinity, Infinity];
 	#blendSettings = '';
@@ -832,9 +831,7 @@ export class Viewer {
 
 	/** lights the scene with the shown level's environment, or the defaults */
 	#applyEnvironment(): void {
-		const index = this.#level?.environment ?? null;
-		const manifest = this.scene?.pkg.manifest;
-		this.#baseProfile = index === null || manifest === undefined ? null : manifest.environments[index];
+		this.#baseEnvironment = this.#level?.environment ?? null;
 		this.#blendKey = null;
 		this.#fades.reset();
 		this.#blendEnvironment(true, 0);
@@ -865,30 +862,25 @@ export class Viewer {
 		this.#blendEye = [...eye];
 		this.#blendSettings = settings;
 		const manifest = this.scene?.pkg.manifest;
-		const base = this.#baseProfile;
-		let profile = base;
-		let key = base?.name ?? '';
-		this.#appliedVolumes = [];
-		if (
-			manifest !== undefined &&
-			base !== null &&
-			(options.environmentVolumes || options.environmentPin !== null)
-		) {
-			const blended = blendEnvironment(
-				manifest,
-				base,
-				eye,
-				{
-					pinnedPhase: options.environmentPin,
-					enabled: options.environmentEnabled,
-					loaded: this.#conditionResults,
-				},
-				{ fades: this.#fades, dt },
-			);
-			profile = blended.profile;
-			key = blended.key;
-			this.#appliedVolumes = blended.applied;
-		}
+		const base = this.#baseEnvironment;
+		const blended =
+			manifest === undefined || base === null
+				? null
+				: blendEnvironment(
+						manifest,
+						base,
+						eye,
+						{
+							volumes: options.environmentVolumes,
+							pinnedPhase: options.environmentPin,
+							enabled: options.environmentEnabled,
+							loaded: this.#conditionResults,
+						},
+						{ fades: this.#fades, dt },
+					);
+		const profile = blended?.profile ?? null;
+		const key = blended?.key ?? '';
+		this.#appliedVolumes = blended?.applied ?? [];
 		if (key === this.#blendKey) {
 			return;
 		}
@@ -1044,7 +1036,7 @@ export class Viewer {
 		];
 		const fallback = { pose: { position: fromHeading(0), yaw: 0, pitch }, settled };
 		const manifest = this.scene?.pkg.manifest;
-		const base = level.environment === null ? undefined : manifest?.environments[level.environment];
+		const base = level.environment ?? undefined;
 		if (manifest === undefined || base === undefined || !this.options.environmentVolumes) {
 			return fallback;
 		}

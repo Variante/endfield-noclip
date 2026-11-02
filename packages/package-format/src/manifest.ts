@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { EnvironmentProfile, EnvironmentPhaseInfo, EnvironmentVolumeInfo } from './environment.ts';
+import type { EnvironmentPhaseInfo, EnvironmentVolumeInfo, PostProfile } from './environment.ts';
 import type { IrradianceRegionInfo } from './irradiance.ts';
 import type { StatesInfo } from './states.ts';
 import type { TerrainInfo } from './terrain.ts';
@@ -27,7 +27,7 @@ export const PACKAGE_FORMAT = 'endfield-noclip.package';
  * bumped on any incompatible change to the manifest or a table. binary encodings carry their own versions in
  * their headers
  */
-export const PACKAGE_VERSION = 42;
+export const PACKAGE_VERSION = 43;
 
 /** the archive every package has; the viewer opens it first */
 export const CORE_ARCHIVE = 'core.czar';
@@ -70,8 +70,8 @@ export interface PackageManifest {
 	 * empty for scenes without levels, whose content is all shown
 	 */
 	levels: LevelInfo[];
-	/** environment profiles, deduplicated; {@link LevelInfo.environment} indexes this list */
-	environments: EnvironmentProfile[];
+	/** levels' post-processing profiles, deduplicated; {@link LevelEnvironment.post} indexes this list */
+	environmentPosts: PostProfile[];
 	/** every phase an environment volume applies; {@link EnvironmentVolumeInfo.phase} indexes this list */
 	environmentPhases: EnvironmentPhaseInfo[];
 	/** the scene's environment volumes, for blending at the camera */
@@ -147,11 +147,21 @@ export interface LevelInfo {
 	instances: number;
 	/** world bounds of the instances the level owns in this package, or `null` if none were packed */
 	contentBounds: Bounds | null;
-	/**
-	 * index into {@link PackageManifest.environments}: the level's base environment, i.e. the one the game
-	 * applies over most of the level's ground. `null` if the level has none
-	 */
-	environment: number | null;
+	/** the level's base environment, or `null` if the level has none */
+	environment: LevelEnvironment | null;
+}
+
+/**
+ * a level's base environment: the volume whose phase the game applies over most of the level's ground, and
+ * its post-processing. the game has no per-level environment; this is the extractor's choice. blending at the
+ * camera starts from that phase's sections, inactive ones included, so a section no applying volume sets
+ * keeps the base phase's own values (an assumption)
+ */
+export interface LevelEnvironment {
+	/** index into {@link PackageManifest.environmentVolumes}; its phase is never `null` */
+	volume: number;
+	/** index into {@link PackageManifest.environmentPosts}, or `null` if the level has none */
+	post: number | null;
 }
 
 /** one archive of the package */

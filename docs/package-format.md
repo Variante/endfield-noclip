@@ -185,22 +185,22 @@ Global chunks of scene states become conditional global blocks, drawn whole whil
 `manifest.json.zst`, `PackageManifest` (zstd-compressed JSON like the tables; it's ~5 MB raw on
 map02, a third of the core):
 
-| field                                                     | contents                                                                                                                                                                                     |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`, `version`                                       | `'endfield-noclip.package'`, `PACKAGE_VERSION` (see [versioning](#versioning))                                                                                                               |
-| `generation`                                              | see [containers and blobs](#containers-and-blobs)                                                                                                                                            |
-| `scene`                                                   | streaming scene id and display name                                                                                                                                                          |
-| `coordinates`                                             | `COORDINATE_CONVENTIONS`                                                                                                                                                                     |
-| `tree`                                                    | `TreeInfo` plus node and ref counts                                                                                                                                                          |
-| `terrain`                                                 | `baseHeight`, `heightScale`, levels with pages, close-up `splat`; `null` without terrain. the square is the tree's root, and the page layout is fixed ([height page](#height-page-hgt-efht)) |
-| `levels`                                                  | every level of the scene, even in a subset: id, tag, name, rect, `playerInitPos`, owned cells at `cellLevel`, packed instance count and `contentBounds`, base environment                    |
-| `environments`, `environmentPhases`, `environmentVolumes` | see [environments](#environments)                                                                                                                                                            |
-| `heightFogFlowNoise`                                      | texture id of the height fog's 3D flow noise, packed once, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                                     |
-| `states`                                                  | scene controls, conditional sets, visibility groups, stream areas and missions; see [conditions](#conditions)                                                                                |
-| `archives`                                                | `ArchiveInfo`: name, role, tile, size, `dataOffset`                                                                                                                                          |
-| `global`                                                  | content refs drawn regardless of refinement                                                                                                                                                  |
-| `subset`                                                  | what `--level` / `--bounds` kept, or `null`                                                                                                                                                  |
-| `source`                                                  | the bundle manifest's build guid and content hash: identifies the game build                                                                                                                 |
+| field                                                         | contents                                                                                                                                                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`, `version`                                           | `'endfield-noclip.package'`, `PACKAGE_VERSION` (see [versioning](#versioning))                                                                                                               |
+| `generation`                                                  | see [containers and blobs](#containers-and-blobs)                                                                                                                                            |
+| `scene`                                                       | streaming scene id and display name                                                                                                                                                          |
+| `coordinates`                                                 | `COORDINATE_CONVENTIONS`                                                                                                                                                                     |
+| `tree`                                                        | `TreeInfo` plus node and ref counts                                                                                                                                                          |
+| `terrain`                                                     | `baseHeight`, `heightScale`, levels with pages, close-up `splat`; `null` without terrain. the square is the tree's root, and the page layout is fixed ([height page](#height-page-hgt-efht)) |
+| `levels`                                                      | every level of the scene, even in a subset: id, tag, name, rect, `playerInitPos`, owned cells at `cellLevel`, packed instance count and `contentBounds`, base environment                    |
+| `environmentPosts`, `environmentPhases`, `environmentVolumes` | see [environments](#environments)                                                                                                                                                            |
+| `heightFogFlowNoise`                                          | texture id of the height fog's 3D flow noise, packed once, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                                     |
+| `states`                                                      | scene controls, conditional sets, visibility groups, stream areas and missions; see [conditions](#conditions)                                                                                |
+| `archives`                                                    | `ArchiveInfo`: name, role, tile, size, `dataOffset`                                                                                                                                          |
+| `global`                                                      | content refs drawn regardless of refinement                                                                                                                                                  |
+| `subset`                                                      | what `--level` / `--bounds` kept, or `null`                                                                                                                                                  |
+| `source`                                                      | the bundle manifest's build guid and content hash: identifies the game build                                                                                                                 |
 
 a viewer shows one level at a time: content whose group carries the level's tag or tag 0 (shared
 content), over the shared terrain. scenes without levels show everything. a level's rect and
@@ -215,15 +215,17 @@ the manifest carries three lists
 ([pack/environments.ts](../packages/extractor/src/pack/environments.ts); how the extractor reads
 them is in [extraction.md](extraction.md#environments)):
 
-- `environments`: composed base profiles (base phase over the global phase, plus the post profile;
-  see [the level's base environment](extraction.md#the-levels-base-environment)), deduplicated by
-  phase and post-profile name. `LevelInfo.environment` indexes it.
-- `environmentPhases`: every phase a volume applies, uncomposed, with the list of sections it marks
-  active. deduplicated by name.
+- `environmentPosts`: the levels' post-processing profiles, deduplicated by name.
+- `environmentPhases`: every phase a volume applies, uncomposed: all sections, with the list of
+  those it marks active. deduplicated by name.
 - `environmentVolumes`: every global, box and prism volume: name without its `#…` suffix, visibility
   `group` (owning level tag and loading condition), shape in world coordinates, blend mode,
   priority, blend distance, fade durations, phase index (or `null` when the phase can't be read; the
   viewer skips those), and `activation: 'unknown'`.
+
+`LevelInfo.environment` names a level's base volume (whose phase is never `null`) and post profile
+([the level's base environment](extraction.md#the-levels-base-environment)); a viewer starts its
+blend from all of that phase's sections.
 
 the package marks every volume `activation: 'unknown'` because nothing in the chunk data says
 whether a volume starts enabled ([activation](game-data/environment.md#activation)).
