@@ -373,11 +373,12 @@ const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderE
 export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
 	const { float, color } = readers(entry, shader);
 	// the shader writes its alpha times `1 − _BlendMode`: 1 adds the premultiplied colour over what's behind, and
-	// 2 is for multiplying blend states
+	// 2 writes `lerp(1, colour, alpha)` for a blend state that multiplies what's behind by it
 	const blendMode = float('_BlendMode', 0);
+	const blendDrawn = blendMode === 2 ? multipliesBehind(entry) : entry.blend === 'premultiplied';
 	if (
-		entry.blend !== 'premultiplied' ||
-		(blendMode !== 0 && blendMode !== 1) ||
+		!blendDrawn ||
+		(blendMode !== 0 && blendMode !== 1 && blendMode !== 2) ||
 		entry.keywords.some((keyword) => !BASE_KEYWORDS.has(keyword) && !baseKeywordDrawn(keyword, entry, shader))
 	) {
 		return null;
@@ -531,6 +532,238 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		params[EffectRow.offsetMode + 2] = 1;
 		params[EffectRow.offsetMode + 3] = float('_RotateNormalToWorldUp', 0) !== 0 ? 1 : 0;
 	}
+	return look;
+};
+
+/** Unity `BlendMode` values */
+const BLEND_ZERO = 0;
+const BLEND_DST_COLOR = 2;
+
+/**
+ * @param entry a material
+ * @returns whether its blend state multiplies what lies behind by its colour (Unity's `Blend DstColor Zero`)
+ */
+const multipliesBehind = (entry: ReadyMaterial): boolean =>
+	entry.blend === 'custom' &&
+	entry.blendFactors?.[0] === BLEND_DST_COLOR &&
+	entry.blendFactors[1] === BLEND_ZERO;
+
+/**
+ * @param look a look from {@link vfxBaseLook}
+ * @returns whether it multiplies what lies behind (`_BlendMode` 2), which the transparent pass's targets
+ *   can't hold, so it draws over the composited scene instead
+ */
+export const multipliesScene = (look: EffectLook): boolean => look.params[EffectRow.unfogged + 2] === 2;
+
+/** keywords of `HGRP/Effect/VFXDitherAlpha` that {@link vfxDitherEffectLook} draws */
+const DITHER_EFFECT_KEYWORDS = new Set(['_USE_DISSOLVE', '_USE_DISTURB', '_USE_POLARUV', '_USE_SCREENUV']);
+
+/**
+ * an unlit `HGRP/Effect/VFXDitherAlpha` material with a distortion, a dissolve or polar or screen UVs, drawn
+ * by the texture stack. the game writes such a surface to the G-buffer where its alpha beats a per-pixel
+ * noise; the viewer blends it over by that alpha instead, which its temporal antialiasing would average the
+ * dither to anyway
+ *
+ * @param entry a material of `HGRP/Effect/VFXDitherAlpha`
+ * @param shader its shader
+ * @returns its effect look, or `null` when it has none of those keywords or uses features that aren't drawn
+ */
+export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+	const { float, color } = readers(entry, shader);
+	const keywords = entry.keywords;
+	if (
+		!keywords.some((keyword) => DITHER_EFFECT_KEYWORDS.has(keyword)) ||
+		keywords.some((keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword)) ||
+		float('_UseLighting', 0) !== 0 ||
+		float('_DitherAlphaMode', 0) !== 0 ||
+		float('_DitherAlphaExp', 1) !== 1 ||
+		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0)
+	) {
+		return null;
+	}
+	const computed = [
+		true,
+		true,
+		keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
+		keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
+	];
+	const source = (weightsName: string): number => {
+		const weights = color(weightsName) ?? [1, 0, 0, 0];
+		const largest = weights.indexOf(Math.max(...weights));
+		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
+	};
+	const animOf = (speedName: string, rotationName: string) => {
+		const speed = color(speedName) ?? [0, 0, 0, 0];
+		const rotation = color(rotationName) ?? [1, 0, 0, 1];
+		return { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] };
+	};
+	const look = emptyEffect(7);
+	const params = look.params;
+	// the shader's slots and their properties; the distortion comes first, so it can shift the others
+	const slots = [
+		{
+			name: '_MainTex',
+			keyword: null,
+			bits: EffectRole.Main + (float('_UseMainTexAsAlpha', 1) !== 0 ? 16 : 0),
+			disturbed: '_MainTexUseDisturb',
+			speed: '_MainTexUVSpeed',
+			rotation: '_MainTexUVRotateMat',
+			weights: '_MainTexUVWeights',
+		},
+		{
+			name: '_DisturbTex1',
+			keyword: '_USE_DISTURB',
+			bits: EffectRole.Disturb1,
+			disturbed: null,
+			speed: '_DisturbUVSpeed1',
+			rotation: '_DisturbUVRotateMat1',
+			weights: '_DisturbUVWeights1',
+		},
+		{
+			name: '_DissolveTex',
+			keyword: '_USE_DISSOLVE',
+			bits: EffectRole.Dissolve,
+			disturbed: '_DissolveTexUseDisturb',
+			speed: '_DissolveUVSpeed',
+			rotation: '_DissolveUVRotateMat',
+			weights: '_DissolveUVWeights',
+		},
+	];
+	for (const [i, slot] of slots.entries()) {
+		if (slot.keyword !== null && !keywords.includes(slot.keyword)) {
+			continue;
+		}
+		// an unset slot binds white, the shader's default for each of these
+		const bound = entry.slots[slot.name] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		if (bound.uv > 1) {
+			return null;
+		}
+		const disturbed = slot.disturbed === null ? 0 : slotDisturb(float(slot.disturbed, 1));
+		setSlot(look, i, bound, animOf(slot.speed, slot.rotation), slot.bits + disturbed + source(slot.weights));
+	}
+	// the colour pass emits `tint · intensity · vertex colour · main`; the depth pass tests the tint's alpha times
+	// `_TintColorAlpha`, the vertex alpha, the main texture's alpha (its red), the dissolve and the near fade
+	const intensity = float('_TintColorIntensity', 1);
+	const tint = linearRgb(color('_TintColor') ?? [1, 1, 1, 1]);
+	params.set(
+		[
+			tint[0] * intensity,
+			tint[1] * intensity,
+			tint[2] * intensity,
+			(color('_TintColor')?.[3] ?? 1) * float('_TintColorAlpha', 1),
+		],
+		EffectRow.tint,
+	);
+	setShared(look, entry, shader, intensity);
+	params[EffectRow.dissolve + 3] = keywords.includes('_USE_DISSOLVE') ? 1 : 0;
+	params[EffectRow.weight] = float('_Bi_Disturb', 0);
+	params[EffectRow.misc + 1] = 1;
+	params[EffectRow.misc + 3] = keywords.includes('_USE_DISTURB') ? 1 : 0;
+	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
+	// a G-buffer surface, so the deferred fog covers it
+	params[EffectRow.unfogged] = 0;
+	params[EffectRow.unfogged + 3] =
+		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
+	return look;
+};
+
+/**
+ * float offsets of a VFXRefract look's parameters. the UV, scroll, slot bit, near fade and last rows are
+ * {@link EffectRow}'s; slot 0 is `_RefractTex`, slot 1 `_MaskTex`
+ */
+export const RefractRow = {
+	/** `_RefractDir` xy, the strength (`_Intensity · _TintColorAlpha`), `_Bi_Refract` */
+	refract: 68,
+	/**
+	 * 1 when the refraction texture is a normal map (`_RefractIsNormal`), `_MaskTexUseRefract`, 1 with a mask,
+	 * 0
+	 */
+	refract2: 72,
+} as const;
+
+/** keywords of `HGRP/Effect/VFXRefract` that {@link vfxRefractLook} draws */
+const REFRACT_KEYWORDS = new Set(['_USE_MASK', '_USE_POLARUV']);
+
+/**
+ * `HGRP/Effect/VFXRefract`: the scene behind, seen at an offset that a texture sets, masked
+ * (`docs/game-data/effects.md#refraction`). it samples the finished scene, so it draws over the composited
+ * scene rather than in the transparent pass
+ *
+ * @param entry a material of `HGRP/Effect/VFXRefract`
+ * @param shader its shader
+ * @returns its effect look, or `null` when it uses features that aren't drawn
+ */
+export const vfxRefractLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+	const { float, color } = readers(entry, shader);
+	const keywords = entry.keywords;
+	if (entry.blend !== 'alphaBlend' || keywords.some((keyword) => !REFRACT_KEYWORDS.has(keyword))) {
+		return null;
+	}
+	const polar = keywords.includes('_USE_POLARUV');
+	const masked = keywords.includes('_USE_MASK');
+	const look = emptyEffect(7);
+	const params = look.params;
+	const slots = [
+		{
+			name: '_RefractTex',
+			on: true,
+			rotate: '_RefractTexUVRotate',
+			speed: '_RefractUVSpeed',
+			switch: '_RefractSwitchUV',
+		},
+		{
+			name: '_MaskTex',
+			on: masked,
+			rotate: '_MaskTexUVRotate',
+			speed: '_MaskTexUVSpeed',
+			switch: '_MaskSwitchUV',
+		},
+	];
+	for (const [i, slot] of slots.entries()) {
+		if (!slot.on) {
+			continue;
+		}
+		// the shader reads UV0, or polar UVs about its centre with either switch value
+		const switched = float(slot.switch, 0) !== 0;
+		if (switched && !polar) {
+			return null;
+		}
+		const bound = entry.slots[slot.name] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		if (bound.uv !== 0) {
+			return null;
+		}
+		// the rotation in degrees, as the matrix with columns (cos, −sin) and (sin, cos)
+		const angle = (float(slot.rotate, 0) * Math.PI) / 180;
+		const speed = color(slot.speed) ?? [0, 0, 0, 0];
+		const redAlpha = i === 1 && float('_UseMaskTexAsAlpha', 1) !== 0 ? 16 : 0;
+		setSlot(
+			look,
+			i,
+			bound,
+			{ speed: [speed[0], speed[1]], cos: Math.cos(angle), sin: -Math.sin(angle) },
+			(switched ? SlotSource.Polar * 32 : SlotSource.Uv0 * 32) + redAlpha,
+		);
+	}
+	const dir = color('_RefractDir') ?? [1, 1, 0, 0];
+	params.set(
+		[dir[0], dir[1], float('_Intensity', 1) * float('_TintColorAlpha', 1), float('_Bi_Refract', 0)],
+		RefractRow.refract,
+	);
+	params.set(
+		[float('_RefractIsNormal', 1) !== 0 ? 1 : 0, float('_MaskTexUseRefract', 0), masked ? 1 : 0, 0],
+		RefractRow.refract2,
+	);
+	params.set(
+		[
+			float('_NearCameraFadeDistanceStart', 0),
+			float('_NearCameraFadeDistanceEnd', 1),
+			float('_NearCameraFadeDistanceStart2', 1e5),
+			float('_NearCameraFadeDistanceEnd2', 2e5),
+		],
+		EffectRow.near,
+	);
+	params[EffectRow.misc] = float('_UseNearCameraFade', 0) !== 0 ? 1 : 0;
+	params.set([1, EffectKind.Refract, 0, 0], EffectRow.unfogged);
 	return look;
 };
 
@@ -841,6 +1074,8 @@ export const EffectKind = {
 	LitDecal: 2,
 	/** a volumetric light beam's cone ({@link BeamRow}) */
 	Beam: 3,
+	/** a VFXRefract layer ({@link RefractRow}), drawn by the refraction entry point over the composited scene */
+	Refract: 4,
 } as const;
 
 /**

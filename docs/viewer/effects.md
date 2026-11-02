@@ -23,6 +23,23 @@ meshes play through the [particles](particles.md#particles); what's left out is 
   inside. each covered pixel reconstructs the main pass's surface from the depth buffer, and
   `_USE_NORMALBLEND` reads its normal from the main pass's packed surface normal.
 
+## over the composited scene
+
+effects whose blending the transparent pass's targets can't hold draw after compositing (and after
+the water), into the composited scene with the main pass's depth attached read-only
+(`MaterialLook.screen`, `encodeMultiply` and `encodeRefract` in
+[`mesh-renderer.ts`](../../packages/viewer/src/render/mesh-renderer.ts)):
+
+- `_BlendMode` 2 VFXBaseV2 layers multiply the scene (`fs_effect_multiply`).
+- [VFXRefract](../game-data/effects.md#refraction) layers then sample a copy of the scene, taken
+  after the multiplies into the main pass's radiance target, and blend over it (`fs_refract`). the
+  copy holds the fog, the transparent layers and the water, which the game's copy may not.
+
+unlit VFXDitherAlpha materials with a distortion, a dissolve or polar or screen UVs draw through
+VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game dithers
+with rather than dithered, which the temporal antialiasing would average to the same coverage.
+unlike the game's, they don't write depth, so they don't hide effects behind them.
+
 ## portals
 
 [portals](../game-data/effects.md#portals) draw with a stencil buffer

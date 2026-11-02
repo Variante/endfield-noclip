@@ -1768,6 +1768,34 @@ export class Viewer {
 			frame: this.#frame,
 			froxels,
 			water: this.#water,
+			screenEffects: (screenEncoder, target, copy) => {
+				if (!hasScene) {
+					return;
+				}
+				const scene = this.#targets.scene;
+				const meshes = this.#meshes;
+				const begin = (label: string): GPURenderPassEncoder => {
+					const screenPass = screenEncoder.beginRenderPass({
+						label,
+						colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
+						depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
+					});
+					screenPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+					return screenPass;
+				};
+				if (meshes.hasMultiply) {
+					const multiply = begin('effect multiply');
+					draws += meshes.encodeMultiply(multiply, scene);
+					multiply.end();
+				}
+				if (meshes.hasRefract) {
+					// refraction samples the scene as the multiplies left it
+					copy();
+					const refract = begin('effect refract');
+					draws += meshes.encodeRefract(refract, { ...scene, background: scene.radiance });
+					refract.end();
+				}
+			},
 			frameGroup: { group: this.#frameBindGroup, offset: uniforms.offset },
 		});
 		this.#profiler.resolve(encoder);

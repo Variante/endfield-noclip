@@ -17,6 +17,7 @@ import {
 	EffectRow,
 	MistRow,
 	OFFSET_SLOT,
+	RefractRow,
 	ROLE_NONE,
 	SLOT_NO_BASE,
 	SlotSource,
@@ -415,19 +416,127 @@ test('a VFXBaseV2 sixth sample texture takes the vertex offset slot and the firs
 	);
 });
 
-test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and is unsupported under 2', () => {
+test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and multiplies the scene under 2', () => {
 	const additive = { ...shader('HGRP/Effect/VFXBaseV2'), floats: { _BlendMode: 1 } };
+	// the flash under the rift's ripples (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_1109`): `Blend DstColor Zero`
+	const multiply: Pick<ReadyMaterial, 'blend' | 'blendFactors'> = { blend: 'custom', blendFactors: [2, 0] };
 	const looks = materialLooks({
 		shaders: [additive],
 		entries: [
 			material({ id: 0, slots: { _MainTex: slot(1) } }),
 			material({ id: 1, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 0 } }),
 			material({ id: 2, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 2 } }),
+			material({ id: 3, ...multiply, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 2 } }),
+			material({ id: 4, ...multiply, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 0 } }),
 		],
 	});
 	assert.equal(looks[0].params[EffectRow.unfogged + 2], 1);
+	assert.equal(looks[0].screen, null);
 	assert.equal(looks[1].params[EffectRow.unfogged + 2], 0);
+	// a multiplying layer needs the multiplying blend state, and the reverse
 	assert.equal(looks[2].unsupported, true);
+	assert.equal(looks[3].screen, 'multiply');
+	assert.equal(looks[3].params[EffectRow.unfogged + 2], 2);
+	assert.equal(looks[4].unsupported, true);
+});
+
+test('an unlit VFXDitherAlpha with a dissolve, distortion and polar UVs draws its texture stack, fogged', () => {
+	// the rift's ripple walls (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_1102_01`)
+	const dither: ShaderEntry = {
+		...shader('HGRP/Effect/VFXDitherAlpha'),
+		family: 'vfxDitherAlpha',
+		floats: { _MainTexUseDisturb: 1, _DissolveTexUseDisturb: 1, _UseMainTexAsAlpha: 1, _InParticle: 1 },
+		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white' },
+	};
+	const [ripple, solid, lit] = materialLooks({
+		shaders: [dither],
+		entries: [
+			material({
+				id: 0,
+				blend: 'alphaTest',
+				blendFactors: null,
+				cull: 'front',
+				keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_POLARUV', '_USE_SCREENUV'],
+				slots: { _MainTex: slot(1, [2, 1]), _DisturbTex1: slot(2, [0.5, 10]), _DissolveTex: slot(3, [2, 5]) },
+				floats: {
+					_DisturbUIntensity1: 0.15,
+					_DisturbVIntensity1: 0.15,
+					_UsePolarUV: 1,
+					_UseNearCameraFade: 1,
+					_NearCameraFadeDistanceStart2: 1000,
+					_NearCameraFadeDistanceEnd2: 500,
+				},
+				colors: { _TintColor: [0.5, 0.5, 1, 1] },
+				vectors: { _DisturbUVSpeed1: [0, 0.05, 0, 0], _DissolveUVWeights: [0, 0, 1, 0] },
+			}),
+			material({ id: 1, blend: 'alphaTest', slots: { _MainTex: slot(1) } }),
+			material({ id: 2, blend: 'alphaTest', keywords: ['_USE_DISSOLVE'], floats: { _UseLighting: 1 } }),
+		],
+	});
+	assert.equal(ripple.flags, LookFlags.Effect);
+	assert.equal(ripple.screen, null);
+	assert.equal(ripple.cull, 'front');
+	assert.deepEqual(ripple.textures, [1, 2, 3, -1, -1, -1, -1]);
+	assert.deepEqual(
+		[...ripple.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 3)],
+		[
+			// the main texture's red is its alpha, and it takes all of the distortion
+			EffectRole.Main + 16 + 1024 * 256,
+			EffectRole.Disturb1,
+			// the dissolve starts from polar UVs
+			EffectRole.Dissolve + 1024 * 256 + SlotSource.Polar * 32,
+		],
+	);
+	assert.equal(ripple.params[EffectRow.dissolve + 3], 1);
+	assert.equal(ripple.params[EffectRow.misc + 3], 1);
+	assert.equal(ripple.params[EffectRow.anim + 4 + 1], Math.fround(0.05));
+	// a G-buffer surface, so fogged
+	assert.equal(ripple.params[EffectRow.unfogged], 0);
+	assert.deepEqual([...ripple.params.subarray(EffectRow.near + 2, EffectRow.near + 4)], [1000, 500]);
+	// without those keywords it stays on the opaque path; lit ones aren't drawn this way
+	assert.equal((solid.flags & LookFlags.Effect) !== 0, false);
+	assert.equal(lit.unsupported, true);
+});
+
+test('a VFXRefract samples the scene behind at an offset by its texture and is masked by its mask red', () => {
+	// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
+	const refract: ShaderEntry = {
+		...shader('HGRP/Effect/VFXRefract'),
+		family: 'vfxRefract',
+		floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1 },
+		vectors: { _RefractDir: [1, 1, 0, 0] },
+	};
+	const [ground, rbOffset] = materialLooks({
+		shaders: [refract],
+		entries: [
+			material({
+				id: 0,
+				blend: 'alphaBlend',
+				blendFactors: [5, 10],
+				cull: 'none',
+				keywords: ['_USE_MASK', '_USE_POLARUV'],
+				slots: { _MaskTex: slot(1, [3, 1]), _RefractTex: slot(2, [2, 1]) },
+				floats: { _Intensity: 0.5, _TintColorAlpha: 2, _RefractIsNormal: 0, _MaskTexUVRotate: 180 },
+				vectors: { _RefractUVSpeed: [0, 0.1, 0, 1] },
+			}),
+			material({ id: 1, blend: 'alphaBlend', keywords: ['_USE_RBOFFSET'], slots: { _RefractTex: slot(2) } }),
+		],
+	});
+	assert.equal(ground.screen, 'refract');
+	assert.equal(ground.transparent, true);
+	assert.deepEqual(ground.textures, [2, 1, -1, -1, -1, -1, -1]);
+	// the switches pick UV0
+	assert.deepEqual(
+		[...ground.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 2)],
+		[SlotSource.Uv0 * 32, SlotSource.Uv0 * 32 + 16],
+	);
+	assert.deepEqual([...ground.params.subarray(RefractRow.refract, RefractRow.refract + 4)], [1, 1, 1, 0]);
+	assert.deepEqual([...ground.params.subarray(RefractRow.refract2, RefractRow.refract2 + 4)], [0, 0, 1, 0]);
+	assert.equal(ground.params[EffectRow.anim + 1], 0.10000000149011612);
+	// half a turn: cos −1
+	assert.equal(ground.params[EffectRow.anim + 4 + 2], -1);
+	assert.equal(ground.params[EffectRow.unfogged + 1], EffectKind.Refract);
+	assert.equal(rbOffset.unsupported, true);
 });
 
 test('a VFXBaseV2 without a main texture draws with its shader default only when that is white', () => {

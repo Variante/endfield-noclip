@@ -118,7 +118,9 @@ type DrawRange =
 	| 'effectDecal'
 	| 'mist'
 	| 'mistVolume'
-	| 'decalRelight';
+	| 'decalRelight'
+	| 'screenMultiply'
+	| 'refract';
 
 /**
  * the vertex streams a phase's pipelines read, in buffer slot order: every stream, positions alone (opaque
@@ -169,6 +171,19 @@ const RELIGHT_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/decal-relight', range: 'decalRelight', textured: true, shadow: false, streams: 'all' },
 ];
 
+/** effects that multiply the composited scene (`MaterialLook.screen`), drawn over it */
+const MULTIPLY_PHASES: readonly DrawPhase[] = [
+	{ key: 'mesh/effect-multiply', range: 'screenMultiply', textured: true, shadow: false, streams: 'all' },
+];
+
+/**
+ * effects that sample a copy of the composited scene (`MaterialLook.screen`), drawn over it after the
+ * multiplies
+ */
+const REFRACT_PHASES: readonly DrawPhase[] = [
+	{ key: 'mesh/refract', range: 'refract', textured: true, shadow: false, streams: 'all' },
+];
+
 /** the shader stages that read an effect texture slot */
 const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
 	slot === OFFSET_SLOT ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : GPUShaderStage.FRAGMENT;
@@ -179,6 +194,8 @@ export interface EffectInputs {
 	reflectionSurface: GPUTextureView;
 	/** the diffuse ambient and material occlusion, from which relit decals recover the surface's colour */
 	ambient: GPUTextureView;
+	/** a copy of the composited scene, which refraction samples; only the pass after compositing has one */
+	background?: GPUTextureView;
 	version: number;
 }
 
@@ -341,6 +358,8 @@ export class MeshRenderer {
 	/** bound where an effect has no 3D texture */
 	#noVolume: GPUTextureView;
 	#defaultSampler: GPUSampler;
+	/** samples the composited scene's copy for refraction */
+	#clampSampler: GPUSampler;
 	/** material bind groups by material id */
 	#bindings = new Map<number, MaterialBinding>();
 	/** by material id */
@@ -355,9 +374,11 @@ export class MeshRenderer {
 	#mistOrder: MeshBucket[] = [];
 	#mistVolumeOrder: MeshBucket[] = [];
 	#relightOrder: MeshBucket[] = [];
+	#multiplyOrder: MeshBucket[] = [];
+	#refractOrder: MeshBucket[] = [];
 	/**
 	 * group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth, surfaces and
-	 * diffuse ambient
+	 * diffuse ambient, a 3D texture, and the composited scene's copy
 	 */
 	#effectLayout: GPUBindGroupLayout;
 	/** effect bind groups by material id */
@@ -367,6 +388,8 @@ export class MeshRenderer {
 	#mistStart = 0;
 	#mistVolumeStart = 0;
 	#relightStart = 0;
+	#multiplyStart = 0;
+	#refractStart = 0;
 	/** prepared draws in {@link DrawRange} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
@@ -444,6 +467,11 @@ export class MeshRenderer {
 			magFilter: 'linear',
 			minFilter: 'linear',
 			mipmapFilter: 'linear',
+		});
+		this.#clampSampler = device.createSampler({
+			label: 'effect background',
+			magFilter: 'linear',
+			minFilter: 'linear',
 		});
 		const module = pipelines.module('mesh', FRAME_WGSL + meshWgsl);
 		const vertex = (uvFormat: UvFormat, streams: VertexStreams = 'all'): GPUVertexState => {
@@ -573,6 +601,8 @@ export class MeshRenderer {
 					},
 					{ binding: 17, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '3d' } },
 					{ binding: 18, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+					{ binding: 19, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+					{ binding: 20, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
 				],
 			});
 			const layout = device.createPipelineLayout({
@@ -595,6 +625,33 @@ export class MeshRenderer {
 					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
 					fragment: { module: effectModule, entryPoint, targets: TRANSPARENT_TARGETS },
 					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare },
+				}));
+			}
+			// effects over the composited scene: multiplying it, then blending a refracted copy of it over
+			for (const [phase, entryPoint, blend] of [
+				[
+					MULTIPLY_PHASES[0],
+					'fs_effect_multiply',
+					{
+						color: { srcFactor: 'dst', dstFactor: 'zero', operation: 'add' },
+						alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+					},
+				],
+				[
+					REFRACT_PHASES[0],
+					'fs_refract',
+					{
+						color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+						alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+					},
+				],
+			] as const) {
+				describe(phase.key, (cullMode, uvFormat) => ({
+					layout,
+					vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
+					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
+					fragment: { module: effectModule, entryPoint, targets: [{ format: HDR_FORMAT, blend }] },
+					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
 				}));
 			}
 			// relit decals add the change in the surface's light to the radiance, leaving its alpha (the albedo's
@@ -654,6 +711,8 @@ export class MeshRenderer {
 				{ binding: 16, resource: inputs.ambient },
 				{ binding: 17, resource: volume?.view ?? this.#noVolume },
 				{ binding: 18, resource: volume?.sampler ?? this.#defaultSampler },
+				{ binding: 19, resource: inputs.background ?? this.#white },
+				{ binding: 20, resource: this.#clampSampler },
 			],
 		});
 		this.#effectBindings.set(material, { versions, inputs: inputs.version, group });
@@ -818,6 +877,8 @@ export class MeshRenderer {
 		const mists = this.#mistOrder;
 		const mistVolumes = this.#mistVolumeOrder;
 		const relit = this.#relightOrder;
+		const multiplies = this.#multiplyOrder;
+		const refracts = this.#refractOrder;
 		opaque.length = 0;
 		cutout.length = 0;
 		stencilMasks.length = 0;
@@ -827,6 +888,8 @@ export class MeshRenderer {
 		mists.length = 0;
 		mistVolumes.length = 0;
 		relit.length = 0;
+		multiplies.length = 0;
+		refracts.length = 0;
 		for (const bucket of buckets) {
 			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
@@ -855,6 +918,8 @@ export class MeshRenderer {
 					const decal = (look.flags & LookFlags.EffectDecal) !== 0;
 					if ((look.flags & LookFlags.EffectMist) !== 0) {
 						(decal ? mistVolumes : mists).push(bucket);
+					} else if (look.screen !== null) {
+						(look.screen === 'multiply' ? multiplies : refracts).push(bucket);
 					} else if (look.relight) {
 						relit.push(bucket);
 					} else {
@@ -881,6 +946,8 @@ export class MeshRenderer {
 		mists.sort(byBindings);
 		mistVolumes.sort(byBindings);
 		relit.sort(byBindings);
+		multiplies.sort(byBindings);
+		refracts.sort(byBindings);
 		const cutoutFrom = opaque.length;
 		const stencilMaskFrom = cutoutFrom + cutout.length;
 		const transparentFrom = stencilMaskFrom + stencilMasks.length;
@@ -889,7 +956,9 @@ export class MeshRenderer {
 		const mistFrom = decalFrom + decals.length;
 		const mistVolumeFrom = mistFrom + mists.length;
 		const relightFrom = mistVolumeFrom + mistVolumes.length;
-		const bucketCount = relightFrom + relit.length;
+		const multiplyFrom = relightFrom + relit.length;
+		const refractFrom = multiplyFrom + multiplies.length;
+		const bucketCount = refractFrom + refracts.length;
 		const bucketAt = (b: number): MeshBucket => {
 			if (b < cutoutFrom) {
 				return opaque[b];
@@ -915,7 +984,13 @@ export class MeshRenderer {
 			if (b < relightFrom) {
 				return mistVolumes[b - mistVolumeFrom];
 			}
-			return relit[b - relightFrom];
+			if (b < multiplyFrom) {
+				return relit[b - relightFrom];
+			}
+			if (b < refractFrom) {
+				return multiplies[b - multiplyFrom];
+			}
+			return refracts[b - refractFrom];
 		};
 
 		const params = this.#paramData;
@@ -936,6 +1011,8 @@ export class MeshRenderer {
 		this.#mistStart = 0;
 		this.#mistVolumeStart = 0;
 		this.#relightStart = 0;
+		this.#multiplyStart = 0;
+		this.#refractStart = 0;
 		for (let b = 0; b < bucketCount; b++) {
 			if (b === cutoutFrom) {
 				this.#cutoutStart = d;
@@ -960,6 +1037,12 @@ export class MeshRenderer {
 			}
 			if (b === relightFrom) {
 				this.#relightStart = d;
+			}
+			if (b === multiplyFrom) {
+				this.#multiplyStart = d;
+			}
+			if (b === refractFrom) {
+				this.#refractStart = d;
 			}
 			const bucket = bucketAt(b);
 			const resident = bucket.geometry.resident;
@@ -1084,6 +1167,12 @@ export class MeshRenderer {
 		if (relightFrom === bucketCount) {
 			this.#relightStart = d;
 		}
+		if (multiplyFrom === bucketCount) {
+			this.#multiplyStart = d;
+		}
+		if (refractFrom === bucketCount) {
+			this.#refractStart = d;
+		}
 		this.#cutoutCastersEnd = Math.max(this.#cutoutCastersEnd, this.#cutoutStart);
 		this.#cutoutCastOnlyEnd = Math.max(this.#cutoutCastOnlyEnd, this.#cutoutStart);
 		if (d > 0) {
@@ -1152,8 +1241,43 @@ export class MeshRenderer {
 	 * @returns draw calls issued
 	 */
 	encodeRelight(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		this.#bindEffects(this.#relightStart, this.#drawCount, inputs);
+		this.#bindEffects(this.#relightStart, this.#multiplyStart, inputs);
 		return this.#encode(pass, RELIGHT_PHASES);
+	}
+
+	/** whether this frame has effects that multiply the composited scene ({@link encodeMultiply}) */
+	get hasMultiply(): boolean {
+		return this.#refractStart > this.#multiplyStart;
+	}
+
+	/** whether this frame has effects that refract the composited scene ({@link encodeRefract}) */
+	get hasRefract(): boolean {
+		return this.#drawCount > this.#refractStart;
+	}
+
+	/**
+	 * multiplies the composited scene by the effects that do so. call after compositing.
+	 *
+	 * @param pass a pass whose only colour attachment is the composited scene, kept (`load`), with the main
+	 *   pass's depth attached read-only and group 0 bound
+	 * @param inputs the main pass's outputs
+	 * @returns draw calls issued
+	 */
+	encodeMultiply(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
+		this.#bindEffects(this.#multiplyStart, this.#refractStart, inputs);
+		return this.#encode(pass, MULTIPLY_PHASES);
+	}
+
+	/**
+	 * blends the refracting effects over the composited scene. call after {@link encodeMultiply}.
+	 *
+	 * @param pass as for {@link encodeMultiply}
+	 * @param inputs the main pass's outputs, with a copy of the composited scene as the background
+	 * @returns draw calls issued
+	 */
+	encodeRefract(pass: GPURenderPassEncoder, inputs: EffectInputs & { background: GPUTextureView }): number {
+		this.#bindEffects(this.#refractStart, this.#drawCount, inputs);
+		return this.#encode(pass, REFRACT_PHASES);
 	}
 
 	/** builds the effect groups of the draws in [from, to), which bind the main pass's outputs */
@@ -1241,6 +1365,16 @@ export class MeshRenderer {
 				}
 				case 'decalRelight': {
 					from = this.#relightStart;
+					to = this.#multiplyStart;
+					break;
+				}
+				case 'screenMultiply': {
+					from = this.#multiplyStart;
+					to = this.#refractStart;
+					break;
+				}
+				case 'refract': {
+					from = this.#refractStart;
 					to = this.#drawCount;
 					break;
 				}

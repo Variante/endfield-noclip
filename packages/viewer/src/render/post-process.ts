@@ -976,6 +976,12 @@ export class PostProcess {
 			froxels: boolean;
 			/** drawn after compositing, when it has surfaces */
 			water: WaterRenderer;
+			/**
+			 * draws effects over the composited scene, after the water: `target` is the scene, and `copy` copies it
+			 * into the main pass's radiance target (which nothing reads after compositing) for effects that sample
+			 * it
+			 */
+			screenEffects: (encoder: GPUCommandEncoder, target: GPUTextureView, copy: () => void) => void;
 			/** the main pass's frame group and its uniforms' offset, which the water pass lights with */
 			frameGroup: { group: GPUBindGroup; offset: number };
 		},
@@ -1031,6 +1037,12 @@ export class PostProcess {
 				version: sized.version,
 			});
 		}
+		input.screenEffects(encoder, sized.sceneView, () => {
+			encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [
+				width,
+				height,
+			]);
+		});
 		if (settings.debugView === 'lit') {
 			this.#lightShafts.encode(encoder, {
 				camera,

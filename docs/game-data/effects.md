@@ -59,8 +59,8 @@ Lodespring's crater column is one). alpha fades by a Fresnel term
 metres of what lies behind it. the shader writes its alpha times `1 − _BlendMode`, so under
 `_BlendMode` 1, the shader's default, the premultiplied colour adds to what lies behind instead of
 covering it; about a quarter of the scenery's VFXBaseV2 materials are such, among them the glare at
-the corroded planet's centre seen from Dijiang's deck. `_BlendMode` 2 is for multiplying blend
-states.
+the corroded planet's centre seen from Dijiang's deck. `_BlendMode` 2 writes
+`lerp(1, colour, alpha)` for a `Blend DstColor Zero` state, which multiplies what lies behind by it.
 
 `_USE_VERTOFFSET` moves each vertex along `_OffsetDir` (`_OffsetSwitchDir` 0: object space, 1: world
 space, 2: the vertex normal) by `_OffsetIntensity · (r · (1 + _Bi_Offset) − _Bi_Offset)`, where r is
@@ -117,6 +117,41 @@ position times `_DitherTilling`, so a fraction of the pixels equal to the alpha 
 is `_TintColor.a · _TintColorAlpha` times `_MainTex`'s alpha (its red with `_UseMainTexAsAlpha`),
 saturated and raised to `_DitherAlphaExp`. this shapes the dark disc at the centre of Power
 Plateau's sky vortex (`blackspot`), a quad whose texture's alpha is a soft round mask.
+
+`_USE_DISTURB`, `_USE_DISSOLVE`, `_USE_POLARUV` and `_USE_SCREENUV` bring in VFXBaseV2's texture
+stack: `_DisturbTex1` shifts the main and dissolve UVs (`_MainTexUseDisturb`,
+`_DissolveTexUseDisturb`, both 1 by default), each texture's UVs start from its `*UVWeights` of UV0,
+UV1, polar and screen UVs, and the dissolve multiplies the tested alpha and colours its edge as
+VFXBaseV2's does. the vertex alpha and the near camera fade also scale the tested alpha. the walls
+of the rift's ripples are such (below).
+
+## refraction
+
+`HGRP/Effect/VFXRefract` draws in a pass of its own after the transparent effects, from a copy of
+the scene drawn so far. each pixel shows that copy at its own screen position plus an offset:
+`_RefractDir · r · _Intensity · _TintColorAlpha · vertex alpha`, in screen UVs, where r is
+`_RefractTex`'s red remapped by `_Bi_Refract` (with `_RefractIsNormal`, the texture's xy as a normal
+instead). `_MaskTex` (`_USE_MASK`) multiplies it, and its alpha, or its red under the default
+`_UseMaskTexAsAlpha`, blends it over the scene (`Blend SrcAlpha OneMinusSrcAlpha`), faded by the
+near camera fade. the vertex alpha scales only the offset, so a mesh whose particle fades out stops
+distorting but still covers. both textures scroll by their `*UVSpeed`, rotate by `*UVRotate` degrees
+and take UV0, or polar UVs with `_USE_POLARUV` and their `*SwitchUV` set.
+
+### the Very Large Rift's ripples
+
+in Wuling Very Large Rift (dung02_dg005), waves ripple out from the rift at unity 297, 100, 2: two
+prefabs, `p_fxmap_dung02_dg005_boss_semicircle_ripple_01` and `…_ripple_01_ground`, in script groups
+37000020004 and 37000020005. both load by default; a 3 m area at the arena's entrance (unity 23.6,
+100, 18.7) and the server hide them, so they are the arena's look before the fight. each child is a
+one-particle system that emits a mesh every 6 s and grows it over its life, so the rings spread:
+
+- `wenli_02`: a 142 m cylinder of VFXDitherAlpha (dissolve, distortion and polar UVs), the rings'
+  patterned walls
+- `line_z`, `wai_noise1`: VFXBaseV2 cylinders
+- `niuqu02`, and in the ground prefab two 300 m cylinders: VFXRefract, the distortion that travels
+  with the rings
+- `quan_ad_01`, `quan_ad_02`: half-second flashes at the centre, a VFXDitherAlpha disc and a
+  `_BlendMode` 2 VFXBaseV2 quad that multiplies what lies behind
 
 ## waterfalls
 

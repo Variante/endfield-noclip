@@ -43,6 +43,9 @@ struct EffectRow {
 // the look's 3D texture (`volumeTexture`: the mist boxes' noise), a zeroed placeholder without one
 @group(3) @binding(17) var fx_volume: texture_3d<f32>;
 @group(3) @binding(18) var fx_volume_samp: sampler;
+// a copy of the composited scene, which refraction samples (`fs_refract`); a white placeholder in other passes
+@group(3) @binding(19) var fx_background: texture_2d<f32>;
+@group(3) @binding(20) var fx_background_samp: sampler;
 
 // rows of the look (`EffectRow` in effect-looks.ts, in vec4s)
 const FX_TINT = 0u;
@@ -389,6 +392,20 @@ fn fx_accumulate(premultiplied: vec3f, alpha: f32, distance: f32, unfogged: f32)
 	return out;
 }
 
+// the UV sources of a pixel of a texture-stack layer. screen UVs: the pixel's position, centred and scaled by
+// the width, optionally v by the world height, then times the object's view depth past the near plane. call in
+// uniform control flow
+fn fx_layer_bases(in: EffectOut) -> FxBases {
+	let kind = fx_row(in.draw, FX_UNFOGGED);
+	let size = frame.render_size.xy;
+	let q = floor(in.position.xy);
+	let screen_flags = u32(kind.w);
+	var screen = vec2f(2.0 * q.x / size.x - 1.0, (2.0 * q.y / size.y - 1.0) * size.y / size.x);
+	screen.y = select(screen.y, frame.eye.y + in.rel.y, (screen_flags & 2u) != 0u);
+	screen *= select(1.0, max(1.0, in.origin_depth - frame.local_lights.w), (screen_flags & 1u) != 0u);
+	return fx_bases(in.uv.xy, in.uv.zw, fx_polar(in.uv.xy - 0.5), screen);
+}
+
 // VFXBaseV2 surfaces: the texture stack tinted by the vertex colour, brightened above a threshold, faded by the
 // Fresnel term, where the surface nears what lies behind it (soft blend), and by the near camera fade. VFXWater
 // sheets branch off to `water_sheet`
@@ -400,21 +417,38 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let rel_dx = dpdx(in.rel);
 	let rel_dy = dpdy(in.rel);
 	let kind = fx_row(id, FX_UNFOGGED);
-	// screen UVs: the pixel's position, centred and scaled by the width, optionally v by the world height, then
-	// times the object's view depth past the near plane
-	let size = frame.render_size.xy;
-	let q = floor(in.position.xy);
-	let screen_flags = u32(kind.w);
-	var screen = vec2f(2.0 * q.x / size.x - 1.0, (2.0 * q.y / size.y - 1.0) * size.y / size.x);
-	screen.y = select(screen.y, frame.eye.y + in.rel.y, (screen_flags & 2u) != 0u);
-	screen *= select(1.0, max(1.0, in.origin_depth - frame.local_lights.w), (screen_flags & 1u) != 0u);
-	let bases = fx_bases(in.uv.xy, in.uv.zw, fx_polar(in.uv.xy - 0.5), screen);
+	let bases = fx_layer_bases(in);
 	if (kind.y == FX_KIND_WATER_SHEET) {
 		return water_sheet(in, front, dx.xy, dy.xy, rel_dx, rel_dy);
 	}
 	if (kind.y == FX_KIND_BEAM) {
 		return light_beam(in);
 	}
+	let layer = fx_stack_layer(in, bases);
+	let color = layer.rgb;
+	let alpha = layer.a;
+	// `_BlendMode` 1 adds the layer rather than blending it over
+	if (kind.z >= 0.5) {
+		var out: EffectAccumulated;
+		out.sum = vec4f(0.0);
+		out.revealage = vec4f(0.0);
+		out.glow = vec4f(color * alpha, 0.0);
+		return out;
+	}
+	return fx_accumulate(color * alpha, alpha, length(in.rel), kind.x);
+}
+
+// `_BlendMode` 2 VFXBaseV2 layers, drawn over the composited scene with a blend that multiplies it by the output:
+// `lerp(1, colour, alpha)`
+@fragment
+fn fs_effect_multiply(in: EffectOut) -> @location(0) vec4f {
+	let layer = fx_stack_layer(in, fx_layer_bases(in));
+	return vec4f(mix(vec3f(1.0), layer.rgb, layer.a), 1.0);
+}
+
+// a texture-stack layer's colour (exposed, unpremultiplied) and alpha
+fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
+	let id = in.draw;
 	let soft = fx_row(id, FX_SOFT);
 	let misc = fx_row(id, FX_MISC);
 	let tint = fx_row(id, FX_TINT) * select(vec4f(1.0), in.color, soft.w != 0.0);
@@ -451,16 +485,64 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let alpha = saturate(
 		saturate(combined.a) * mix(1.0, fresnel, fresnel_row.w) * soft_fade * fx_near_fade(id, depth),
 	);
-	// `_BlendMode` 1 adds the layer rather than blending it over
-	if (kind.z >= 0.5) {
-		var out: EffectAccumulated;
-		out.sum = vec4f(0.0);
-		out.revealage = vec4f(0.0);
-		out.glow = vec4f(color * alpha, 0.0);
-		return out;
-	}
-	return fx_accumulate(color * alpha, alpha, length(in.rel), kind.x);
+	return vec4f(color, alpha);
 }
+
+// #region refraction
+
+// `EffectKind.Refract` (effect-looks.ts), in FX_UNFOGGED's y
+const FX_KIND_REFRACT = 4.0;
+
+// rows of a VFXRefract look (`RefractRow` in effect-looks.ts, in vec4s)
+const RF_REFRACT = 17u;
+const RF_REFRACT2 = 18u;
+
+// VFXRefract: the composited scene seen at an offset along `_RefractDir`, by the refraction texture's remapped
+// red (or its normal's xy) times the strength and the vertex alpha, in screen UVs. the mask's colour tints it
+// and its alpha (or red) covers what lies behind; blended over by that alpha
+@fragment
+fn fs_refract(in: EffectOut) -> @location(0) vec4f {
+	let id = in.draw;
+	let bases = fx_bases(in.uv.xy, in.uv.zw, fx_polar(in.uv.xy - 0.5), vec2f(0.0));
+	let bias = exp2(frame.params.y);
+	let row = fx_row(id, RF_REFRACT);
+	let row2 = fx_row(id, RF_REFRACT2);
+	var offset = vec2f(0.0);
+	{
+		let bits = fx_slot_bits(id, 0u);
+		let base = fx_slot_base(bases, bits);
+		let t = fx_sample(
+			0u,
+			fx_slot_coords(id, 0u, base[0]),
+			fx_slot_gradient(id, 0u, base[1]) * bias,
+			fx_slot_gradient(id, 0u, base[2]) * bias,
+		);
+		let centred = t.r * (1.0 + row.w) - row.w;
+		let strength = row.z * in.color.a;
+		offset = select(row.xy * centred, (vec2f(t.a * centred, t.g) * 2.0 - 1.0) * row.xy, row2.x != 0.0) * strength;
+	}
+	var mask = vec4f(1.0);
+	if (row2.z != 0.0) {
+		let bits = fx_slot_bits(id, 1u);
+		let base = fx_slot_base(bases, bits);
+		mask = fx_sample(
+			1u,
+			fx_slot_coords(id, 1u, base[0]) + offset * row2.y,
+			fx_slot_gradient(id, 1u, base[1]) * bias,
+			fx_slot_gradient(id, 1u, base[2]) * bias,
+		);
+		if ((bits & SLOT_RED_ALPHA) != 0u) {
+			mask = vec4f(1.0, 1.0, 1.0, mask.r);
+		}
+	}
+	let uv = in.position.xy / frame.render_size.xy + offset;
+	let behind = textureSampleLevel(fx_background, fx_background_samp, uv, 0.0).rgb;
+	let depth = dot(in.rel, frame.view_forward.xyz);
+	let alpha = saturate(mask.a * fx_near_fade(id, depth));
+	return vec4f(clamp(behind * mask.rgb, vec3f(0.0), vec3f(1000.0)), alpha);
+}
+
+// #endregion
 
 // #region water sheets
 

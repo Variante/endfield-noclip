@@ -329,6 +329,21 @@ export class RenderTargets {
 		};
 	}
 
+	/** @returns the main pass's depth, attached for testing only, for effects drawn over the composited scene */
+	readOnlyDepthAttachment(): GPURenderPassDepthStencilAttachment {
+		if (this.#depth === null) {
+			throw new Error('render targets used before update()');
+		}
+		const depth: GPURenderPassDepthStencilAttachment = {
+			view: this.#depth.createView(),
+			depthReadOnly: true,
+		};
+		if (this.format.stencil) {
+			depth.stencilReadOnly = true;
+		}
+		return depth;
+	}
+
 	/** @returns this frame's swapchain view */
 	swapchainView(): GPUTextureView {
 		return this.context.getCurrentTexture().createView();

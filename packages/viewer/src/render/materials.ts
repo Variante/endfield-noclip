@@ -12,8 +12,11 @@ import {
 	type EffectLook,
 	fakeVolumeFogLook,
 	fogSimpleLook,
+	multipliesScene,
 	vfxBaseLook,
 	vfxDecalLook,
+	vfxDitherEffectLook,
+	vfxRefractLook,
 	vfxWaterLook,
 	volumetricBeamLook,
 } from './effect-looks.ts';
@@ -183,7 +186,16 @@ export interface MaterialLook {
 	 * transparent pass
 	 */
 	relight: boolean;
+	/**
+	 * with {@link LookFlags.Effect}: an effect drawn over the composited scene rather than in the transparent
+	 * pass, because it multiplies what lies behind (`'multiply'`) or samples it (`'refract'`); `null` for the
+	 * rest
+	 */
+	screen: ScreenEffect | null;
 }
+
+/** how an effect drawn over the composited scene ({@link MaterialLook.screen}) blends with it */
+export type ScreenEffect = 'multiply' | 'refract';
 
 /**
  * a draw's stencil state and the depth test that goes with it, from its material's `_Stencil*` and `_ZTest`
@@ -302,6 +314,7 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 		params,
 		stencil: null,
 		relight: false,
+		screen: null,
 	};
 };
 
@@ -486,6 +499,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 	let flags = LookFlags.Effect;
 	let stencil: LookStencil | null = null;
 	let relight = false;
+	let screen: ScreenEffect | null = null;
 	switch (shader.name) {
 		case 'HGRP/Effect/VFXBaseV2': {
 			const state = vfxBaseStencilOf(entry, shader);
@@ -494,6 +508,23 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 			}
 			stencil = state;
 			effect = vfxBaseLook(entry, shader);
+			if (effect !== null && multipliesScene(effect)) {
+				// drawn over the composited scene, which has no stencil
+				if (stencil !== null) {
+					return null;
+				}
+				screen = 'multiply';
+			}
+			break;
+		}
+		case 'HGRP/Effect/VFXDitherAlpha': {
+			// the other variants draw through the opaque path (`ditherAlphaLook`)
+			effect = vfxDitherEffectLook(entry, shader);
+			break;
+		}
+		case 'HGRP/Effect/VFXRefract': {
+			effect = vfxRefractLook(entry, shader);
+			screen = 'refract';
 			break;
 		}
 		case 'HGRP/Effect/VFXDecal': {
@@ -549,6 +580,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 		params: effect.params,
 		stencil,
 		relight,
+		screen,
 	};
 };
 
