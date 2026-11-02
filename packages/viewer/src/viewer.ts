@@ -129,8 +129,8 @@ export interface ViewerOptions {
 	cloudShadows: boolean;
 	/** sway how much fog surfaces get with the environment's drifting 3D noise, where it has one */
 	flowNoise: boolean;
-	/** animate flow noise on rendered frames; disabling freezes its time */
-	flowNoisePlaying: boolean;
+	/** play animation (effects, particles, water, clouds, flow noise) on rendered frames; disabling freezes it */
+	animate: boolean;
 	water: boolean;
 	/**
 	 * how many times faster than the game water volumes move between levels; `Infinity` jumps (see
@@ -189,7 +189,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	shadows: true,
 	cloudShadows: true,
 	flowNoise: true,
-	flowNoisePlaying: true,
+	animate: true,
 	water: true,
 	waterLevelRate: 1,
 	ao: true,
@@ -407,8 +407,11 @@ export class Viewer {
 	#shadowsStale = true;
 	/** each shadow layer's render matrix when it was last drawn */
 	#shadowFits = new Float32Array(16 * SHADOW_LAYERS);
-	/** seconds the flow noise has drifted; it only advances while playing */
-	#flowTime = 0;
+	/**
+	 * the animation time everything that moves by the clock reads, s. it advances only on rendered frames while
+	 * `animate` is on, so animation pauses when the view idles and resumes where it stopped
+	 */
+	#time = 0;
 
 	private constructor(gfx: GfxDevice, canvas: HTMLCanvasElement) {
 		this.#gfx = gfx;
@@ -1504,6 +1507,9 @@ export class Viewer {
 			{ metering: changed || settling },
 		);
 		const render = changed || settling || adapting;
+		if (render && options.animate) {
+			this.#time += dt;
+		}
 		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
 		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
 		// traversal would repeat the last frame's
@@ -1511,10 +1517,6 @@ export class Viewer {
 		if (scene !== null && traverse) {
 			this.#frame++;
 			this.#traverseAndPrepare(scene, { prepare: render });
-		}
-		// the fog drifts on frames that render anyway; paused fog retains its time
-		if (render && scene !== null && options.flowNoisePlaying && this.#post.drifts(post)) {
-			this.#flowTime += dt;
 		}
 		if (render) {
 			this.#lastDraws = this.#render(scene !== null);
@@ -1594,7 +1596,7 @@ export class Viewer {
 				shadowLayers: shadows ? this.#shadows.volumes : null,
 				// particles move by the clock the effects' shaders scroll by
 				particles: {
-					time: performance.now() / 1000,
+					time: this.#time,
 					right: this.camera.right(),
 					up: this.camera.up(),
 					forward: this.camera.forward(),
@@ -1818,7 +1820,7 @@ export class Viewer {
 			heightFog: options.heightFog,
 			atmosphereFog: options.atmosphereFog,
 			flowNoise: options.flowNoise,
-			flowTime: this.#flowTime,
+			time: this.#time,
 			ao: options.ao,
 			reflections: options.reflections,
 			bloom: options.bloom,
@@ -1847,7 +1849,7 @@ export class Viewer {
 			f32[at] = eye[0];
 			f32[at + 1] = eye[1];
 			f32[at + 2] = eye[2];
-			f32[at + 3] = performance.now() / 1000;
+			f32[at + 3] = this.#time;
 		}
 		{
 			const environment = this.#environment;

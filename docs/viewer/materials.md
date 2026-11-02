@@ -14,8 +14,8 @@ viewer's exposure option, so `_IgnorePostExposure` emitters divide out both.
 ## lit layers
 
 - **`_PARALLAX_MAP`**: the [pulse](../game-data/materials.md#lit-layers) moves only while frames
-  render (the `continuous` option), and the brightening near the player puts the player at the
-  camera.
+  render ([performance](performance.md); the `continuous` option keeps it moving), and the
+  brightening near the player puts the player at the camera.
 - **`_LAYERBLEND_TOP`** and **`_LAYERBLEND_MASK`**: a layer on UV set 2 samples UV set 0, and set 0
   is bound in place of a missing set 1, as the game reads a missing set.
 

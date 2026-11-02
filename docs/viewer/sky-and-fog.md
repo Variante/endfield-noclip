@@ -68,5 +68,5 @@ the viewer sways the fog in the composite, on opaque surfaces only (not the sky)
 does it in its deferred lighting after all the fog. the noise texture comes packed once in the
 manifest's `heightFogFlowNoise`.
 
-the "drifting fog" toggle turns it off, and "animate drifting fog" pauses it. it drifts only on
-frames the viewer renders anyway, so it stops when the view idles ([performance](performance.md)).
+the "drifting fog" toggle turns it off. it drifts by the viewer's animation clock, so it pauses when
+the view idles or "animate" is off ([performance](performance.md)).

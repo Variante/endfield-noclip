@@ -68,8 +68,8 @@ export interface PostSettings {
 	atmosphereFog: boolean;
 	/** sway the fog with the environment's flow noise */
 	flowNoise: boolean;
-	/** seconds the flow noise has drifted */
-	flowTime: number;
+	/** the viewer's animation time, s, which the flow noise, water and clouds move by */
+	time: number;
 	ao: boolean;
 	/** screen-space reflections */
 	reflections: boolean;
@@ -905,7 +905,7 @@ export class PostProcess {
 			right[2] * aspect * tanHalf,
 			camera.pixelFactor(height),
 		]);
-		set(2, [up[0] * tanHalf, up[1] * tanHalf, up[2] * tanHalf, performance.now() / 1000]);
+		set(2, [up[0] * tanHalf, up[1] * tanHalf, up[2] * tanHalf, settings.time]);
 		set(3, [...camera.position, frame % 1024]);
 		set(4, [width, height, 1 / width, 1 / height]);
 		set(57, [...this.taa.jitter, 0, 0]);
@@ -934,7 +934,7 @@ export class PostProcess {
 		set(60, [settings.reflections ? 1 : 0, 0, 0, 0]);
 		{
 			const flow = this.drifts(settings) ? environment.heightFog.flowNoise : null;
-			const time = settings.flowTime;
+			const time = settings.time;
 			set(61, flow === null ? [0, 0, 0, 0] : [...flow.velocity.map((v) => v * time), flow.intensity]);
 			set(62, [flow?.tiling ?? 0, flow === null ? 0 : 1 / flow.distance, 0, 0]);
 		}

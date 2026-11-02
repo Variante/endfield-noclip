@@ -100,7 +100,7 @@ the [unsupported](materials.md#unsupported-materials) checker, shown with "missi
 
 the game's random sequence can't be reproduced, so particles start elsewhere than in the game with
 the same distributions. looping systems are evaluated as if they had played since long before the
-package opened; others start when their emitter is first selected. particles move by the time of the
-frame that renders them, so like the effects' scrolling textures they keep moving while the view
-settles and stop once the viewer idles ([performance](performance.md); `continuous` keeps them
-moving).
+package opened; others start when their emitter is first selected. particles move by the viewer's
+animation clock, like the effects' scrolling textures: they keep moving while the view settles and
+pause once the viewer idles ([performance](performance.md); `continuous` keeps them moving, and
+`animate` off freezes them).
