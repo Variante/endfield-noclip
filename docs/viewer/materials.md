@@ -114,8 +114,9 @@ the extractor decides which materials are unsupported when it
 reason. its `debug/assets.json` lists per material why it's unsupported (`unsupported`, such as the
 keywords or texture combination an effect's look rejects), the surface keywords the viewer doesn't
 draw (`keywordsNotDrawn`, from
-[game/material-support.ts](../../packages/extractor/src/game/material-support.ts)) and the texture
-slots whose reference couldn't be followed (`slotErrors`).
+[game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts), beside the
+describers that read them) and the texture slots whose reference couldn't be followed
+(`slotErrors`).
 
 only materials the game draws nothing visible with aren't drawn: `HGRP/WaterProxy`, whose passes all
 feed the water pipeline ([water](../game-data/water.md#waterproxy-and-waterdecal)), and lit decals

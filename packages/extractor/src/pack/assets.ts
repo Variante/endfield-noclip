@@ -19,7 +19,7 @@ import {
 } from '../game/assets.ts';
 import { describeMaterial } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
-import { keywordsNotDrawn } from '../game/material-support.ts';
+import { keywordsNotDrawn } from '../game/material-surfaces.ts';
 import type { MaterialValues as ConvertedMaterial } from '../game/material-values.ts';
 import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
