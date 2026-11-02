@@ -1,23 +1,116 @@
 /**
- * reads a converted material's properties for the surface describers: a material's own value, else its
- * shader's declared default, else the describer's fallback.
+ * a converted material's values, its shader's declared defaults, and the reader the surface describers use: a
+ * material's own value, else its shader's declared default, else the describer's fallback. the package
+ * carries only the surfaces described from these.
  */
 
-import type { ReadyMaterial, ShaderEntry, TextureSlot } from '@endfield-noclip/package-format/materials';
+import type { MaterialCull, TextureSlot } from '@endfield-noclip/package-format/materials';
 import type { Rgb, UnsupportedSurface } from '@endfield-noclip/package-format/surfaces';
 
 /** @returns an unsupported surface for `reason` */
 export const unsupported = (reason: string): UnsupportedSurface => ({ kind: 'unsupported', reason });
 
-/** a converted material's values: its overrides of its shader's defaults, slots and render state */
-export type MaterialValues = Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;
-
 /** a four-component colour or vector property */
 export type Vec4 = [number, number, number, number];
 
+/** the HGRP shader family a shader belongs to; `unknown` for shaders the viewer has no look for */
+export type ShaderFamily =
+	| 'lit'
+	| 'litTransparent'
+	| 'litEffect'
+	| 'leaf'
+	| 'trunk'
+	| 'grass'
+	| 'cardMesh'
+	| 'fogSimple'
+	| 'waterProxy'
+	| 'waterDecal'
+	| 'water'
+	| 'decal'
+	| 'vfxBase'
+	| 'vfxAdvance'
+	| 'vfxRefract'
+	| 'vfxDitherAlpha'
+	| 'vfxFakeVolumeFog'
+	| 'volumetricBeam'
+	| 'terrain'
+	| 'hlod'
+	| 'mattePainting'
+	| 'erosion'
+	| 'unknown';
+
+/** how a material composites */
+export type MaterialBlend = 'opaque' | 'alphaTest' | 'alphaBlend' | 'premultiplied' | 'additive' | 'custom';
+
+/**
+ * a shader's declared properties and their defaults. a material property's value is the material's override
+ * if present, else this default. undeclared (stale) material properties are dropped
+ */
+export interface ShaderEntry {
+	/** e.g. `HGRP/Lit` */
+	name: string;
+	family: ShaderFamily;
+	/** Float, Range and Int properties */
+	floats: Record<string, number>;
+	/**
+	 * Color properties, as authored: LDR colours are gamma-encoded and, as in Unity's linear-space projects,
+	 * converted to linear before shading; `[HDR]` colours are authored linear and used as stored (see
+	 * `docs/game-data/materials.md#emission`)
+	 */
+	colors: Record<string, Vec4>;
+	/** Vector properties, used as they are */
+	vectors: Record<string, Vec4>;
+	/** texture properties and the Unity built-in each defaults to (`white`, `black`, `gray`, `bump`, …) */
+	textures: Record<string, string>;
+	/** texture properties flagged `[Normal]` (tangent-space normal maps) */
+	normalMaps: string[];
+}
+
+/** a converted material's values: its overrides of its shader's defaults, slots and render state */
+export interface MaterialValues {
+	/** index into the shader table */
+	shader: number;
+	/** enabled shader keywords */
+	keywords: string[];
+	/** the custom queue, else the shader's, else 2000 */
+	renderQueue: number;
+	blend: MaterialBlend;
+	/** source and destination factors (Unity `BlendMode` values) for blended materials */
+	blendFactors: [src: number, dst: number] | null;
+	/** alpha-test threshold, or `null` without alpha testing */
+	alphaClipThreshold: number | null;
+	cull: MaterialCull;
+	zWrite: boolean;
+	/**
+	 * the Lit families' `_BaseTextureMapCount` (`docs/game-data/materials.md#texture-layouts`); `null` for
+	 * shaders without the switch
+	 */
+	baseTextureMapCount: number | null;
+	/** bound textures by Unity property name (`_BaseColorMap`, `_NormalMap`, …); empty slots are absent */
+	slots: Record<string, TextureSlot>;
+	/** overrides of {@link ShaderEntry.floats} */
+	floats: Record<string, number>;
+	/** overrides of {@link ShaderEntry.colors} */
+	colors: Record<string, Vec4>;
+	/** overrides of {@link ShaderEntry.vectors} */
+	vectors: Record<string, Vec4>;
+}
+
+/**
+ * a colour the packer adds to each rect decal placement's copy of its material: the placement's RGBA8 colour
+ * (0–1, used as stored, not gamma-decoded) with RGB times its intensity. it doesn't come from the material
+ */
+export const DECAL_COLOR_PROPERTY = '_DecalPlacementColor';
+
+/**
+ * a vector the packer adds beside {@link DECAL_COLOR_PROPERTY}: the placement's UV scale (xy) and offset
+ * (zw), which map the decal box's `local.xz + 0.5`
+ */
+export const DECAL_UV_PROPERTY = '_DecalPlacementUV';
+
 /** a material's properties, resolved against its shader's defaults */
 export interface MaterialReader {
-	material: MaterialValues;
+	readonly material: MaterialValues;
 	shader: ShaderEntry;
 	/** whether the material enables a keyword */
 	has: (keyword: string) => boolean;

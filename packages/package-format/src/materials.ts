@@ -3,63 +3,8 @@ import type { MaterialSurface } from './surfaces.ts';
 
 /** `tables/materials.json`; entry `i` has id `i` */
 export interface MaterialTable {
-	/** shaders by index. a material stores only the values that differ from its shader's defaults */
-	shaders: ShaderEntry[];
 	entries: MaterialEntry[];
 }
-
-/**
- * a shader's declared properties and their defaults. a material parameter's value is the material's override
- * if present, else this default. undeclared (stale) material properties are dropped
- */
-export interface ShaderEntry {
-	/** e.g. `HGRP/Lit` */
-	name: string;
-	family: ShaderFamily;
-	/** Float, Range and Int properties */
-	floats: Record<string, number>;
-	/**
-	 * Color properties, as authored: LDR colours are gamma-encoded and, as in Unity's linear-space projects,
-	 * converted to linear before shading; `[HDR]` colours are authored linear and used as stored (see
-	 * `docs/game-data/materials.md#emission`)
-	 */
-	colors: Record<string, [r: number, g: number, b: number, a: number]>;
-	/** Vector properties, used as they are */
-	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
-	/** texture properties and the Unity built-in each defaults to (`white`, `black`, `gray`, `bump`, …) */
-	textures: Record<string, string>;
-	/** texture properties flagged `[Normal]` (tangent-space normal maps) */
-	normalMaps: string[];
-}
-
-/** the HGRP shader family a shader belongs to; `unknown` for shaders the viewer has no path for */
-export type ShaderFamily =
-	| 'lit'
-	| 'litTransparent'
-	| 'litEffect'
-	| 'leaf'
-	| 'trunk'
-	| 'grass'
-	| 'cardMesh'
-	| 'fogSimple'
-	| 'waterProxy'
-	| 'waterDecal'
-	| 'water'
-	| 'decal'
-	| 'vfxBase'
-	| 'vfxAdvance'
-	| 'vfxRefract'
-	| 'vfxDitherAlpha'
-	| 'vfxFakeVolumeFog'
-	| 'volumetricBeam'
-	| 'terrain'
-	| 'hlod'
-	| 'mattePainting'
-	| 'erosion'
-	| 'unknown';
-
-/** how a material composites */
-export type MaterialBlend = 'opaque' | 'alphaTest' | 'alphaBlend' | 'premultiplied' | 'additive' | 'custom';
 
 /** which faces a material culls */
 export type MaterialCull = 'back' | 'front' | 'none';
@@ -71,49 +16,11 @@ export type MaterialEntry = UnconvertedEntry | ReadyMaterial;
 export interface ReadyMaterial {
 	id: number;
 	status: 'ready';
-	/** index into {@link MaterialTable.shaders} */
-	shader: number;
-	/** enabled shader keywords */
-	keywords: string[];
-	/** the custom queue, else the shader's, else 2000 */
-	renderQueue: number;
-	blend: MaterialBlend;
-	/** source and destination factors (Unity `BlendMode` values) for blended materials */
-	blendFactors: [src: number, dst: number] | null;
-	/** alpha-test threshold, or `null` without alpha testing */
-	alphaClipThreshold: number | null;
+	/** the faces the game culls */
 	cull: MaterialCull;
-	zWrite: boolean;
-	/**
-	 * the Lit families' `_BaseTextureMapCount`: 0 adds an MRO map (R metallic, G roughness, B occlusion) and an
-	 * `RAG` normal map; 1 and 2 use an `RG` normal map with roughness in B, and metallic from the base map's
-	 * alpha (1) or `_Metallic` (2). `null` for shaders without the switch; the Lit families and
-	 * `HGRP/Foliage/Trunk` have it
-	 */
-	baseTextureMapCount: number | null;
-	/** bound textures by Unity property name (`_BaseColorMap`, `_NormalMap`, …); empty slots are absent */
-	slots: Record<string, TextureSlot>;
-	/** overrides of {@link ShaderEntry.floats} */
-	floats: Record<string, number>;
-	/** overrides of {@link ShaderEntry.colors} */
-	colors: Record<string, [r: number, g: number, b: number, a: number]>;
-	/** overrides of {@link ShaderEntry.vectors} */
-	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
 	/** what the material draws, interpreted by the extractor */
 	surface: MaterialSurface;
 }
-
-/**
- * a colour the packer adds to each rect decal placement's copy of its material: the placement's RGBA8 colour
- * (0–1, used as stored, not gamma-decoded) with RGB times its intensity. it doesn't come from the material
- */
-export const DECAL_COLOR_PROPERTY = '_DecalPlacementColor';
-
-/**
- * a vector the packer adds beside {@link DECAL_COLOR_PROPERTY}: the placement's UV scale (xy) and offset
- * (zw), which map the decal box's `local.xz + 0.5`
- */
-export const DECAL_UV_PROPERTY = '_DecalPlacementUV';
 
 /** a texture bound to a material slot */
 export interface TextureSlot {

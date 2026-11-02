@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
+import type { ReadyMaterial } from '@endfield-noclip/package-format/materials';
 import type {
 	EffectStackSurface,
 	EffectTexture,
@@ -31,33 +31,12 @@ import {
 } from './effect-looks.ts';
 import { LookFlags, materialLooks } from './materials.ts';
 
-const SHADERS: ShaderEntry[] = [
-	{ name: 'any', family: 'unknown', floats: {}, colors: {}, vectors: {}, textures: {}, normalMaps: [] },
-];
-
 /** a ready material drawing `surface` */
 const described = (
 	id: number,
 	surface: ReadyMaterial['surface'],
 	cull: ReadyMaterial['cull'] = 'back',
-): ReadyMaterial => ({
-	id,
-	status: 'ready',
-	surface,
-	shader: 0,
-	keywords: [],
-	renderQueue: 3000,
-	blend: 'premultiplied',
-	blendFactors: [1, 10],
-	alphaClipThreshold: null,
-	cull,
-	zWrite: false,
-	baseTextureMapCount: null,
-	slots: {},
-	floats: {},
-	colors: {},
-	vectors: {},
-});
+): ReadyMaterial => ({ id, status: 'ready', cull, surface });
 
 const texture = (id: number, overrides: Partial<EffectTexture> = {}): EffectTexture => ({
 	texture: id,
@@ -109,7 +88,6 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 
 test('a texture stack packs each layer’s role, red alpha, source and distortion share into its slot bits', () => {
 	const [look] = materialLooks({
-		shaders: SHADERS,
 		entries: [
 			described(
 				0,
@@ -163,7 +141,6 @@ test('a texture stack packs each layer’s role, red alpha, source and distortio
 
 test('a stack decal is a box drawn by its back faces with its fades; a multiplying stack draws over the scene', () => {
 	const [decal, multiply] = materialLooks({
-		shaders: SHADERS,
 		entries: [
 			described(
 				0,
@@ -189,7 +166,6 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 
 test('a stack’s vertex offset takes the offset slot and rows, and its stencil is tested under reversed-Z', () => {
 	const [moved, portal, mask] = materialLooks({
-		shaders: SHADERS,
 		entries: [
 			described(
 				0,
@@ -277,7 +253,6 @@ test('a lit decal draws its maps through the placement or the PBR map’s own tr
 		emission: { color: [1, 1, 1], channel: 3, albedoAffect: 0, ignorePostExposure: 1 },
 	};
 	const [look, water] = materialLooks({
-		shaders: SHADERS,
 		entries: [
 			described(0, decal),
 			described(1, {
@@ -348,7 +323,7 @@ test('a refraction draws over the composited scene, its mask red as alpha, with 
 		softDistance: 2.42,
 		near: { on: false, range: [0, 1, 1e5, 2e5] },
 	};
-	const [look] = materialLooks({ shaders: SHADERS, entries: [described(0, refract, 'none')] });
+	const [look] = materialLooks({ entries: [described(0, refract, 'none')] });
 	assert.deepEqual([look.screen, look.transparent], ['refract', true]);
 	assert.deepEqual(look.textures, [2, 1, -1, -1, -1, -1, -1]);
 	assert.deepEqual(
@@ -412,7 +387,7 @@ test('a water sheet lays out its frames, motion vectors and normals, and keeps i
 		ignorePostExposure: 1,
 		near: { on: false, range: [0, 1, 1e5, 2e5] },
 	};
-	const [look] = materialLooks({ shaders: SHADERS, entries: [described(0, sheet)] });
+	const [look] = materialLooks({ entries: [described(0, sheet)] });
 	assert.equal(look.flags, LookFlags.Effect);
 	// main (white default), mask, flipbook colour and motion, normals in slot 6
 	assert.deepEqual(look.textures, [-1, -1, 2, -1, 5, 6, 7]);
@@ -477,7 +452,6 @@ test('mist: cards and boxes draw in the mist rows; boxes by their back faces, wi
 		},
 	};
 	const [cardLook, boxLook, plainLook] = materialLooks({
-		shaders: SHADERS,
 		entries: [described(0, card), described(1, box), described(2, { ...box, noise: null })],
 	});
 	assert.equal(cardLook.flags, LookFlags.Effect | LookFlags.EffectMist);
@@ -538,7 +512,6 @@ test('a light beam is a shadowless effect with its cone, falloff and colour in t
 		unfogged: true,
 	};
 	const [look, fogged] = materialLooks({
-		shaders: SHADERS,
 		entries: [described(0, beam), described(1, { ...beam, additive: false, unfogged: false })],
 	});
 	assert.deepEqual(

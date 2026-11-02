@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type ShaderEntry,
-	type ShaderFamily,
-	type TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
 import { describeMaterial } from './material-describe.ts';
-import type { MaterialValues } from './material-values.ts';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type MaterialValues,
+	type ShaderEntry,
+	type ShaderFamily,
+} from './material-values.ts';
 
 const shader = (name: string, family: ShaderFamily, overrides: Partial<ShaderEntry> = {}): ShaderEntry => ({
 	name,

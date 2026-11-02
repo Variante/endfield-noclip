@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type {
-	MaterialCull,
-	ReadyMaterial,
-	ShaderEntry,
-	TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { MaterialCull, ReadyMaterial, TextureSlot } from '@endfield-noclip/package-format/materials';
 import type { LitLayer, LitSurface, MaskChannel } from '@endfield-noclip/package-format/surfaces';
 
 import {
@@ -21,65 +16,22 @@ import {
 	UV1_SHIFT,
 } from './materials.ts';
 
-test('unsupported surfaces show as an unlit, shadowless, two-sided magenta checker', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Effect/VFXBaseV2',
-			family: 'vfxBase',
-			floats: {},
-			colors: {},
-			vectors: {},
-			textures: {},
-			normalMaps: [],
-		},
-		{
-			name: 'HGRP/Effect/VFXDecal',
-			family: 'unknown',
-			floats: {},
-			colors: {},
-			vectors: {},
-			textures: {},
-			normalMaps: [],
-		},
-		{
-			name: 'Other/Surface',
-			family: 'unknown',
-			floats: {},
-			colors: {},
-			vectors: {},
-			textures: {},
-			normalMaps: [],
-		},
-	];
-	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'unsupported', reason: 'no look' },
-		shader: id,
-		keywords: [],
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: {},
-		floats: {},
-		colors: {},
-		vectors: {},
-	}));
-	const looks = materialLooks({ shaders, entries });
-	assert.deepEqual(
-		looks.map((look) => [look.drawn, look.unsupported]),
-		[
-			[true, true],
-			[true, true],
-			[true, true],
+/** a ready material drawing `surface` */
+const described = (
+	id: number,
+	surface: ReadyMaterial['surface'],
+	cull: MaterialCull = 'back',
+): ReadyMaterial => ({ id, status: 'ready', cull, surface });
+
+test('undrawn surfaces are not drawn, and unsupported ones show an unlit, shadowless, two-sided magenta checker', () => {
+	const [undrawn, unsupported] = materialLooks({
+		entries: [
+			described(0, { kind: 'undrawn', reason: 'a water proxy' }),
+			described(1, { kind: 'unsupported', reason: 'additive' }),
 		],
-	);
-	// an unlit, shadowless, two-sided magenta checker
-	const [unsupported] = looks;
+	});
+	assert.deepEqual([undrawn.drawn, undrawn.unsupported], [false, false]);
+	assert.deepEqual([unsupported.drawn, unsupported.unsupported], [true, true]);
 	assert.equal(unsupported.flags, LookFlags.Unlit);
 	assert.equal(unsupported.castsShadows, false);
 	assert.equal(unsupported.cull, 'none');
@@ -87,48 +39,8 @@ test('unsupported surfaces show as an unlit, shadowless, two-sided magenta check
 	assert.equal(unsupported.params[LookRow.surface + 2], 0.5);
 });
 
-test('undrawn surfaces are not drawn, and unsupported ones show the checker', () => {
-	const shader: ShaderEntry = {
-		name: 'HGRP/Lit',
-		family: 'lit',
-		floats: {},
-		colors: {},
-		vectors: {},
-		textures: {},
-		normalMaps: [],
-	};
-	const entry = (id: number, surface: ReadyMaterial['surface']): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface,
-		shader: 0,
-		keywords: [],
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: {},
-		floats: {},
-		colors: {},
-		vectors: {},
-	});
-	const [undrawn, unsupported] = materialLooks({
-		shaders: [shader],
-		entries: [
-			entry(0, { kind: 'undrawn', reason: 'a water proxy' }),
-			entry(1, { kind: 'unsupported', reason: 'additive' }),
-		],
-	});
-	assert.deepEqual([undrawn.drawn, undrawn.unsupported], [false, false]);
-	assert.deepEqual([unsupported.drawn, unsupported.unsupported], [true, true]);
-});
-
 test('unconverted materials show as unsupported, and glass is transparent and shadowless with its blending flag', () => {
 	const [failed, blended, premultiplied] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			{ id: 0, status: 'failed' },
 			described(1, litSurface({ blend: 'alphaBlend', opacity: 0.5, alphaClip: 0.5, alphaFromNormal: true })),
@@ -173,35 +85,6 @@ const litSurface = (overrides: Partial<LitSurface> = {}): LitSurface => ({
 	...overrides,
 });
 
-/** a ready material drawing `surface`, with no raw properties */
-const described = (
-	id: number,
-	surface: ReadyMaterial['surface'],
-	cull: MaterialCull = 'back',
-): ReadyMaterial => ({
-	id,
-	status: 'ready',
-	surface,
-	shader: 0,
-	keywords: [],
-	renderQueue: 2000,
-	blend: 'opaque',
-	blendFactors: null,
-	alphaClipThreshold: null,
-	cull,
-	zWrite: true,
-	baseTextureMapCount: null,
-	slots: {},
-	floats: {},
-	colors: {},
-	vectors: {},
-});
-
-/** the one shader the described materials name */
-const ANY_SHADER: ShaderEntry[] = [
-	{ name: 'any', family: 'unknown', floats: {}, colors: {}, vectors: {}, textures: {}, normalMaps: [] },
-];
-
 test('matte paintings are unlit, cast no shadows and test the texture alpha against their threshold', () => {
 	const entry = described(0, {
 		kind: 'mattePainting',
@@ -211,7 +94,7 @@ test('matte paintings are unlit, cast no shadows and test the texture alpha agai
 		highlight: { threshold: 1, intensity: 4 },
 		ignorePostExposure: 1,
 	});
-	const [look] = materialLooks({ shaders: ANY_SHADER, entries: [entry] });
+	const [look] = materialLooks({ entries: [entry] });
 	assert.equal(look.castsShadows, false);
 	assert.equal(look.cutout, true);
 	assert.equal(look.textures[0], 7);
@@ -222,7 +105,6 @@ test('matte paintings are unlit, cast no shadows and test the texture alpha agai
 test('dithered effects shade as opaque shadowless surfaces, or unlit, and dither through the normal slot by a red alpha', () => {
 	const main = { texture: 6, uv: 0, scale: [2, 2] as [number, number], offset: [0, 0] as [number, number] };
 	const [rock, spot, mask] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(
 				0,
@@ -307,7 +189,6 @@ test('pulsing emission takes the free parallax rows; a surface with a glow keeps
 	};
 	const textures = { base: slot(1), normal: null, mro: null, emissive: slot(2) };
 	const [pulsing, glowing] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(0, litSurface({ textures, emission })),
 			described(1, litSurface({ textures, emission, overlay: glow })),
@@ -366,7 +247,7 @@ test('erosion rock: its maps tile by their own scales on UV set 0, the ramp stre
 			roughness: 0,
 		},
 	});
-	const [look] = materialLooks({ shaders: ANY_SHADER, entries: [entry] });
+	const [look] = materialLooks({ entries: [entry] });
 	assert.deepEqual(look.textures, [-1, 1, 2, 3, 4, 5, 5]);
 	assert.equal(look.flags & (0x7f << UV1_SHIFT), 0);
 	assert.notEqual(look.flags & LookFlags.Erosion, 0);
@@ -422,7 +303,6 @@ test('Lit slots: UV set 1 maps, the tri-channel mask in the mask slot except und
 	};
 	const textures = { base: slot(1, 1, 5), normal: slot(2), mro: null, emissive: null };
 	const [crystal, mro] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(0, litSurface({ textures, triChannel, detail })),
 			described(1, litSurface({ layout: 'mro', textures: { ...textures, mro: slot(3) }, triChannel })),
@@ -470,7 +350,6 @@ const topLayer = (overrides: Partial<LitLayer> = {}): LitLayer => ({
 test('moss rock: the top layer takes the parallax slots and rows, its own tiling and the default grey height', () => {
 	const normal: TextureSlot = { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] };
 	const [look] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(
 				0,
@@ -507,7 +386,6 @@ test('moss mounds: the mask layer takes its mask map into the emissive slot, unt
 	};
 	const maskLayer = topLayer({ coverage: { kind: 'maskMap', texture: 4, uv: 1 }, moss });
 	const [mound, channel, emissiveMapped] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(
 				0,
@@ -535,7 +413,6 @@ test('moss mounds: the mask layer takes its mask map into the emissive slot, unt
 
 test('foliage: leaves and grass fill the foliage rows, and surfaces keeping lit decals off set their bit', () => {
 	const [leaf, grass] = materialLooks({
-		shaders: ANY_SHADER,
 		entries: [
 			described(
 				0,

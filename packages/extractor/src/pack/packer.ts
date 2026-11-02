@@ -59,11 +59,7 @@ import {
 	shardStem,
 	type SubsetInfo,
 } from '@endfield-noclip/package-format/manifest';
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type MaterialTable,
-} from '@endfield-noclip/package-format/materials';
+import type { MaterialTable } from '@endfield-noclip/package-format/materials';
 import type {
 	ConditionalSetInfo,
 	ControlDriver,
@@ -107,6 +103,7 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { allOf, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { DECAL_COLOR_PROPERTY, DECAL_UV_PROPERTY } from '../game/material-values.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
@@ -566,7 +563,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				geometries: pack.geometries.assets.length,
 				materials: pack.materials.assets.length,
 				textures: assetTables.textures.length,
-				shaders: assetTables.materials.shaders.length,
+				shaders: conversion?.stats.shaders ?? 0,
 				unresolvedPaths: [...pack.geometries.assets, ...pack.materials.assets].filter(
 					(asset) => asset.path === null,
 				).length,

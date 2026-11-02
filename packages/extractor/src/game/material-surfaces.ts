@@ -3,7 +3,7 @@
  * keywords (`docs/game-data/materials.md`).
  */
 
-import type { ShaderFamily, TextureSlot } from '@endfield-noclip/package-format/materials';
+import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 import type {
 	DitheredSurface,
 	ErosionSurface,
@@ -22,7 +22,13 @@ import type {
 	UnsupportedSurface,
 } from '@endfield-noclip/package-format/surfaces';
 
-import { linearRgb, type MaterialReader, scaleRgb, unsupported } from './material-values.ts';
+import {
+	linearRgb,
+	type MaterialReader,
+	scaleRgb,
+	type ShaderFamily,
+	unsupported,
+} from './material-values.ts';
 
 // #region lit
 

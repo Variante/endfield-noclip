@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
-
 import { describeMaterial } from './material-describe.ts';
-import type { MaterialValues } from './material-values.ts';
+import type { MaterialValues, ShaderEntry, ShaderFamily } from './material-values.ts';
 
 /** a shader without declared properties */
 const shaderEntry = (

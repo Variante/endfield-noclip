@@ -5,7 +5,9 @@
  */
 
 import type { MaterialRecord, ShaderSummary } from '@endfield-noclip/formats/unity/material';
-import type { MaterialBlend, MaterialCull, ShaderFamily } from '@endfield-noclip/package-format/materials';
+import type { MaterialCull } from '@endfield-noclip/package-format/materials';
+
+import type { MaterialBlend, ShaderFamily } from './material-values.ts';
 
 const FAMILIES: [RegExp, ShaderFamily][] = [
 	[/^HGRP\/Lit$/i, 'lit'],

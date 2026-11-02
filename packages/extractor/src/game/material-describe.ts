@@ -5,7 +5,6 @@
  * reason, which the pack lists in `debug/assets.json`. stays out of the conversion worker's imports.
  */
 
-import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
 import {
@@ -27,7 +26,13 @@ import {
 	describeMattePainting,
 	LIT_FAMILIES,
 } from './material-surfaces.ts';
-import { type MaterialValues, readerOf, unsupported } from './material-values.ts';
+import {
+	type MaterialValues,
+	readerOf,
+	type ShaderEntry,
+	type ShaderFamily,
+	unsupported,
+} from './material-values.ts';
 
 /**
  * shader families drawn only through effect looks of their own (fog volumes, light beams, effects, projected

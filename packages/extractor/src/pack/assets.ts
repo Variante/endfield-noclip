@@ -5,7 +5,7 @@ import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { Chain } from '@endfield-noclip/package-format/instances';
-import type { MaterialEntry, MaterialTable, ReadyMaterial } from '@endfield-noclip/package-format/materials';
+import type { MaterialEntry, MaterialTable } from '@endfield-noclip/package-format/materials';
 import { type TextureEntry, textureLevelLayout } from '@endfield-noclip/package-format/textures';
 
 import { failureReason } from '../errors.ts';
@@ -20,6 +20,7 @@ import {
 import { describeMaterial } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 import { keywordsNotDrawn } from '../game/material-support.ts';
+import type { MaterialValues as ConvertedMaterial } from '../game/material-values.ts';
 import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
@@ -280,6 +281,8 @@ export interface AssetConversion {
 		failures: Record<string, number>;
 		/** texture objects with a setting WebGPU can't express, by approximation */
 		textureApproximations: Record<string, number>;
+		/** distinct shaders the materials use, by declared properties */
+		shaders: number;
 		/** materials the viewer can't draw, by `<shader>: <reason>` */
 		unsupportedMaterials: Record<string, number>;
 		/** materials with a surface keyword the viewer doesn't draw, by `<shader> <keyword>` */
@@ -335,7 +338,8 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 
 	// #region materials
 	const shaders = new ShaderTable();
-	const materialEntries: MaterialEntry[] = [];
+	/** by material id, `null` where it failed */
+	const convertedMaterials: (ConvertedMaterial | null)[] = [];
 	const materialDebug: MaterialDebug[] = [];
 	const keywordsNotDrawnCounts: Record<string, number> = {};
 	const normalMapUv: (number | null)[] = [];
@@ -366,7 +370,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			}),
 		(result, _asset, id) => {
 			if (result instanceof Error) {
-				materialEntries.push({ id, status: 'failed' });
+				convertedMaterials.push(null);
 				materialDebug.push({
 					object: null,
 					name: null,
@@ -414,12 +418,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 							vectors: { ...converted.material.vectors, ...overrides.vectors },
 						};
 			// described once its textures have their final ids
-			materialEntries.push({
-				id,
-				status: 'ready',
-				...material,
-				surface: { kind: 'unsupported', reason: 'not described' },
-			});
+			convertedMaterials.push(material);
 			materialDebug.push({
 				object: objectKey(ref),
 				name: loaded.record.name,
@@ -573,9 +572,9 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		},
 	);
 	// slots referenced textures by object; point them at the deduplicated entries
-	for (const entry of materialEntries) {
-		if (entry.status === 'ready') {
-			remapSlots(entry, textureIds);
+	for (const material of convertedMaterials) {
+		if (material !== null) {
+			remapSlots(material, textureIds);
 		}
 	}
 	timer.end('textures');
@@ -583,23 +582,24 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 
 	// #region surfaces
 	const unsupportedMaterials: Record<string, number> = {};
-	for (const entry of materialEntries) {
-		if (entry.status !== 'ready') {
-			continue;
+	const materialEntries: MaterialEntry[] = convertedMaterials.map((material, id) => {
+		if (material === null) {
+			return { id, status: 'failed' };
 		}
-		const shader = shaders.shaders[entry.shader];
-		entry.surface = describeMaterial(entry, shader);
-		if (entry.surface.kind === 'unsupported') {
-			const key = `${shader.name}: ${entry.surface.reason}`;
+		const shader = shaders.shaders[material.shader];
+		const surface = describeMaterial(material, shader);
+		if (surface.kind === 'unsupported') {
+			const key = `${shader.name}: ${surface.reason}`;
 			unsupportedMaterials[key] = (unsupportedMaterials[key] ?? 0) + 1;
-			materialDebug[entry.id].unsupported = entry.surface.reason;
+			materialDebug[id].unsupported = surface.reason;
 		}
-	}
+		return { id, status: 'ready', cull: material.cull, surface };
+	});
 	// #endregion
 
 	return {
 		geometries: geometryEntries,
-		materials: { shaders: shaders.shaders, entries: materialEntries },
+		materials: { entries: materialEntries },
 		textures: textureEntries,
 		extraTextureIds: extraIndices.map((group) =>
 			group.map((index) => {
@@ -616,6 +616,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			textureDuplicates,
 			failures,
 			textureApproximations,
+			shaders: shaders.shaders.length,
 			unsupportedMaterials,
 			keywordsNotDrawn: keywordsNotDrawnCounts,
 		},
@@ -636,10 +637,7 @@ export const pendingAssets = (
 	extraTextures: readonly (readonly PlacedTexture[])[],
 ): Pick<AssetConversion, 'geometries' | 'materials' | 'textures' | 'extraTextureIds'> => ({
 	geometries: Array.from({ length: geometries }, (_, id) => ({ id, status: 'pending' })),
-	materials: {
-		shaders: [],
-		entries: Array.from({ length: materials }, (_, id) => ({ id, status: 'pending' })),
-	},
+	materials: { entries: Array.from({ length: materials }, (_, id) => ({ id, status: 'pending' })) },
 	textures: [],
 	extraTextureIds: extraTextures.map((group) => group.map(() => null)),
 });
@@ -688,7 +686,7 @@ const withSavedValues = (record: MaterialRecord, saved: MaterialValues | null): 
 };
 
 /** rewrites a material's slots from per-object ids to texture-table ids, in place (the entry is ours) */
-const remapSlots = (material: ReadyMaterial, ids: readonly number[]): void => {
+const remapSlots = (material: ConvertedMaterial, ids: readonly number[]): void => {
 	for (const slot of Object.values(material.slots)) {
 		slot.texture = ids[slot.texture];
 	}

@@ -3,11 +3,7 @@
  * properties and keywords, or `unsupported` with the keywords or combinations the viewer doesn't draw.
  */
 
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 import type {
 	EffectCompare,
 	EffectRole,
@@ -31,7 +27,14 @@ import type {
 } from '@endfield-noclip/package-format/surfaces';
 
 import { BlendFactor } from './material-classify.ts';
-import { linearRgb, type MaterialReader, scaleRgb, unsupported } from './material-values.ts';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	linearRgb,
+	type MaterialReader,
+	scaleRgb,
+	unsupported,
+} from './material-values.ts';
 
 /** @returns `unsupported` naming the material's keywords outside `drawn`, or `null` when it has none */
 export const undrawnKeywords = (

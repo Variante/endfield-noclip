@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { ShaderEntry } from '@endfield-noclip/package-format/materials';
-
 import { describeMaterial } from './material-describe.ts';
-import type { MaterialValues } from './material-values.ts';
+import type { MaterialValues, ShaderEntry } from './material-values.ts';
 
 /** a shader entry declaring only the overrides' properties */
 const shaderEntry = (

@@ -409,35 +409,32 @@ each is one zstd frame (level 9) around JSON. entry `i` has id `i`. an entry is 
 `UnconvertedEntry` (`pending` when packed with `--no-assets`, `failed` with the reason in
 `debug/assets.json`); draws referencing an unconverted entry are skipped.
 
-| table        | contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `geometries` | `ReadyGeometry`: blob, local bounds, vertex/index/submesh counts, attribute bitmask, `tangentUv`                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `materials`  | `shaders`: each shader's declared properties and defaults (floats, colours as authored: gamma-encoded, or linear for HDR colours, vectors, texture built-in defaults, `[Normal]` slots) and its `ShaderFamily`. `entries`: `ReadyMaterial` with shader index, keywords, render queue, blend and blend factors, cull, `zWrite`, alpha clip threshold, `baseTextureMapCount`, bound `slots` (texture id, UV set, `_ST` scale/offset) and only the floats/colours/vectors that differ from the shader's defaults |
-| `textures`   | `ReadyTexture`: kind, WebGPU format, size, `depthOrArrayLayers`, mip count, sampler as `GPUSamplerDescriptor` fields plus Unity's `mipBias`, `pieces` coarse to fine                                                                                                                                                                                                                                                                                                                                          |
-| `water`      | see [water](#water)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `lights`     | `LightEntry`: kind (spot, point), entity id, visibility group, position, direction, final linear colour, range, cone angles, tube length, soft source radius, falloff exponent, specular and volumetric scattering intensity, priority, camera-distance fade, culling box as a rows3x4 inverse; see [lights](#lights)                                                                                                                                                                                         |
-| `particles`  | see [particles](#particles)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| table        | contents                                                                                                                                                                                                                                                                                                              |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `geometries` | `ReadyGeometry`: blob, local bounds, vertex/index/submesh counts, attribute bitmask, `tangentUv`                                                                                                                                                                                                                      |
+| `materials`  | `entries`: `ReadyMaterial` with its cull mode and its `surface` ([materials](#materials))                                                                                                                                                                                                                             |
+| `textures`   | `ReadyTexture`: kind, WebGPU format, size, `depthOrArrayLayers`, mip count, sampler as `GPUSamplerDescriptor` fields plus Unity's `mipBias`, `pieces` coarse to fine                                                                                                                                                  |
+| `water`      | see [water](#water)                                                                                                                                                                                                                                                                                                   |
+| `lights`     | `LightEntry`: kind (spot, point), entity id, visibility group, position, direction, final linear colour, range, cone angles, tube length, soft source radius, falloff exponent, specular and volumetric scattering intensity, priority, camera-distance fade, culling box as a rows3x4 inverse; see [lights](#lights) |
+| `particles`  | see [particles](#particles)                                                                                                                                                                                                                                                                                           |
 
 ### materials
 
-the packer copies each material's serialized state
-([material and shader](game-data/assets.md#material-and-shader), decoded as
-[extraction.md](extraction.md#asset-classes) describes) into the package; the viewer turns it into a
-look. materials store overrides only because lit materials declare ~190 floats each; undeclared
-(stale) properties Unity keeps from earlier shaders are dropped
-([materials.ts](../packages/extractor/src/pack/materials.ts)).
-
-each material also carries its `surface`, the extractor's interpretation of it
+each material is its cull mode and its `surface`: the extractor's interpretation of its serialized
+state ([material and shader](game-data/assets.md#material-and-shader), decoded as
+[extraction.md](extraction.md#asset-classes) describes) into what it draws
 ([surfaces.ts](../packages/package-format/src/surfaces.ts),
-[game/material-describe.ts](../packages/extractor/src/game/material-describe.ts)): a description of
-what it draws, `undrawn` for materials the game draws nothing visible with, or `unsupported` with
-the reason the viewer can't draw it. families still marked `legacy` are drawn from the raw
-properties while their descriptions are written.
+[game/material-describe.ts](../packages/extractor/src/game/material-describe.ts)). a surface is one
+model with its inputs resolved (the Lit model, a matte painting, erosion rock, a dithered effect, a
+texture stack, a lit decal, a water sheet, refraction, mist, a light beam, a portal's stencil mask),
+with Unity property names, keyword rules, colour spaces and the shaders' formulas already applied;
+`undrawn` for materials the game draws nothing visible with; or `unsupported` with the reason the
+viewer can't draw it. textures are texture-table ids with their UV set and transform. the viewer
+packs a surface into its draw parameters without reading Unity properties.
 
 **decal copies**: the packer gives each rect decal placement a copy of its material carrying the
-placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPERTY` in the package's
-materials), and the box it draws is the game's VFXDecal cube
-([decals](game-data/materials.md#decals)).
+placement's colour and UV transform, which its `litDecal` surface carries, and the box it draws is
+the game's VFXDecal cube ([decals](game-data/materials.md#decals)).
 
 **posed copies**: a prefab renderer whose placement's pose sets material values (an interactive's
 settled view state; [interactives](extraction.md#interactives)) draws a copy of its material with

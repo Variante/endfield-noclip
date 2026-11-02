@@ -4,18 +4,14 @@ import {
 	ShaderPropertyType,
 	type ShaderSummary,
 } from '@endfield-noclip/formats/unity/material';
-import type {
-	ReadyMaterial,
-	ShaderEntry,
-	ShaderFamily,
-	TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 
 import type { MaterialClassification } from '../game/material-classify.ts';
+import type { MaterialValues, ShaderEntry, ShaderFamily } from '../game/material-values.ts';
 
-// material table rows: a shader table holding each shader's declared property defaults, and per material only
-// what differs from them. Unity keeps stale properties from earlier shaders in a material; undeclared ones are
-// dropped.
+// converted materials, which the surface describers read: a shader table holding each shader's declared
+// property defaults, and per material only what differs from them. Unity keeps stale properties from earlier
+// shaders in a material; undeclared ones are dropped.
 
 type Vec4 = [number, number, number, number];
 
@@ -105,7 +101,7 @@ const LIT_UV_SET_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
 
 /** a material converted for the table */
 export interface ConvertedMaterial {
-	material: Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;
+	material: MaterialValues;
 	/** the lowest UV set a bound normal map samples, or `null` without one; meshes drawn with it get tangents */
 	normalMapUv: number | null;
 }
