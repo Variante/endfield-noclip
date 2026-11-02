@@ -5,11 +5,11 @@
  * reason, which the pack lists in `debug/assets.json`. stays out of the conversion worker's imports.
  */
 
-import type { ReadyMaterial, ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
+import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
-/** a converted material's values: its overrides of its shader's defaults, slots and render state */
-export type MaterialValues = Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;
+import { describeMattePainting } from './material-surfaces.ts';
+import { type MaterialValues, readerOf } from './material-values.ts';
 
 /**
  * shader families drawn only through effect looks of their own (fog volumes, light beams, effects, projected
@@ -54,5 +54,13 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 	if (material.blend === 'additive' && !EFFECT_FAMILIES.has(shader.family)) {
 		return { kind: 'unsupported', reason: 'additive blending outside the effect shaders' };
 	}
-	return { kind: 'legacy' };
+	const reader = readerOf(material, shader);
+	switch (shader.family) {
+		case 'mattePainting': {
+			return describeMattePainting(reader);
+		}
+		default: {
+			return { kind: 'legacy' };
+		}
+	}
 };

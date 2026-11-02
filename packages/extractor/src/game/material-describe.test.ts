@@ -3,7 +3,8 @@ import { describe, it } from 'node:test';
 
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 
-import { describeMaterial, type MaterialValues } from './material-describe.ts';
+import { describeMaterial } from './material-describe.ts';
+import type { MaterialValues } from './material-values.ts';
 
 /** a shader without declared properties */
 const shaderEntry = (

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
+import type { MaterialCull, ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
 
 import {
 	DitherRow,
@@ -157,37 +157,45 @@ test('unconverted materials show as unsupported, and premultiplied glass is tran
 	assert.deepEqual([premultiplied.transparent, premultiplied.params[LookRow.detail2 + 2]], [true, 1]);
 });
 
-test('matte paintings are unlit, cast no shadows and test the texture alpha against the scaled threshold', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/MattePainting',
-			family: 'mattePainting',
-			floats: { _TintColorIntensity: 1, _TintColorAlpha: 1, _ExpThreshold: 1, _ExpIntensity: 0 },
-			colors: { _TintColor: [1, 1, 1, 1] },
-			vectors: {},
-			textures: { _MainTex: 'white' },
-			normalMaps: [],
-		},
-	];
-	const entry: ReadyMaterial = {
-		id: 0,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: ['_ALPHATEST_ON'],
-		renderQueue: 2000,
-		blend: 'alphaTest',
-		blendFactors: null,
-		alphaClipThreshold: 1,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: { _MainTex: { texture: 7, uv: 0, scale: [1, 1], offset: [0, 0] } },
-		floats: { _TintColorAlpha: 10, _TintColorIntensity: 2, _ExpIntensity: 4 },
-		colors: { _TintColor: [1, 1, 1, 0.5] },
-		vectors: {},
-	};
-	const [look] = materialLooks({ shaders, entries: [entry] });
+/** a ready material drawing `surface`, with no raw properties */
+const described = (
+	id: number,
+	surface: ReadyMaterial['surface'],
+	cull: MaterialCull = 'back',
+): ReadyMaterial => ({
+	id,
+	status: 'ready',
+	surface,
+	shader: 0,
+	keywords: [],
+	renderQueue: 2000,
+	blend: 'opaque',
+	blendFactors: null,
+	alphaClipThreshold: null,
+	cull,
+	zWrite: true,
+	baseTextureMapCount: null,
+	slots: {},
+	floats: {},
+	colors: {},
+	vectors: {},
+});
+
+/** the one shader the described materials name */
+const ANY_SHADER: ShaderEntry[] = [
+	{ name: 'any', family: 'unknown', floats: {}, colors: {}, vectors: {}, textures: {}, normalMaps: [] },
+];
+
+test('matte paintings are unlit, cast no shadows and test the texture alpha against their threshold', () => {
+	const entry = described(0, {
+		kind: 'mattePainting',
+		texture: { texture: 7, uv: 0, scale: [1, 1], offset: [0, 0] },
+		color: [2, 2, 2],
+		alphaClip: 0.2,
+		highlight: { threshold: 1, intensity: 4 },
+		ignorePostExposure: 1,
+	});
+	const [look] = materialLooks({ shaders: ANY_SHADER, entries: [entry] });
 	assert.equal(look.castsShadows, false);
 	assert.equal(look.cutout, true);
 	assert.equal(look.textures[0], 7);

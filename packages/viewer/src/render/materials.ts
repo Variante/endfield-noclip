@@ -3,7 +3,9 @@ import type {
 	MaterialTable,
 	ReadyMaterial,
 	ShaderEntry,
+	TextureSlot,
 } from '@endfield-noclip/package-format/materials';
+import type { MattePaintingSurface } from '@endfield-noclip/package-format/surfaces';
 import type { Color } from '@endfield-noclip/package-format/values';
 
 import { linearRgb } from './color.ts';
@@ -62,9 +64,6 @@ export const SLOTS = [
 	'_ParallaxMap',
 	'_ParallaxNoiseMap',
 ] as const;
-
-/** the matte painting's only texture, drawn in the base colour slot */
-const MATTE_PAINTING_TEXTURE = '_MainTex';
 
 /** a slot samples UV set 1 when bit `UV1_SHIFT + slot` of {@link MaterialLook.flags} is set, else UV set 0 */
 export const UV1_SHIFT = 18;
@@ -451,6 +450,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = unsupportedLook();
 				break;
 			}
+			case 'mattePainting': {
+				looks[entry.id] = mattePaintingLook(surface, entry.cull);
+				break;
+			}
 			case 'legacy': {
 				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
 				break;
@@ -476,10 +479,6 @@ const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => 
 	}
 	let look: MaterialLook;
 	switch (shader.family) {
-		case 'mattePainting': {
-			look = mattePaintingLook(entry, shader);
-			break;
-		}
 		case 'erosion': {
 			look = erosionLook(entry, shader);
 			break;
@@ -1420,37 +1419,29 @@ const ditherAlphaLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLoo
 	return look;
 };
 
-/**
- * `HGRP/MattePainting`, unlit painted backdrops (`docs/game-data/materials.md#matte-paintings`). the shader
- * has no shadow caster pass
- */
-const mattePaintingLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
+/** a matte painting ({@link MattePaintingSurface}): unlit, and the shader has no shadow caster pass */
+const mattePaintingLook = (surface: MattePaintingSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
-	look.cull = entry.cull;
+	look.cull = cull;
 	look.castsShadows = false;
 	look.flags |= LookFlags.Unlit;
 	const params = look.params;
-	const slot = entry.slots[MATTE_PAINTING_TEXTURE];
-	if (slot !== undefined && slot.uv === 0) {
-		look.textures[0] = slot.texture;
-		look.uvScales[0] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
-		look.flags |= LookFlags.BaseMap;
-		params.set([...slot.scale, ...slot.offset], LookRow.uv);
+	if (surface.texture !== null) {
+		setTexture(look, 0, surface.texture);
 	}
-	const tint = colorOf(entry, shader, '_TintColor') ?? [1, 1, 1, 1];
-	const intensity = floatOf(entry, shader, '_TintColorIntensity', 1);
-	const color = linearRgb(tint).map((c) => c * intensity);
-	// the alpha test on the texture's alpha alone: saturate(a · scale) < clip ⇔ a < clip / scale while
-	// clip ≤ 1; past 1 everything is discarded
-	let threshold = -1;
-	if (entry.alphaClipThreshold !== null && entry.alphaClipThreshold > 0) {
-		const scale = tint[3] * floatOf(entry, shader, '_TintColorAlpha', 1);
-		threshold = entry.alphaClipThreshold > 1 || scale <= 0 ? 2 : entry.alphaClipThreshold / scale;
-	}
-	params.set([...color, threshold], LookRow.tint);
+	const threshold = surface.alphaClip ?? -1;
+	params.set([...surface.color, threshold], LookRow.tint);
 	look.cutout = threshold >= 0 && look.textures[0] >= 0;
-	params[LookRow.surface] = floatOf(entry, shader, '_ExpThreshold', 1);
-	params[LookRow.surface + 1] = floatOf(entry, shader, '_ExpIntensity', 0);
-	params[LookRow.emissive2 + 2] = floatOf(entry, shader, '_IgnorePostExposure', 1);
+	params[LookRow.surface] = surface.highlight.threshold;
+	params[LookRow.surface + 1] = surface.highlight.intensity;
+	params[LookRow.emissive2 + 2] = surface.ignorePostExposure;
 	return look;
+};
+
+/** binds a texture to a slot of {@link SLOTS} with its UV set and `_ST` transform */
+const setTexture = (look: MaterialLook, i: number, slot: TextureSlot): void => {
+	look.textures[i] = slot.texture;
+	look.uvScales[i] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
+	look.flags |= SLOT_FLAGS[i] | (slot.uv << (UV1_SHIFT + i));
+	look.params.set([...slot.scale, ...slot.offset], LookRow.uv + i * 4);
 };
