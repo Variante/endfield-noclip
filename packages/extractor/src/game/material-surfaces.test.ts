@@ -36,6 +36,92 @@ const values = (overrides: Partial<MaterialValues> = {}): MaterialValues => ({
 	...overrides,
 });
 
+describe('dithered effects', () => {
+	const shader = shaderEntry({
+		name: 'HGRP/Effect/VFXDitherAlpha',
+		family: 'vfxDitherAlpha',
+		floats: {
+			_UseLighting: 1,
+			_TintColorIntensity: 1,
+			_Roughness: 0.5,
+			_NormalScale: 1,
+			_TintColorAlpha: 1,
+			_DitherAlphaExp: 1,
+			_DitherTilling: 1,
+			_DitherAlphaMode: 0,
+		},
+		colors: { _TintColor: [1, 1, 1, 1], _MainTex2Color: [1, 1, 1, 1] },
+		textures: { _MainTex: 'white', _MainTex2: 'white', _NormalMap: 'bump' },
+	});
+
+	it('shade as lit surfaces from the tinted main texture and their normal map, masked by a second texture', () => {
+		const rock = (overrides: Partial<MaterialValues>) =>
+			describeMaterial(
+				values({
+					keywords: ['_NORMAL_MAP', '_USE_MAIN2'],
+					blend: 'alphaTest',
+					alphaClipThreshold: 0.5,
+					slots: {
+						_MainTex: { texture: 3, uv: 0, scale: [4, 4], offset: [0, 0] },
+						_MainTex2: { texture: 4, uv: 0, scale: [1, 1], offset: [0, 0] },
+						_NormalMap: { texture: 5, uv: 0, scale: [1, 1], offset: [0, 0] },
+					},
+					floats: { _UseMainTex2AsAlpha: 1, _TintColorIntensity: 10, _NormalScale: 1.5, _Roughness: 1 },
+					colors: { _TintColor: [1, 0.5, 0, 1] },
+					...overrides,
+				}),
+				shader,
+			);
+		const surface = rock({});
+		assert.equal(surface.kind, 'dithered');
+		if (surface.kind !== 'dithered') {
+			return;
+		}
+		assert.equal(surface.baseMap?.texture, 3);
+		assert.equal(surface.normalMap?.texture, 5);
+		// with the second texture's mask, the main texture's alpha isn't dithered
+		assert.equal(surface.dither, null);
+		assert.deepEqual(
+			surface.color.map((c) => Math.round(c * 1000) / 1000),
+			[10, 2.14, 0],
+		);
+		assert.deepEqual(surface.lighting, { roughness: 1, metallic: 0, normalScale: 1.5 });
+		// a second texture's colour isn't drawn; a dissolve makes it an effect
+		assert.equal(rock({ floats: { _UseMainTex2AsAlpha: 0 } }).kind, 'unsupported');
+		assert.notEqual(rock({ keywords: ['_USE_DISSOLVE'] }).kind, 'dithered');
+	});
+
+	it('dither by the scaled alpha of their main texture, or its red alone when unlit', () => {
+		const spot = (floats: Record<string, number>) =>
+			describeMaterial(
+				values({
+					blend: 'alphaTest',
+					alphaClipThreshold: 0.5,
+					slots: { _MainTex: { texture: 6, uv: 0, scale: [2, 2], offset: [0, 0] } },
+					floats: { _UseLighting: 0, ...floats },
+					colors: { _TintColor: [0.5, 0.5, 0.5, 0.5] },
+				}),
+				shader,
+			);
+		const plain = spot({ _TintColorAlpha: 1.5 });
+		const mask = spot({ _UseMainTexAsAlpha: 1, _DitherAlphaExp: 14, _DitherTilling: 0.1 });
+		const edged = spot({ _DitherAlphaMode: 1 });
+		assert.ok(plain.kind === 'dithered' && mask.kind === 'dithered' && edged.kind === 'dithered');
+		assert.deepEqual(
+			{ ...plain.dither, texture: plain.dither?.texture.texture },
+			{ texture: 6, redAlpha: false, alphaScale: 0.75, exponent: 1, tiling: 1 },
+		);
+		assert.equal(plain.lighting, null);
+		assert.equal(mask.baseMap, null);
+		assert.deepEqual(
+			{ ...mask.dither, texture: mask.dither?.texture.texture },
+			{ texture: 6, redAlpha: true, alphaScale: 0.5, exponent: 14, tiling: 0.1 },
+		);
+		// the edge mode isn't drawn
+		assert.equal(edged.dither, null);
+	});
+});
+
 describe('erosion', () => {
 	it('tiles each map by its own property, linearizes the base colour and keeps HDR colours as stored', () => {
 		const shader = shaderEntry({

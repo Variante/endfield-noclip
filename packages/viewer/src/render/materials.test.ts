@@ -203,119 +203,53 @@ test('matte paintings are unlit, cast no shadows and test the texture alpha agai
 	assert.deepEqual(Array.from(look.params.subarray(LookRow.surface, LookRow.surface + 2)), [1, 4]);
 });
 
-test('dither-alpha effects shade as opaque two-sided surfaces from the tinted main texture and their normal map', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Effect/VFXDitherAlpha',
-			family: 'vfxDitherAlpha',
-			floats: { _UseLighting: 1, _TintColorIntensity: 1, _Roughness: 0.5, _NormalScale: 1 },
-			colors: { _TintColor: [1, 1, 1, 1], _MainTex2Color: [1, 1, 1, 1] },
-			vectors: {},
-			textures: { _MainTex: 'white', _MainTex2: 'white', _NormalMap: 'bump' },
-			normalMaps: [],
-		},
-	];
-	const material = (id: number, overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: ['_NORMAL_MAP', '_USE_MAIN2'],
-		renderQueue: 2450,
-		blend: 'alphaTest',
-		blendFactors: null,
-		alphaClipThreshold: 0.5,
-		cull: 'none',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: {
-			_MainTex: { texture: 3, uv: 0, scale: [4, 4], offset: [0, 0] },
-			_MainTex2: { texture: 4, uv: 0, scale: [1, 1], offset: [0, 0] },
-			_NormalMap: { texture: 5, uv: 0, scale: [1, 1], offset: [0, 0] },
-		},
-		floats: { _UseMainTex2AsAlpha: 1, _TintColorIntensity: 10, _NormalScale: 1.5, _Roughness: 1 },
-		colors: { _TintColor: [1, 0.5, 0, 1] },
-		vectors: {},
-		...overrides,
-	});
-	const [rock, colored, dissolving] = materialLooks({
-		shaders,
+test('dithered effects shade as opaque shadowless surfaces, or unlit, and dither through the normal slot by a red alpha', () => {
+	const main = { texture: 6, uv: 0, scale: [2, 2] as [number, number], offset: [0, 0] as [number, number] };
+	const [rock, spot, mask] = materialLooks({
+		shaders: ANY_SHADER,
 		entries: [
-			material(0, {}),
-			// a second texture's colour isn't drawn
-			material(1, { floats: { _UseMainTex2AsAlpha: 0 } }),
-			material(2, { keywords: ['_USE_DISSOLVE'] }),
+			described(
+				0,
+				{
+					kind: 'dithered',
+					baseMap: { ...main, texture: 3, scale: [4, 4] },
+					normalMap: { ...main, texture: 5, scale: [1, 1] },
+					color: [10, 2.14, 0],
+					dither: null,
+					lighting: { roughness: 1, metallic: 0, normalScale: 1.5 },
+					ignorePostExposure: 1,
+				},
+				'none',
+			),
+			described(1, {
+				kind: 'dithered',
+				baseMap: main,
+				normalMap: null,
+				color: [0.2, 0.2, 0.2],
+				dither: { texture: main, redAlpha: false, alphaScale: 0.75, exponent: 1, tiling: 1 },
+				lighting: null,
+				ignorePostExposure: 1,
+			}),
+			described(2, {
+				kind: 'dithered',
+				baseMap: null,
+				normalMap: null,
+				color: [0.2, 0.2, 0.2],
+				dither: { texture: main, redAlpha: true, alphaScale: 0.5, exponent: 14, tiling: 0.1 },
+				lighting: null,
+				ignorePostExposure: 1,
+			}),
 		],
 	});
-	assert.equal(rock.drawn, true);
-	assert.equal(rock.cutout, false);
-	assert.equal(rock.castsShadows, false);
-	assert.equal(rock.cull, 'none');
+	assert.deepEqual([rock.cutout, rock.castsShadows, rock.cull], [false, false, 'none']);
 	assert.deepEqual(rock.textures.slice(0, 3), [3, 5, -1]);
 	assert.equal(rock.flags, LookFlags.BaseMap | LookFlags.NormalMap | LookFlags.NormalRag);
-	// the tint times its intensity, linear; the shader saturates the product with the texture
-	assert.deepEqual(
-		Array.from(rock.params.subarray(LookRow.tint, LookRow.tint + 4), (v) => Math.round(v * 1000) / 1000),
-		[10, 2.14, 0, -1],
-	);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.surface, LookRow.surface + 4)), [1, 1, 0, 1.5]);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.uv, LookRow.uv + 4)), [4, 4, 0, 0]);
-	assert.equal(rock.unsupported, false);
-	assert.equal(colored.unsupported, true);
-	assert.equal(dissolving.unsupported, true);
-});
-
-test('dither-alpha effects without a second texture dither by the scaled alpha of their main texture', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Effect/VFXDitherAlpha',
-			family: 'vfxDitherAlpha',
-			floats: {
-				_UseLighting: 0,
-				_TintColorAlpha: 1,
-				_DitherAlphaExp: 1,
-				_DitherTilling: 1,
-				_DitherAlphaMode: 0,
-			},
-			colors: { _TintColor: [1, 1, 1, 1] },
-			vectors: {},
-			textures: { _MainTex: 'white' },
-			normalMaps: [],
-		},
-	];
-	const material = (id: number, floats: Record<string, number>): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: [],
-		renderQueue: 2450,
-		blend: 'alphaTest',
-		blendFactors: null,
-		alphaClipThreshold: 0.5,
-		cull: 'back',
-		zWrite: false,
-		baseTextureMapCount: null,
-		slots: { _MainTex: { texture: 6, uv: 0, scale: [2, 2], offset: [0, 0] } },
-		floats,
-		colors: { _TintColor: [0.5, 0.5, 0.5, 0.5] },
-		vectors: {},
-	});
-	const [spot, mask, edged] = materialLooks({
-		shaders,
-		entries: [
-			material(0, { _TintColorAlpha: 1.5 }),
-			// the texture's red is only the alpha, tested through the normal slot
-			material(1, { _UseMainTexAsAlpha: 1, _DitherAlphaExp: 14, _DitherTilling: 0.1 }),
-			// the edge mode isn't drawn
-			material(2, { _DitherAlphaMode: 1 }),
-		],
-	});
 	assert.equal(spot.cutout, true);
-	assert.equal(spot.textures[0], 6);
+	assert.notEqual(spot.flags & LookFlags.Unlit, 0);
 	assert.equal(spot.params[LookRow.tint + 3], -1);
 	assert.deepEqual(Array.from(spot.params.subarray(DitherRow.dither, DitherRow.dither + 4)), [0.75, 1, 1, 0]);
-	assert.equal(mask.cutout, true);
 	assert.deepEqual(mask.textures.slice(0, 2), [-1, 6]);
 	assert.equal(mask.flags & (LookFlags.BaseMap | LookFlags.AlphaNormal), LookFlags.AlphaNormal);
 	assert.deepEqual(Array.from(mask.params.subarray(LookRow.uv + 4, LookRow.uv + 8)), [2, 2, 0, 0]);
@@ -325,7 +259,6 @@ test('dither-alpha effects without a second texture dither by the scaled alpha o
 		Math.fround(0.1),
 		1,
 	]);
-	assert.equal(edged.cutout, false);
 });
 
 test('portal effects: an opaque mask writes only the stencil, its effects test it, other stencil operations are unsupported', () => {

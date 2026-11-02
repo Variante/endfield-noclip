@@ -8,7 +8,7 @@
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
-import { describeErosion, describeMattePainting } from './material-surfaces.ts';
+import { describeDithered, describeErosion, describeMattePainting } from './material-surfaces.ts';
 import { type MaterialValues, readerOf } from './material-values.ts';
 
 /**
@@ -61,6 +61,13 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 		}
 		case 'erosion': {
 			return describeErosion(reader);
+		}
+		case 'vfxDitherAlpha': {
+			// the effect variants (a distortion, dissolve, mask or polar or screen UVs) still draw as legacy effects
+			const effect =
+				shader.name === 'HGRP/Effect/VFXDitherAlpha' &&
+				['_USE_DISSOLVE', '_USE_DISTURB', '_USE_MASK', '_USE_POLARUV', '_USE_SCREENUV'].some(reader.has);
+			return effect ? { kind: 'legacy' } : describeDithered(reader);
 		}
 		default: {
 			return { kind: 'legacy' };

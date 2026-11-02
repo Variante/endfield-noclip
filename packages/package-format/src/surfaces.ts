@@ -17,7 +17,8 @@ export type MaterialSurface =
 	| UndrawnSurface
 	| UnsupportedSurface
 	| MattePaintingSurface
-	| ErosionSurface;
+	| ErosionSurface
+	| DitheredSurface;
 
 /** a texture sampled on UV set 0, tiled by a scale of its own in place of its `_ST` */
 export interface TiledTexture {
@@ -66,6 +67,38 @@ export interface MattePaintingSurface {
 	/** what exceeds `threshold` is added again times `intensity` */
 	highlight: { threshold: number; intensity: number };
 	/** 1 when the radiance ignores the post exposure (`_IgnorePostExposure`) */
+	ignorePostExposure: number;
+}
+
+/**
+ * an `HGRP/Effect/VFXDitherAlpha` material drawn as an opaque G-buffer surface
+ * (`docs/game-data/effects.md#solid-effects`): its colour lit, or unlit as radiance, optionally cut out where
+ * its alpha loses to a dither. it casts no shadows
+ */
+export interface DitheredSurface {
+	kind: 'dithered';
+	/** the main texture, on UV set 0; `null` when it's only the alpha (its red) or unbound */
+	baseMap: TextureSlot | null;
+	/** on UV set 0, with `_NORMAL_MAP` */
+	normalMap: TextureSlot | null;
+	/** the tint times its intensity (and the second texture's colour), linear */
+	color: Rgb;
+	/** the depth pass's dithered alpha test, `null` without it */
+	dither: {
+		/** the main texture, whose alpha (or red) is tested */
+		texture: TextureSlot;
+		/** 1 when the red is the alpha (`_UseMainTexAsAlpha`) */
+		redAlpha: boolean;
+		/** the tint's alpha times `_TintColorAlpha` */
+		alphaScale: number;
+		/** the power the alpha is raised to, which sets the share of pixels that survive */
+		exponent: number;
+		/** the dither pattern's tiling */
+		tiling: number;
+	} | null;
+	/** the lit surface's inputs; `null` when unlit (`_UseLighting` off) */
+	lighting: { roughness: number; metallic: number; normalScale: number } | null;
+	/** unlit: 1 when the radiance ignores the post exposure */
 	ignorePostExposure: number;
 }
 

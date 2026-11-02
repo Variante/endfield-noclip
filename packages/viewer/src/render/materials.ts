@@ -6,6 +6,7 @@ import type {
 	TextureSlot,
 } from '@endfield-noclip/package-format/materials';
 import type {
+	DitheredSurface,
 	ErosionSurface,
 	MattePaintingSurface,
 	TiledTexture,
@@ -462,6 +463,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = erosionLook(surface, entry.cull);
 				break;
 			}
+			case 'dithered': {
+				looks[entry.id] = ditheredLook(surface, entry.cull);
+				break;
+			}
 			case 'legacy': {
 				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
 				break;
@@ -476,10 +481,6 @@ const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => 
 	const effect = effectLookOf(entry, shader) ?? portalMaskLook(entry, shader);
 	if (effect !== null) {
 		return effect;
-	}
-	const dither = shader.family === 'vfxDitherAlpha' ? ditherAlphaLook(entry, shader) : null;
-	if (dither !== null) {
-		return dither;
 	}
 	// other effect meshes need their own opacity, distortion and animation passes
 	if (EFFECT_FAMILIES.has(shader.family) || shader.name.startsWith('HGRP/Effect/')) {
@@ -1285,9 +1286,6 @@ const erosionLook = (surface: ErosionSurface, cull: MaterialCull): MaterialLook 
 	return look;
 };
 
-/** keywords a `HGRP/Effect/VFXDitherAlpha` material can have and still be drawn by {@link ditherAlphaLook} */
-const DITHER_ALPHA_KEYWORDS = new Set(['_NORMAL_MAP', '_USE_MAIN2']);
-
 /**
  * the row of a dithered VFXDitherAlpha look (one whose alpha-test threshold, `tint.w`, is negative), which
  * reuses the leaves' canopy row
@@ -1301,86 +1299,49 @@ export const DitherRow = {
 } as const;
 
 /**
- * `HGRP/Effect/VFXDitherAlpha`, an effect shader that writes the G-buffer like an opaque surface
- * (`docs/game-data/effects.md#solid-effects`). it has no shadow caster pass
- *
- * @returns the look, or `null` with keywords or texture combinations the viewer doesn't draw
+ * a dithered effect ({@link DitheredSurface}), drawn like an opaque surface; the shader has no shadow caster
+ * pass
  */
-const ditherAlphaLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook | null => {
-	const keywords = entry.keywords;
-	if (keywords.some((keyword) => !DITHER_ALPHA_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const float = (name: string, fallback: number): number => floatOf(entry, shader, name, fallback);
-	let second: [number, number, number] = [1, 1, 1];
-	if (keywords.includes('_USE_MAIN2')) {
-		if (float('_UseMainTex2AsAlpha', 0) === 0 || float('_MainTex2BlendMode', 0) !== 0) {
-			return null;
-		}
-		second = linearRgb(colorOf(entry, shader, '_MainTex2Color') ?? [1, 1, 1, 1]);
-	}
+const ditheredLook = (surface: DitheredSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
-	look.cull = entry.cull;
+	look.cull = cull;
 	look.castsShadows = false;
 	const params = look.params;
-	const slots: [string | null, number][] = [
-		[float('_UseMainTexAsAlpha', 0) === 0 ? '_MainTex' : null, 0],
-		[keywords.includes('_NORMAL_MAP') ? '_NormalMap' : null, 1],
-	];
-	for (const [name, i] of slots) {
-		const slot = name === null ? undefined : entry.slots[name];
-		if (slot === undefined || slot.uv !== 0) {
-			continue;
-		}
-		look.textures[i] = slot.texture;
-		look.uvScales[i] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
-		look.flags |= SLOT_FLAGS[i];
-		params.set([...slot.scale, ...slot.offset], LookRow.uv + i * 4);
+	if (surface.baseMap !== null) {
+		setTexture(look, 0, surface.baseMap);
 	}
-	const lit = float('_UseLighting', 1) !== 0;
-	// the depth pass's dithered alpha test, which shapes meshes such as the soft dark disc at the centre of
-	// Power Plateau's sky vortex. the viewer draws it for the main texture's alpha (or red, as the alpha
-	// alone, on unlit looks, which can borrow the normal slot to test it) in the default dither mode
-	{
-		const main = entry.slots['_MainTex'];
-		const redAlpha = float('_UseMainTexAsAlpha', 0) !== 0;
-		if (
-			main !== undefined &&
-			main.uv === 0 &&
-			!keywords.includes('_USE_MAIN2') &&
-			float('_DitherAlphaMode', 0) === 0 &&
-			(!redAlpha || !lit)
-		) {
-			if (redAlpha) {
-				look.textures[1] = main.texture;
-				look.uvScales[1] = Math.max(Math.abs(main.scale[0]), Math.abs(main.scale[1]), 1e-3);
-				look.flags |= SLOT_FLAGS[1] | LookFlags.AlphaNormal;
-				params.set([...main.scale, ...main.offset], LookRow.uv + 4);
-			}
-			const alpha = (colorOf(entry, shader, '_TintColor') ?? [1, 1, 1, 1])[3] * float('_TintColorAlpha', 1);
-			params.set(
-				[alpha, float('_DitherAlphaExp', 1), float('_DitherTilling', 1), redAlpha ? 1 : 0],
-				DitherRow.dither,
-			);
-			look.cutout = true;
-		}
+	if (surface.normalMap !== null) {
+		setTexture(look, 1, surface.normalMap);
 	}
-	const intensity = float('_TintColorIntensity', 1);
-	const tint = linearRgb(colorOf(entry, shader, '_TintColor') ?? [1, 1, 1, 1]);
-	const color = tint.map((c, i) => c * intensity * second[i]);
-	if (!lit) {
+	const { dither } = surface;
+	if (dither !== null) {
+		// an unlit look can borrow the normal slot to test the main texture's red as the alpha alone
+		if (dither.redAlpha) {
+			setTexture(look, 1, dither.texture);
+			look.flags |= LookFlags.AlphaNormal;
+		}
+		params.set(
+			[dither.alphaScale, dither.exponent, dither.tiling, dither.redAlpha ? 1 : 0],
+			DitherRow.dither,
+		);
+		look.cutout = true;
+	}
+	const { color, lighting } = surface;
+	if (lighting === null) {
 		// unlit: the radiance, as the matte painting's path draws it, with no highlight (zero intensity)
 		look.flags |= LookFlags.Unlit;
 		params.set([...color, -1], LookRow.tint);
-		params[LookRow.emissive2 + 2] = float('_IgnorePostExposure', 1);
+		params[LookRow.emissive2 + 2] = surface.ignorePostExposure;
 		return look;
 	}
 	look.flags |= LookFlags.NormalRag;
 	// untextured, the tint is the albedo, which the G-buffer saturates
 	const untextured = look.textures[0] < 0;
 	params.set([...(untextured ? color.map((c) => Math.min(c, 1)) : color), -1], LookRow.tint);
-	const roughness = float('_Roughness', 1);
-	params.set([roughness, roughness, float('_Metallic', 0), float('_NormalScale', 1)], LookRow.surface);
+	params.set(
+		[lighting.roughness, lighting.roughness, lighting.metallic, lighting.normalScale],
+		LookRow.surface,
+	);
 	params.set([1, 0.04, 0, 1], LookRow.surface2);
 	params[LookRow.emissive + 3] = untextured ? 1 : 0;
 	return look;
