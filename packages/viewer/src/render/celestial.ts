@@ -21,7 +21,7 @@ import type { Color, Vec4 } from '@endfield-noclip/package-format/values';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { linearRgb } from './color.ts';
-import { towardsLight, towardsRotatedLight } from './environment.ts';
+import { exposedSunIntensity, type SunDirections, towardsEffectLight, towardsLight } from './environment.ts';
 import { placeholderView, type TextureBinding } from './texture-store.ts';
 
 // #region look
@@ -163,7 +163,7 @@ export interface CelestialInput {
 		SkyConfig,
 		'enableSunDisc' | 'sunDiscRadius' | 'sunDiscRampIntensity' | 'sunDiscColor' | 'proceduralSkyLuxFactor'
 	>;
-	light?: Pick<LightConfig, 'rotationSunDisc' | 'directIntensityDividePi'>;
+	light?: Pick<LightConfig, 'directLux' | 'directEV100'> & SunDirections<'sunDisc'>;
 }
 
 const DEG = Math.PI / 180;
@@ -420,12 +420,12 @@ const sunDiscLook = (sky: CelestialInput['sky'], light: CelestialInput['light'])
 	if (sky === undefined || light === undefined || !sky.enableSunDisc) {
 		return null;
 	}
-	const scale = light.directIntensityDividePi * sky.proceduralSkyLuxFactor;
+	const scale = (exposedSunIntensity(light) / Math.PI) * sky.proceduralSkyLuxFactor;
 	if (scale <= 0) {
 		return null;
 	}
 	return {
-		direction: towardsRotatedLight(light.rotationSunDisc),
+		direction: towardsEffectLight(light, 'sunDisc'),
 		color: rgb(sky.sunDiscColor, scale),
 		sharpness: 8 * Math.max(sky.sunDiscRadius, 0) ** 0.65,
 		ramp: sky.sunDiscRampIntensity,

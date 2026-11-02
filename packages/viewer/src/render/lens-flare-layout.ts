@@ -22,7 +22,7 @@ import { mapDefined, unique } from '@mary-ext/array-fns';
 
 import type { Vec3 } from '../scene/camera.ts';
 
-import { towardsRotatedLight } from './environment.ts';
+import { type SunDirections, towardsEffectLight } from './environment.ts';
 
 // #region look
 
@@ -44,7 +44,7 @@ export interface LensFlareLook {
 /** the profile sections the flare comes from; absent in packages from before it was packed */
 export interface LensFlareInput {
 	lensFlare?: LensFlareConfig;
-	light?: Pick<LightConfig, 'rotationLensFlare' | 'directColor'>;
+	light?: Pick<LightConfig, 'directColor'> & SunDirections<'lensFlare'>;
 }
 
 const IMAGE = 0;
@@ -82,7 +82,7 @@ export const lensFlareLook = (input: LensFlareInput | null): LensFlareLook | nul
 	}
 	const [r, g, b, a] = light.directColor;
 	return {
-		direction: towardsRotatedLight(light.rotationLensFlare),
+		direction: towardsEffectLight(light, 'lensFlare'),
 		lightColor: [r, g, b, a],
 		intensity: config.intensity,
 		scale: config.scale,

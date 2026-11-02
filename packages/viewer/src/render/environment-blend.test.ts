@@ -335,3 +335,62 @@ it('fades a lens flare in from nothing, and crosses between two flares through n
 	assert.equal(crossing?.intensity, 0.5);
 	assert.equal(crossing?.lensFlareData?.name, 'a');
 });
+
+/** blends a base profile towards a phase setting `active`, `x` m inside a 20 m blend distance */
+const blendSections = (
+	base: Record<string, unknown>,
+	sections: Record<string, unknown>,
+	active: string[],
+	x: number,
+): EnvironmentProfile => {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a minimal stand-in
+	const from = { name: 'base', ...base, post: null } as unknown as EnvironmentProfile;
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- as above
+	const next = { name: 'next', active, sections } as unknown as EnvironmentPhaseInfo;
+	const m = manifest([next], [volume({ shape: square, blendDistance: 20 })]);
+	return blendEnvironment(m, from, [x, 25, 50], options).profile;
+};
+
+it('lerps sun directions as pitch and yaw, each effect from the direction in effect on its side', () => {
+	const light = (sun: [number, number], fogMode: number, fog: [number, number]) => ({
+		directPitchYaw: sun,
+		atmospherePitchYawMode: 0,
+		atmospherePitchYaw: [0, 0],
+		heightFogDirectionalInscatteringPitchYawMode: fogMode,
+		heightFogDirectionalInscatteringPitchYaw: fog,
+	});
+	// halfway, with the yaws on either side of north
+	const { light: result } = blendSections(
+		{ light: light([30, 350], 0, [0, 0]) },
+		{ light: light([50, 10], 1, [70, 90]) },
+		['light'],
+		10,
+	);
+	assert.deepEqual(result.directPitchYaw, [40, 360]);
+	// both sides follow the sun
+	assert.equal(result.atmospherePitchYawMode, 0);
+	// the base side follows the sun, the other has its own
+	assert.equal(result.heightFogDirectionalInscatteringPitchYawMode, 1);
+	assert.deepEqual(result.heightFogDirectionalInscatteringPitchYaw, [50, 400]);
+});
+
+it('takes the atmosphere’s Rayleigh scale for the side whose fog defers to it', () => {
+	const fog = (rayleighScatteringScale: number) => ({ rayleighScatteringScale });
+	const atmosphere = { rayleighScatteringScale: 0.04 };
+	// a quarter in: from the atmosphere's 0.04 towards the fog's own 0.08
+	const deferring = blendSections({ fog: fog(-1), atmosphere }, { fog: fog(0.08) }, ['fog'], 5);
+	assert.equal(deferring.fog.rayleighScatteringScale.toFixed(6), '0.050000');
+	// both defer: the result still defers
+	const both = blendSections({ fog: fog(-1), atmosphere }, { fog: fog(-1) }, ['fog'], 5);
+	assert.ok(both.fog.rayleighScatteringScale < 0);
+});
+
+it('keeps integer fields whole', () => {
+	const { cloud } = blendSections(
+		{ cloud: { enable: false, cloudTexture: null, rotation: 10 } },
+		{ cloud: { enable: false, cloudTexture: null, rotation: 21 } },
+		['cloud'],
+		5,
+	);
+	assert.equal(cloud.rotation, 13);
+});

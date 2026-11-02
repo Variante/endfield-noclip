@@ -23,7 +23,7 @@ import type {
 	SkyConfig,
 	VignetteSettings,
 } from '@endfield-noclip/package-format/environment';
-import type { Color, Quat, Vec2 } from '@endfield-noclip/package-format/values';
+import type { Color, Vec2 } from '@endfield-noclip/package-format/values';
 
 import type { Vec3 } from '../scene/camera.ts';
 
@@ -33,6 +33,33 @@ import { type AutoExposureInput, type AutoExposureSettings, autoExposureLook } f
 
 // #region profile input
 
+/** the effects that draw the sun along a direction of their own (`<effect>PitchYaw`) */
+export type SunEffect =
+	| 'atmosphere'
+	| 'lightShaft'
+	| 'sunDisc'
+	| 'lensFlare'
+	| 'cloudShadow'
+	| 'heightFogDirectionalInscattering';
+
+/** the light config's direction fields for the given effects */
+export type SunDirections<E extends SunEffect> = Pick<
+	LightConfig,
+	'directPitchYaw' | `${E}PitchYawMode` | `${E}PitchYaw`
+>;
+
+/**
+ * @param light the light config
+ * @param effect the effect
+ * @returns the pitch and yaw (degrees) the effect draws the sun at: its own when its mode is 1, else the
+ *   sun's
+ */
+export const effectPitchYaw = <E extends SunEffect>(light: SunDirections<E>, effect: E): Vec2 => {
+	const mode: number = light[`${effect}PitchYawMode`];
+	const own: Vec2 = light[`${effect}PitchYaw`];
+	return mode === 1 ? own : light.directPitchYaw;
+};
+
 /** the parts of the game's light config the viewer reads */
 export type LightInput = Pick<
 	LightConfig,
@@ -40,18 +67,10 @@ export type LightInput = Pick<
 	| 'directLux'
 	| 'directEV100'
 	| 'directSpecularIntensity'
-	| 'directPitchYaw'
 	| 'indirectDiffuseFactor'
 	| 'indirectSpecularFactor'
-	| 'atmospherePitchYawMode'
-	| 'atmospherePitchYaw'
-	| 'cloudShadowPitchYawMode'
-	| 'cloudShadowPitchYaw'
-	| 'rotationAtmosphere'
-	| 'rotationCloudShadow'
-	| 'rotationHeightFogDirectionalInscattering'
-	| 'rotationLightShaft'
->;
+> &
+	SunDirections<'atmosphere' | 'lightShaft' | 'cloudShadow' | 'heightFogDirectionalInscattering'>;
 
 /** the parts of the game's sky config the viewer reads */
 export type SkyInput = Pick<
@@ -535,28 +554,22 @@ export const evaluateSh = (sh: Float32Array, [x, y, z]: Vec3): Vec3 => {
 const FOG_UNIT = 0.1;
 
 /**
- * @param q a Unity quaternion
- * @param v a vector
- * @returns `q · v`
+ * the sun's pre-exposed illuminance, `directLux · preExposure`. computed rather than read from the config's
+ * `directIntensity`, which some phases carry stale
+ *
+ * @param light the light config
+ * @returns the intensity
  */
-const rotate = ([x, y, z, w]: Readonly<Quat>, [vx, vy, vz]: Vec3): Vec3 => {
-	// v + 2w(u × v) + 2u × (u × v), u = (x, y, z)
-	const tx = 2 * (y * vz - z * vy);
-	const ty = 2 * (z * vx - x * vz);
-	const tz = 2 * (x * vy - y * vx);
-	return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
-};
+export const exposedSunIntensity = (light: Pick<LightConfig, 'directLux' | 'directEV100'>): number =>
+	light.directLux / (1.2 * 2 ** light.directEV100);
 
 /**
- * @param q one of the light config's `rotation*` quaternions
- * @returns the unit vector towards a light whose rotation turns +Z into its direction of travel
+ * @param light the light config
+ * @param effect the effect
+ * @returns the unit vector towards the sun as the effect draws it
  */
-export const towardsRotatedLight = (q: Readonly<Quat>): Vec3 => {
-	const [x, y, z] = rotate(q, [0, 0, 1]);
-	return [-x, -y, -z];
-};
-
-const IDENTITY: Quat = [0, 0, 0, 1];
+export const towardsEffectLight = <E extends SunEffect>(light: SunDirections<E>, effect: E): Vec3 =>
+	towardsLight(effectPitchYaw(light, effect));
 
 /** a thin haze for packages without environment profiles */
 const DEFAULT_HEIGHT_FOG: HeightFogInput = {
@@ -597,12 +610,12 @@ const DEFAULT_PROFILE: EnvironmentInput = {
 		indirectSpecularFactor: 1,
 		atmospherePitchYawMode: 0,
 		atmospherePitchYaw: [38, 35],
+		lightShaftPitchYawMode: 0,
+		lightShaftPitchYaw: [38, 35],
 		cloudShadowPitchYawMode: 0,
 		cloudShadowPitchYaw: [38, 35],
-		rotationAtmosphere: IDENTITY,
-		rotationCloudShadow: IDENTITY,
-		rotationHeightFogDirectionalInscattering: IDENTITY,
-		rotationLightShaft: IDENTITY,
+		heightFogDirectionalInscatteringPitchYawMode: 0,
+		heightFogDirectionalInscatteringPitchYaw: [38, 35],
 	},
 	shadow: {
 		csmIntensity: 1,
@@ -830,9 +843,9 @@ const cloudShadowLook = (cloud: CloudInput | null, light: LightInput): Environme
 	}
 	// the light's direction of travel over |cos(pitch in degrees / 360)| taken in radians, as the game computes
 	// it, so the factor stays within 1% of 1
-	const pitch = light.cloudShadowPitchYawMode === 1 ? light.cloudShadowPitchYaw[0] : light.directPitchYaw[0];
-	const factor = Math.min(Math.max(Math.abs(Math.cos(pitch / 360)), 0.001), 1);
-	const [x, y, z] = rotate(light.rotationCloudShadow, [0, 0, 1]);
+	const pitchYaw = effectPitchYaw(light, 'cloudShadow');
+	const factor = Math.min(Math.max(Math.abs(Math.cos(pitchYaw[0] / 360)), 0.001), 1);
+	const [x, y, z] = towardsLight(pitchYaw).map((v) => -v);
 	const [dx, dy] = config.cloudShadowFlowDirection;
 	const speed = config.cloudShadowFlowSpeed;
 	return {
@@ -875,7 +888,7 @@ const heightFogLook = (fog: HeightFogInput, light: LightInput): HeightFog => ({
 		fog.heightFogDirectionalInscattering[1],
 		fog.heightFogDirectionalInscattering[2],
 	],
-	directionalDirection: towardsRotatedLight(light.rotationHeightFogDirectionalInscattering),
+	directionalDirection: towardsEffectLight(light, 'heightFogDirectionalInscattering'),
 	directionalExponent: fog.heightFogDirectionalInscatteringExponent,
 	directionalStartDistance: fog.heightFogDirectionalInscatteringStartDistance,
 	flowNoise:
@@ -909,7 +922,7 @@ const volumetricFogLook = (
 		extinctionScale: fog.volumetricFogExtinctionScale,
 		// the game stores the emission per kilometre
 		emissive: scaled(fog.volumetricFogEmissive, 0.001),
-		sunDirection: towardsRotatedLight(light.rotationAtmosphere),
+		sunDirection: towardsEffectLight(light, 'atmosphere'),
 		// colours go in raw, as for the atmosphere fog
 		sun: scaled(light.directColor, directional),
 		skyIntensity: fog.volumetricFogSkyLightingScatteringIntensity,
@@ -922,7 +935,7 @@ const lightShaftLook = (config: LightShaftInput, light: LightInput): LightShaftL
 		return null;
 	}
 	return {
-		sunDirection: towardsRotatedLight(light.rotationLightShaft),
+		sunDirection: towardsEffectLight(light, 'lightShaft'),
 		bloomScale: config.bloomScale,
 		threshold: config.bloomThreshold,
 		maxBrightness: config.bloomMaxBrightness,
@@ -950,7 +963,7 @@ const atmosphereFogLook = (source: EnvironmentInput, sunIntensity: number): Atmo
 	const ambient = scaled(fog.inscatterAmbientColor, sunIntensity);
 	const over = (c: Vec3, i: number): number => c[i] / Math.max(extinction[i], 1e-9);
 	return {
-		sunDirection: towardsRotatedLight(light.rotationAtmosphere),
+		sunDirection: towardsEffectLight(light, 'atmosphere'),
 		extinction,
 		rayleigh: map3((i) => over(rayleigh, i) * sun[i]),
 		mie: map3((i) => over(mie, i) * sun[i]),
@@ -970,13 +983,11 @@ const atmosphereFogLook = (source: EnvironmentInput, sunIntensity: number): Atmo
 export const deriveEnvironment = (profile: EnvironmentInput | null): Environment => {
 	const source = profile ?? DEFAULT_PROFILE;
 	const { light, sky, atmosphere, heightFog, volumetricFog } = source;
-	const preExposure = 1 / (1.2 * 2 ** light.directEV100);
-	const intensity = light.directLux * preExposure;
+	const intensity = exposedSunIntensity(light);
 	const color = linearRgb(light.directColor);
 	const sunIlluminance: Vec3 = [color[0] * intensity, color[1] * intensity, color[2] * intensity];
 	const sunDirection = towardsLight(light.directPitchYaw);
-	const skySunDirection =
-		light.atmospherePitchYawMode === 1 ? towardsLight(light.atmospherePitchYaw) : sunDirection;
+	const skySunDirection = towardsEffectLight(light, 'atmosphere');
 	const skyScale = intensity * sky.skyDirectIntensity;
 	return {
 		name: profile === null ? null : source.name,

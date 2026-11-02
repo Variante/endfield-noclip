@@ -97,8 +97,13 @@ const input = (elements: LensFlareElement[], patch: Partial<LensFlareConfig> = {
 		allowOffScreen: false,
 		...patch,
 	},
-	// 180° about y: the light travels along −z, so the sun lies towards +z
-	light: { rotationLensFlare: [0, 1, 0, 0], directColor: [1, 0.5, 0.25, 1] },
+	// following the sun at yaw 180°: the light travels along −z, so the sun lies towards +z
+	light: {
+		directColor: [1, 0.5, 0.25, 1],
+		directPitchYaw: [0, 180],
+		lensFlarePitchYawMode: 0,
+		lensFlarePitchYaw: [45, 0],
+	},
 });
 
 describe('lensFlareLook', () => {

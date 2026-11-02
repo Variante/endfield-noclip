@@ -129,12 +129,15 @@ sections in by a factor:
   snaps the fades (unverified).
 - **manual (3)**: scripts drive the factor.
 
-the order among equal-priority volumes isn't known. the per-section lerps have special cases. the
-cloud lerp crossfades the cloud panorama through `cloudFadeAlpha`: the old texture fades out to ½,
-the new one in after. the height fog's flow noise has its own rule
-([flow noise](sky-and-fog.md#flow-noise)), as does the lens flare: a flare on one side fades in by
-the factor with that side's settings, and two flares cross through nothing at ½ without blending
-(unverified). the precipitation transitions are special cases too.
+the order among equal-priority volumes isn't known, nor how the plain fields lerp: whether integer
+fields and enums switch or round, whether the effect directions (`<effect>PitchYaw` with their
+modes, and the `rotation*` quaternions resolved from them) lerp as angles or rotations, and how a
+fog's negative `rayleighScatteringScale` (which defers to the atmosphere's) blends against a
+positive one. the per-section lerps have special cases. the cloud lerp crossfades the cloud panorama
+through `cloudFadeAlpha`: the old texture fades out to ½, the new one in after. the height fog's
+flow noise has its own rule ([flow noise](sky-and-fog.md#flow-noise)), as does the lens flare: a
+flare on one side fades in by the factor with that side's settings, and two flares cross through
+nothing at ½ without blending (unverified). the precipitation transitions are special cases too.
 
 ## activation
 

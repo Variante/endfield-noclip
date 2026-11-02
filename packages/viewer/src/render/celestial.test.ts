@@ -123,10 +123,14 @@ describe('celestialLook', () => {
 			sunDiscColor: [2, 1, 0.5, 1],
 			proceduralSkyLuxFactor: 3,
 		};
-		// a rotation of 180° about y: the light travels along −z, so the sun lies towards +z
+		// the disc's own direction, yaw 180°: the light travels along −z, so the sun lies towards +z. at EV100 0
+		// the intensity over π is 0.5
 		const light: NonNullable<CelestialInput['light']> = {
-			rotationSunDisc: [0, 1, 0, 0],
-			directIntensityDividePi: 0.5,
+			directLux: 0.6 * Math.PI,
+			directEV100: 0,
+			directPitchYaw: [45, 0],
+			sunDiscPitchYawMode: 1,
+			sunDiscPitchYaw: [0, 180],
 		};
 		const look = celestialLook({ sky, light });
 		assert.ok(look.sun !== null);

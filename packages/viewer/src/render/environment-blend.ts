@@ -41,7 +41,10 @@ export interface BlendOptions {
 	loaded?: readonly boolean[];
 }
 
-/** shape order among equal priorities: the game falls back to the volume type (prism is `PolyArea`, 3) */
+/**
+ * shape order among equal priorities, by volume type (prism is `PolyArea`, 3). the game's order among equal
+ * priorities isn't known; this is an assumption
+ */
 const SHAPE_ORDER: Record<EnvironmentVolumeShape['kind'], number> = { global: 0, box: 1, prism: 3 };
 
 /** volumes with their manifest index, sorted as the game applies them, per manifest */
@@ -426,6 +429,21 @@ type Sections = Record<keyof EnvironmentSections, Record<string, unknown>>;
 const REFERENCE = /(texture|map|material|mat)$/i;
 /** integer settings that switch rather than lerp */
 const DISCRETE = /(mode|type)$/i;
+/**
+ * the other integer fields of the phase sections (by their TypeTree type): counts, a filter size and the
+ * cloud panorama's whole-degree rotation. they lerp and round, which keeps them whole; how the game blends
+ * them isn't known
+ */
+const INTEGER = new Set([
+	'numInscatteredSamplePoints',
+	'numOpticalDepthSamplePoints',
+	'screenDropMaxCountLim',
+	'rainSplashCount',
+	'sampleCount',
+	'contactShadowContract',
+	'filterSize',
+	'rotation',
+]);
 
 /** blends a phase's active sections into the profile, in place */
 const applyPhase = (profile: EnvironmentProfile, phase: EnvironmentPhaseInfo, t: number): void => {
@@ -433,9 +451,18 @@ const applyPhase = (profile: EnvironmentProfile, phase: EnvironmentPhaseInfo, t:
 	const target = profile as unknown as Sections;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- as above
 	const source = phase.sections as unknown as Sections;
+	// the atmosphere each side's fog defers to; sections are replaced, never changed in place
+	const atmospheres = {
+		from: target.atmosphere,
+		to: phase.active.includes('atmosphere') ? source.atmosphere : target.atmosphere,
+	};
 	for (const name of phase.active) {
 		if (t >= 1 - 1e-4) {
 			target[name] = structuredClone(source[name]);
+		} else if (name === 'light') {
+			target[name] = lerpLight(target[name], source[name], t);
+		} else if (name === 'fog') {
+			target[name] = lerpFog(target[name], source[name], atmospheres, t);
 		} else if (name === 'cloud') {
 			target[name] = lerpCloud(target[name], source[name], t);
 		} else if (name === 'rain' && target[name] !== undefined) {
@@ -467,7 +494,8 @@ const lerpValue = (key: string, a: unknown, b: unknown, t: number): unknown => {
 		return t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
 	}
 	if (typeof a === 'number' && typeof b === 'number' && !DISCRETE.test(key)) {
-		return a + (b - a) * t;
+		const value = a + (b - a) * t;
+		return INTEGER.has(key) ? Math.round(value) : value;
 	}
 	if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) {
 		return b.map((value, i) => lerpValue(key, a[i], value, t));
@@ -476,6 +504,87 @@ const lerpValue = (key: string, a: unknown, b: unknown, t: number): unknown => {
 		return lerpObject(a, b, t);
 	}
 	return t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
+};
+
+/** the effects whose sun direction the light config sets apart from the sun's (`<effect>PitchYaw`) */
+const SUN_EFFECTS = [
+	'atmosphere',
+	'lightShaft',
+	'sunDisc',
+	'lensFlare',
+	'cloudShadow',
+	'heightFogDirectionalInscattering',
+] as const;
+
+const isPitchYaw = (value: unknown): value is [number, number] =>
+	Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number');
+
+/** lerps a pitch and yaw (degrees), turning the yaw the short way round */
+const lerpPitchYaw = (
+	a: readonly [number, number],
+	b: readonly [number, number],
+	t: number,
+): [number, number] => {
+	const yaw = ((((b[1] - a[1]) % 360) + 540) % 360) - 180;
+	return [a[0] + (b[0] - a[0]) * t, a[1] + yaw * t];
+};
+
+/**
+ * the light lerp's directions: each effect's direction in effect on either side (its own, or the sun's per
+ * its mode) lerps as a pitch and yaw, so every direction stays a unit vector between the two. the game's own
+ * direction lerp isn't known
+ */
+const lerpLight = (
+	a: Record<string, unknown>,
+	b: Record<string, unknown>,
+	t: number,
+): Record<string, unknown> => {
+	const out = lerpObject(a, b, t);
+	const sunA = a.directPitchYaw;
+	const sunB = b.directPitchYaw;
+	if (!isPitchYaw(sunA) || !isPitchYaw(sunB)) {
+		return out;
+	}
+	out.directPitchYaw = lerpPitchYaw(sunA, sunB, t);
+	for (const effect of SUN_EFFECTS) {
+		const modeKey = `${effect}PitchYawMode`;
+		const key = `${effect}PitchYaw`;
+		const own = (side: Record<string, unknown>, sun: [number, number]): [number, number] => {
+			const value = side[key];
+			return side[modeKey] === 1 && isPitchYaw(value) ? value : sun;
+		};
+		if (a[modeKey] !== 1 && b[modeKey] !== 1) {
+			// both follow the sun, and still do
+			out[modeKey] = 0;
+			continue;
+		}
+		out[modeKey] = 1;
+		out[key] = lerpPitchYaw(own(a, sunA), own(b, sunB), t);
+	}
+	return out;
+};
+
+/**
+ * the fog lerp: a negative `rayleighScatteringScale` defers to the atmosphere's, so where only one side
+ * defers, it takes its atmosphere's scale before the lerp. how the game blends the deferral isn't known
+ */
+const lerpFog = (
+	a: Record<string, unknown>,
+	b: Record<string, unknown>,
+	atmospheres: { from: Record<string, unknown>; to: Record<string, unknown> },
+	t: number,
+): Record<string, unknown> => {
+	const key = 'rayleighScatteringScale';
+	const scaleA = number(a[key]);
+	const scaleB = number(b[key]);
+	if (scaleA < 0 === scaleB < 0) {
+		return lerpObject(a, b, t);
+	}
+	return lerpObject(
+		scaleA < 0 ? { ...a, [key]: number(atmospheres.from[key]) } : a,
+		scaleB < 0 ? { ...b, [key]: number(atmospheres.to[key]) } : b,
+		t,
+	);
 };
 
 /** the game's cloud lerp: a changed panorama fades out to the halfway point and the new one fades in */

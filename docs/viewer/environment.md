@@ -25,8 +25,8 @@ satisfy.
 the post profile, not a Unity `VolumeProfile`.
 
 - start from the shown level's base profile.
-- visit volumes in ascending priority, then shape kind (global, box, prism), since the game's order
-  among equal priorities isn't known.
+- visit volumes in ascending priority, then shape kind (global, box, prism). the game's order among
+  equal priorities isn't known, so this tie-break is an assumption.
 - time-mode factors are kept per camera in `EnvironmentFades`.
 - manual volumes stay off unless ticked in the scene-conditions panel, which previews them at full
   strength, since the scripts that drive them aren't recovered.
@@ -34,6 +34,13 @@ the post profile, not a Unity `VolumeProfile`.
   references switch at ½. the cloud panorama, height-fog flow noise and lens flare follow the game's
   special cases; its other per-section special cases (the precipitation transitions, for one) aren't
   followed.
+- where the game's lerp of a plain field isn't known
+  ([blending](../game-data/environment.md#blending-at-the-camera)), the viewer picks one that keeps
+  the value meaningful: the sun's and every effect's direction lerp as pitch and yaw (the yaw the
+  short way round), each effect starting from the direction in effect on its side, so directions
+  stay unit vectors; the other integer fields (sample counts, the cloud rotation) lerp and round; a
+  fog whose `rayleighScatteringScale` defers to the atmosphere's (negative) takes its atmosphere's
+  scale before lerping against one that doesn't.
 
 the "volumes at camera" toggle turns blending off (the base profile alone). a pinned phase replaces
 the volume blend with that one phase over the base. per-volume checkboxes override the scene-state

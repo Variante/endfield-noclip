@@ -88,8 +88,10 @@ export interface EnvironmentVolumeInfo {
 /**
  * `HGLightConfig`: the sun. physical units: `directLux` is illuminance and `directEV100` the exposure, with
  * `preExposure = 1 / (1.2 · 2^directEV100)` and `directIntensity = directLux · preExposure` (both precomputed
- * by the game). every effect that draws the sun has its own direction: `<effect>PitchYawMode` 0 follows
- * `directPitchYaw`, 1 uses `<effect>PitchYaw`; the `rotation*` quaternions are the resolved results
+ * by the game, but stale in some phases). every effect that draws the sun has its own direction:
+ * `<effect>PitchYawMode` 0 follows `directPitchYaw`, 1 uses `<effect>PitchYaw`; the `rotation*` quaternions
+ * are the resolved results, and `forwardDirect` and `localToWorld` are stale in some phases. read directions
+ * from the pitch, yaw and mode: those lerp as angles between phases
  */
 export interface LightConfig {
 	/** the colour in effect: `directCustomColor` or the temperature's, per `directColorMode` */

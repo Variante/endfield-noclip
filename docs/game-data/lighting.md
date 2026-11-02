@@ -31,17 +31,21 @@ packings not yet known are listed under [open](#open).
 | `light.directSpecularIntensity`        | scales the sun's specular lobe                  |
 
 the game gives every sun-drawn effect its own direction (`<effect>PitchYawMode` 0 follows the light,
-1 uses `<effect>PitchYaw`; the `rotation*` quaternions are the resolved results). art direction
-often moves these away from the light:
+1 uses `<effect>PitchYaw`; the `rotation*` quaternions are the resolved results, and match the
+pitch, yaw and mode in every shipped phase). art direction often moves these away from the light:
 
-| direction                                  | used for                                            |
-| ------------------------------------------ | --------------------------------------------------- |
-| `atmospherePitchYaw` (per its mode)        | the sky's LUTs                                      |
-| `rotationAtmosphere`                       | the atmosphere fog and the volumetric fog's sun     |
-| `rotationHeightFogDirectionalInscattering` | the height fog's directional term                   |
-| `rotationSunDisc`                          | the [sun disc](sky-and-fog.md#sun-disc)             |
-| `rotationCloudShadow`                      | the [cloud shadows](#cloud-shadows)' skew           |
-| `rotationLightShaft`                       | the [light shafts](post-processing.md#light-shafts) |
+| effect (`<effect>PitchYaw`, `rotation<Effect>`) | used for                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------- |
+| `atmosphere`                                    | the sky's LUTs, the atmosphere fog and the volumetric fog's sun |
+| `heightFogDirectionalInscattering`              | the height fog's directional term                               |
+| `sunDisc`                                       | the [sun disc](sky-and-fog.md#sun-disc)                         |
+| `lensFlare`                                     | the [lens flare](post-processing.md#lens-flare)                 |
+| `cloudShadow`                                   | the [cloud shadows](#cloud-shadows)' skew                       |
+| `lightShaft`                                    | the [light shafts](post-processing.md#light-shafts)             |
+
+the light config's other derived fields are not always current: `forwardDirect` disagrees with
+`directPitchYaw` by 38–145° in 17 shipped phases (map01's lv000 destruction and cave phases,
+indie_race001's boss phases), and `directIntensity` disagrees with `directLux · preExposure` in 16.
 
 the sun shades with the same lobe as the [local lights](#local-lights); foliage takes its two-sided
 model ([foliage](materials.md#foliage)).
