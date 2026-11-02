@@ -397,9 +397,8 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
  *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
- *   ones, a per-axis speed limit or one alongside drag or orbital or radial velocity, a drag or rate curve,
- *   no mesh, or velocity alignment. `null` for a system that doesn't play on awake, which shows nothing until
- *   a script starts it
+ *   ones, a per-axis speed limit or one alongside drag, a drag or rate curve, no mesh, or velocity alignment.
+ *   `null` for a system that doesn't play on awake, which shows nothing until a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -512,14 +511,9 @@ export const readParticleSystem = (
 		}
 		drag = read;
 		speedLimit = readLimit;
-		// the viewer steps a limited particle along its own and linear velocities alone
-		if (
-			speedLimit !== null &&
-			(drag !== null ||
-				(velocity !== null &&
-					![...velocity.orbital, velocity.radial].every((curve) => curveReach(curve) === 0)))
-		) {
-			return { reason: 'velocity limit with drag, orbit or radial velocity' };
+		// where the game applies drag relative to the limit isn't known
+		if (speedLimit !== null && drag !== null) {
+			return { reason: 'velocity limit with drag' };
 		}
 	}
 

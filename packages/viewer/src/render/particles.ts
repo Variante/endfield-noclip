@@ -303,7 +303,7 @@ const LIMIT_MAX_STEPS = 600;
  * excess from its own velocity, then moves it by the whole velocity
  *
  * @param path the limit (and its random value), the particle's start velocity, its acceleration, the extra
- *   velocity at an age, its age and lifetime, in seconds
+ *   velocity at an age and a distance moved from the start, its age and lifetime, in seconds
  * @returns how far it has moved by `age`, and its velocity then
  */
 export const limitedPath = (path: {
@@ -311,7 +311,7 @@ export const limitedPath = (path: {
 	r: number;
 	start: Vec3;
 	acceleration: Vec3;
-	extra: (age: number) => Vec3;
+	extra: (age: number, moved: Vec3) => Vec3;
 	age: number;
 	life: number;
 }): { offset: Vec3; velocity: Vec3 } => {
@@ -323,7 +323,7 @@ export const limitedPath = (path: {
 	const offset: Vec3 = [0, 0, 0];
 	for (let i = 1; i <= steps; i++) {
 		const t = i * h;
-		const added = extra(t);
+		const added = extra(t, offset);
 		const whole: Vec3 = [0, 0, 0];
 		for (let axis = 0; axis < 3; axis++) {
 			own[axis] += acceleration[axis] * h;
@@ -342,7 +342,7 @@ export const limitedPath = (path: {
 			offset[axis] += whole[axis] * h;
 		}
 	}
-	const added = extra(age);
+	const added = extra(age, offset);
 	return { offset, velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]] };
 };
 
@@ -885,27 +885,51 @@ export class ParticleSimulation {
 
 	/**
 	 * where a particle under a speed limit is at an age and how it moves then, stepped ({@link limitedPath}).
-	 * the packer leaves such systems without drag, orbits or radial velocity
+	 * the velocity module's linear, orbital and radial terms are the extra velocity the limit includes; the
+	 * orbit moves the particle along its circle's tangent at its current place. the packer leaves such systems
+	 * without drag
 	 */
 	#limitedPath(limit: ParticleSpeedLimitInfo, motion: ParticleMotion): { position: Vec3; moving: Vec3 } {
 		const seed = this.#seed;
 		const velocity = this.info.velocity;
 		const { id, start, direction, speed, modifier, gravity, age, life, down, worldToLocal } = motion;
-		const channels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
-		const randoms = channels.map((channel) => random(seed, id, channel));
-		const extra = (t: number): Vec3 => {
+		const linearChannels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
+		const linearRandoms = linearChannels.map((channel) => random(seed, id, channel));
+		const orbitChannels = [Channel.OrbitalX, Channel.OrbitalY, Channel.OrbitalZ];
+		const spin: Vec3 = [0, 0, 0];
+		let radial = 0;
+		if (velocity !== null) {
+			for (let axis = 0; axis < 3; axis++) {
+				spin[axis] =
+					evaluateMinMax(velocity.orbital[axis], 0, random(seed, id, orbitChannels[axis])) * modifier;
+			}
+			radial = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
+		}
+		const extra = (t: number, moved: Vec3): Vec3 => {
 			if (velocity === null) {
 				return [0, 0, 0];
 			}
 			const lived = life > 0 ? t / life : 0;
 			let linear: Vec3 = [0, 0, 0];
 			for (let axis = 0; axis < 3; axis++) {
-				linear[axis] = evaluateMinMax(velocity.linear[axis], lived, randoms[axis]) * modifier;
+				linear[axis] = evaluateMinMax(velocity.linear[axis], lived, linearRandoms[axis]) * modifier;
 			}
 			if (velocity.linearInWorld) {
 				linear = worldToLocal(linear);
 			}
-			return linear;
+			const centre = velocity.orbitalOffset;
+			const from: Vec3 = [
+				start[0] + moved[0] - centre[0],
+				start[1] + moved[1] - centre[1],
+				start[2] + moved[2] - centre[2],
+			];
+			const outward = normalize(from);
+			// ω × r, the orbit's velocity at the particle's place
+			return [
+				linear[0] + spin[1] * from[2] - spin[2] * from[1] + outward[0] * radial,
+				linear[1] + spin[2] * from[0] - spin[0] * from[2] + outward[1] * radial,
+				linear[2] + spin[0] * from[1] - spin[1] * from[0] + outward[2] * radial,
+			];
 		};
 		const { offset, velocity: moving } = limitedPath({
 			limit,

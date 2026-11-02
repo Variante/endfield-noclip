@@ -167,15 +167,14 @@ packs or renders correctly.
   systems, meshes and billboards alike, play without the force, noise, collision, trigger,
   sub-emitter, light, trail, custom-data and by-speed modules, from the viewer's own random values,
   and move only while frames render; systems that don't play on awake, or use velocity alignment, an
-  per-axis speed limit or one alongside drag, orbital or radial velocity, drag or rate curves,
-  orbital, radial, speed-modifier or rotation curves, sprite-mode sheets, sheet time modes other
-  than lifetime or frames per second, or sheets over 64 tiles a side, show as one
-  [stand-in](package-format.md#stand-ins) at the emitter (the swirling green motes around Qingbo
-  Stockade's bamboo tubes use orbital and radial velocity curves). drag is approximated (it slows
-  the start velocity and the fall alone), the maximum on-screen particle size isn't applied,
-  stretched billboards are centred on the particle, and colours above 1 and custom data never reach
-  the shaders. all copies of one flipbook step in phase. Marker Stone's low mist banks over the
-  valley are still missing; their source is unknown
+  per-axis speed limit or one alongside drag, drag or rate curves, orbital, radial, speed-modifier
+  or rotation curves, sprite-mode sheets, sheet time modes other than lifetime or frames per second,
+  or sheets over 64 tiles a side, show as one [stand-in](package-format.md#stand-ins) at the emitter
+  (the swirling green motes around Qingbo Stockade's bamboo tubes use orbital and radial velocity
+  curves). drag is approximated (it slows the start velocity and the fall alone), the maximum
+  on-screen particle size isn't applied, stretched billboards are centred on the particle, and
+  colours above 1 and custom data never reach the shaders. all copies of one flipbook step in phase.
+  Marker Stone's low mist banks over the valley are still missing; their source is unknown
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its wetness, sludge,
   footprint, UV-noise and arc variants, and placements without their colour and UV, as
   [unsupported](viewer/materials.md#unsupported-materials), and draws overlaps without the game's

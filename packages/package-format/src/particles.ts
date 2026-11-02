@@ -221,7 +221,7 @@ export interface ParticleSystemInfo {
 	drag: ParticleDragInfo | null;
 	/**
 	 * a speed limit each particle's speed is pulled down to (Unity's `ClampVelocityModule` with a `dampen`);
-	 * `null` without. it comes with no {@link drag} and no orbital or radial {@link velocity}
+	 * `null` without. it comes with no {@link drag}
 	 */
 	speedLimit: ParticleSpeedLimitInfo | null;
 	/** a multiplier of the start size over each particle's lifetime, per axis; `null` without */
