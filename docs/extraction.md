@@ -733,7 +733,7 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | MapConfig scene state      | `sceneState:<index>`, derived from its condition   | its condition under the defaults above; condition-less states off |
 | mission gate               | requirements on quest and mission controls         | —                                                                 |
 | variable gate              | a requirement on the variable's control            | —                                                                 |
-| progression                | `<kind>:<key>`                                     | lowest authored level                                             |
+| progression                | `<kind>:<key>`                                     | lowest authored level; an outpost's, its upgrade missions done    |
 | facility visual form       | `facility:<interactive id>`                        | the template's base model                                         |
 | interactive created later  | `created:<level id>`, not created / created        | not created                                                       |
 | doodad group level         | `doodadGroups:<level id>`                          | the highest level its shells name                                 |
@@ -840,7 +840,12 @@ are read from `SettlementBasicDataTable` by
 `GameState`, which reads a test of one completing (`= completed`, `≠ completed`) as the outpost's
 level control instead of a mission control: complete above the level that names the mission. a test
 that tells the mission's unfinished states apart keeps the mission control. a mission whose outpost
-isn't in the scene, or has no authored level above that one, stays a mission control.
+isn't in the scene, or has no authored level above that one, stays a mission control. an outpost
+with linked missions defaults to the lowest authored level at or above every one of them completing,
+as quests and missions default to completed, so content gated on its upgrade missions (Cardiac
+Remediation Station's light column, on `f1m19d3`) shows by default. the upgrade missions are factory
+missions, not main story ones, so "Main story progress" doesn't move these outposts; the outpost's
+own level control does.
 
 ### progressions
 

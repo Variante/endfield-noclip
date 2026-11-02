@@ -1825,16 +1825,23 @@ const sceneStates = async (
 	environments: readonly (number | null)[],
 ): Promise<SceneStateInfo> => {
 	const { partition } = scene;
-	const progressions = (await loadProgressions(world, scene.options.scene)).map((progression) =>
-		progressionControl(
+	// an outpost whose level-up missions are read as its level stands where the finished story's completed
+	// missions put it, so content gated on those missions agrees with it
+	const linked = scene.game.linkedDefaults();
+	const progressions = (await loadProgressions(world, scene.options.scene)).map((progression) => {
+		const id = progressionId(progression.kind, progression.key);
+		const level = linked.get(id);
+		return progressionControl(
 			progression.kind,
-			progressionId(progression.kind, progression.key),
+			id,
 			progression.key,
 			progression.levels,
-			progression.defaultLevel,
-			'the lowest authored level',
-		),
-	);
+			level ?? progression.defaultLevel,
+			level === undefined
+				? 'the lowest authored level'
+				: 'the level its completed upgrade missions raise it to',
+		);
+	});
 	const levels = (partition?.levels ?? []).map((level, i) =>
 		levelInfo(level, scene, collected, environments[i] ?? null),
 	);

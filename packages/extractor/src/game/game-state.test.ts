@@ -171,3 +171,19 @@ test('a test of an outpost level-up mission completing reads the outpost level i
 	// telling unfinished states apart still needs the mission's own state
 	assert.deepEqual(game.requirements(mission(0, 2)), [[{ control: 'mission:f1m19d3', mask: 1 << 2 }]]);
 });
+
+test("an outpost's linked missions, all complete, put its default at the highest level they raise it to", () => {
+	const link = (completedFrom: number) => ({
+		control: 'settlement:stm_hongs_2',
+		levels: [0, 1, 2, 3, 4],
+		completedFrom,
+	});
+	const game = new GameState({
+		links: new Map([
+			['f1m19d1', link(2)],
+			['f1m19d3', link(4)],
+			['f1m19d2', link(3)],
+		]),
+	});
+	assert.deepEqual(game.linkedDefaults(), new Map([['settlement:stm_hongs_2', 4]]));
+});
