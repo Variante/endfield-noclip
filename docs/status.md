@@ -175,7 +175,7 @@ packs or renders correctly.
   states, `_BlendMode` 2 outside a multiplying blend state, the vertex-offset mask, particle-data
   terms, the sixth sample texture together with a vertex offset, screen UVs relative to the object,
   brightening that is a scan line or centred on a fixed point (the player-centred one is left out),
-  breathing, edge colour, vertex animation textures (the collectible coins' soft-body blob), water
+  breathing, edge colour, vertex animation textures (Aurelyne collectibles' soft-body blob), water
   blending under a water height above the authored one, flipbook and particle inputs, and VFXDecal's
   lighting, parallax, 3D-texture and particle variants; local lights and the post-exposure division
   on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and

@@ -77,9 +77,9 @@ between Wuling City's floating pillars (`M_fx_map02_zhenlie_*`, map02_lv002) use
 travels under that height, and changes nothing above it. the vertex stage is unaffected. a
 `VFXWaterBlendConfig` component on the effect sets these from water surfaces it enters (from its
 fields and method names; its code isn't read). materials keep the authored `_WaterHeight` of −9999,
-under every level, so placed effects out of water draw as without the keyword. the collectible
-coins' glows (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity 364, 44, −700)
-are such.
+under every level, so placed effects out of water draw as without the keyword. the glows of
+Aurelyne, the collectible orbs (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity
+364, 44, −700), are such.
 
 **VFXDecal** draws a unit box (`s_fx_particle_decal_cube`): each covered pixel finds the surface
 behind from the scene depth and, if that point lies inside the box, projects the textures down the
