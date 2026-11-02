@@ -35,10 +35,15 @@ the water), into the composited scene with the main pass's depth attached read-o
   after the multiplies into the main pass's radiance target, and blend over it (`fs_refract`). the
   copy holds the fog, the transparent layers and the water, which the game's copy may not.
 
-unlit VFXDitherAlpha materials with a distortion, a dissolve or polar or screen UVs draw through
-VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game dithers
-with rather than dithered, which the temporal antialiasing would average to the same coverage.
-unlike the game's, they don't write depth, so they don't hide effects behind them.
+unlit VFXDitherAlpha materials with a distortion, a dissolve, a mask or polar or screen UVs draw
+through VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game
+dithers with rather than dithered, which the temporal antialiasing would average to the same
+coverage. unlike the game's, they don't write depth, so they don't hide effects behind them. the
+stack's mask scales the colour as well as the alpha, so a mask draws only as its red
+(`_UseMaskTexAsAlpha`, the default), where its colour is white.
+
+[reflection-only effects](../game-data/effects.md#reflection-only-effects) aren't drawn: the viewer
+has no planar or ray-traced reflections for them to appear in.
 
 ## portals
 

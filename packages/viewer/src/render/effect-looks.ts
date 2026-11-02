@@ -556,13 +556,19 @@ const multipliesBehind = (entry: ReadyMaterial): boolean =>
 export const multipliesScene = (look: EffectLook): boolean => look.params[EffectRow.unfogged + 2] === 2;
 
 /** keywords of `HGRP/Effect/VFXDitherAlpha` that {@link vfxDitherEffectLook} draws */
-const DITHER_EFFECT_KEYWORDS = new Set(['_USE_DISSOLVE', '_USE_DISTURB', '_USE_POLARUV', '_USE_SCREENUV']);
+const DITHER_EFFECT_KEYWORDS = new Set([
+	'_USE_DISSOLVE',
+	'_USE_DISTURB',
+	'_USE_MASK',
+	'_USE_POLARUV',
+	'_USE_SCREENUV',
+]);
 
 /**
- * an unlit `HGRP/Effect/VFXDitherAlpha` material with a distortion, a dissolve or polar or screen UVs, drawn
- * by the texture stack. the game writes such a surface to the G-buffer where its alpha beats a per-pixel
- * noise; the viewer blends it over by that alpha instead, which its temporal antialiasing would average the
- * dither to anyway
+ * an unlit `HGRP/Effect/VFXDitherAlpha` material with a distortion, a dissolve, a mask or polar or screen
+ * UVs, drawn by the texture stack. the game writes such a surface to the G-buffer where its alpha beats a
+ * per-pixel noise; the viewer blends it over by that alpha instead, which its temporal antialiasing would
+ * average the dither to anyway
  *
  * @param entry a material of `HGRP/Effect/VFXDitherAlpha`
  * @param shader its shader
@@ -577,7 +583,9 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 		float('_UseLighting', 0) !== 0 ||
 		float('_DitherAlphaMode', 0) !== 0 ||
 		float('_DitherAlphaExp', 1) !== 1 ||
-		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0)
+		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0) ||
+		// the mask feeds only the tested alpha; the stack's mask also tints, which matches only when it's the red
+		(keywords.includes('_USE_MASK') && float('_UseMaskTexAsAlpha', 1) === 0)
 	) {
 		return null;
 	}
@@ -628,6 +636,15 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 			rotation: '_DissolveUVRotateMat',
 			weights: '_DissolveUVWeights',
 		},
+		{
+			name: '_MaskTex',
+			keyword: '_USE_MASK',
+			bits: EffectRole.Mask + 16,
+			disturbed: '_MaskTexUseDisturb',
+			speed: '_MaskTexUVSpeed',
+			rotation: '_MaskTexUVRotateMat',
+			weights: '_MaskTexUVWeights',
+		},
 	];
 	for (const [i, slot] of slots.entries()) {
 		if (slot.keyword !== null && !keywords.includes(slot.keyword)) {
@@ -642,7 +659,8 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 		setSlot(look, i, bound, animOf(slot.speed, slot.rotation), slot.bits + disturbed + source(slot.weights));
 	}
 	// the colour pass emits `tint · intensity · vertex colour · main`; the depth pass tests the tint's alpha times
-	// `_TintColorAlpha`, the vertex alpha, the main texture's alpha (its red), the dissolve and the near fade
+	// `_TintColorAlpha`, the vertex alpha, the main texture's alpha (its red), the mask's red, the dissolve and the
+	// near fade
 	const intensity = float('_TintColorIntensity', 1);
 	const tint = linearRgb(color('_TintColor') ?? [1, 1, 1, 1]);
 	params.set(
@@ -656,6 +674,7 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 	);
 	setShared(look, entry, shader, intensity);
 	params[EffectRow.dissolve + 3] = keywords.includes('_USE_DISSOLVE') ? 1 : 0;
+	params[EffectRow.dissolveColor + 3] = keywords.includes('_USE_MASK') ? 1 : 0;
 	params[EffectRow.weight] = float('_Bi_Disturb', 0);
 	params[EffectRow.misc + 1] = 1;
 	params[EffectRow.misc + 3] = keywords.includes('_USE_DISTURB') ? 1 : 0;

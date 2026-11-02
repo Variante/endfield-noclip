@@ -79,7 +79,7 @@ test('effect geometry without an effect look shows as unsupported rather than sh
 	assert.equal(unsupported.params[LookRow.surface + 2], 0.5);
 });
 
-test('water proxies are not drawn, and additive non-effects show as unsupported', () => {
+test('water proxies and reflection-only effects are not drawn, and additive non-effects show as unsupported', () => {
 	const shader = (name: string, family: ShaderEntry['family']): ShaderEntry => ({
 		name,
 		family,
@@ -106,12 +106,17 @@ test('water proxies are not drawn, and additive non-effects show as unsupported'
 		colors: {},
 		vectors: {},
 	});
-	const [proxy, additive] = materialLooks({
-		shaders: [shader('HGRP/WaterProxy', 'waterProxy'), shader('HGRP/Lit', 'lit')],
-		entries: [entry(0, 'opaque'), entry(1, 'additive')],
+	const [proxy, additive, reflection] = materialLooks({
+		shaders: [
+			shader('HGRP/WaterProxy', 'waterProxy'),
+			shader('HGRP/Lit', 'lit'),
+			shader('HGRP/Effect/VFXReflectionPass', 'unknown'),
+		],
+		entries: [entry(0, 'opaque'), entry(1, 'additive'), entry(2, 'opaque')],
 	});
 	assert.equal(proxy.drawn, false);
 	assert.equal(additive.unsupported, true);
+	assert.deepEqual([reflection.drawn, reflection.unsupported], [false, false]);
 });
 
 test('matte paintings are unlit, cast no shadows and test the texture alpha against the scaled threshold', () => {

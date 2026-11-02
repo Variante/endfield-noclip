@@ -498,6 +498,39 @@ test('an unlit VFXDitherAlpha with a dissolve, distortion and polar UVs draws it
 	assert.equal(lit.unsupported, true);
 });
 
+test('a VFXDitherAlpha mask scales only the tested alpha, by its red, and is drawn only in that mode', () => {
+	// the rift's outer ring (`M_fxmap_map_lv008_boss_semicircle_01_fj_08`)
+	const dither: ShaderEntry = {
+		...shader('HGRP/Effect/VFXDitherAlpha'),
+		family: 'vfxDitherAlpha',
+		floats: { _UseMaskTexAsAlpha: 1, _MaskTexUseDisturb: 1, _UseMainTexAsAlpha: 1 },
+		textures: { _MainTex: 'white', _MaskTex: 'white' },
+	};
+	const ring = {
+		blend: 'alphaTest',
+		blendFactors: null,
+		keywords: ['_USE_MASK'],
+		slots: { _MainTex: slot(1), _MaskTex: { ...slot(1), offset: [1, 0] } },
+		floats: { _MaskTexUseDisturb: 0, _TintColorAlpha: 0.5 },
+		colors: { _TintColor: [0.35, 0.32, 1, 1] },
+	} satisfies Partial<ReadyMaterial>;
+	const [masked, tinting] = materialLooks({
+		shaders: [dither],
+		entries: [
+			material({ id: 0, ...ring }),
+			material({ id: 1, ...ring, floats: { ...ring.floats, _UseMaskTexAsAlpha: 0 } }),
+		],
+	});
+	assert.equal(masked.flags, LookFlags.Effect);
+	assert.deepEqual(masked.textures, [1, -1, -1, 1, -1, -1, -1]);
+	assert.equal(masked.params[EffectRow.slotBits + 3], EffectRole.Mask + 16);
+	assert.deepEqual([...masked.params.subarray(EffectRow.uv + 12, EffectRow.uv + 16)], [1, 1, 1, 0]);
+	assert.equal(masked.params[EffectRow.dissolveColor + 3], 1);
+	assert.equal(masked.params[EffectRow.tint + 3], 0.5);
+	// the stack's mask would tint by the mask's colour, which the game's colour pass doesn't
+	assert.equal(tinting.unsupported, true);
+});
+
 test('a VFXRefract samples the scene behind at an offset by its texture and is masked by its mask red', () => {
 	// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
 	const refract: ShaderEntry = {

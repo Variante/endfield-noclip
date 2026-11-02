@@ -125,6 +125,21 @@ UV1, polar and screen UVs, and the dissolve multiplies the tested alpha and colo
 VFXBaseV2's does. the vertex alpha and the near camera fade also scale the tested alpha. the walls
 of the rift's ripples are such (below).
 
+`_USE_MASK` exists only in the depth pass: `_MaskTex` multiplies the tested alpha by its alpha, or
+its red under the default `_UseMaskTexAsAlpha`, and doesn't colour the surface. its UVs scroll,
+rotate and take the distortion (`_MaskTexUseDisturb`) like the main texture's. the faint blue band
+around the Very Large Rift's portal (`glow_04_line` in `p_fxmap_dung02_dg005_boss_semicircle_01`) is
+a mask-only material.
+
+## reflection-only effects
+
+`HGRP/Effect/VFXReflectionPass` has no G-buffer, forward or transparent pass, only
+`ForwardReflection` and two ray-traced reflection passes, so it draws only into reflections and
+never in the main view. effects use it for a copy of a mesh that should show in reflections: the
+Very Large Rift portal's `quan_ad_01` ring (VFXBaseV2) has a `quan_ad_01_pass` twin in this shader,
+cut out at `_ReflectionPassAlphaCutout`. which reflection renders draw the `ForwardReflection` pass
+isn't traced.
+
 ## refraction
 
 `HGRP/Effect/VFXRefract` draws in a pass of its own after the transparent effects, from a copy of

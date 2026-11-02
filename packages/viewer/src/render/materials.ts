@@ -28,6 +28,12 @@ import {
 const UNDRAWN_FAMILIES = new Set(['waterProxy']);
 
 /**
+ * shaders with no pass the game draws in the main view: VFXReflectionPass has only reflection passes, for
+ * reflection-only copies of effect meshes (`docs/game-data/effects.md#reflection-only-effects`)
+ */
+const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
+
+/**
  * shader families drawn only through looks of their own (fog volumes, light beams, effects, projected
  * decals); materials of theirs without one get {@link unsupportedLook}, since the opaque path would shade them
  * as solid surfaces (a decal as its projection box)
@@ -448,7 +454,7 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			continue;
 		}
 		const shader = materials.shaders[entry.shader];
-		if (UNDRAWN_FAMILIES.has(shader.family)) {
+		if (UNDRAWN_FAMILIES.has(shader.family) || UNDRAWN_SHADERS.has(shader.name)) {
 			looks[entry.id] = emptyLook({ drawn: false });
 			continue;
 		}
