@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 
 import { writeKtx2 } from '@endfield-noclip/formats/binary/ktx2';
 import { DrawFlags } from '@endfield-noclip/formats/endfield/init-chunk-data';
+import { ShaderPropertyFlags, ShaderPropertyType } from '@endfield-noclip/formats/unity/material';
 import type { DecodedMesh } from '@endfield-noclip/formats/unity/mesh';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { type DecodedTexture, toKtx2Texture } from '@endfield-noclip/formats/unity/texture';
@@ -284,6 +285,10 @@ const materialJson = async (resolver: AssetResolver, material: LoadedMaterial) =
 		textures,
 		floats: record.floats,
 		colors: record.colors,
+		// colours the shader declares `[HDR]`: authored linear, unlike the gamma-encoded rest
+		hdrColors: material.shader.properties
+			.filter((p) => p.type === ShaderPropertyType.Color && (p.flags & ShaderPropertyFlags.Hdr) !== 0)
+			.map((p) => p.name),
 		ints: record.ints,
 	};
 };
