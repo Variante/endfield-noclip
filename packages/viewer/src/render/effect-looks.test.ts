@@ -455,6 +455,31 @@ test('a VFXBaseV2 without a main texture draws with its shader default only when
 	assert.deepEqual(looks[0].textures.slice(0, 2), [-1, 2]);
 });
 
+test('a VFXBaseV2 sample texture switched on without a texture samples its shader default', () => {
+	// the white talosite's shards (`M_fx_l_map02_lv008_starcollection_08`): a mask switched on with no mask
+	// texture bound, whose white default keeps them; a black default leaves the slot unsampled
+	const looks = materialLooks({
+		shaders: [
+			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'white', _SampleTex0: 'white' } },
+			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'white', _SampleTex0: 'black' } },
+		],
+		entries: [0, 1].map((id) =>
+			material({
+				id,
+				shader: id,
+				keywords: ['_SAMPLE_TEX0'],
+				slots: { _MainTex: slot(1) },
+				floats: { _SampleTex0UseWeight3: 1, _UseSampleTex0AsAlpha: 1, _UseMask: 1 },
+			}),
+		),
+	});
+	assert.deepEqual(
+		looks.map((look) => look.params[EffectRow.slotBits + 1]),
+		[EffectRole.Mask + 16, ROLE_NONE],
+	);
+	assert.deepEqual(looks[0].textures.slice(0, 2), [1, -1]);
+});
+
 test('a VFXBaseV2 draws when its vertex offset is cancelled by particle mode and its glow follows the player', () => {
 	const [look] = materialLooks({
 		shaders: [shader('HGRP/Effect/VFXBaseV2')],

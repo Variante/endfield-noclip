@@ -43,9 +43,11 @@ position, centred and divided by half the width, v optionally the world height
 (`_UsePosYAsScreenV`), times the object origin's view depth past the near plane
 (`_ScreenUVUseDepth`, on by default); `_LocalPivortSpace` makes them relative to the object. a
 source that isn't computed is zero, so a texture weighted to it only scrolls. the sixth sample
-texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`. with
-`_USE_LIGHTING` the colour is an albedo lit by the irradiance volume, the shadowed sun and local
-lights, at the vertex normal turned towards the camera or at the world's up
+texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`. a sample
+texture its keyword switches on samples the property's default (white for every `_SampleTexN`) when
+the material binds none: the white talosite's shards switch on a mask that way, so it masks nothing.
+with `_USE_LIGHTING` the colour is an albedo lit by the irradiance volume, the shadowed sun and
+local lights, at the vertex normal turned towards the camera or at the world's up
 (`_RotateNormalToWorldUp`), and divided by the post exposure under `_IgnorePostExposure`. the mist
 cards rising at the foot of falls are lit so. the colour starts from
 `_TintColor · _TintColorIntensity` times the vertex colour, alpha from

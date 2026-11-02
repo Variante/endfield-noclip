@@ -415,7 +415,17 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
 	};
 	BASE_SLOTS.forEach((name, i) => {
-		const slot = entry.slots[name];
+		let slot = entry.slots[name];
+		// a sample texture its keyword switches on samples the shader's default when the material binds none;
+		// an unset slot binds white. the white talosite's shards take their mask from such a slot
+		if (
+			slot === undefined &&
+			i > 0 &&
+			entry.keywords.includes(`_SAMPLE_TEX${i - 1}`) &&
+			shader.textures[name] === 'white'
+		) {
+			slot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		}
 		if (slot === undefined || slot.uv > 1) {
 			return;
 		}
