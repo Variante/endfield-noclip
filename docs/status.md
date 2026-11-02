@@ -140,14 +140,19 @@ packs or renders correctly.
   [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the water's own
   foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer` values aren't
   packed); other fluid types are unverified
-- water volumes ([viewer](viewer/water.md#water-volumes)): moves are linear (no ease-in, and
-  non-fixed-speed moves use the fill speed as metres per second); floaters keep their authored
-  height above the surface rather than `surface_offset` and don't lag; `ground_distance`,
-  `isPrototype`, flow speed and direction, amount-based volumes' transfers and the volumes' render
-  type aren't read; each map02 volume that coincides with a placed surface (five lv006 pools,
-  lv010's 37900010002, several lv002/lv003 ones) draws twice, unverified against the game; Suiming's
-  lily pads end 0.9 m under the pit's surface at the first stage, as the data says, unverified in
-  game; a volume's surface has no shoreline wetness
+- water volumes ([viewer](viewer/water.md#water-volumes)): volumes that don't name a `WaterConfig`
+  (54 of map02's 61, listed in `debug/water.json`) aren't drawn. the game draws them through a
+  surface prefab per water type (`WaterVolumeManagerConfig.waterSurfaceSettingDict`,
+  `…/GameMech/WaterVolumeSurface_<type>.prefab`), and per-volume
+  `…/Gameplay/Water/<item type>#<volume id>_WaterSurface.asset` files exist but aren't read; sewage,
+  acid and xiranite volumes are among them. moves are linear (no ease-in, and non-fixed-speed moves
+  use the fill speed as metres per second); floaters keep their authored height above the surface
+  rather than `surface_offset` and don't lag; `ground_distance`, `isPrototype`, flow speed and
+  direction, amount-based volumes' transfers and the volumes' render type aren't read; each map02
+  volume that coincides with a placed surface (five lv006 pools, lv010's 37900010002, several
+  lv002/lv003 ones) draws twice, unverified against the game; Suiming's lily pads end 0.9 m under
+  the pit's surface at the first stage, as the data says, unverified in game; a volume's surface has
+  no shoreline wetness
 - waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
   beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
   of it, and the steep river surface running down the lip draws as clear water. what the game draws
