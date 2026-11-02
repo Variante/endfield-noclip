@@ -12,8 +12,9 @@ import type { Il2CppRuntime, Il2CppTypeRef } from '../il2cpp/registration.ts';
 //
 // rules beyond the generated wrappers, found by decoding every level script of the client to its exact length:
 //
-// - unmanaged structs of a few kinds (`*Ptr`, tags, poses) are copied raw at their in-memory size, padding
-//   included, except as List elements, which go through their wrapper
+// - unmanaged structs of a few kinds (`*Ptr`, tags, poses, path hashes, spline knots) are copied raw at their
+//   in-memory size, padding included, except as List elements, which go through their wrapper. path hashes
+//   and spline knots were confirmed by decoding every LevelData file but Dijiang's two to its exact length
 // - a Dictionary of two unmanaged types is copied raw as KeyValuePair rows
 // - `Nullable<T>` of an unmanaged T is raw: a has-value byte, then T at its alignment
 // - `AnimationCurve`, `SerializeFieldDictionary`, `SendLuaEvent*` and `AudioBlackScreenBehaviour` have their own
@@ -79,6 +80,8 @@ const RAW_STRUCTS = new Set([
 	'ValueUnion',
 	'AudioId',
 	'AbilitySystemData.PlungingAttackData',
+	'StringPathHash',
+	'BezierKnot',
 ]);
 
 /** generic structs laid out as a bool flag then the value at its alignment: `Nullable<T>`, `Optional<T>` */
