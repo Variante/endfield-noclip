@@ -308,7 +308,8 @@ tile pages as stored, one level each; [world.md](game-data/world.md#terrain) giv
 `terrain.surfaceSize` (132) is the side, and the outer `terrain.surfaceBorder` (2) texels of each
 edge lie outside the tile, so world `x` maps to
 `u = border / side + (x − tile.minX) / tile.size · (side − 2 · border) / side`. a tile missing
-either page has no surface ref. on map02 the 3,393 pages are 118 MB raw and 64 MB stored.
+either page has no surface ref and is listed in `debug/terrain.json`. on map02 the 3,393 pages are
+118 MB raw and 64 MB stored.
 
 ### splat page (`.tsl`, `EFSL`) and layer textures (`.tly`)
 
@@ -317,7 +318,8 @@ a leaf's close-up blend inputs, the game's splat control, tint and index pages
 `u32 magic, u16 version, u16 side, u16 cells, u16 0`, then the `S` page's RGBA8 texels (`side²`),
 the `T` page's BC3 sRGB blocks, and `cells²` cells of 4 layer ordinals cut from the scene's index
 map, row-major from the leaf's minimum corner. the images share the surface page's layout. a leaf
-missing either page has no splat ref. map02's 2,492 are 218 MB raw and 40 MB stored.
+missing either page has no splat ref and is listed in `debug/terrain.json`. map02's 2,492 are 218 MB
+raw and 40 MB stored.
 
 `terrain.splat` (`TerrainSplatInfo`) holds the cell size, the layer table (repeats per metre,
 offsets, mean colour, scales and remaps, named rather than the game's packed vectors), and the layer
@@ -325,7 +327,7 @@ textures: one `TerrainLayer` blob per texture and role, raw BC7 levels from `tex
 largest first, levels under 4² padded to one block. the packer drops the game's top level (1024²),
 since 512² already gives 57–230 texels per metre; map02's 38 pairs are 22 MB in
 `assets/terrain-layers-<id>.czar`. `splat` is `null` when the scene's layer table, index map or
-textures are missing or disagree (the pack log says which).
+textures are missing or disagree (the pack log and `debug/terrain.json`'s `layerProblem` say which).
 
 ### geometry blob (`.mesh`, `EFGM`)
 

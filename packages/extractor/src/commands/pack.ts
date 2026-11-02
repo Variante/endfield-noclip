@@ -175,6 +175,18 @@ const formatReport = (report: PackReport): string => {
 				(water.errors > 0 ? `; ${water.errors} errors (debug/water.json)` : ''),
 		);
 	}
+	if (report.terrain !== null) {
+		const { tiles, withoutSurface, leavesWithoutSplat, orphanPages, layerProblem } = report.terrain;
+		const missing = [
+			withoutSurface > 0 ? `${withoutSurface} without a surface page` : null,
+			leavesWithoutSplat > 0 ? `${leavesWithoutSplat} leaves without a splat page` : null,
+			orphanPages > 0 ? `${orphanPages} pages of tiles without heights` : null,
+			layerProblem === null ? null : `no close-up blend: the scene ${layerProblem}`,
+		].filter((part) => part !== null);
+		lines.push(
+			`terrain: ${tiles} tiles` + (missing.length > 0 ? `; ${missing.join(', ')} (debug/terrain.json)` : ''),
+		);
+	}
 	lines.push(
 		`core members: ${Object.entries(report.coreMembers)
 			.map(([path, size]) => `${path} ${mb(size)}`)

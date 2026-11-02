@@ -165,7 +165,7 @@ import { LightCollector } from './lights.ts';
 import { type CacheReport, PackCache } from './pack-cache.ts';
 import { ParticleTable } from './particles.ts';
 import { PhaseTimer } from './phase-timer.ts';
-import { packTerrain as packTerrainStep } from './terrain.ts';
+import { packTerrain as packTerrainStep, type TerrainDebug } from './terrain.ts';
 import { TileTreeBuilder } from './tile-tree.ts';
 import { finishWater, planWater, type WaterDebug, type WaterPlan, type WaterVolumeInput } from './water.ts';
 
@@ -222,6 +222,17 @@ export interface PackReport {
 		/** assets that failed to load, listed in `debug/water.json` */
 		errors: number;
 	};
+	/**
+	 * kept terrain tiles and how many pages were left out (listed in `debug/terrain.json`), `null` without
+	 * terrain
+	 */
+	terrain: {
+		tiles: number;
+		withoutSurface: number;
+		leavesWithoutSplat: number;
+		orphanPages: number;
+		layerProblem: string | null;
+	} | null;
 	hlod: { clusters: number; tierCounts: number[]; nameMatchesPosition: number };
 	/** the baked irradiance volume's packed cells, or `null` if the scene has none */
 	irradiance: IrradianceReport | null;
@@ -484,6 +495,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			conversion: conversion?.debug ?? null,
 			environments: environments.debug,
 			water: water.debug,
+			terrain: terrainPacked.debug,
 			unsupportedInteractives: entities.unsupportedInteractives,
 			unsupportedPrefabs: entities.unsupportedPrefabs,
 			standIns: entities.standIns,
@@ -538,6 +550,16 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				textures: water.textures.length,
 				errors: water.debug.errors.length,
 			},
+			terrain:
+				terrainPacked.debug === null
+					? null
+					: {
+							tiles: terrainPacked.debug.tiles,
+							withoutSurface: terrainPacked.debug.withoutSurface.length,
+							leavesWithoutSplat: terrainPacked.debug.leavesWithoutSplat.length,
+							orphanPages: terrainPacked.debug.orphanPages.length,
+							layerProblem: terrainPacked.debug.layerProblem,
+						},
 			hlod: {
 				clusters: instances.hlodClusters,
 				tierCounts: instances.tierCounts,
@@ -1546,12 +1568,6 @@ const syntheticEntityId = (levelTag: number, index: number): number => {
 	return ((levelTag << 27) | (SYNTHETIC_ID_TOP - index)) >>> 0;
 };
 
-/**
- * stores the subset's terrain (see `terrain.ts`) and attaches its pages to the tree
- *
- * @returns the levels that have height pages, ascending, and the detail section, `null` when the scene's
- *   layers can't be packed
- */
 /** a stand-in in `debug/stand-ins.json`: what it stands in for and why */
 interface StandInReport {
 	/** the prefab, structure or entity it belongs to */
@@ -1582,13 +1598,19 @@ const findParticleQuad = async (context: Context, resolver: AssetResolver): Prom
 	}
 };
 
+/**
+ * stores the subset's terrain (see `terrain.ts`) and attaches its pages to the tree
+ *
+ * @returns the levels that have height pages, ascending, the detail section (`null` when the scene's layers
+ *   can't be packed) and what was left out (`null` without terrain)
+ */
 const packTerrain = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver'>,
 	pack: PackState,
-): Promise<{ levels: number[]; splat: TerrainSplatInfo | null }> => {
+): Promise<{ levels: number[]; splat: TerrainSplatInfo | null; debug: TerrainDebug | null }> => {
 	const { terrainScene, surface, terrain, subset, grid } = pack.scene;
 	if (terrainScene === undefined || surface === undefined || terrain === null) {
-		return { levels: [], splat: null };
+		return { levels: [], splat: null, debug: null };
 	}
 	const packed = await packTerrainStep(context, pack.store, pack.cache, {
 		scene: pack.scene.options.scene,
@@ -1623,7 +1645,7 @@ const packTerrain = async (
 			pack.builder.addRef(key, { ...whole, kind: ContentKind.TerrainSplat, blob: tile.splat, param: 0 }, 0);
 		}
 	}
-	return { levels: packed.levels, splat: packed.splat };
+	return { levels: packed.levels, splat: packed.splat, debug: packed.debug };
 };
 
 /** the archive holding the terrain layer textures, which every splat page draws from */
@@ -2558,6 +2580,8 @@ const writeDebug = async (
 		conversion: AssetConversion['debug'] | null;
 		environments: LevelEnvironmentDebug[];
 		water: WaterDebug;
+		/** `null` without terrain, which writes no file */
+		terrain: TerrainDebug | null;
 		unsupportedInteractives: { path: string; reason: string }[];
 		unsupportedPrefabs: { path: string; reason: string }[];
 		standIns: StandInReport[];
@@ -2567,6 +2591,9 @@ const writeDebug = async (
 	await mkdir(dir, { recursive: true });
 	await writeFile(join(dir, 'environments.json'), json(debug.environments));
 	await writeFile(join(dir, 'water.json'), json(debug.water));
+	if (debug.terrain !== null) {
+		await writeFile(join(dir, 'terrain.json'), json(debug.terrain));
+	}
 	await writeFile(join(dir, 'unsupported-interactives.json'), json(debug.unsupportedInteractives));
 	await writeFile(join(dir, 'unsupported-prefabs.json'), json(debug.unsupportedPrefabs));
 	await writeFile(join(dir, 'stand-ins.json'), json(debug.standIns));

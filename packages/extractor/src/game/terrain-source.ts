@@ -34,6 +34,8 @@ export interface TerrainSceneIndex {
 	layers: Record<TerrainLayerRole, Map<number, VfsFile>>;
 	/** finest level present */
 	leafLevel: number;
+	/** channel pages of tiles without a height page, as `level/x/z channel`; no tile carries them */
+	orphanPages: string[];
 }
 
 /**
@@ -43,7 +45,7 @@ export interface TerrainSceneIndex {
 export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIndex>> => {
 	const group = await vfs.group(VfsGroup.Terrain);
 	const scenes = new Map<string, TerrainSceneIndex>();
-	// a tile's channels arrive in any order, so they're gathered before tiles without heights are dropped
+	// a tile's channels arrive in any order, so they're gathered before tiles without heights are set aside
 	const channels = new Map<TerrainSceneIndex, Map<string, TerrainTileFiles['channels']>>();
 	for (const entry of group.files.values()) {
 		const path = parseTerrainPath(entry.name);
@@ -56,6 +58,7 @@ export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIn
 				tiles: new Map(),
 				layers: { D: new Map(), N: new Map(), C: new Map() },
 				leafLevel: 0,
+				orphanPages: [],
 			};
 			channels.set(created, new Map());
 			return created;
@@ -84,6 +87,12 @@ export const indexTerrain = async (vfs: Vfs): Promise<Map<string, TerrainSceneIn
 		for (const [id, tile] of scene.tiles) {
 			tile.channels = sceneChannels.get(id) ?? {};
 		}
+		for (const [id, pages] of sceneChannels) {
+			if (!scene.tiles.has(id)) {
+				scene.orphanPages.push(...Object.keys(pages).map((channel) => `${id} ${channel}`));
+			}
+		}
+		scene.orphanPages.sort();
 	}
 	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
 	return new Map([...scenes].sort(([a], [b]) => a.localeCompare(b)));

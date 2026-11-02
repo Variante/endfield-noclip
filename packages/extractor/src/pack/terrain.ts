@@ -96,6 +96,24 @@ export interface PackedTerrain {
 	levels: number[];
 	/** the close-up blend's section, `null` when the scene's layers can't be packed */
 	splat: TerrainSplatInfo | null;
+	debug: TerrainDebug;
+}
+
+/** what the terrain step left out, for the pack report and `debug/terrain.json`; tiles are `level/x/z` */
+export interface TerrainDebug {
+	/** tiles the subset keeps */
+	tiles: number;
+	/** kept tiles without a surface page, because they miss their albedo or normal page */
+	withoutSurface: string[];
+	/**
+	 * kept leaves without a splat page, because they miss their control or tint page; every leaf when
+	 * {@link layerProblem} is set
+	 */
+	leavesWithoutSplat: string[];
+	/** channel pages of the scene's tiles that have no height page, as `level/x/z channel` */
+	orphanPages: string[];
+	/** why the scene's layer textures, and with them the close-up blend, weren't packed; `null` if they were */
+	layerProblem: string | null;
 }
 
 /** what the pack cache remembers of this step besides the blobs */
@@ -110,7 +128,7 @@ interface TerrainMemo {
 
 /**
  * stores the subset's terrain. a tile missing its albedo or normal page gets no surface page; a leaf missing
- * its control or tint page gets no splat page
+ * its control or tint page gets no splat page. both are listed in the result's debug section
  *
  * @param context VFS, world index and asset resolver
  * @param store where the blobs go
@@ -180,8 +198,21 @@ export const packTerrain = async (
 		}
 		splat = { ...memo.value.splat, diffuse, normal };
 	}
-	return { tiles: packed, levels: unique(tiles.map(({ key: tile }) => tile.level)), splat };
+	const leafLevel = terrainLeafLevel(surface.terrainSize);
+	const debug: TerrainDebug = {
+		tiles: memo.value.tiles.length,
+		withoutSurface: memo.value.tiles.filter((tile) => !tile.surface).map((tile) => tileId(tile.key)),
+		leavesWithoutSplat: memo.value.tiles
+			.filter((tile) => tile.key.level === leafLevel && !tile.splat)
+			.map((tile) => tileId(tile.key)),
+		orphanPages: terrainScene.orphanPages,
+		layerProblem: memo.value.layerProblem,
+	};
+	return { tiles: packed, levels: unique(tiles.map(({ key: tile }) => tile.level)), splat, debug };
 };
+
+/** @returns a tile key as `level/x/z`, the form the terrain index keys tiles by */
+const tileId = ({ level, x, z }: TileKey): string => `${level}/${x}/${z}`;
 
 /** @returns a VFS file's content md5 */
 const md5 = (file: VfsFile): string => file.entry.dataMd5;
