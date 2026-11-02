@@ -1,5 +1,5 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
-import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances';
+import { type Chain, ChainFlags, DrawRole } from '@endfield-noclip/package-format/instances';
 import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 
 import { CULL_FLOATS, ROW_WORDS } from '../render/instance-rows.ts';
@@ -314,6 +314,7 @@ export class MeshSelector {
 					continue;
 				}
 				const slots = this.#chainSlots(runs[r]);
+				const byDistance = (this.#chains[runs[r]].flags & ChainFlags.CameraDistance) !== 0;
 				const last = Math.min(end, runEnd);
 				for (let i = Math.max(first, runFirst); i < last; i++) {
 					const at = i * ROW_WORDS;
@@ -339,7 +340,7 @@ export class MeshSelector {
 					}
 					// Unity's LODGroup metric: the object's size relative to the screen height
 					const relative = (2 * cull[i * CULL_FLOATS + 1] * pixelFactor) / (distance * viewportHeight);
-					const squared = relative * relative;
+					const squared = byDistance ? x * x + y * y + z * z : relative * relative;
 					const priority = relative * viewportHeight * (castOnly ? CASTER_PRIORITY : 1);
 
 					let pendingCount = 0;

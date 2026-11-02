@@ -246,6 +246,19 @@ on. the Very Large Rift (dung02_dg005) places two `p_fxmap_map02_lv002_qinshihuo
 walls whose `dither` layer (a `VFXDitherAlpha` sheet) is one, beside the drawn `caihong`, `wenli`
 and `trans` layers on the same mesh.
 
+with `isUseDistanceLod` set, the setting picks a distance band from the camera's distance to its own
+GameObject, whenever either moves. `distanceLodCfgList` holds each band's `distance`; the band is
+the last one whose distance the camera is beyond (strictly), else the first, and each listed
+GameObject is on in band `i` while its `_distanceLodInfos[i].isActive` is 1. an entry switches its
+whole GameObject, so its subtree with it. past `cullDis` the setting stops picking bands, and with
+`_isCullDisable` set it switches its own GameObject off, hiding the whole effect, until the camera
+comes back within it. `lodFadeTime` fades between bands.
+
+the collectible marker (`int_collection_common_postmodel`, whose view states only switch it off once
+collected) is one: bands from 0, 30 and 60 m, culled at 80 m. within 30 m it shows everything: the
+triangle icon, its glow card, two line trails, sparks and rings; from 30 to 60 m the icon and the
+rings; from 60 to 80 m the icon alone.
+
 ## dynamic structures
 
 the dynamic ECS scene (`Data/DynamicStreaming/PC/Scene/<scene>/`) holds scenery that appears,

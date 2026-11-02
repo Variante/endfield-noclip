@@ -245,8 +245,12 @@ the draw is a particle system's mesh, else it's `0xffffffff`. the chain flags ma
 has (`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards
 (`BillboardFacing`, `BillboardUpright`): their transform's rotation is then relative to the
 camera's, and their bounds hold every orientation ([billboards](game-data/assets.md#billboards)).
-the nearest billboard up the hierarchy turns a mesh renderer
-([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
+`CameraDistance` makes the chain's thresholds squared camera distances from the instance's
+translation, in m², instead of screen-relative sizes. the packer sets it on prefab renderers an
+[effect LOD table](game-data/assets.md#effect-lod-tables) switches by distance, with one draw per
+span of distances they show at; it measures from the renderer, not from the effect's origin as the
+game does, and switches without the game's fade. the nearest billboard up the hierarchy turns a mesh
+renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
 `BillboardFacing`, the others `BillboardUpright` (about the world's vertical, which is their axis on
 upright placements). the packer stores the offset times the renderer's rotation relative to the
 billboard, at the renderer's own position, so a renderer away from the billboard's origin turns in

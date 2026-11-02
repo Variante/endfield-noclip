@@ -34,7 +34,10 @@ import { particleReach, readParticleSystem } from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
 	animatorHiddenNodes,
+	type DistanceRange,
+	effectDistanceLod,
 	effectLodNodes,
+	intersectRanges,
 	isEffectSettingType,
 	isOneShotEffect,
 	isViewStateControllerType,
@@ -74,6 +77,11 @@ export interface PrefabRenderer {
 	 * none
 	 */
 	materialValues: (MaterialValues | null)[];
+	/**
+	 * the camera distances from the renderer the effect LOD tables above it leave it on at, ascending; `null`
+	 * when nothing switches it by distance
+	 */
+	distances: readonly DistanceRange[] | null;
 }
 
 /** material values a pose sets on a renderer, by property name, replacing the material's saved ones */
@@ -162,6 +170,7 @@ export const readPrefabRenderers = async (
 		billboard: PrefabBillboard | null;
 		/** material values the pose's clips set on the renderer */
 		posedMaterials: readonly ClipMaterialValue[];
+		distances: readonly DistanceRange[] | null;
 	}[] = [];
 	const excluded = new Set<string>();
 	const firstLod = new Set<string>();
@@ -171,6 +180,12 @@ export const readPrefabRenderers = async (
 	const played = new Set<string>();
 	// GameObjects an EffectSetting's LOD table switches, found before their subtrees are visited
 	const lodSwitched = new Set<string>();
+	// by GameObject, the distances an EffectSetting's distance LOD leaves it on at, found likewise
+	const distanceSwitched = new Map<string, DistanceRange[]>();
+	const switchByDistance = (key: string, ranges: DistanceRange[]): void => {
+		const known = distanceSwitched.get(key);
+		distanceSwitched.set(key, known === undefined ? ranges : intersectRanges(known, ranges));
+	};
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -182,6 +197,8 @@ export const readPrefabRenderers = async (
 		above: readonly (string | null)[],
 		/** the Animators above the parent: what their clips never show, and the parent's path below each */
 		animators: readonly AnimatorScope[],
+		/** the distances the parent shows at, `null` for any */
+		parentDistances: readonly DistanceRange[] | null,
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -288,14 +305,29 @@ export const readPrefabRenderers = async (
 					played.add(node);
 				}
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isEffectSettingType(ref)) {
-				for (const node of await effectLodNodes(resolver, ref, await resolver.read(ref))) {
+				const settingData = await resolver.read(ref);
+				for (const node of await effectLodNodes(resolver, ref, settingData)) {
 					lodSwitched.add(node);
+				}
+				const byDistance = await effectDistanceLod(resolver, ref, settingData);
+				if (byDistance !== null) {
+					switchByDistance(key, byDistance.self);
+					for (const [node, ranges] of byDistance.nodes) {
+						switchByDistance(node, ranges);
+					}
 				}
 			} else if (ref.info.classId === UnityClass.Animator) {
 				const hidden = await animatorHiddenNodes(resolver, ref, await resolver.read(ref));
 				if (hidden.size > 0) {
 					scopes.push({ hidden, path: '' });
 				}
+			}
+		}
+		let distances = parentDistances;
+		{
+			const own = distanceSwitched.get(key);
+			if (own !== undefined) {
+				distances = distances === null ? own : intersectRanges(distances, own);
 			}
 		}
 		const transform = components.find((component) => component.ref.info.classId === UnityClass.Transform);
@@ -375,6 +407,7 @@ export const readPrefabRenderers = async (
 						unsupported: standIn,
 						billboard: null,
 						posedMaterials,
+						distances,
 					});
 				}
 			}
@@ -397,6 +430,7 @@ export const readPrefabRenderers = async (
 							unsupported: standIn,
 							billboard,
 							posedMaterials,
+							distances,
 						});
 					}
 				}
@@ -432,6 +466,7 @@ export const readPrefabRenderers = async (
 						unsupported: null,
 						billboard: null,
 						posedMaterials,
+						distances,
 					});
 				}
 			} else {
@@ -467,6 +502,7 @@ export const readPrefabRenderers = async (
 								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: placed }
 								: null,
 							posedMaterials,
+							distances,
 						});
 					}
 				} else if (read !== null && 'info' in read) {
@@ -486,6 +522,7 @@ export const readPrefabRenderers = async (
 								unsupported: null,
 								billboard: null,
 								posedMaterials,
+								distances,
 							});
 						}
 					}
@@ -495,7 +532,7 @@ export const readPrefabRenderers = async (
 		for (const mover of movers) {
 			// the objects draw their LOD groups' first-LOD renderers, which live in other prefabs
 			for (const renderer of await splineMoverRenderers(resolver, mover.ref, mover.data, standIn)) {
-				candidates.push({ ...renderer, matrix, name, billboard: null, posedMaterials: [] });
+				candidates.push({ ...renderer, matrix, name, billboard: null, posedMaterials: [], distances });
 			}
 		}
 		for (const pointer of arrayField(t, 'm_Children')) {
@@ -504,12 +541,12 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, off, billboard, below, scopes);
+					await visit(childGo, matrix, false, off, billboard, below, scopes, distances);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, [], []);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, [], [], null);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
@@ -567,6 +604,7 @@ export const readPrefabRenderers = async (
 			mesh: candidate.mesh,
 			materials,
 			materialValues,
+			distances: candidate.distances,
 			submeshes: arrayField(mesh, 'm_SubMeshes').length,
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,

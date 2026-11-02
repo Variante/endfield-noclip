@@ -51,6 +51,11 @@ export const ChainFlags = {
 	 * camera's heading (its forward projected onto the horizontal)
 	 */
 	BillboardUpright: 1 << 4,
+	/**
+	 * the draws' `minSquared` and `maxSquared` are squared camera distances from the instance's translation, in
+	 * m², rather than screen-relative sizes
+	 */
+	CameraDistance: 1 << 5,
 } as const;
 
 /** instance block flag bits */
@@ -71,7 +76,8 @@ export interface ChainDraw {
 	role: DrawRole;
 	/**
 	 * shown while `minSquared < s² <= maxSquared`, `s` being the instance's screen-relative height as in
-	 * Unity's LODGroup (times the viewer's LOD bias). `maxSquared` is `FLT_MAX` on the nearest LOD; a negative
+	 * Unity's LODGroup (times the viewer's LOD bias), or the camera's distance in a
+	 * {@link ChainFlags.CameraDistance} chain. `maxSquared` is `FLT_MAX` on the nearest LOD; a negative
 	 * `minSquared` means never culled by size
 	 */
 	minSquared: number;
@@ -130,7 +136,7 @@ const INSTANCE_ROW_SIZE = 4 + 48 + 24 + 4;
 /** 'EFCH' */
 const CHAINS_HEADER: HeaderShape = {
 	magic: 0x48_43_46_45,
-	version: 2,
+	version: 3,
 	size: TABLE_HEADER_SIZE,
 	label: 'chain table',
 };

@@ -131,6 +131,106 @@ export const effectLodNodes = async (
 	return nodes;
 };
 
+/** camera distances `near < d ≤ far`, in metres */
+export interface DistanceRange {
+	near: number;
+	far: number;
+}
+
+/**
+ * @param a ranges, ascending and disjoint
+ * @param b likewise
+ * @returns the distances in both, ascending and disjoint
+ */
+export const intersectRanges = (
+	a: readonly DistanceRange[],
+	b: readonly DistanceRange[],
+): DistanceRange[] => {
+	const out: DistanceRange[] = [];
+	for (const x of a) {
+		for (const y of b) {
+			const near = Math.max(x.near, y.near);
+			const far = Math.min(x.far, y.far);
+			if (near < far) {
+				out.push({ near, far });
+			}
+		}
+	}
+	return out.toSorted((p, q) => p.near - q.near);
+};
+
+/** an `EffectSetting`'s distance LOD: where the camera has to be for the GameObjects it switches to show */
+export interface EffectDistanceLod {
+	/** where the setting's own GameObject is on: everywhere, or within the cull distance */
+	self: DistanceRange[];
+	/** by GameObject key, the distances its LOD entries leave it on at */
+	nodes: Map<string, DistanceRange[]>;
+}
+
+/**
+ * @param resolver bundle reader
+ * @param setting an `EffectSetting` (see {@link isEffectSettingType})
+ * @param data its fields
+ * @returns the distances its GameObjects show at (docs/game-data/assets.md#effect-lod-tables), or `null` when
+ *   the setting is disabled or doesn't switch by distance
+ * @throws {FormatError} on a malformed LOD entry or distance band
+ */
+export const effectDistanceLod = async (
+	resolver: AssetResolver,
+	setting: ObjectRef,
+	data: TypeTreeObject,
+): Promise<EffectDistanceLod | null> => {
+	if (numberField(data, 'm_Enabled') === 0 || numberField(data, 'isUseDistanceLod') === 0) {
+		return null;
+	}
+	const distances = arrayField(data, 'distanceLodCfgList').map((band) => {
+		if (!isObject(band)) {
+			throw new FormatError('invalid effect distance band');
+		}
+		return numberField(band, 'distance');
+	});
+	if (distances.length === 0) {
+		return null;
+	}
+	// the game picks the last band past whose distance the camera is, or the first; so a band runs from its
+	// own distance to the nearest distance of a later band
+	const bands = distances.map((distance, i): DistanceRange => {
+		const later = distances.slice(i + 1);
+		return { near: i === 0 ? 0 : distance, far: Math.min(Infinity, ...later) };
+	});
+	const nodes = new Map<string, DistanceRange[]>();
+	for (const entry of arrayField(data, 'lodSetting')) {
+		if (!isObject(entry)) {
+			throw new FormatError('invalid effect LOD entry');
+		}
+		const node = await resolver.resolve(setting, pptrField(entry, 'gameobject'));
+		if (node === null) {
+			continue;
+		}
+		const infos = arrayField(entry, '_distanceLodInfos');
+		const on: DistanceRange[] = [];
+		for (const [i, band] of bands.entries()) {
+			const info = infos[i];
+			// a band the entry has no info for is assumed on (what the game fills in is unchecked)
+			const active = info === undefined || (isObject(info) && numberField(info, 'isActive') !== 0);
+			if (!active || band.near >= band.far) {
+				continue;
+			}
+			const previous = on.at(-1);
+			if (previous?.far === band.near) {
+				previous.far = band.far;
+			} else {
+				on.push({ ...band });
+			}
+		}
+		const known = nodes.get(objectKey(node));
+		nodes.set(objectKey(node), known === undefined ? on : intersectRanges(known, on));
+	}
+	// past the cull distance the game switches the whole effect off, when `_isCullDisable` asks it to
+	const cull = numberField(data, '_isCullDisable') !== 0 ? numberField(data, 'cullDis') : Infinity;
+	return { self: [{ near: 0, far: cull }], nodes };
+};
+
 /**
  * @param resolver bundle reader
  * @param go a GameObject

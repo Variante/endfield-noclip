@@ -40,6 +40,7 @@ import {
 	encodeChains,
 	encodeInstanceBlock,
 	type ChainDraw,
+	ChainFlags,
 	DrawRole,
 	type InstanceBlock,
 	NO_MATERIAL,
@@ -1359,7 +1360,13 @@ const collectEntities = async (
 			} else if (renderer.shadowOnly) {
 				role = DrawRole.ShadowOnly;
 			}
-			const draws = mapDefined(renderer.materials, (material, index): ChainDraw | undefined => {
+			// an effect's LOD table shows the renderer at some camera distances: one draw per span, measured from
+			// the renderer rather than the effect's origin
+			const spans = (renderer.distances ?? [{ near: 0, far: Infinity }]).map(({ near, far }) => ({
+				minSquared: near > 0 ? near * near : -1,
+				maxSquared: Number.isFinite(far) ? far * far : 3.4028234663852886e38,
+			}));
+			const draws = mapDefined(renderer.materials, (material, index): ChainDraw[] | undefined => {
 				if (material === null) {
 					return undefined;
 				}
@@ -1372,18 +1379,19 @@ const collectEntities = async (
 					id = pack.materials.internObjectVariant(material, `posed ${JSON.stringify(saved)}`);
 					pack.materialOverrides.set(id, { saved, colors: {}, vectors: {} });
 				}
-				return {
+				const particles = renderer.particles === null ? null : pack.particles.intern(renderer.particles);
+				return spans.map(({ minSquared, maxSquared }) => ({
 					geometry,
 					material: id,
 					submesh: Math.min(index, renderer.submeshes - 1),
 					lod: 0,
 					role,
-					minSquared: -1,
-					maxSquared: 3.4028234663852886e38,
+					minSquared,
+					maxSquared,
 					sourceFlags: renderer.shadowOnly ? DrawFlags.ShadowOnly : 0,
-					particles: renderer.particles === null ? null : pack.particles.intern(renderer.particles),
-				};
-			});
+					particles,
+				}));
+			}).flat();
 			if (draws.length === 0) {
 				continue;
 			}
@@ -1391,7 +1399,11 @@ const collectEntities = async (
 			floating?.push(entityId);
 			addStructure(
 				{
-					chain: pack.chains.intern(1, draws, renderer.billboard?.flag ?? 0),
+					chain: pack.chains.intern(
+						1,
+						draws,
+						(renderer.billboard?.flag ?? 0) | (renderer.distances === null ? 0 : ChainFlags.CameraDistance),
+					),
 					matrix,
 					bounds,
 					entityId,
