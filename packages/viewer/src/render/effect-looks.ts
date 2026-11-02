@@ -144,6 +144,16 @@ export const OFFSET_SLOT = 6;
 /** the material property of the vertex offset's texture */
 const OFFSET_TEXTURE = '_OffsetTex';
 
+/** a slot the material leaves unset, where the shader's white default stands in (texture −1 binds white) */
+const UNSET_WHITE: TextureSlot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+
+/**
+ * @returns the vertex offset's texture: the bound slot, or {@link UNSET_WHITE} when the material binds none
+ *   and the shader defaults to white; `null` for another default
+ */
+const offsetSlotOf = (entry: ReadyMaterial, shader: ShaderEntry): TextureSlot | null =>
+	entry.slots[OFFSET_TEXTURE] ?? (shader.textures[OFFSET_TEXTURE] === 'white' ? UNSET_WHITE : null);
+
 /** the property whose `_ST` a VFXBaseV2 sample texture uses, by role */
 const ROLE_TEXTURES = ['_DisturbTex1', '_DisturbTex2', '_WeightTex', '_MaskTex', '_BlendTex', '_DissolveTex'];
 
@@ -362,7 +372,7 @@ const setVertexOffset = (
 const vertexOffsetDrawn = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
 	entry.keywords.includes('_USE_VERTOFFSET') &&
 	readers(entry, shader).float('_InParticle', 1) === 0 &&
-	entry.slots[OFFSET_TEXTURE] !== undefined;
+	offsetSlotOf(entry, shader) !== null;
 
 /** a `_WaterHeight` at or below this lies under every level, so water blending leaves the effect unchanged */
 const WATER_BLEND_UNSET = -1000;
@@ -373,8 +383,8 @@ const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderE
 	switch (keyword) {
 		case '_USE_VERTOFFSET': {
 			// the game scales the offset by `1 − _InParticle`, so meshes left in particle mode don't move
-			const slot = entry.slots[OFFSET_TEXTURE];
-			return float('_InParticle', 1) !== 0 || (slot !== undefined && slot.uv <= 1);
+			const slot = offsetSlotOf(entry, shader);
+			return float('_InParticle', 1) !== 0 || (slot !== null && slot.uv <= 1);
 		}
 		case '_USE_BRIGHT': {
 			// the radial glow and distortion around the player (no `_BrightCenter`) reach `_OuterRadius` metres,
@@ -450,20 +460,23 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		const largest = weights.indexOf(Math.max(...weights));
 		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
 	};
-	BASE_SLOTS.forEach((name, i) => {
-		let slot = entry.slots[name];
-		// a sample texture its keyword switches on samples the shader's default when the material binds none;
-		// an unset slot binds white. the white talosite's shards take their mask from such a slot
-		if (
-			slot === undefined &&
-			i > 0 &&
-			entry.keywords.includes(`_SAMPLE_TEX${i - 1}`) &&
-			shader.textures[name] === 'white'
-		) {
-			slot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+	for (const [i, name] of BASE_SLOTS.entries()) {
+		// the main texture is always sampled, a sample texture only with its keyword
+		if (i > 0 && !entry.keywords.includes(`_SAMPLE_TEX${i - 1}`)) {
+			continue;
 		}
-		if (slot === undefined || slot.uv > 1) {
-			return;
+		let slot = entry.slots[name];
+		// a sample texture samples the shader's default when the material binds none; an unset slot binds white.
+		// the white talosite's shards take their mask from such a slot
+		if (slot === undefined && i > 0 && shader.textures[name] === 'white') {
+			slot = UNSET_WHITE;
+		}
+		if (slot === undefined) {
+			continue;
+		}
+		// the geometry carries UV sets 0 and 1 only
+		if (slot.uv > 1) {
+			return null;
 		}
 		if (i === 0) {
 			const bits =
@@ -472,15 +485,12 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 				(float('_UseMainTexAsAlpha', 0) !== 0 ? 16 : 0) +
 				source('_MainTex');
 			setSlot(look, i, slot, animOf('_MainTex'), bits);
-			return;
+			continue;
 		}
 		const n = i - 1;
-		if (!entry.keywords.includes(`_SAMPLE_TEX${n}`)) {
-			return;
-		}
 		const role = ROLE_TEXTURES.findIndex((_, k) => float(`_SampleTex${n}UseWeight${k}`, 0) !== 0);
 		if (role < 0) {
-			return;
+			continue;
 		}
 		// the shader transforms a sample texture's UVs by the `_ST` of its role's texture property
 		const transform = entry.slots[ROLE_TEXTURES[role]] ?? slot;
@@ -499,7 +509,7 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 			bits += source(`_SampleTex${n}`);
 		}
 		setSlot(look, i, { ...transform, texture: slot.texture }, anim, bits);
-	});
+	}
 	// without a main texture the shader samples its default; slot 0 is always sampled, and an unset slot binds
 	// white
 	if (look.textures[0] < 0 && shader.textures['_MainTex'] !== 'white') {
@@ -541,12 +551,8 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 	params[EffectRow.misc + 1] = float('_ExpThreshold', 1);
 	params[EffectRow.misc + 2] = float('_ExpIntensity', 0);
 	params[EffectRow.misc + 3] = float('_UseDisturb', 0) !== 0 ? 1 : 0;
-	const offsetSlot = entry.slots[OFFSET_TEXTURE];
-	if (
-		entry.keywords.includes('_USE_VERTOFFSET') &&
-		float('_InParticle', 1) === 0 &&
-		offsetSlot !== undefined
-	) {
+	const offsetSlot = offsetSlotOf(entry, shader);
+	if (entry.keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0 && offsetSlot !== null) {
 		setVertexOffset(look, entry, shader, offsetSlot);
 		params[EffectRow.offset + 2] = float('_UseVertexColorAlphaAsVertOffsetWeight', 0);
 		params[EffectRow.offset + 3] = float('_VertCameraOffset', 0);
@@ -681,7 +687,7 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 			continue;
 		}
 		// an unset slot binds white, the shader's default for each of these
-		const bound = entry.slots[slot.name] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		const bound = entry.slots[slot.name] ?? UNSET_WHITE;
 		if (bound.uv > 1) {
 			return null;
 		}
@@ -715,10 +721,10 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 	params[EffectRow.unfogged] = 0;
 	params[EffectRow.unfogged + 3] =
 		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
-	// the game scales the offset by `1 − _InParticle`; an unset offset texture binds white, the shader's default
-	if (keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0) {
-		const slot = entry.slots[OFFSET_TEXTURE] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
-		setVertexOffset(look, entry, shader, slot);
+	// the game scales the offset by `1 − _InParticle`
+	const offsetSlot = offsetSlotOf(entry, shader);
+	if (keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0 && offsetSlot !== null) {
+		setVertexOffset(look, entry, shader, offsetSlot);
 	}
 	return look;
 };
@@ -801,7 +807,7 @@ export const vfxRefractLook = (entry: ReadyMaterial, shader: ShaderEntry): Effec
 		if (switched && !polar) {
 			return null;
 		}
-		const bound = entry.slots[slot.name] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		const bound = entry.slots[slot.name] ?? UNSET_WHITE;
 		if (bound.uv !== 0) {
 			return null;
 		}
@@ -882,9 +888,14 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 	if (entry.keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0) {
 		sources.set(2, SlotSource.Polar);
 	}
+	const used = (keyword: string | null): boolean => keyword === null || entry.keywords.includes(keyword);
+	// the geometry carries UV sets 0 and 1 only
+	if (DECAL_SLOTS.some(({ name, keyword }) => used(keyword) && (entry.slots[name]?.uv ?? 0) > 1)) {
+		return null;
+	}
 	DECAL_SLOTS.forEach(({ name, role, keyword, speed: speedName, rotate, disturbed, source }, i) => {
 		const slot = entry.slots[name];
-		if (slot === undefined || slot.uv > 1 || (keyword !== null && !entry.keywords.includes(keyword))) {
+		if (slot === undefined || !used(keyword)) {
 			return;
 		}
 		const speed = (speedName !== null && color(speedName)) || [0, 0, 0, 0];
@@ -1291,9 +1302,13 @@ export const vfxWaterLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 		sequence,
 		sequence && has('_USE_SEQUENCE_FRAME_MV'),
 	];
+	// the sheets are drawn from UV set 0 alone
+	if (WATER_SLOTS.some((name, i) => used[i] && (entry.slots[name]?.uv ?? 0) > 0)) {
+		return null;
+	}
 	WATER_SLOTS.forEach((name, i) => {
 		const slot = entry.slots[name];
-		if (!used[i] || slot === undefined || slot.uv > 0) {
+		if (!used[i] || slot === undefined) {
 			return;
 		}
 		const prefix = WATER_SLOT_ANIM[i];
