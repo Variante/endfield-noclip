@@ -46,14 +46,13 @@ grid still visible.
 | `_EMISSIVE_MASK`  | the colour times a channel of the material's own maps, picked by `_EmissiveMaskChannel` |
 | `_EMISSIVE_NOMAP` | only ships with the sweep animation (`_EMISSIVE_ANIM_SWEEP`)                            |
 
-`_EMISSIVE_ANIM` pulses the `_EmissiveColor` term by `mix(1, p, _EmissiveColor.a)`. its phase is
-`frac(_Time.x / 2π · _EmissiveAnimSpeed + _EmissiveAnimRandom)` (`_Time.x` assumed to be Unity's
-seconds / 20; unchecked against the game), scaled by `_EmissiveAnimInterval` and clamped to 1, then
-mapped to `x` in −1…1; with `m` = `_EmissiveMinBrightness`,
-`p = (1 − m)(2|x|³ − 3x² + ½) + (1 + m)/2`, which is 1 mid-cycle and `m` at its ends. the white lamp
-cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse once every
-π seconds. `_EnableEmissiveAnimFlicker` swaps the pulse for hashed on/off noise; no map02 material
-sets it.
+`_EMISSIVE_ANIM` makes the emission pulse: each cycle it rises smoothly from
+`_EmissiveMinBrightness` to full and falls back, over the share of the cycle `_EmissiveAnimInterval`
+gives it. `_EmissiveAnimSpeed` sets the rate, `_EmissiveAnimRandom` offsets the phase and
+`_EmissiveColor`'s alpha sets how deep the pulse goes. the cycle runs on Unity's `_Time.x`, assumed
+to be seconds / 20 (unchecked against the game), so the white lamp cubes on Wuling's and Marker
+Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse about every 3 s.
+`_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker; no map02 material sets it.
 
 each draw also carries a runtime emission colour in its per-draw data, which replaces
 `_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
