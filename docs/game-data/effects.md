@@ -165,9 +165,11 @@ the drifting mist banks are effects too: `HGRP/FogSimple` cards (841 on map02, `
   by `_WindNoiseIntensity`, scales both colour and alpha. the colour is `_BaseColor`; with
   `_USE_LIGHTING` it's `_BaseColor` times the sun's light colour, mixed towards `_IndirectColor`
   away from the sun by `_LightFactor`. alpha then fades in over `_DistanceFadeStart…End` and out
-  over `_NearCameraFadeDistanceStart…End` metres of view depth, towards the card's top
-  (`saturate(−object y · _TopFadeContract + _TopFadeOffset)`), with `_USE_SOFTBLEND` within
-  `_SoftDistance` metres of what lies behind, and is scaled by `_BaseAlphaIntensity`.
+  over `_NearCameraFadeDistanceStart…End` metres of view depth, upwards
+  (`saturate(h · _TopFadeContract + _TopFadeOffset)`, where `h` is the world height below the card's
+  origin divided by the length of its y axis, so a card placed upside down, like the 77 m one at
+  Suiming's cave exit, still fades towards the sky rather than the ground), with `_USE_SOFTBLEND`
+  within `_SoftDistance` metres of what lies behind, and is scaled by `_BaseAlphaIntensity`.
 - **boxes.** from the nearer of the surface behind and the box's far side, the fog's thickness is
   the distance along the view ray through the unit cube towards the camera (stopping at the camera
   inside it), and alpha is

@@ -1051,13 +1051,17 @@ fn fs_mist_card(in: EffectOut) -> EffectAccumulated {
 	let depth = dot(in.rel, frame.view_forward.xyz);
 	let fade = fx_row(id, MIST_FADE);
 	let top = fx_row(id, MIST_TOP);
-	let object_y = dot(in.to_object1, vec4f(in.rel, 1.0));
+	// the game measures the top fade in world height below the origin, in units of the object's y scale, not
+	// along the object's y axis: an upside-down card still fades towards the sky
+	let basis = mist_basis(in);
+	let origin = -(basis * vec3f(in.to_object0.w, in.to_object1.w, in.to_object2.w));
+	let below = (origin.y - in.rel.y) / max(length(basis[1]), 1e-6);
 	var soft = 1.0;
 	if (top.z > 0.0) {
 		soft = saturate((fx_scene_depth(vec2i(in.position.xy)) - depth) / top.z);
 	}
 	alpha = saturate(
-		alpha * mist_fade(fade.xy, depth) * mist_fade(fade.zw, depth) * saturate(-object_y * top.x + top.y) * soft * card.x,
+		alpha * mist_fade(fade.xy, depth) * mist_fade(fade.zw, depth) * saturate(below * top.x + top.y) * soft * card.x,
 	);
 	return mist_accumulate(id, max(color, vec3f(0.0)) * alpha, alpha, length(in.rel));
 }
@@ -1117,10 +1121,14 @@ fn fs_mist_volume(in: EffectOut) -> EffectAccumulated {
 	return mist_accumulate(id, color * alpha, alpha, to_point);
 }
 
+// an effect object's object → world basis (columns are its scaled axes), from its world → object rows
+fn mist_basis(in: EffectOut) -> mat3x3f {
+	return inverse3(transpose(mat3x3f(in.to_object0.xyz, in.to_object1.xyz, in.to_object2.xyz)));
+}
+
 // the camera-relative origin of an effect's object, from its world → object rows
 fn mist_origin(in: EffectOut) -> vec3f {
-	let m = transpose(mat3x3f(in.to_object0.xyz, in.to_object1.xyz, in.to_object2.xyz));
-	return -(inverse3(m) * vec3f(in.to_object0.w, in.to_object1.w, in.to_object2.w));
+	return -(mist_basis(in) * vec3f(in.to_object0.w, in.to_object1.w, in.to_object2.w));
 }
 
 // #endregion
