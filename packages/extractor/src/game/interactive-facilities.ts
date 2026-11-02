@@ -6,7 +6,7 @@ import {
 } from '@endfield-noclip/formats/endfield/interactive-model';
 import {
 	type LevelInteractive,
-	readLevelInteractives,
+	readLevelDataPrefix,
 	UnsupportedLevelData,
 } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
@@ -23,6 +23,7 @@ import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
 import type { PrefabPose } from './prefab.ts';
+import { SWITCH_VALUES } from './scene-conditions.ts';
 import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
 import { readViewStates, settledPose } from './view-state-poses.ts';
@@ -402,9 +403,12 @@ export const loadInteractiveFacilities = async (
 	scene: string,
 	level: string | null,
 	partition: LevelPartition | undefined,
+	scripted: ReadonlySet<string>,
 ): Promise<{
 	models: StructureModel[];
 	progressions: SceneControl[];
+	/** by logic id, the controls of the rows level scripts show and hide, shown as placed */
+	scriptControls: Map<string, SceneControl>;
 	/** per level with rows the game creates later (`createState` ≠ 0), the control that shows them, off */
 	created: SceneControl[];
 	/** controls of interactives whose look follows the player's presence, and where each counts as near */
@@ -469,10 +473,10 @@ export const loadInteractiveFacilities = async (
 				if (!path) {
 					throw new FormatError(`missing LevelData path ${hash}`);
 				}
-				let rows;
+				let prefix;
 				try {
 					// oxlint-disable-next-line no-await-in-loop -- level files are released after their prefix is decoded
-					rows = readLevelInteractives(await read(path), string);
+					prefix = readLevelDataPrefix(await read(path), string);
 				} catch (error) {
 					if (!(error instanceof UnsupportedLevelData)) {
 						throw error;
@@ -480,7 +484,13 @@ export const loadInteractiveFacilities = async (
 					unsupported.push({ path, reason: error.message });
 					continue;
 				}
-				for (const row of rows) {
+				if (prefix.hideByTypeAreas > 0) {
+					unsupported.push({
+						path,
+						reason: `${prefix.hideByTypeAreas} function areas that hide entities by type aren't applied`,
+					});
+				}
+				for (const row of prefix.interactives) {
 					if (row.createState !== 0) {
 						later.push({ path, levelId: config.id, levelTag, row, created: `created:${config.id}` });
 						continue;
@@ -853,15 +863,39 @@ export const loadInteractiveFacilities = async (
 				return null;
 			}
 		});
+	const scriptControls = new Map<string, SceneControl>();
 	for (const { path, levelId, levelTag, row, created } of placed) {
-		// a row created later also needs its level's `created` control on
+		// a row created later also needs its level's `created` control on, and one a level script shows and hides
+		// its script control
+		const logicId = row.id.toString();
+		const switches: string[] = [];
+		if (created !== null) {
+			switches.push(created);
+		}
+		if (scripted.has(logicId)) {
+			const control = `script:${logicId}`;
+			switches.push(control);
+			scriptControls.getOrInsertComputed(logicId, () => ({
+				kind: 'script',
+				id: control,
+				name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+				rule: null,
+				assumption: 'shown as placed until a level script hides it',
+				story: null,
+				drivers: [],
+				levelTags: [],
+				values: SWITCH_VALUES,
+				default: 1,
+				derived: null,
+			}));
+		}
 		const gate = (visibility: ConditionalSetInfo): ConditionalSetInfo =>
-			created === null
+			switches.length === 0
 				? visibility
 				: {
 						alternatives: visibility.alternatives.map((requirements) => [
 							...requirements,
-							{ control: created, mask: 2 },
+							...switches.map((control) => ({ control, mask: 2 })),
 						]),
 					};
 		const template = authored.get(row.template);
@@ -1087,6 +1121,7 @@ export const loadInteractiveFacilities = async (
 	return {
 		models,
 		progressions,
+		scriptControls,
 		created: [...createdControls.values()],
 		proximityControls,
 		proximities,

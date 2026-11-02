@@ -495,6 +495,96 @@ export const activationCondition = (rule: ActivationRule, defaultLoad: boolean):
 
 // #endregion
 
+// #region visibility actions
+
+/** actions that show or hide a dynamic entity's scenery by its global id: `targetDynamicEntity`, `visible` */
+const DECORATION_ACTIONS =
+	/^(ShowSceneDecorationNew|ShowSceneDecorationWithHandle|ForceShowDecorationWithHandle)$/;
+
+/** actions that show or hide level entities (interactives) by entity pointer, with the value they set */
+const ENTITY_ACTIONS = new Map<string, { field: string; shows: boolean | 'isVisible' }>([
+	['EntityShow', { field: 'entityPtr', shows: true }],
+	['EntityHide', { field: 'entityPtr', shows: false }],
+	['EntityShowList', { field: 'entityListPtr', shows: true }],
+	['EntityHideList', { field: 'entityListPtr', shows: false }],
+	['SetEntitiesVisibility', { field: 'targetEntities', shows: 'isVisible' }],
+]);
+
+/** what a visibility action sets: its constant targets, and how many targets it computes at runtime */
+interface VisibilityAction {
+	targets: string[];
+	/** targets not named by a constant: getters, or slots of the script's own interactives */
+	untraced: number;
+	/** the visibility it sets, `null` when computed */
+	shows: boolean | null;
+}
+
+/** @returns what a node shows or hides, or `null` when it isn't a visibility action */
+const visibilityAction = (script: Script, node: Node): VisibilityAction | null => {
+	const type = typeOf(node);
+	if (DECORATION_ACTIONS.test(type)) {
+		const target = param(script, node.targetDynamicEntity);
+		const visible = param(script, node.visible);
+		return {
+			targets: typeof target === 'string' ? [target] : [],
+			untraced: typeof target === 'string' ? 0 : 1,
+			shows: typeof visible === 'boolean' ? visible : null,
+		};
+	}
+	const entity = ENTITY_ACTIONS.get(type);
+	if (entity === undefined) {
+		return null;
+	}
+	let shows: boolean | null;
+	if (entity.shows === 'isVisible') {
+		const visible = param(script, node.isVisible);
+		shows = typeof visible === 'boolean' ? visible : null;
+	} else {
+		shows = entity.shows;
+	}
+	const value = param(script, node[entity.field]);
+	const pointers = Array.isArray(value) ? value : [value];
+	const targets: string[] = [];
+	let untraced = 0;
+	for (const pointer of pointers) {
+		const constant = constantNode(pointer);
+		const id = constant?.useSlotId === false ? constant.logicId : undefined;
+		if (typeof id === 'string' || typeof id === 'number' || typeof id === 'bigint') {
+			targets.push(String(id));
+		} else {
+			untraced++;
+		}
+	}
+	return { targets, untraced, shows };
+};
+
+/**
+ * @param scripts decoded level scripts
+ * @param ownLevels the scene's levels
+ * @returns the logic ids of level entities the scene's own scripts show or hide by entity pointer
+ */
+export const entityVisibilityTargets = (
+	scripts: Iterable<Script>,
+	ownLevels: ReadonlySet<string>,
+): Set<string> => {
+	const targets = new Set<string>();
+	for (const script of scripts) {
+		if (!ownLevels.has(script.level)) {
+			continue;
+		}
+		for (const node of script.nodes.values()) {
+			if (ENTITY_ACTIONS.has(typeOf(node))) {
+				for (const target of visibilityAction(script, node)?.targets ?? []) {
+					targets.add(target);
+				}
+			}
+		}
+	}
+	return targets;
+};
+
+// #endregion
+
 /** what sets each script-controlled entity group */
 export interface ScriptLinks {
 	/** drivers by entity id */
@@ -504,6 +594,8 @@ export interface ScriptLinks {
 	 * path passes only quest and mission state checks (see {@link activationCondition})
 	 */
 	rules: Map<string, ActivationRule>;
+	/** show and hide action targets computed at runtime (getters, the script's own slots), not followed */
+	untraced: number;
 }
 
 /** the scenery drivers of a scene's script-controlled entities */
@@ -511,20 +603,27 @@ export interface ScriptDrivers extends ScriptLinks {
 	counts: { scripts: number; undecoded: number; targeted: number };
 }
 
+/** a scene's decoded level scripts */
+export interface LevelScripts {
+	/** the scene's own levels' scripts, and other levels' scripts naming a wanted entity */
+	scripts: Script[];
+	/** the scene's levels */
+	ownLevels: Set<string>;
+	/** scripts the decoder couldn't read, skipped */
+	undecoded: number;
+}
+
 /**
- * finds what shows and hides a scene's script-controlled entities: the scene's level scripts, and other
- * levels' scripts that name one of the entities (dungeons reusing the map)
- *
  * @param context install readers
  * @param scene streaming scene id
- * @param entities ids of the scene's script-controlled entities
- * @returns drivers and activation rules by entity id; scripts the decoder can't read are counted and skipped
+ * @param entities ids of entities whose other-level scripts are wanted too (dungeons reusing the map)
+ * @returns the scene's decoded level scripts
  */
-export const loadScriptDrivers = async (
+export const loadLevelScripts = async (
 	context: Pick<Context, 'vfs' | 'world' | 'memoryPack'>,
 	scene: string,
 	entities: ReadonlySet<string>,
-): Promise<ScriptDrivers> => {
+): Promise<LevelScripts> => {
 	const { vfs, world } = context;
 	const reader = await context.memoryPack();
 	const configs = await world.levelConfigs();
@@ -534,8 +633,6 @@ export const loadScriptDrivers = async (
 	const read = async (name: string): Promise<Uint8Array> =>
 		vfs.readVerified((await vfs.find(VfsGroup.JsonData, name))!);
 	const wanted = new Set([...entities].map((id) => BigInt(id)));
-
-	// #region scripts: the scene's own, and others naming a wanted entity
 	const scripts = new Map<string, Script>();
 	let undecoded = 0;
 	for (const name of (await vfs.group(VfsGroup.JsonData)).files.keys()) {
@@ -560,13 +657,33 @@ export const loadScriptDrivers = async (
 			scripts.set(id, script);
 		}
 	}
-	// #endregion
+	return { scripts: [...scripts.values()], ownLevels, undecoded };
+};
+
+/**
+ * finds what shows and hides a scene's script-controlled entities
+ *
+ * @param context install readers
+ * @param levelScripts the scene's level scripts
+ * @param entities ids of the scene's script-controlled entities: dynamic entities' global ids, interactives'
+ *   logic ids
+ * @returns drivers and activation rules by entity id
+ */
+export const loadScriptDrivers = async (
+	context: Pick<Context, 'vfs' | 'world'>,
+	levelScripts: LevelScripts,
+	entities: ReadonlySet<string>,
+): Promise<ScriptDrivers> => {
+	const { vfs, world } = context;
+	const { scripts, ownLevels, undecoded } = levelScripts;
+	const read = async (name: string): Promise<Uint8Array> =>
+		vfs.readVerified((await vfs.find(VfsGroup.JsonData, name))!);
 
 	// #region where things are: LevelData placements for interactives named by logic id
 	const placements = new Map<string, { template: string; position: Vec3 }>();
 	const pool = await world.stringPool();
 	const pathOf = await world.pathLookup();
-	for (const config of configs.values()) {
+	for (const config of (await world.levelConfigs()).values()) {
 		if (!ownLevels.has(config.id)) {
 			continue;
 		}
@@ -590,7 +707,7 @@ export const loadScriptDrivers = async (
 	// #endregion
 
 	const labels = new Map<string, Promise<QuestRef>>();
-	const links = await linkScripts([...scripts.values()], {
+	const links = await linkScripts(scripts, {
 		entities,
 		ownLevels,
 		placements,
@@ -601,7 +718,7 @@ export const loadScriptDrivers = async (
 	});
 	return {
 		...links,
-		counts: { scripts: scripts.size, undecoded, targeted: links.drivers.size },
+		counts: { scripts: scripts.length, undecoded, targeted: links.drivers.size },
 	};
 };
 
@@ -633,46 +750,55 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 	const drivers = new Map<string, ControlDriver[]>();
 	// `null` once some activation path sets a group in a way quest tests don't capture
 	const rules = new Map<string, ActivationRule | null>();
+	let untraced = 0;
 	for (const script of scripts) {
 		const paths = reach(script);
 		for (const node of script.nodes.values()) {
-			if (
-				!/^(ShowSceneDecorationNew|ShowSceneDecorationWithHandle|ForceShowDecorationWithHandle)$/.test(
-					typeOf(node),
-				)
-			) {
+			const action = visibilityAction(script, node);
+			if (action === null) {
 				continue;
 			}
-			const target = param(script, node.targetDynamicEntity);
-			if (typeof target !== 'string' || !entities.has(target)) {
-				continue;
-			}
-			const visible = param(script, node.visible);
-			const shows = typeof visible === 'boolean' ? visible : null;
-			const found: ControlDriver[] = [];
-			if (!ownLevels.has(script.level)) {
-				found.push({
-					kind: 'level',
-					levelId: script.level,
-					name: levelNames.get(script.level) ?? null,
-					shows,
-				});
-			} else {
-				for (const path of paths.get(Number(node.ID)) ?? []) {
-					for (const cause of causesOf(script, path.header, indexes, 0)) {
-						// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
-						found.push(...(await driversOf(cause, [...path.guards, ...cause.guards], shows)));
-					}
-					if (ACTIVATION.has(typeOf(path.header))) {
-						noteActivation(script, target, path.guards, shows);
-					}
+			untraced += action.untraced;
+			for (const target of action.targets) {
+				if (entities.has(target)) {
+					// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
+					await link(script, paths, node, target, action.shows);
 				}
 			}
-			const list = drivers.getOrInsertComputed(target, () => []);
-			for (const driver of found) {
-				if (!list.some((known) => JSON.stringify(known) === JSON.stringify(driver))) {
-					list.push(driver);
+		}
+	}
+
+	/** adds the drivers and activation paths of one action setting one target */
+	async function link(
+		script: Script,
+		paths: Map<number, Reach[]>,
+		node: Node,
+		target: string,
+		shows: boolean | null,
+	): Promise<void> {
+		const found: ControlDriver[] = [];
+		if (!ownLevels.has(script.level)) {
+			found.push({
+				kind: 'level',
+				levelId: script.level,
+				name: levelNames.get(script.level) ?? null,
+				shows,
+			});
+		} else {
+			for (const path of paths.get(Number(node.ID)) ?? []) {
+				for (const cause of causesOf(script, path.header, indexes, 0)) {
+					// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
+					found.push(...(await driversOf(cause, [...path.guards, ...cause.guards], shows)));
 				}
+				if (ACTIVATION.has(typeOf(path.header))) {
+					noteActivation(script, target, path.guards, shows);
+				}
+			}
+		}
+		const list = drivers.getOrInsertComputed(target, () => []);
+		for (const driver of found) {
+			if (!list.some((known) => JSON.stringify(known) === JSON.stringify(driver))) {
+				list.push(driver);
 			}
 		}
 	}
@@ -792,7 +918,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			settled.set(target, rule);
 		}
 	}
-	return { drivers, rules: settled };
+	return { drivers, rules: settled, untraced };
 };
 
 /** @returns whether the bytes hold any of the ids as a little-endian u64 */

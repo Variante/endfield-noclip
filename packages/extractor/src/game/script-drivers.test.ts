@@ -4,7 +4,13 @@ import { test } from 'node:test';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
 import type { GameCondition } from './game-state.ts';
-import { activationCondition, linkScripts, toScript, type Script } from './script-drivers.ts';
+import {
+	activationCondition,
+	entityVisibilityTargets,
+	linkScripts,
+	toScript,
+	type Script,
+} from './script-drivers.ts';
 
 const node = (type: string, fields: Record<string, MemoryPackValue>): MemoryPackValue => ({
 	$type: `Beyond_Gameplay_Actions_${type}ForMemoryPack`,
@@ -181,4 +187,39 @@ test('derives what a group shows from the quest checks its scripts make when the
 	assert.equal(activationCondition(rules.get('open')!, true), null);
 	// a state that both shows and hides the group leaves it unsettled
 	assert.equal(activationCondition({ show: [[m1]], hide: [[q1]] }, false), null);
+});
+
+test('follows entity show and hide actions on interactives, counting targets computed at runtime', async () => {
+	const pointer = (logicId: string): MemoryPackValue => ({ logicId, slotId: 0, useSlotId: false });
+	const own = script('300', 'lv1', {
+		headers: [node('LevelEvent_OnQuestStateChanged', { ID: 1, nextID: 2, questId: constant('q1') })],
+		actions: [
+			node('EntityHide', { ID: 2, nextID: 3, entityPtr: constant(pointer('777')) }),
+			node('EntityShowList', { ID: 3, nextID: 4, entityListPtr: constant([pointer('778')]) }),
+			node('SetEntitiesVisibility', {
+				ID: 4,
+				nextID: 5,
+				isVisible: constant(false),
+				targetEntities: constant([pointer('779'), { logicId: '0', slotId: 3, useSlotId: true }]),
+			}),
+			node('EntityShow', { ID: 5, nextID: -1, entityPtr: { idRef: 9, paramSource: 3, path: null } }),
+		],
+	});
+	assert.deepEqual([...entityVisibilityTargets([own], new Set(['lv1']))], ['777', '778', '779']);
+	const { drivers, untraced } = await linkScripts([own], {
+		entities: new Set(['777', '778', '779']),
+		ownLevels: new Set(['lv1']),
+		placements: new Map(),
+		missionsOf: new Map(),
+		label: async (id) => ({ id, mission: null, name: null }),
+		levelNames: new Map(),
+	});
+	const quest = (shows: boolean) => [
+		{ kind: 'quest', quests: [{ id: 'q1', mission: null, name: null }], shows },
+	];
+	assert.deepEqual(drivers.get('777'), quest(false));
+	assert.deepEqual(drivers.get('778'), quest(true));
+	assert.deepEqual(drivers.get('779'), quest(false));
+	// the slot pointer and the getter
+	assert.equal(untraced, 2);
 });

@@ -329,6 +329,11 @@ packs or renders correctly.
   the resource-node level's link to regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server
   sets show as "server", and groups no client script names have none
+- interactives level scripts show and hide default to shown, since whether they start hidden isn't
+  known; show and hide targets that are a script's own slots or computed at runtime aren't followed
+  (counted as `scriptVisibilityUntraced` in the pack report). LevelData function areas that hide
+  entities by type while the player is inside aren't applied (listed in
+  `unsupported-interactives.json`)
 - story-state expressions and script relationships beyond what client data proves; event and server
   conditions may never be recoverable
 - control labels still show internal identifiers or representative mesh names in many places

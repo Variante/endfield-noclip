@@ -317,6 +317,15 @@ getter node (`CheckMissionOrQuestIsComplete`, `CompareQuestState`, …) named by
   causes apply
 - stage, property and other events: no client node sets script stages or properties; the server does
 
+level interactives (LevelData placements: doors, switches, chests, rafts, moving platforms) are
+shown and hidden by `EntityShow` / `EntityHide` (an `entityPtr`), `EntityShowList` /
+`EntityHideList` (an `entityListPtr`) and `SetEntitiesVisibility` (`targetEntities`, with an
+`isVisible` flag, a `resetVisible` flag and a `visibleSource` channel). an entity pointer names a
+LevelData placement by `logicId` (`useSlotId` 0) or a slot of the script's own `interactives`. map01
+and map02 scripts name 195 such targets, 104 of them LevelData interactive rows. a placement has no
+stored hidden flag of its own, so whether an interactive starts hidden before its script runs isn't
+known.
+
 scripts of other levels can name a scene's group (dungeons reusing the open world, such as the
 racing courses). missions whose objectives check a script (stage, property) drive its activation,
 since the server runs such scripts as those missions progress.

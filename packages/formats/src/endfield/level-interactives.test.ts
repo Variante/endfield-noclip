@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { FormatError } from '../binary/binary-reader.ts';
 
-import { readLevelInteractives, UnsupportedLevelData } from './level-interactives.ts';
+import { readLevelDataPrefix, readLevelInteractives, UnsupportedLevelData } from './level-interactives.ts';
 
 const fixture = (options: { gated: boolean; unsupported: boolean; areas: boolean }): Uint8Array => {
 	const bytes = new Uint8Array(1024);
@@ -46,8 +46,9 @@ const fixture = (options: { gated: boolean; unsupported: boolean; areas: boolean
 		i32(0);
 	}
 	if (options.areas) {
-		// a scene toast (union tag 14) with two titles and a null one, then an AI bark block (tag 2)
-		i32(2);
+		// a scene toast (union tag 14) with two titles and a null one, an AI bark block (tag 2), then a
+		// hide-by-type area (tag 9) whitelisting one logic id
+		i32(3);
 		u8(14);
 		u8(6);
 		i32(-1);
@@ -61,6 +62,13 @@ const fixture = (options: { gated: boolean; unsupported: boolean; areas: boolean
 		u8(2);
 		u8(1);
 		u8(1);
+		u8(9);
+		u8(4);
+		i32(1);
+		i32(1);
+		u64(5n);
+		i32(0);
+		i32(0);
 	} else {
 		i32(0);
 	}
@@ -168,7 +176,8 @@ test('a truncated second placement rejects the whole list', () => {
 	assert.throws(() => readLevelInteractives(bytes.subarray(0, bytes.length - 2), string), FormatError);
 });
 
-test('reads past scene toast and AI bark function areas', () => {
-	const rows = readLevelInteractives(fixture({ gated: false, unsupported: false, areas: true }), string);
-	assert.equal(rows.length, 2);
+test('reads past scene toast, AI bark and hide-by-type function areas, counting the last', () => {
+	const prefix = readLevelDataPrefix(fixture({ gated: false, unsupported: false, areas: true }), string);
+	assert.equal(prefix.interactives.length, 2);
+	assert.equal(prefix.hideByTypeAreas, 1);
 });

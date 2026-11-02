@@ -122,7 +122,12 @@ import {
 	unnamedSceneStateControl,
 } from '../game/scene-conditions.ts';
 import { loadProgressions, progressionControl, progressionId } from '../game/scenery-variants.ts';
-import { activationCondition, loadScriptDrivers } from '../game/script-drivers.ts';
+import {
+	activationCondition,
+	entityVisibilityTargets,
+	loadLevelScripts,
+	loadScriptDrivers,
+} from '../game/script-drivers.ts';
 import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
 import { labelStory } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
@@ -1064,37 +1069,13 @@ const collectEntities = async (
 	}
 	counts.dynamicRenderers = 0;
 	collected.controls = dynamic.controls;
-	{
-		const scripted = new Map(
-			mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
-				control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
-			),
-		);
-		const found = await loadScriptDrivers(context, scene.options.scene, new Set(scripted.keys()));
-		for (const [id, drivers] of found.drivers) {
-			const control = scripted.get(id);
-			if (control !== undefined) {
-				control.drivers = drivers;
-			}
-		}
-		// a group its scripts set by quest checks whenever they run follows those quests; its default is then the
-		// one a finished story gives (see finishControls)
-		counts.scriptGroupsDerived = 0;
-		for (const [id, rule] of found.rules) {
-			const control = scripted.get(id);
-			const condition = control && activationCondition(rule, control.default === 1);
-			if (!control || !condition) {
-				continue;
-			}
-			control.rule = describeCondition(condition);
-			control.assumption = 'set by its level scripts’ quest checks when they run';
-			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
-			counts.scriptGroupsDerived++;
-		}
-		counts.levelScripts = found.counts.scripts;
-		counts.levelScriptsUndecoded = found.counts.undecoded;
-		counts.scriptGroupsWithDrivers = found.counts.targeted;
-	}
+	/** script-controlled dynamic entities' controls by global id */
+	const scripted = new Map(
+		mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
+			control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
+		),
+	);
+	const levelScripts = await loadLevelScripts(context, scene.options.scene, new Set(scripted.keys()));
 	for (const index of dynamic.sceneStates) {
 		collected.sceneStates.add(index);
 	}
@@ -1197,8 +1178,43 @@ const collectEntities = async (
 		scene.options.scene,
 		scene.options.level,
 		scene.partition,
+		entityVisibilityTargets(levelScripts.scripts, levelScripts.ownLevels),
 	);
 	counts.interactiveFacilities = facilities.progressions.length;
+	{
+		for (const [id, control] of facilities.scriptControls) {
+			if (!scripted.has(id)) {
+				scripted.set(id, control);
+				collected.controls.push(control);
+			}
+		}
+		counts.scriptInteractives = facilities.scriptControls.size;
+		const found = await loadScriptDrivers(context, levelScripts, new Set(scripted.keys()));
+		for (const [id, drivers] of found.drivers) {
+			const control = scripted.get(id);
+			if (control !== undefined) {
+				control.drivers = drivers;
+			}
+		}
+		// a group its scripts set by quest checks whenever they run follows those quests; its default is then the
+		// one a finished story gives (see finishControls)
+		counts.scriptGroupsDerived = 0;
+		for (const [id, rule] of found.rules) {
+			const control = scripted.get(id);
+			const condition = control && activationCondition(rule, control.default === 1);
+			if (!control || !condition) {
+				continue;
+			}
+			control.rule = describeCondition(condition);
+			control.assumption = 'set by its level scripts’ quest checks when they run';
+			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
+			counts.scriptGroupsDerived++;
+		}
+		counts.levelScripts = found.counts.scripts;
+		counts.levelScriptsUndecoded = found.counts.undecoded;
+		counts.scriptGroupsWithDrivers = found.counts.targeted;
+		counts.scriptVisibilityUntraced = found.untraced;
+	}
 	for (const standIn of facilities.standIns) {
 		// a metre cube on the interactive's pivot, since its model's size isn't known
 		const matrix = multiplyMatrices(

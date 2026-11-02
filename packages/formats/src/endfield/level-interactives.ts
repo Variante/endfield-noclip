@@ -38,7 +38,34 @@ export class UnsupportedLevelData extends FormatError {}
 export const readLevelInteractives = (
 	bytes: Uint8Array,
 	string: (id: number) => string | null,
-): LevelInteractive[] => {
+): LevelInteractive[] => readLevelDataPrefix(bytes, string).interactives;
+
+/** the decoded LevelData prefix */
+export interface LevelDataPrefix {
+	/** placements from the complete interactive list */
+	interactives: LevelInteractive[];
+	/**
+	 * function areas that hide entities by type while the player is inside; read past, their masks and
+	 * whitelists not kept
+	 */
+	hideByTypeAreas: number;
+}
+
+/**
+ * reads the sequential LevelData prefix through its interactive placements, like
+ * {@link readLevelInteractives}, also counting the content it reads past
+ *
+ * @param bytes pooled MemoryPack LevelData
+ * @param string resolves pooled string ids
+ * @returns placements and what was read past
+ * @throws {UnsupportedLevelData} for unsupported populated fields or conditions
+ * @throws {FormatError} for malformed framing
+ */
+export const readLevelDataPrefix = (
+	bytes: Uint8Array,
+	string: (id: number) => string | null,
+): LevelDataPrefix => {
+	let hideByTypeAreas = 0;
 	const r = new BinaryReader(bytes, { littleEndian: true });
 	let field = 'root';
 	const unsupported = (): never => {
@@ -592,6 +619,7 @@ export const readLevelInteractives = (
 				case 9: {
 					// hide entities by type: entity mask, logic-id whitelist, NPC mask, proxy whitelist
 					marker(4);
+					hideByTypeAreas++;
 					r.i32();
 					r.skip(count() * 8);
 					r.i32();
@@ -732,5 +760,5 @@ export const readLevelInteractives = (
 		list(param);
 		result.push({ ...row, modelScale, componentProperties });
 	});
-	return result;
+	return { interactives: result, hideByTypeAreas };
 };

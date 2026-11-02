@@ -741,6 +741,7 @@ the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a
 | telescopic bridge          | `bridge:<interactive id>`, retracted / extended    | retracted                                                         |
 | tree harvest state         | `harvest:<level tag>`, standing / felled           | standing                                                          |
 | script group               | `script:<entity id>`                               | the stored default, or its scripts' quest checks on activation    |
+| script-shown interactive   | `script:<logic id>`                                | shown, or its scripts' quest checks on activation                 |
 | controller-less logic gate | `logic:<entity id>:<mask>`                         | off                                                               |
 
 ### MapConfig scene states
@@ -932,7 +933,13 @@ each [script-control entity](game-data/scene-states.md#script-groups) gets a `sc
 control defaulting to its default-load flag
 ([dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts)), unless its scripts'
 quest checks settle it (below). event content such as a limited-time race course lands here,
-typically off.
+typically off. a level interactive that one of the scene's own scripts shows or hides by a constant
+entity pointer gets a `script:<logic id>` control too, shown by default (as placed), and its
+placements also require it
+([interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts)). the packer
+reads the scene's level scripts once, collects those targets before placing interactives, then finds
+drivers for both kinds. pointers to a script's own slots and computed targets aren't followed; the
+pack report counts them (`scriptVisibilityUntraced`).
 
 toggle names for script and logic controls are the one or two most frequent renderer names under
 them. they are labels for finding the control, not evidence of what activates it.
