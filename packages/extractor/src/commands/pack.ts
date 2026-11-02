@@ -148,6 +148,18 @@ const formatReport = (report: PackReport): string => {
 		for (const [reason, count] of Object.entries(conversion.failures).toSorted((a, b) => b[1] - a[1])) {
 			lines.push(`  failed ${String(count).padStart(5)} × ${reason}`);
 		}
+		{
+			const unsupported = Object.entries(conversion.unsupportedShaders).toSorted((a, b) => b[1] - a[1]);
+			const keywords = Object.values(conversion.keywordsNotDrawn);
+			lines.push(
+				`materials: ${unsupported.reduce((sum, [, count]) => sum + count, 0)} in shaders without a look` +
+					(unsupported.length === 0
+						? ''
+						: ` (${unsupported.map(([shader, count]) => `${shader} ${count}`).join(', ')})`) +
+					`; ${keywords.reduce((sum, count) => sum + count, 0)} uses of ` +
+					`${keywords.length} undrawn surface keywords (per material in debug/assets.json)`,
+			);
+		}
 	}
 	{
 		const { environments } = report;

@@ -99,8 +99,17 @@ for content it doesn't draw at all. off, those draws are skipped during
 no shadow and keeps its colour at any exposure. this covers effect shaders without a look of their
 own ([effects](effects.md)), effect materials using keywords, blend modes, stencil operations or
 texture combinations their look doesn't handle, lit decals in variants the viewer lacks or without a
-placement or base colour map, and additive materials outside the effects, since the opaque path
-can't blend. stand-ins (`DrawRole.Unsupported`) take the same look whatever their material.
+placement or base colour map, additive materials outside the effects, since the opaque path can't
+blend, shaders without a family (`HGRP/CharacterNPR`, `Hidden/HGRP/LitEffectBlend`,
+`HGRP/Effect/VFXSmoke_SixWay` and the like, which `pack` lists per shader), and materials that
+didn't convert. stand-ins (`DrawRole.Unsupported`) take the same look whatever their material.
+
+the pack's `debug/assets.json` lists per material whether its shader has no look (`unsupported`),
+the surface keywords the viewer doesn't draw (`keywordsNotDrawn`, from
+[game/material-support.ts](../../packages/extractor/src/game/material-support.ts), which mirrors
+what `render/materials.ts` reads) and the texture slots whose reference couldn't be followed
+(`slotErrors`). effect materials rejected for a keyword or texture combination aren't listed there;
+they show only as the checker.
 
 only materials the game draws nothing visible with aren't drawn: `HGRP/WaterProxy`, whose passes all
 feed the water pipeline ([water](../game-data/water.md#waterproxy-and-waterdecal)), and lit decals

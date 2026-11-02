@@ -15,7 +15,7 @@ import {
 	UV1_SHIFT,
 } from './materials.ts';
 
-test('effect geometry without an effect look shows as unsupported rather than shaded walls; ordinary unknown shaders shade', () => {
+test('effect geometry without an effect look and shaders without a family show as unsupported rather than shaded as Lit', () => {
 	const shaders: ShaderEntry[] = [
 		{
 			name: 'HGRP/Effect/VFXBaseV2',
@@ -68,7 +68,7 @@ test('effect geometry without an effect look shows as unsupported rather than sh
 		[
 			[true, true],
 			[true, true],
-			[true, false],
+			[true, true],
 		],
 	);
 	// an unlit, shadowless, two-sided magenta checker

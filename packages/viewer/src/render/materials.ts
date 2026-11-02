@@ -58,9 +58,6 @@ const UNSUPPORTED_CELL = 0.5;
 
 const FOLIAGE_FAMILIES = new Set(['leaf', 'grass', 'cardMesh']);
 
-/** stand-in albedo for materials without a base colour texture, linear */
-const DEFAULT_ALBEDO: [r: number, g: number, b: number] = [0.5, 0.5, 0.5];
-
 /**
  * the texture slots the mesh shader samples, in binding order. the frame group leaves seven sampled textures
  * of WebGPU's default sixteen, so slots are shared where materials rarely use both: the third holds `_MROMap`
@@ -450,13 +447,9 @@ const vectorOf = (entry: ReadyMaterial, shader: ShaderEntry, name: string): numb
 export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 	const looks: MaterialLook[] = [];
 	for (const entry of materials.entries) {
+		// a material that didn't convert (its reason is in debug/assets.json) has nothing to draw by
 		if (entry.status !== 'ready') {
-			const look = emptyLook({ drawn: true });
-			look.params.set([...DEFAULT_ALBEDO, -1], LookRow.tint);
-			look.params.set([0.85, 0.85, 0, 1], LookRow.surface);
-			look.params.set([1, 0.04, 0, 1], LookRow.surface2);
-			look.params.set([0, 0, 0, 1], LookRow.emissive);
-			looks[entry.id] = look;
+			looks[entry.id] = unsupportedLook();
 			continue;
 		}
 		const shader = materials.shaders[entry.shader];
@@ -476,8 +469,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 		}
 		// other effect meshes need their own opacity, distortion and animation passes, and the opaque path has
 		// no additive blending
+		// shaders without a family of their own have no look: drawing them as Lit would hide that they're wrong
 		if (
 			EFFECT_FAMILIES.has(shader.family) ||
+			shader.family === 'unknown' ||
 			shader.name.startsWith('HGRP/Effect/') ||
 			entry.blend === 'additive'
 		) {

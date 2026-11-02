@@ -18,6 +18,7 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
+import { keywordsNotDrawn, unsupportedShader } from '../game/material-support.ts';
 import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
@@ -219,6 +220,17 @@ export interface AssetDebug {
 	error: string | null;
 }
 
+/** a material's debug-index row */
+export interface MaterialDebug extends AssetDebug {
+	shader: string | null;
+	/** why the viewer has no look for the material's shader, or `null` */
+	unsupported: string | null;
+	/** keywords of the material's surface shader that the viewer doesn't draw */
+	keywordsNotDrawn: string[];
+	/** bound texture slots whose PPtr couldn't be followed, with the error; the slot is left empty */
+	slotErrors: Record<string, string>;
+}
+
 /** sizes of one category of stored blobs */
 export interface BlobTally {
 	count: number;
@@ -238,7 +250,7 @@ export interface AssetConversion {
 	extraTextureIds: (number | null)[][];
 	debug: {
 		geometries: AssetDebug[];
-		materials: (AssetDebug & { shader: string | null })[];
+		materials: MaterialDebug[];
 		/** by texture object, in first-use order; `id` is its texture-table entry */
 		textures: (AssetDebug & { id: number })[];
 	};
@@ -256,6 +268,10 @@ export interface AssetConversion {
 		/** texture objects whose content equalled an earlier texture's */
 		textureDuplicates: number;
 		failures: Record<string, number>;
+		/** materials whose shader has no look in the viewer, by shader */
+		unsupportedShaders: Record<string, number>;
+		/** materials with a surface keyword the viewer doesn't draw, by `<shader> <keyword>` */
+		keywordsNotDrawn: Record<string, number>;
 	};
 }
 
@@ -308,7 +324,9 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 	// #region materials
 	const shaders = new ShaderTable();
 	const materialEntries: MaterialEntry[] = [];
-	const materialDebug: AssetConversion['debug']['materials'] = [];
+	const materialDebug: MaterialDebug[] = [];
+	const unsupportedShaders: Record<string, number> = {};
+	const keywordsNotDrawnCounts: Record<string, number> = {};
 	const normalMapUv: (number | null)[] = [];
 	/** texture objects in first-use order, with a provisional id each */
 	const textureObjects: { key: string; locator: ObjectLocator; place: Place }[] = [];
@@ -338,7 +356,15 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		(result, _asset, id) => {
 			if (result instanceof Error) {
 				materialEntries.push({ id, status: 'failed' });
-				materialDebug.push({ object: null, name: null, shader: null, error: fail('material', result) });
+				materialDebug.push({
+					object: null,
+					name: null,
+					shader: null,
+					error: fail('material', result),
+					unsupported: null,
+					keywordsNotDrawn: [],
+					slotErrors: {},
+				});
 				normalMapUv.push(null);
 				return;
 			}
@@ -346,18 +372,32 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			const place = input.places.materials[id];
 			const shader = shaders.intern(loaded.shader, loaded.classification.family);
 			const overrides = input.materialOverrides.get(id);
+			const slotErrors: Record<string, string> = {};
 			const converted = convertMaterial(
 				withSavedValues(loaded.record, overrides?.saved ?? null),
 				loaded.classification,
 				shader,
 				(slot) => {
-					const target = loaded.textures[slot]?.ref;
-					if (target === null || target === undefined) {
+					const resolved = loaded.textures[slot];
+					if (resolved?.error !== undefined) {
+						slotErrors[slot] = resolved.error;
+						fail('texture slot', new Error(resolved.error));
+					}
+					if (resolved?.ref == null) {
 						return undefined;
 					}
-					return useTexture(target, place);
+					return useTexture(resolved.ref, place);
 				},
 			);
+			const unsupported = unsupportedShader(loaded.classification.family, loaded.shader.name);
+			if (unsupported !== null) {
+				unsupportedShaders[loaded.shader.name] = (unsupportedShaders[loaded.shader.name] ?? 0) + 1;
+			}
+			const notDrawn = keywordsNotDrawn(loaded.shader.name, converted.material.keywords);
+			for (const keyword of notDrawn) {
+				const key = `${loaded.shader.name} ${keyword}`;
+				keywordsNotDrawnCounts[key] = (keywordsNotDrawnCounts[key] ?? 0) + 1;
+			}
 			const material =
 				overrides === undefined
 					? converted.material
@@ -372,6 +412,9 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 				name: loaded.record.name,
 				shader: loaded.shader.name,
 				error: null,
+				unsupported,
+				keywordsNotDrawn: notDrawn,
+				slotErrors,
 			});
 			normalMapUv.push(converted.normalMapUv);
 		},
@@ -524,6 +567,8 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			textureFormats,
 			textureDuplicates,
 			failures,
+			unsupportedShaders,
+			keywordsNotDrawn: keywordsNotDrawnCounts,
 		},
 	};
 };
