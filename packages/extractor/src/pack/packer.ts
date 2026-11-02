@@ -11,14 +11,7 @@ import {
 } from '@endfield-noclip/formats/endfield/init-chunk-data';
 import type { LevelPartition, PartitionLevel } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
-import {
-	TERRAIN_HEIGHT_HOLE,
-	TERRAIN_HEIGHT_PAGE_SIZE,
-	TERRAIN_PAGE_BORDER,
-	TERRAIN_PAGE_SIZE,
-	terrainLeafLevel,
-	type TerrainSurfacesData,
-} from '@endfield-noclip/formats/hg/terrain';
+import { terrainLeafLevel, type TerrainSurfacesData } from '@endfield-noclip/formats/hg/terrain';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import {
 	multiplyMatrices,
@@ -693,13 +686,8 @@ const indexScene = async (
 			surface === undefined
 				? null
 				: {
-						position: [surface.position.x, surface.position.y, surface.position.z],
+						baseHeight: surface.position.y,
 						heightScale: surface.heightScale,
-						terrainSize: surface.terrainSize,
-						pageSize: TERRAIN_HEIGHT_PAGE_SIZE,
-						holeBit: TERRAIN_HEIGHT_HOLE,
-						surfaceSize: TERRAIN_PAGE_SIZE,
-						surfaceBorder: TERRAIN_PAGE_BORDER,
 					},
 		grid,
 		subset: buildSubset(options, partition, grid),

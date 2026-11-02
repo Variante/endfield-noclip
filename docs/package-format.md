@@ -175,22 +175,22 @@ Global chunks of scene states become conditional global blocks, drawn whole whil
 `manifest.json.zst`, `PackageManifest` (zstd-compressed JSON like the tables; it's ~5 MB raw on
 map02, a third of the core):
 
-| field                                                     | contents                                                                                                                                                                  |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`, `version`                                       | `'endfield-noclip.package'`, `PACKAGE_VERSION` (see [versioning](#versioning))                                                                                            |
-| `generation`                                              | see [containers and blobs](#containers-and-blobs)                                                                                                                         |
-| `scene`                                                   | streaming scene id and display name                                                                                                                                       |
-| `coordinates`                                             | `COORDINATE_CONVENTIONS`                                                                                                                                                  |
-| `tree`                                                    | `TreeInfo` plus node and ref counts                                                                                                                                       |
-| `terrain`                                                 | position, `heightScale`, `terrainSize`, page size, hole bit, levels with pages, surface page size and border, close-up `splat`; `null` without terrain                    |
-| `levels`                                                  | every level of the scene, even in a subset: id, tag, name, rect, `playerInitPos`, owned cells at `cellLevel`, packed instance count and `contentBounds`, base environment |
-| `environments`, `environmentPhases`, `environmentVolumes` | see [environments](#environments)                                                                                                                                         |
-| `heightFogFlowNoise`                                      | texture id of the height fog's 3D flow noise, packed once, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                  |
-| `states`                                                  | scene controls, conditional sets, visibility groups, stream areas and missions; see [conditions](#conditions)                                                             |
-| `archives`                                                | `ArchiveInfo`: name, role, tile, size, `dataOffset`                                                                                                                       |
-| `global`                                                  | content refs drawn regardless of refinement                                                                                                                               |
-| `subset`                                                  | what `--level` / `--bounds` kept, or `null`                                                                                                                               |
-| `source`                                                  | the bundle manifest's build guid and content hash: identifies the game build                                                                                              |
+| field                                                     | contents                                                                                                                                                                                     |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`, `version`                                       | `'endfield-noclip.package'`, `PACKAGE_VERSION` (see [versioning](#versioning))                                                                                                               |
+| `generation`                                              | see [containers and blobs](#containers-and-blobs)                                                                                                                                            |
+| `scene`                                                   | streaming scene id and display name                                                                                                                                                          |
+| `coordinates`                                             | `COORDINATE_CONVENTIONS`                                                                                                                                                                     |
+| `tree`                                                    | `TreeInfo` plus node and ref counts                                                                                                                                                          |
+| `terrain`                                                 | `baseHeight`, `heightScale`, levels with pages, close-up `splat`; `null` without terrain. the square is the tree's root, and the page layout is fixed ([height page](#height-page-hgt-efht)) |
+| `levels`                                                  | every level of the scene, even in a subset: id, tag, name, rect, `playerInitPos`, owned cells at `cellLevel`, packed instance count and `contentBounds`, base environment                    |
+| `environments`, `environmentPhases`, `environmentVolumes` | see [environments](#environments)                                                                                                                                                            |
+| `heightFogFlowNoise`                                      | texture id of the height fog's 3D flow noise, packed once, or `null` ([flow noise](game-data/sky-and-fog.md#flow-noise))                                                                     |
+| `states`                                                  | scene controls, conditional sets, visibility groups, stream areas and missions; see [conditions](#conditions)                                                                                |
+| `archives`                                                | `ArchiveInfo`: name, role, tile, size, `dataOffset`                                                                                                                                          |
+| `global`                                                  | content refs drawn regardless of refinement                                                                                                                                                  |
+| `subset`                                                  | what `--level` / `--bounds` kept, or `null`                                                                                                                                                  |
+| `source`                                                  | the bundle manifest's build guid and content hash: identifies the game build                                                                                                                 |
 
 a viewer shows one level at a time: content whose group carries the level's tag or tag 0 (shared
 content), over the shared terrain. scenes without levels show everything. a level's rect and
@@ -298,15 +298,22 @@ not only leaves, so the viewer can run CDLOD from native data. each quadtree nod
 and `maxHeightError` (from `HGTerrainSurfacesData.nodeData`, [terrain](game-data/world.md#terrain))
 go with that node's height page, the error as its ref's `param`. a scene with terrain tiles but no
 `HGTerrainSurfacesData` fails the pack rather than guessing a placement. `terrainHeight` and
-`isTerrainHole` decode samples: `y = position.y + (h & 0x7fff) · heightScale / 32768`.
+`isTerrainHole` decode samples: `y = baseHeight + (h & 0x7fff) · heightScale / 32768`.
+
+the page layout is the package format's, not the manifest's: `TERRAIN_PAGE_SAMPLES` (65) samples per
+height page edge, `TERRAIN_HOLE_BIT`, `TERRAIN_SURFACE_TEXELS` and `TERRAIN_SURFACE_BORDER` for the
+surface and splat pages, `TERRAIN_LEAF_METRES` (64) and `TERRAIN_SPLAT_CELL_METRES` (8) in
+[terrain.ts](../packages/package-format/src/terrain.ts). every scene of the game shares this layout;
+the packer checks the game's against these before packing, so a change to it fails the pack and
+calls for a new package version. the terrain square is the tile tree's root.
 
 ### surface page (`.tsp`, `EFTS`)
 
 8-byte header: `u32 magic, u16 version, u16 side`, then two BC3 images of `side²` texels (rows along
 +Z), albedo then normal, each in `writeTexture` block order. they are the game's baked `A` and `N`
 tile pages as stored, one level each; [world.md](game-data/world.md#terrain) gives their channels.
-`terrain.surfaceSize` (132) is the side, and the outer `terrain.surfaceBorder` (2) texels of each
-edge lie outside the tile, so world `x` maps to
+`TERRAIN_SURFACE_TEXELS` (132) is the side, and the outer `TERRAIN_SURFACE_BORDER` (2) texels of
+each edge lie outside the tile, so world `x` maps to
 `u = border / side + (x − tile.minX) / tile.size · (side − 2 · border) / side`. a tile missing
 either page has no surface ref and is listed in `debug/terrain.json`. on map02 the 3,393 pages are
 118 MB raw and 64 MB stored.

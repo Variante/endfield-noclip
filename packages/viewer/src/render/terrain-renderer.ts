@@ -1,4 +1,12 @@
-import type { TerrainSplatInfo } from '@endfield-noclip/package-format/terrain';
+import {
+	TERRAIN_LEAF_METRES,
+	TERRAIN_PAGE_SAMPLES,
+	TERRAIN_SPLAT_CELL_METRES,
+	TERRAIN_SPLAT_CELLS,
+	TERRAIN_SURFACE_BORDER,
+	TERRAIN_SURFACE_TEXELS,
+	type TerrainSplatInfo,
+} from '@endfield-noclip/package-format/terrain';
 
 import type { BindLayouts } from '../gfx/bind-layouts.ts';
 import { GrowableBuffer } from '../gfx/growable-buffer.ts';
@@ -23,8 +31,7 @@ import { FRAME_WGSL } from './frame-uniforms.ts';
 import terrainWgsl from './shaders/terrain.wgsl?raw';
 import { SHADOW_DEPTH_STATE } from './shadow-map.ts';
 
-/** samples per page edge the shader is written for (its `SIDE`) */
-export const PAGE_SIDE = 65;
+const PAGE_SIDE = TERRAIN_PAGE_SAMPLES;
 const QUADS = PAGE_SIDE - 1;
 const GRID = QUADS / 2 + 1;
 /** u32 words per page slot (two samples per word) */
@@ -37,22 +44,33 @@ const SHADOW_KEY = 'terrain/shadow';
 
 /** splat page slots; leaves within `DETAIL_DISTANCE` need a few dozen */
 const DETAIL_SLOTS = 256;
-/** index cells per splat page edge the shader is written for */
-const DETAIL_CELLS = 8;
+const DETAIL_CELLS = TERRAIN_SPLAT_CELLS;
 /** f32 words per layer in the layer storage buffer (5 vec4) */
 const LAYER_FLOATS = 20;
 /** bytes of one BC7 layer level, levels under 4² padded to a block */
 const bc7LevelBytes = (size: number): number => Math.ceil(size / 4) ** 2 * 16;
 
-/** texels per surface page edge the renderer is written for, border included */
-export const SURFACE_SIDE = 132;
-/** texels of each surface page edge outside its tile */
-export const SURFACE_BORDER = 2;
+const SURFACE_SIDE = TERRAIN_SURFACE_TEXELS;
+const SURFACE_BORDER = TERRAIN_SURFACE_BORDER;
 /** surface page slots at most; about 34 KiB each */
 const SURFACE_SLOTS = 1024;
 const SURFACE_FORMAT: GPUTextureFormat = 'bc3-rgba-unorm';
 /** bytes of one BC3 surface image */
 const SURFACE_IMAGE_BYTES = (SURFACE_SIDE / 4) ** 2 * 16;
+
+/** @returns a typed WGSL constant declaration */
+const wgslConst = (name: string, type: 'i32' | 'u32' | 'f32', value: number): string =>
+	'const ' + name + ': ' + type + ' = ' + String(value) + ';';
+
+/** the package's terrain layout as the constants terrain.wgsl reads */
+const LAYOUT_WGSL = [
+	wgslConst('SIDE', 'i32', TERRAIN_PAGE_SAMPLES),
+	wgslConst('PAGE_TEXELS', 'f32', TERRAIN_SURFACE_TEXELS),
+	wgslConst('PAGE_BORDER', 'f32', TERRAIN_SURFACE_BORDER),
+	wgslConst('LEAF_METRES', 'f32', TERRAIN_LEAF_METRES),
+	wgslConst('CELL_METRES', 'f32', TERRAIN_SPLAT_CELL_METRES),
+	wgslConst('CELLS', 'u32', TERRAIN_SPLAT_CELLS),
+].join('\n');
 
 const vertexAt = (x: number, z: number): number => z * GRID + x;
 
@@ -237,13 +255,12 @@ export class TerrainRenderer {
 		this.#layout = layouts.terrain;
 		this.#bindGroup = this.#createBindGroup();
 
-		const module = pipelines.module('terrain', FRAME_WGSL + terrainWgsl);
-		const constants = { SIDE: PAGE_SIDE };
+		const module = pipelines.module('terrain', FRAME_WGSL + LAYOUT_WGSL + '\n' + terrainWgsl);
 		this.#fillKey = 'terrain/fill';
 		this.#wireKey = 'terrain/wire';
 		const describe = (lines: boolean): GPURenderPipelineDescriptor => ({
 			layout: layouts.terrainPipeline,
-			vertex: { module, entryPoint: 'vs_main', constants },
+			vertex: { module, entryPoint: 'vs_main' },
 			fragment: {
 				module,
 				entryPoint: lines ? 'fs_wire' : 'fs_main',
@@ -262,7 +279,7 @@ export class TerrainRenderer {
 		void pipelines.prepare(this.#wireKey, () => describe(true));
 		void pipelines.prepare(SHADOW_KEY, () => ({
 			layout: layouts.terrainPipeline,
-			vertex: { module, entryPoint: 'vs_main', constants },
+			vertex: { module, entryPoint: 'vs_main' },
 			fragment: { module, entryPoint: 'fs_shadow', targets: [] },
 			primitive: { topology: 'triangle-list' },
 			depthStencil: SHADOW_DEPTH_STATE,

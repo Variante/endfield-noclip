@@ -9,8 +9,10 @@ import {
 	readTerrainHeightSamples,
 	readTerrainTexture,
 	readTerrainTintPage,
+	TERRAIN_HEIGHT_HOLE,
 	TERRAIN_HEIGHT_PAGE_SIZE,
 	TERRAIN_LEAF_SIZE,
+	TERRAIN_PAGE_BORDER,
 	TERRAIN_PAGE_SIZE,
 	TERRAIN_SPLAT_CELL,
 	terrainLeafLevel,
@@ -23,6 +25,13 @@ import {
 	encodeSplatPage,
 	encodeSurfacePage,
 	isTerrainHole,
+	TERRAIN_HOLE_BIT,
+	TERRAIN_LEAF_METRES,
+	TERRAIN_PAGE_SAMPLES,
+	TERRAIN_SPLAT_CELL_METRES,
+	TERRAIN_SPLAT_CELLS,
+	TERRAIN_SURFACE_BORDER,
+	TERRAIN_SURFACE_TEXELS,
 	type TerrainInfo,
 	terrainHeight,
 	type TerrainSplatInfo,
@@ -50,6 +59,27 @@ import type { PackCache, StepMemo } from './pack-cache.ts';
 const TILE_BATCH = 64;
 
 /**
+ * the game's terrain layout against the package's, which stores the game's pages as they are
+ *
+ * @throws {Error} if they differ: the package format would need a new version to carry the game's
+ */
+const checkTerrainLayout = (): void => {
+	const pairs: [name: string, game: number, packaged: number][] = [
+		['leaf size', TERRAIN_LEAF_SIZE, TERRAIN_LEAF_METRES],
+		['height page side', TERRAIN_HEIGHT_PAGE_SIZE, TERRAIN_PAGE_SAMPLES],
+		['hole bit', TERRAIN_HEIGHT_HOLE, TERRAIN_HOLE_BIT],
+		['surface page side', TERRAIN_PAGE_SIZE, TERRAIN_SURFACE_TEXELS],
+		['surface page border', TERRAIN_PAGE_BORDER, TERRAIN_SURFACE_BORDER],
+		['splat cell size', TERRAIN_SPLAT_CELL, TERRAIN_SPLAT_CELL_METRES],
+	];
+	for (const [name, game, packaged] of pairs) {
+		if (game !== packaged) {
+			throw new Error(`the game's terrain ${name} is ${game}, but the package format's is ${packaged}`);
+		}
+	}
+};
+
+/**
  * layer texture levels skipped from the top: the game's 1024² textures repeat every 2–9 m, so 512² still
  * gives 57–230 texels per metre, at a quarter of the size
  */
@@ -60,7 +90,7 @@ export interface TerrainInput {
 	scene: string;
 	terrainScene: TerrainSceneIndex;
 	surface: TerrainSurfacesData;
-	terrain: Pick<TerrainInfo, 'position' | 'heightScale' | 'holeBit'>;
+	terrain: Pick<TerrainInfo, 'baseHeight' | 'heightScale'>;
 	grid: Pick<TreeInfo, 'origin' | 'rootSize'>;
 	/** whether the package's subset keeps a tile */
 	includesTile: (key: TileKey) => boolean;
@@ -135,6 +165,7 @@ interface TerrainMemo {
  * @param cache the pack cache, or `null`; its blob directory must be the store's
  * @param input the scene's terrain and the packer's placement hooks
  * @returns every kept tile's blobs, ordered by level, z, x, and the splat section
+ * @throws {Error} if the game's page layout isn't the package format's
  */
 export const packTerrain = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver'>,
@@ -142,6 +173,7 @@ export const packTerrain = async (
 	cache: PackCache | null,
 	input: TerrainInput,
 ): Promise<PackedTerrain> => {
+	checkTerrainLayout();
 	const { terrainScene, surface } = input;
 	const tiles = [...terrainScene.tiles.values()]
 		.filter(({ key }) => input.includesTile(key))
@@ -281,8 +313,8 @@ const convertTerrain = async (
 		memo.value.layerProblem = layers;
 	}
 	const leafLevel = terrainLeafLevel(surface.terrainSize);
-	const indexSide = surface.terrainSize / TERRAIN_SPLAT_CELL;
-	const cells = TERRAIN_LEAF_SIZE / TERRAIN_SPLAT_CELL;
+	const indexSide = surface.terrainSize / TERRAIN_SPLAT_CELL_METRES;
+	const cells = TERRAIN_SPLAT_CELLS;
 	/** the 4 ordinals of a leaf's cells, cut from the scene's index map */
 	const leafIndex = (index: Uint8Array, key: TileKey): Uint8Array => {
 		const out = new Uint8Array(cells * cells * 4);
@@ -298,14 +330,14 @@ const convertTerrain = async (
 			tiles.slice(start, start + TILE_BATCH).map(async ({ key, file, channels }) => {
 				const samples = readTerrainHeightSamples(await readTexture(file));
 				const heights = store.prepare(
-					encodeHeightPage(samples, TERRAIN_HEIGHT_PAGE_SIZE),
+					encodeHeightPage(samples, TERRAIN_PAGE_SAMPLES),
 					pageOptions(BlobKind.TerrainHeights, input.zstdLevel),
 				);
 				let page: Promise<{ meta: BlobMeta }> | null = null;
 				if (channels.A !== undefined && channels.N !== undefined) {
 					const [albedo, normal] = await Promise.all([readPage(channels.A), readPage(channels.N)]);
 					page = store.prepare(
-						encodeSurfacePage({ side: TERRAIN_PAGE_SIZE, albedo, normal }),
+						encodeSurfacePage({ side: TERRAIN_SURFACE_TEXELS, albedo, normal }),
 						// block-compressed texels, so the texture level: higher levels barely shrink them
 						pageOptions(BlobKind.TerrainSurface, input.textureZstdLevel),
 					);
@@ -320,7 +352,7 @@ const convertTerrain = async (
 					const [control, tint] = await Promise.all([readTexture(channels.S), readTexture(channels.T)]);
 					splat = store.prepare(
 						encodeSplatPage({
-							side: TERRAIN_PAGE_SIZE,
+							side: TERRAIN_SURFACE_TEXELS,
 							cells,
 							control: readTerrainControlPage(control),
 							tint: readTerrainTintPage(tint),
@@ -356,18 +388,18 @@ const convertTerrain = async (
  *   holes)
  */
 const heightRange = (
-	terrain: Pick<TerrainInfo, 'position' | 'heightScale' | 'holeBit'>,
+	terrain: Pick<TerrainInfo, 'baseHeight' | 'heightScale'>,
 	samples: Uint16Array,
 ): [min: number, max: number] => {
 	let min = Infinity;
 	let max = -Infinity;
 	for (const sample of samples) {
-		if (!isTerrainHole(terrain, sample)) {
+		if (!isTerrainHole(sample)) {
 			min = Math.min(min, sample);
 			max = Math.max(max, sample);
 		}
 	}
-	const base = terrain.position[1];
+	const base = terrain.baseHeight;
 	return [
 		min === Infinity ? base : terrainHeight(terrain, min),
 		max === -Infinity ? base : terrainHeight(terrain, max),
@@ -443,7 +475,6 @@ const convertLayers = async (
 		index,
 		blobs,
 		info: {
-			cellSize: TERRAIN_SPLAT_CELL,
 			layers: layers.map((layer) => ({
 				texture: layer.texture,
 				tiling: layer.tiling / surface.terrainSize,

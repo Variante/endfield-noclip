@@ -1,3 +1,4 @@
+import { TERRAIN_PAGE_SAMPLES } from '@endfield-noclip/package-format/terrain';
 import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
 import { type Camera, type Plane, boxInFrustum, distanceToBox } from '../scene/camera.ts';
@@ -93,7 +94,6 @@ export class Selector {
 	#tree: TileTree;
 	#stream: Pick<StreamManager, 'want' | 'get' | 'markUsed' | 'isReady'>;
 	#global: readonly ContentRef[];
-	#pageQuads: number;
 	#rootSize: number;
 	#focusCells: ReadonlySet<string> | null = null;
 	#groupsShown: readonly boolean[] = [];
@@ -102,20 +102,17 @@ export class Selector {
 	 * @param tree the linked tree
 	 * @param stream residency
 	 * @param global manifest.global refs, always drawn
-	 * @param pageSide samples per height page edge
 	 * @param rootSize edge length of a level-0 tile
 	 */
 	constructor(
 		tree: TileTree,
 		stream: Pick<StreamManager, 'want' | 'get' | 'markUsed' | 'isReady'>,
 		global: readonly ContentRef[],
-		pageSide: number,
 		rootSize: number,
 	) {
 		this.#tree = tree;
 		this.#stream = stream;
 		this.#global = global;
-		this.#pageQuads = pageSide - 1;
 		this.#rootSize = rootSize;
 	}
 
@@ -350,7 +347,7 @@ export class Selector {
 
 	/** metres between height samples at `level` */
 	#spacing(level: number): number {
-		return this.#rootSize / 2 ** level / this.#pageQuads;
+		return this.#rootSize / 2 ** level / (TERRAIN_PAGE_SAMPLES - 1);
 	}
 
 	/** @param inherited the finest resident surface page above `node` */

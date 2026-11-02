@@ -74,7 +74,6 @@ it('streams conditional scenery independently of coarse HLOD and never requests 
 			},
 		},
 		[],
-		65,
 		100,
 	);
 	const options: SelectionOptions = {
@@ -146,7 +145,6 @@ it('drops the HLOD of a nearby leaf with no detail instead of overlaying the sce
 			isReady: () => true,
 		},
 		[],
-		65,
 		100,
 	);
 	selector.setGroupsShown([true]);

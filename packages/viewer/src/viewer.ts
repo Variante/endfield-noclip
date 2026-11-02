@@ -13,7 +13,12 @@ import {
 	zonesAround,
 	zonesAt,
 } from '@endfield-noclip/package-format/stream-areas';
-import { isTerrainHole, terrainHeight } from '@endfield-noclip/package-format/terrain';
+import {
+	isTerrainHole,
+	TERRAIN_HOLE_BIT,
+	TERRAIN_PAGE_SAMPLES,
+	terrainHeight,
+} from '@endfield-noclip/package-format/terrain';
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
@@ -56,7 +61,7 @@ import { ParticleField } from './render/particles.ts';
 import { type PostSettings, PostProcess, type Tonemapper, postExposure } from './render/post-process.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadow-map.ts';
 import { SETTLE_FRAMES } from './render/temporal-aa.ts';
-import { PAGE_SIDE, SURFACE_BORDER, SURFACE_SIDE, TerrainRenderer } from './render/terrain-renderer.ts';
+import { TerrainRenderer } from './render/terrain-renderer.ts';
 import { type TextureBinding, TextureStore, placeholderView } from './render/texture-store.ts';
 import { VolumetricFog } from './render/volumetric-fog.ts';
 import { WaterLevels, type WaterVolumeState } from './render/water-levels.ts';
@@ -511,15 +516,6 @@ export class Viewer {
 	): Promise<void> {
 		this.unload();
 		const pkg = await openViewerPackage(source, onProgress);
-		const surface = pkg.manifest.terrain;
-		if (
-			surface !== null &&
-			(surface.surfaceSize !== SURFACE_SIDE || surface.surfaceBorder !== SURFACE_BORDER)
-		) {
-			throw new Error(
-				`terrain surface pages of ${surface.surfaceSize}² with a ${surface.surfaceBorder}-texel border aren't supported`,
-			);
-		}
 		const tree = buildTileTree(pkg.manifest, pkg.tree);
 
 		const textures = new TextureStore(this.#gfx.device, pkg.textures, {
@@ -620,13 +616,7 @@ export class Viewer {
 		stream.pin(coreBlobs);
 
 		const manifest = pkg.manifest;
-		const selector = new Selector(
-			tree,
-			stream,
-			manifest.global,
-			manifest.terrain?.pageSize ?? PAGE_SIDE,
-			manifest.tree.rootSize,
-		);
+		const selector = new Selector(tree, stream, manifest.global, manifest.tree.rootSize);
 		const geometries = pkg.geometries.entries;
 		const geometriesReady = geometries.reduce((sum, entry) => sum + (entry.status === 'ready' ? 1 : 0), 0);
 		this.scene = {
@@ -990,12 +980,12 @@ export class Viewer {
 			if (node === undefined || samples === null) {
 				continue;
 			}
-			const side = terrain.pageSize;
+			const side = TERRAIN_PAGE_SAMPLES;
 			const spacing = node.size / (side - 1);
 			const fx = Math.min(side - 1, Math.max(0, (x - node.minX) / spacing));
 			const fz = Math.min(side - 1, Math.max(0, (z - node.minZ) / spacing));
 			const sample = samples[Math.round(fz) * side + Math.round(fx)];
-			return isTerrainHole(terrain, sample) ? null : terrainHeight(terrain, sample);
+			return isTerrainHole(sample) ? null : terrainHeight(terrain, sample);
 		}
 		return covered ? undefined : null;
 	}
@@ -1008,7 +998,7 @@ export class Viewer {
 		}
 		const { origin, rootSize } = manifest.tree;
 		const terrain = manifest.terrain;
-		const baseY = terrain === null ? 0 : terrain.position[1] + terrain.heightScale / 2;
+		const baseY = terrain === null ? 0 : terrain.baseHeight + terrain.heightScale / 2;
 		return {
 			position: [
 				origin[0] + rootSize / 2,
@@ -1874,9 +1864,9 @@ export class Viewer {
 		const terrain = this.scene?.pkg.manifest.terrain;
 		if (terrain != null) {
 			const at = FrameOffsets.terrain;
-			f32[at] = terrain.position[1] - eye[1];
-			f32[at + 1] = terrain.heightScale / terrain.holeBit;
-			u32[at + 2] = terrain.holeBit;
+			f32[at] = terrain.baseHeight - eye[1];
+			f32[at + 1] = terrain.heightScale / TERRAIN_HOLE_BIT;
+			u32[at + 2] = TERRAIN_HOLE_BIT;
 		}
 		{
 			const at = FrameOffsets.flags;

@@ -1,35 +1,54 @@
 import { viewOf, checkHeader, checkLength, writeHeader, type HeaderShape } from './binary.ts';
 import { PackageFormatError } from './errors.ts';
 
-/** scene terrain parameters, from the game's `HGTerrainSurfacesData` */
+// #region layout
+// the terrain's page layout is fixed by the package format (every scene of the game shares it), so a change
+// to any of these is an incompatible change to the package. the terrain square is the tile tree's root
+// (`TreeInfo.origin`, `rootSize`), and its leaves are the terrain's finest tiles
+
+/** edge of a leaf tile, metres */
+export const TERRAIN_LEAF_METRES = 64;
+
+/** samples per height page edge; pages share their edge samples with neighbours */
+export const TERRAIN_PAGE_SAMPLES = 65;
+
+/** a raw height sample's hole flag; the other 15 bits are the height, which holes keep */
+export const TERRAIN_HOLE_BIT = 0x80_00;
+
+/** texels per surface and splat page edge, border included */
+export const TERRAIN_SURFACE_TEXELS = 132;
+
+/** texels of each surface and splat page edge outside the tile; the rest map the tile edge to edge */
+export const TERRAIN_SURFACE_BORDER = 2;
+
+/** metres per splat index cell */
+export const TERRAIN_SPLAT_CELL_METRES = 8;
+
+/** splat index cells per leaf edge */
+export const TERRAIN_SPLAT_CELLS = TERRAIN_LEAF_METRES / TERRAIN_SPLAT_CELL_METRES;
+
+// #endregion
+
+/** scene terrain parameters, from the game's `HGTerrainSurfacesData`; its square is the tile tree's root */
 export interface TerrainInfo {
-	/** world position of the terrain square's minimum corner; `y` is the height of a zero sample */
-	position: [x: number, y: number, z: number];
-	/** metres spanned by the 15-bit height range: `y = position.y + (h & 0x7fff) · heightScale / 32768` */
+	/** world y of a zero sample */
+	baseHeight: number;
+	/**
+	 * metres spanned by the 15-bit height range: `y = baseHeight + (h & (TERRAIN_HOLE_BIT − 1)) · heightScale /
+	 * TERRAIN_HOLE_BIT`
+	 */
 	heightScale: number;
-	/** edge length of the terrain square; equals {@link TreeInfo.rootSize} */
-	terrainSize: number;
-	/** samples per page edge; pages share their edge samples with neighbours */
-	pageSize: number;
-	/** bit 15 of a sample marks a hole */
-	holeBit: number;
 	/** levels that have height pages, ascending (the game ships a pyramid, not just leaves) */
 	levels: number[];
-	/** texels per surface page edge, border included; see {@link BlobKind.TerrainSurface} */
-	surfaceSize: number;
-	/** texels of each surface page edge outside the tile; the rest map the tile edge to edge */
-	surfaceBorder: number;
 	/** the close-up layer blend's inputs, or `null` if they weren't packed */
 	splat: TerrainSplatInfo | null;
 }
 
 /**
- * the close-up layer blend: each leaf's 8 m cells name 4 layers, blended by the leaf's splat control page,
- * then tinted. leaf tiles carry a {@link ContentKind.TerrainSplat} ref
+ * the close-up layer blend: each leaf's {@link TERRAIN_SPLAT_CELL_METRES} m cells name 4 layers, blended by
+ * the leaf's splat control page, then tinted. leaf tiles carry a {@link ContentKind.TerrainSplat} ref
  */
 export interface TerrainSplatInfo {
-	/** metres per index cell; a leaf has `leafSize / cellSize` cells per edge */
-	cellSize: number;
 	/** layers by ordinal, as the splat pages' index cells name them */
 	layers: TerrainLayerInfo[];
 	/** texels per layer texture edge at its first packed level */
@@ -67,12 +86,11 @@ export interface TerrainLayerInfo {
 }
 
 /**
- * @param terrain scene terrain parameters
  * @param sample a raw height sample
  * @returns whether the sample is flagged as a hole; holes still carry a usable height
  */
-export const isTerrainHole = (terrain: Pick<TerrainInfo, 'holeBit'>, sample: number): boolean => {
-	return (sample & terrain.holeBit) !== 0;
+export const isTerrainHole = (sample: number): boolean => {
+	return (sample & TERRAIN_HOLE_BIT) !== 0;
 };
 
 /**
@@ -81,10 +99,10 @@ export const isTerrainHole = (terrain: Pick<TerrainInfo, 'holeBit'>, sample: num
  * @returns the sample's world y, ignoring the hole flag
  */
 export const terrainHeight = (
-	terrain: Pick<TerrainInfo, 'position' | 'heightScale' | 'holeBit'>,
+	terrain: Pick<TerrainInfo, 'baseHeight' | 'heightScale'>,
 	sample: number,
 ): number => {
-	return terrain.position[1] + ((sample & (terrain.holeBit - 1)) * terrain.heightScale) / terrain.holeBit;
+	return terrain.baseHeight + ((sample & (TERRAIN_HOLE_BIT - 1)) * terrain.heightScale) / TERRAIN_HOLE_BIT;
 };
 
 const HEIGHTS_HEADER_SIZE = 8;

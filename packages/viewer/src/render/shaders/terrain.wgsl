@@ -45,20 +45,14 @@ struct Layer {
 @group(1) @binding(10) var<storage, read> layers: array<Layer>;
 @group(1) @binding(11) var layer_sampler: sampler;
 
-// samples per page edge, from `PAGE_SIDE`
-override SIDE: i32 = 65;
-override LAST: i32 = SIDE - 1;
+// the package's terrain layout comes before this source (`LAYOUT_WGSL` in terrain-renderer.ts): `SIDE` samples
+// per height page edge; surface and splat pages of `PAGE_TEXELS` with a `PAGE_BORDER` around the
+// `LEAF_METRES` leaf; `CELLS` index cells of `CELL_METRES` per leaf edge
+const LAST: i32 = SIDE - 1;
 // two samples per word
-override PAGE_WORDS: u32 = (u32(SIDE * SIDE) + 1u) / 2u;
+const PAGE_WORDS: u32 = (u32(SIDE * SIDE) + 1u) / 2u;
 // vertices per grid edge
-override GRID: u32 = u32(LAST) / 2u + 1u;
-
-// splat page layout, from `SURFACE_SIDE` and `SURFACE_BORDER`: 2 texels of border around 128 per 64 m
-const PAGE_TEXELS = 132.0;
-const PAGE_BORDER = 2.0;
-const LEAF_METRES = 64.0;
-const CELL_METRES = 8.0;
-const CELLS = 8u;
+const GRID: u32 = u32(LAST) / 2u + 1u;
 // detail fades into the baked pages over this distance range, m; `DETAIL_DISTANCE` loads beyond it
 const DETAIL_FADE_START = 96.0;
 const DETAIL_FADE_END = 144.0;
