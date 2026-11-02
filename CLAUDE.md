@@ -113,9 +113,7 @@ Last verified: 2026-10-31
 
 ### what the repo holds
 
-the repo ships extractors and the viewer, never the game's keys or content. the game's ToS bans
-reverse engineering, and Hypergryph has had a VFS decryptor removed from GitHub by DMCA, so
-committed keys or game-derived files would expose the repo the same way.
+the repo ships extractors and the viewer, never the game's keys or content.
 
 - keys come from the user's install: `init` derives what it can, takes the rest from `--keys-from`,
   validates each against the install, and saves them to the gitignored `endfield.local.json`
