@@ -10,6 +10,7 @@ import {
 } from '@endfield-noclip/package-format/materials';
 
 import {
+	BeamRow,
 	DecalLitRow,
 	EffectKind,
 	EffectRole,
@@ -651,4 +652,87 @@ test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals 
 	assert.equal(sheet.params[EffectRow.offsetMode], 0);
 	assert.equal(sheet.params[EffectRow.soft], 3);
 	assert.equal(refract.unsupported, true);
+});
+
+const beamShader = (): ShaderEntry => ({
+	...shader('Hidden/VLB_HGRP_SinglePass'),
+	family: 'volumetricBeam',
+	floats: { _BlendMode: 1, _BlendSrcFactor: 1, _BlendDstFactor: 1, _FresnelPow: 1 },
+	colors: { _ColorFlat: [1, 1, 1, 1] },
+	vectors: { _ConeParams0: [0, 0, 0, 0], _ConeParams1: [0, 0, 0, 0], _DistanceFallOff: [0, 0, 0, 0] },
+});
+
+// dung02_dg005's `VLB_5006340546849160366`, one of the Wuling rift's two great beams
+const riftBeam = (overrides: Partial<ReadyMaterial> = {}): ReadyMaterial =>
+	material({
+		keywords: ['VLB_DEPTH_BLEND'],
+		blend: 'alphaBlend',
+		blendFactors: [5, 10],
+		floats: {
+			_AlphaInside: 0.15,
+			_AlphaOutside: 0.15,
+			_AttenuationLerpLinearQuad: 1,
+			_DepthBlendDistance: 22,
+			_DistanceFadeStart: 256,
+			_DistanceFadeEnd: 200,
+			_DistanceFadeStartSecond: 0,
+			_DistanceFadeEndSecond: 0,
+			_FresnelPow: 2,
+		},
+		colors: { _ColorFlat: [0.45, 0.5875, 1, 1] },
+		vectors: {
+			_ConeParams0: [1, 1.00087571, 0.99999994, 0.0002919],
+			_ConeParams1: [0, 0, 1, 0],
+			_DistanceFallOff: [1, 3, 3, 0],
+		},
+		...overrides,
+	});
+
+test('an additive light beam is a shadowless effect with its cone, falloff and colour in the beam rows', () => {
+	const [look] = materialLooks({ shaders: [beamShader()], entries: [riftBeam()] });
+	assert.equal(look.unsupported, false);
+	assert.equal(look.transparent, true);
+	assert.equal(look.castsShadows, false);
+	assert.equal(look.cull, 'back');
+	assert.notEqual(look.flags & LookFlags.Effect, 0);
+	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.Beam);
+	// additive
+	assert.equal(look.params[EffectRow.unfogged + 2], 1);
+	assert.equal(look.params[BeamRow.glare + 3], 1);
+	assert.deepEqual([...look.params.subarray(BeamRow.falloff, BeamRow.falloff + 4)], [1, 3, 3, 0]);
+	assert.ok(Math.abs(look.params[BeamRow.cone + 1] - 1.00087571) < 1e-6);
+	assert.equal(look.params[BeamRow.clip + 1], 22);
+	assert.deepEqual(
+		[...look.params.subarray(BeamRow.alpha, BeamRow.alpha + 2)].map((x) => x.toFixed(2)),
+		['0.15', '0.15'],
+	);
+	// `_ColorFlat` is an LDR colour: decoded to linear
+	assert.ok(Math.abs(look.params[BeamRow.color] - 0.1708) < 1e-3);
+	// equal second fade ends become a step at the start rather than a division by zero
+	assert.ok(look.params[BeamRow.fade + 3] > look.params[BeamRow.fade + 2]);
+});
+
+test('a light beam without depth blending, or alpha-blended under fog, keeps its own settings', () => {
+	const [plain, fogged] = materialLooks({
+		shaders: [beamShader()],
+		entries: [
+			riftBeam({ keywords: ['VLB_NOISE_3D'] }),
+			riftBeam({
+				id: 1,
+				keywords: ['VLB_DEPTH_BLEND', 'VLB_USE_FOG'],
+				floats: { _BlendMode: 0, _BlendSrcFactor: 5, _BlendDstFactor: 10 },
+			}),
+		],
+	});
+	assert.equal(plain.params[BeamRow.clip + 1], 0);
+	assert.equal(fogged.params[EffectRow.unfogged], 0);
+	assert.equal(fogged.params[EffectRow.unfogged + 2], 0);
+});
+
+test('a light beam with blending the game pairs with neither mode is unsupported', () => {
+	const [look] = materialLooks({
+		shaders: [beamShader()],
+		entries: [riftBeam({ floats: { _BlendMode: 1, _BlendSrcFactor: 5, _BlendDstFactor: 10 } })],
+	});
+	assert.equal(look.unsupported, true);
 });

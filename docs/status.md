@@ -73,8 +73,8 @@ packs or renders correctly.
   and its volume blend is read from the height-fog section's and assumed for the volumetric one
 - local lights ([lighting](game-data/lighting.md#local-lights)): no shadows (on surfaces or in the
   volumetric fog), cookies, flicker or multiple-scattering term; directional, shadow-only and
-  character-only lights aren't packed; light beams show as
-  [unsupported](viewer/materials.md#unsupported-materials)
+  character-only lights aren't packed; [light beams](viewer/effects.md#light-beams) lack their 3D
+  noise, a per-renderer scale and a global tint, and aren't checked against an in-game shot
 - the sun may be π too dark against local lights and the game (the two conventions differ);
   unchecked
 - interiors, in order of impact:

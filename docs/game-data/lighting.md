@@ -213,7 +213,39 @@ its slice's mask. the volumetric fog lights each froxel with the same lists, thr
 Henyey-Greenstein phase times each light's volumetric scattering intensity.
 
 972 map02 lights cast shadows. lights can also carry cookies (no map02 light has one), a flicker
-component and light beams.
+component and [light beams](#light-beams).
+
+### light beams
+
+light beams are a modified Volumetric Light Beam (a third-party Unity asset): a renderer on the
+shared `ConeMesh.asset` with a per-beam material of `Hidden/VLB_HGRP_SinglePass` (148 materials
+across the packed scenes, map02 holding 127). Wuling Very Large Rift (dung02_dg005) has the largest,
+781 m across, in script groups that pair each beam with its lights (a dark set on by default, a
+bright set a level script shows).
+
+the cone mesh is 64 sides with z 0 to 1 and a start cap; UV0's u marks the cap and v the outside
+faces (1) against the inside ones (0), so one back-culled draw shows the inside from within. the
+vertex stage squares z, scales the radius from `_ConeParams0.x` to `.y` (over the larger of the two)
+and skews the side along `_ConeParams1.xyz`; the renderer's transform carries the rest of the size.
+measured in the beam's own units (radius, and `_DistanceFallOff.z` along it), a pixel's opacity is
+the product of:
+
+| term           | from                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| side term      | the side's normal (`_ConeParams0.zw`) against the view, across the axis or straight on as the view lines up with the beam, to `_FresnelPow` |
+| attenuation    | over `_DistanceFallOff.xy` along the beam: smooth linear, or `1 / (1 + 25t²)` with a tail fade, mixed by `_AttenuationLerpLinearQuad`       |
+| start fade     | in over `_DistanceFallOff.w` from the start (none at 0)                                                                                     |
+| facing         | inside faces fade as the view turns down the beam, outside faces as it turns back                                                           |
+| depth blend    | `VLB_DEPTH_BLEND`: fades over `_DepthBlendDistance` towards the surface behind                                                              |
+| near camera    | fades in over `_DistanceCamClipping` past the near plane                                                                                    |
+| distance fade  | by the camera's view depth to the beam's origin, over `_DistanceFadeStart`–`End` and the second pair (equal ends: a step)                   |
+| clipping plane | `_UseClippingPlane`: fades across `_AdditionalClippingPlaneWS` over `_ClippingPlaneTransition`                                              |
+| cap            | caps show only when `_ConeParams1.w` is 1 (0 on every packed beam)                                                                          |
+
+the colour is `_ColorFlat` (LDR) times `_AlphaInside` or `_AlphaOutside`. `_BlendMode` 1 adds it
+(One One, 140 materials); 0 alpha-blends (8). `VLB_NOISE_3D` multiplies by a global 3D noise and
+`VLB_USE_FOG` applies the atmosphere and exponential fog. the shader also scales by a per-renderer
+value and a global tint and saturation whose sources aren't recovered.
 
 ## open
 

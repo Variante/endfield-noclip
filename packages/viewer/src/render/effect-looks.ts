@@ -829,6 +829,8 @@ export const EffectKind = {
 	WaterSheet: 1,
 	/** an `HGRP/DecalLit` box ({@link DecalLitRow}), drawn by the decal entry point */
 	LitDecal: 2,
+	/** a volumetric light beam's cone ({@link BeamRow}) */
+	Beam: 3,
 } as const;
 
 /**
@@ -1300,6 +1302,126 @@ export const fakeVolumeFogLook = (entry: ReadyMaterial, shader: ShaderEntry): Ef
 			MistRow.volumeNoiseMix,
 		);
 	}
+	return look;
+};
+
+// #endregion
+
+// #region light beams
+
+/**
+ * float offsets of a light beam's parameters (`volumetricBeamLook`), in place of {@link EffectRow}'s rows 0–9.
+ * lengths are in the beam's own units, before its transform's scale. row 31 is shared
+ */
+export const BeamRow = {
+	/** `_ColorFlat`: linear colour, alpha */
+	color: 0,
+	/** `_ConeParams0`: start and end radius, the side's normal (cosine and sine of the half angle) */
+	cone: 4,
+	/** `_ConeParams1`: the beam's direction xyz, 1 when the start cap is drawn */
+	direction: 8,
+	/** `_DistanceFallOff`: attenuation start and end, length, the fade-in length from the start (0: none) */
+	falloff: 12,
+	/** `_AlphaInside`, `_AlphaOutside`, `_AttenuationLerpLinearQuad`, `_FresnelPow` */
+	alpha: 16,
+	/** `_GlareFrontal`, `_GlareBehind`, the apex's offset behind the start (`_ConeGeomProps`), `_BlendMode` */
+	glare: 20,
+	/** distance fade start and end, second start and end (camera to the beam's origin, m) */
+	fade: 24,
+	/**
+	 * the near camera fade's length (`_DistanceCamClipping`), the depth blend distance (0 without
+	 * `VLB_DEPTH_BLEND`), `_DepthBlendCapOff`, `_UseClippingPlane`
+	 */
+	clip: 28,
+	/** `_AdditionalClippingPlaneWS`: world-space normal, offset */
+	plane: 32,
+	/** `_TiltVectorX`, `_TiltVectorY`, `_ClippingPlaneTransition`, 0 */
+	tilt: 36,
+} as const;
+
+/**
+ * beam keywords that are drawn. `VLB_NOISE_3D`'s noise is left out; under `VLB_USE_FOG`, alpha-blended beams
+ * take the composite's fog and additive ones stay unfogged
+ */
+const BEAM_KEYWORDS = new Set(['VLB_DEPTH_BLEND', 'VLB_NOISE_3D', 'VLB_USE_FOG']);
+
+/** Unity's `BlendMode` values the beams use */
+const BlendFactor = {
+	One: 1,
+	SrcAlpha: 5,
+	OneMinusSrcAlpha: 10,
+} as const;
+
+/**
+ * `Hidden/VLB_*`, the volumetric light beams (`docs/game-data/lighting.md#light-beams`), drawn on their cone
+ * mesh.
+ *
+ * @param entry a material of a `Hidden/VLB_*` shader
+ * @param shader its shader
+ * @returns its beam look, or `null` when it uses features or blending that aren't drawn
+ */
+export const volumetricBeamLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
+	if (entry.keywords.some((keyword) => !BEAM_KEYWORDS.has(keyword))) {
+		return null;
+	}
+	const { float, color } = readers(entry, shader);
+	const blendMode = float('_BlendMode', 0);
+	const src = float('_BlendSrcFactor', BlendFactor.One);
+	const dst = float('_BlendDstFactor', BlendFactor.One);
+	const additive = blendMode === 1 && src === BlendFactor.One && dst === BlendFactor.One;
+	const blended = blendMode === 0 && src === BlendFactor.SrcAlpha && dst === BlendFactor.OneMinusSrcAlpha;
+	if (!additive && !blended) {
+		return null;
+	}
+	const look = emptyEffect(7);
+	const params = look.params;
+	const flat = color('_ColorFlat') ?? [1, 1, 1, 1];
+	params.set([...linearRgb(flat), flat[3]], BeamRow.color);
+	params.set(color('_ConeParams0') ?? [1, 1, 1, 0], BeamRow.cone);
+	params.set(color('_ConeParams1') ?? [0, 0, 1, 0], BeamRow.direction);
+	params.set(color('_DistanceFallOff') ?? [0, 1, 1, 0], BeamRow.falloff);
+	params.set(
+		[
+			float('_AlphaInside', 1),
+			float('_AlphaOutside', 1),
+			float('_AttenuationLerpLinearQuad', 0.5),
+			float('_FresnelPow', 1),
+		],
+		BeamRow.alpha,
+	);
+	params.set(
+		[float('_GlareFrontal', 0.5), float('_GlareBehind', 0.5), float('_ConeGeomProps', 0), additive ? 1 : 0],
+		BeamRow.glare,
+	);
+	params.set(
+		[
+			...fadeRange(float('_DistanceFadeStart', 0), float('_DistanceFadeEnd', 1)),
+			...fadeRange(float('_DistanceFadeStartSecond', 0), float('_DistanceFadeEndSecond', 0)),
+		],
+		BeamRow.fade,
+	);
+	params.set(
+		[
+			float('_DistanceCamClipping', 0.5),
+			entry.keywords.includes('VLB_DEPTH_BLEND') ? float('_DepthBlendDistance', 2) : 0,
+			float('_DepthBlendCapOff', 0),
+			float('_UseClippingPlane', 0),
+		],
+		BeamRow.clip,
+	);
+	params.set(color('_AdditionalClippingPlaneWS') ?? [0, 1, 0, 0], BeamRow.plane);
+	params.set(
+		[
+			float('_TiltVectorX', 0),
+			float('_TiltVectorY', 0),
+			Math.max(float('_ClippingPlaneTransition', 1), 1e-4),
+		],
+		BeamRow.tilt,
+	);
+	params.set(
+		[entry.keywords.includes('VLB_USE_FOG') ? 0 : 1, EffectKind.Beam, additive ? 1 : 0, 0],
+		EffectRow.unfogged,
+	);
 	return look;
 };
 

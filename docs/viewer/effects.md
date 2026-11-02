@@ -1,8 +1,9 @@
 # scene effects
 
 how the viewer draws the effects [game-data/effects.md](../game-data/effects.md) describes:
-VFXBaseV2, VFXDecal, the [solid effects](#solid-effects), the [waterfalls](#waterfalls) and the
-[mist](#mist) ([`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts),
+VFXBaseV2, VFXDecal, the [solid effects](#solid-effects), the [waterfalls](#waterfalls), the
+[mist](#mist) and the [light beams](#light-beams)
+([`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts),
 [`shaders/effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). effects on particle
 meshes play through the [particles](particles.md#particles); what's left out is in
 [status](../status.md).
@@ -56,6 +57,17 @@ and bound beside the slots (a zeroed placeholder leaves boxes without it unchang
 for it like an effect's other textures. additive cards and boxes draw into the transparent pass's
 glow, which the composite adds unfogged after the fog ([frame](frame.md)); premultiplied cards join
 the weighted blend. at Sword Vault Dale the cards make the haze that the fog alone left clear.
+
+## light beams
+
+[light beams](../game-data/lighting.md#light-beams) draw through `fs_effect`, which hands them to
+`light_beam` (`volumetricBeamLook` in
+[`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `vs_effect` shapes the cone
+first (`beam_vertex`); the fragment stage takes the beam's own frame and the camera's from the
+instance's inverse transform rather than extra varyings. additive beams draw into the glow,
+unfogged; alpha-blended ones join the weighted blend, fogged by the composite under `VLB_USE_FOG`.
+the 3D noise, the per-renderer scale and the global tint are left out, and the colour isn't scaled
+by exposure, which the game's shader doesn't do either (unverified against an in-game shot).
 
 ## blending
 

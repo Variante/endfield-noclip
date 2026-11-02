@@ -15,6 +15,7 @@ import {
 	vfxBaseLook,
 	vfxDecalLook,
 	vfxWaterLook,
+	volumetricBeamLook,
 } from './effect-looks.ts';
 
 /**
@@ -525,7 +526,10 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 			break;
 		}
 		default: {
-			return null;
+			if (shader.family !== 'volumetricBeam') {
+				return null;
+			}
+			effect = volumetricBeamLook(entry, shader);
 		}
 	}
 	if (effect === null) {
