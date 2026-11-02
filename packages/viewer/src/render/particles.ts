@@ -23,7 +23,7 @@ import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { linearRgb } from './color.ts';
-import { ROW_COLORED, ROW_WORDS, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
+import { ROW_COLORED, ROW_WORDS, RowBillboard, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
 
 /**
  * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the
@@ -1331,18 +1331,19 @@ export class ParticleField {
 			m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
 			m[8] * v[0] + m[9] * v[1] + m[10] * v[2],
 		];
-		// the frame quads turn in, by render mode: the camera's, its heading's, or lying flat facing up. billboards
-		// take their render alignment: the camera's (View), the world's axes or the emitter's
-		let frame: Vec3[] = [view.right, view.up, view.forward];
+		// the frame quads turn in, by render mode: the camera's or its heading's (which `row_basis` turns them in
+		// on the GPU, as billboard chains are), or lying flat facing up. billboards take their render alignment:
+		// the camera's (View), the world's axes or the emitter's
+		let frame: Vec3[] | null = null;
+		let billboard: RowBillboard = RowBillboard.None;
 		switch (info.renderMode) {
 			case ParticleRenderMode.Billboard: {
 				switch (info.alignment) {
+					case ParticleAlignment.View: {
+						billboard = RowBillboard.Facing;
+						break;
+					}
 					case ParticleAlignment.World: {
-						frame = [
-							[1, 0, 0],
-							[0, 1, 0],
-							[0, 0, 1],
-						];
 						break;
 					}
 					case ParticleAlignment.Local: {
@@ -1353,8 +1354,13 @@ export class ParticleField {
 				break;
 			}
 			case ParticleRenderMode.Vertical: {
-				const forward = normalize([view.forward[0], 0, view.forward[2]]);
-				frame = [[forward[2], 0, -forward[0]], [0, 1, 0], forward];
+				billboard = RowBillboard.Upright;
+				break;
+			}
+			case ParticleRenderMode.Mesh: {
+				if (info.alignment === ParticleAlignment.View) {
+					billboard = RowBillboard.Facing;
+				}
 				break;
 			}
 			case ParticleRenderMode.Horizontal: {
@@ -1409,7 +1415,9 @@ export class ParticleField {
 					sizes[2],
 				];
 			} else if (info.renderMode !== ParticleRenderMode.Mesh) {
-				turn(frame);
+				if (frame !== null) {
+					turn(frame);
+				}
 			} else {
 				switch (info.alignment) {
 					case ParticleAlignment.Local: {
@@ -1420,7 +1428,7 @@ export class ParticleField {
 						break;
 					}
 					case ParticleAlignment.View: {
-						turn(frame);
+						// the GPU turns it with the camera
 						break;
 					}
 					case ParticleAlignment.World: {
@@ -1450,7 +1458,7 @@ export class ParticleField {
 				words[o + 18] = packRowColor(color);
 				rowWord = (rowWord | ROW_COLORED) >>> 0;
 			}
-			words[o + 19] = rowWord;
+			words[o + 19] = (rowWord | (billboard << 30)) >>> 0;
 			emitter.live.push(emitter.rows.start + i);
 		}
 		if (count > 0) {
