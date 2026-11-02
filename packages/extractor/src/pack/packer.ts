@@ -102,6 +102,7 @@ import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
 import type { AssetResolver, ObjectRef } from '../game/assets.ts';
 import { billboardPlacement } from '../game/billboard.ts';
+import { RENDER_PIPELINE_QUAD_PATH } from '../game/builtin-resources.ts';
 import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
@@ -1556,17 +1557,14 @@ interface StandInReport {
 /** the synthetic stand-in cube's bounds */
 const UNIT_CUBE_BOUNDS: Aabb = { center: [0, 0, 0], extents: [0.5, 0.5, 0.5] };
 
-/** the render pipeline's unit quad, which billboard particles draw */
-const PARTICLE_QUAD_PATH = 'Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx';
-
 /** @returns the quad billboard particles draw, or `null` if the install doesn't have it where expected */
 const findParticleQuad = async (context: Context, resolver: AssetResolver): Promise<ObjectRef | null> => {
-	const [hash] = await context.world.hashesOf(PARTICLE_QUAD_PATH);
+	const [hash] = await context.world.hashesOf(RENDER_PIPELINE_QUAD_PATH);
 	if (hash === undefined) {
 		return null;
 	}
 	try {
-		return await resolver.findUnique({ hash, path: PARTICLE_QUAD_PATH }, UnityClass.Mesh);
+		return await resolver.findUnique({ hash, path: RENDER_PIPELINE_QUAD_PATH }, UnityClass.Mesh);
 	} catch {
 		return null;
 	}

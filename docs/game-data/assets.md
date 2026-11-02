@@ -68,6 +68,16 @@ data in `m_StreamData` when present.
   an empty `m_CompressedMesh` keeps its vertices in the ordinary channels.
 - skinned meshes carry weights, bone indices and bind poses.
 
+#### built-in meshes
+
+some prefabs use Unity's built-in meshes from `library/unity default resources`, which no bundle
+holds: the Quad (path id 10210; the collectible marker `int_collection_common_postmodel`'s icon and
+glow cards) and the Cube (10202; the balloons, `int_balloon_postmodel*`). the render pipeline
+bundles its own copies (`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/`
+`Quad.fbx` and `Cube.fbx`), which the extractor reads in their place. the quad has the built-in's
+geometry: 1 m in the XY plane, facing −Z, UV = position + 0.5. the cube is a 1 m cube with each
+face's UVs spanning 0–1; whether its faces' UV orientation matches the built-in's is unchecked.
+
 ### texture
 
 the texture classes are `Texture2D`, `Cubemap`, `Texture2DArray`, `CubemapArray` and `Texture3D`.

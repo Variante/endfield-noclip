@@ -103,6 +103,34 @@ test('container external pointers preserve file id', async () => {
 	assert.deepEqual(refs.map(objectKey), ['CAB-target:2']);
 });
 
+test("PPtrs into Unity's built-in files resolve through the built-in lookup, and fail without a match", async () => {
+	const owner = file('CAB-owner', [object(1n, UnityClass.MeshFilter)], new Map());
+	owner.file.externals.push({
+		guid: new Uint8Array(16),
+		type: 0,
+		pathName: 'Library/unity default resources',
+	});
+	const copy = file('CAB-copy', [object(7n, UnityClass.Mesh)], new Map());
+	const copyRef = { bundleIndex: 1, file: copy, info: copy.file.objects[0] };
+	const keys = {
+		vfsKey: new Uint8Array(32),
+		bundle: { sbox: new Uint8Array(256), key: new Uint8Array(16), iv: new Uint8Array(16), chainXor: 0n },
+	};
+	const asked: string[] = [];
+	const assets = new AssetResolver(
+		{ vfs: new Vfs('', keys.vfsKey), keys },
+		{} as BundleManifest,
+		async (_, path, pathId) => {
+			asked.push(`${path}:${pathId}`);
+			return pathId === 10210n ? copyRef : null;
+		},
+	);
+	const from = { bundleIndex: 0, file: owner, info: owner.file.objects[0] };
+	assert.equal(await assets.resolve(from, { fileId: 1, pathId: 10210n }), copyRef);
+	await assert.rejects(assets.resolve(from, { fileId: 1, pathId: 10202n }), /path id 10202/);
+	assert.deepEqual(asked, ['library/unity default resources:10210', 'library/unity default resources:10202']);
+});
+
 test('sub-assets are restricted to the container preload range and deduplicated', async () => {
 	const owner = file(
 		'CAB-owner',

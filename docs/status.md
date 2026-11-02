@@ -330,9 +330,10 @@ packs or renders correctly.
 - port the game's path hash so lookups stop reverse-scanning the path-hash table (about a second
   each)
 - meshes: collision-only meshes (`m_CollisionMeshBaked`) and vertices in `m_CompressedMesh` are
-  rejected, leaving their instances as streaming boxes; PPtrs into Unity's built-in resources don't
-  resolve; prefabs that fail with a `FormatError` are listed in the unsupported-prefab report and
-  drawn as [stand-in](package-format.md#stand-ins) cubes ([assets](game-data/assets.md#mesh))
+  rejected, leaving their instances as streaming boxes; PPtrs into Unity's built-in resources
+  resolve only for the Quad and Cube ([built-in meshes](game-data/assets.md#built-in-meshes));
+  prefabs that fail with a `FormatError` are listed in the unsupported-prefab report and drawn as
+  [stand-in](package-format.md#stand-ins) cubes ([assets](game-data/assets.md#mesh))
 - move the viewer's environment-agnostic package loading into `package-format` so packer tests read
   packages through the viewer's code
 - the terrain shader assumes 65² pages

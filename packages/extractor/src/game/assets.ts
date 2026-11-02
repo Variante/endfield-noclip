@@ -43,6 +43,20 @@ export interface ObjectRef {
  */
 export const objectKey = (ref: ObjectRef): string => `${ref.file.node.path}:${ref.info.pathId}`;
 
+/**
+ * finds a bundled object that stands in for one in Unity's built-in files, which ship in the player
+ *
+ * @param resolver the resolver asking
+ * @param file the built-in file's lowercase path, e.g. `library/unity default resources`
+ * @param pathId the object's path id in it
+ * @returns the bundled equivalent, or `null` if there's none
+ */
+export type BuiltinLookup = (
+	resolver: AssetResolver,
+	file: string,
+	pathId: bigint,
+) => Promise<ObjectRef | null>;
+
 /** where an object lives, without holding its bundle open; see {@link AssetResolver.objectIn} */
 export interface ObjectLocator {
 	/** manifest bundle index */
@@ -184,14 +198,18 @@ export class AssetResolver {
 	readonly #cabs = new Map<string, number>();
 	/** bundles whose directory has been registered in {@link #cabs} */
 	readonly #scanned = new Set<number>();
+	readonly #builtins: BuiltinLookup | undefined;
 
 	/**
 	 * @param context VFS and keys
 	 * @param manifest the bundle manifest
+	 * @param builtins finds bundled equivalents of objects in Unity's built-in files; without it, PPtrs into
+	 *   them throw
 	 */
-	constructor(context: { vfs: Vfs; keys: Keys }, manifest: BundleManifest) {
+	constructor(context: { vfs: Vfs; keys: Keys }, manifest: BundleManifest, builtins?: BuiltinLookup) {
 		this.context = context;
 		this.manifest = manifest;
+		this.#builtins = builtins;
 	}
 
 	/**
@@ -342,7 +360,11 @@ export class AssetResolver {
 		// player, not in any bundle
 		const path = external.pathName.toLowerCase();
 		if (path.startsWith('library/') || path.startsWith('resources/')) {
-			throw new FormatError(`PPtr into built-in ${external.pathName}`);
+			const substitute = await this.#builtins?.(this, path, pptr.pathId);
+			if (substitute != null) {
+				return substitute;
+			}
+			throw new FormatError(`PPtr into built-in ${external.pathName} (path id ${pptr.pathId})`);
 		}
 		const cab = archiveFileName(external.pathName);
 		return this.objectIn(await this.bundleOfCab(cab, from.bundleIndex), cab, pptr.pathId);

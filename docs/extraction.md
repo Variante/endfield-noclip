@@ -174,7 +174,11 @@ an `ObjectRef` (bundle index, SerializedFile, object info), relying on the game 
 the resolver opens dependency directories in batches and caches each CAB location. sub-asset lookup
 checks the main asset and same-bundle preload pointers, skipping dependency preloads. `findUnique`
 requires exactly one match; missing containers, class mismatches, ambiguous sub-assets and invalid
-preload ranges fail. failed lookups retain their errors in the pack's debug index.
+preload ranges fail. failed lookups retain their errors in the pack's debug index. a PPtr into
+Unity's built-in files resolves to the bundled copy of a
+[built-in mesh](game-data/assets.md#built-in-meshes)
+([builtin-resources.ts](../packages/extractor/src/game/builtin-resources.ts)), looked up on first
+use; any other throws a `FormatError` naming its path id.
 
 an `AssetRef` reached through a prefab carries an `ObjectLocator` (bundle, CAB, path id), bypassing
 path lookup. `objectKey` (`CAB-<hex>:<pathId>`) identifies objects for deduplication and caching.
