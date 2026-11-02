@@ -42,8 +42,9 @@ coverage. unlike the game's, they don't write depth, so they don't hide effects 
 stack's mask scales the colour as well as the alpha, so a mask draws only as its red
 (`_UseMaskTexAsAlpha`, the default), where its colour is white.
 
-[reflection-only effects](../game-data/effects.md#reflection-only-effects) aren't drawn: the viewer
-has no planar or ray-traced reflections for them to appear in.
+[reflection-only effects](../game-data/effects.md#reflection-only-effects) aren't drawn, since the
+game never shades them into the image. the viewer's screen-space reflections don't take their normal
+and roughness either.
 
 ## portals
 

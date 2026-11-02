@@ -133,12 +133,16 @@ a mask-only material.
 
 ## reflection-only effects
 
-`HGRP/Effect/VFXReflectionPass` has no G-buffer, forward or transparent pass, only
-`ForwardReflection` and two ray-traced reflection passes, so it draws only into reflections and
-never in the main view. effects use it for a copy of a mesh that should show in reflections: the
-Very Large Rift portal's `quan_ad_01` ring (VFXBaseV2) has a `quan_ad_01_pass` twin in this shader,
-cut out at `_ReflectionPassAlphaCutout`. which reflection renders draw the `ForwardReflection` pass
-isn't traced.
+`HGRP/Effect/VFXReflectionPass` is never shaded into the image. its passes are `ForwardReflection`
+and two ray-traced reflection passes. the deferred path collects `ForwardReflection` materials into
+a draw list of their own, and only the
+[screen-space reflection](lighting.md#screen-space-reflections) pass draws it, into the normal,
+roughness and depth it marches from, as water does. the pass writes the mesh's normal with a
+roughness of 1 wherever its alpha (VFXBaseV2's tint, vertex colour, `_MainTex` and near camera fade)
+reaches `_ReflectionPassAlphaCutout`, so behind a transparent effect the reflections are traced from
+the effect's surface instead of the opaque one. the Very Large Rift portal's `quan_ad_01` ring
+(VFXBaseV2) has such a twin, `quan_ad_01_pass`. what this changes on screen behind the ring isn't
+checked against the game.
 
 ## refraction
 

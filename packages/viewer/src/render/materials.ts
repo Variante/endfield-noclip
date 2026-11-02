@@ -28,8 +28,8 @@ import {
 const UNDRAWN_FAMILIES = new Set(['waterProxy']);
 
 /**
- * shaders with no pass the game draws in the main view: VFXReflectionPass has only reflection passes, for
- * reflection-only copies of effect meshes (`docs/game-data/effects.md#reflection-only-effects`)
+ * shaders the game never shades into the image: VFXReflectionPass only writes screen-space reflections'
+ * normal and roughness (`docs/game-data/effects.md#reflection-only-effects`)
  */
 const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
 
