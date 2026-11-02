@@ -9,7 +9,6 @@ import type { MaterialEntry, MaterialTable, ReadyMaterial } from '@endfield-nocl
 import { type TextureEntry, textureLevelLayout } from '@endfield-noclip/package-format/textures';
 
 import { failureReason } from '../errors.ts';
-import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import {
 	type AssetRef,
 	type AssetResolver,
@@ -18,6 +17,7 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
+import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 import { keywordsNotDrawn, unsupportedShader } from '../game/material-support.ts';
 import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';

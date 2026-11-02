@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-	classifyHgrpMaterial,
 	type MaterialRecord,
 	ShaderPropertyFlags,
 	ShaderPropertyType,
 	type ShaderProperty,
 	type ShaderSummary,
 } from '@endfield-noclip/formats/unity/material';
+
+import { classifyHgrpMaterial } from '../game/material-classify.ts';
 
 import { convertMaterial, ShaderTable } from './materials.ts';
 

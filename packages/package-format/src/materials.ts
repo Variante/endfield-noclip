@@ -31,11 +31,7 @@ export interface ShaderEntry {
 	normalMaps: string[];
 }
 
-/**
- * the HGRP shader family a shader belongs to; `unknown` for shaders the viewer has no path for. the decoder
- * (formats' `unity/material.ts`) spells the same union independently, since neither package may depend on the
- * other; the extractor's mapping type-checks against both
- */
+/** the HGRP shader family a shader belongs to; `unknown` for shaders the viewer has no path for */
 export type ShaderFamily =
 	| 'lit'
 	| 'litTransparent'

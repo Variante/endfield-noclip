@@ -22,8 +22,9 @@ import {
 import { withContext } from '../context.ts';
 import { errorText, failureReason } from '../errors.ts';
 import { type GlbScene, writeGlb } from '../export/glb.ts';
-import { loadMaterial, loadMesh, loadTexture, type LoadedMaterial } from '../game/asset-decode.ts';
+import { loadMesh, loadTexture } from '../game/asset-decode.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
+import { loadMaterial, type LoadedMaterial } from '../game/material-load.ts';
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 import { zstdSync } from '../zstd.ts';
 

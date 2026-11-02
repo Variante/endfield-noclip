@@ -25,7 +25,6 @@ import type { LevelEnvironment } from '@endfield-noclip/package-format/manifest'
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import type { Context } from '../context.ts';
-import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
 import {
 	environmentVolumeShape,
@@ -43,6 +42,7 @@ import {
 	type SceneVolumes,
 	type SectionSource,
 } from '../game/environment.ts';
+import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 
 // the manifest's environments: every volume with its phase, each level's base volume and its post-processing
 // profile. textures the phases reference are converted with the other assets, so planning happens before

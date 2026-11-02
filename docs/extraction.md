@@ -242,7 +242,12 @@ scale/offset and HGRP's per-slot `m_UVSetIndex`, floats, colours;
 [material and shader](game-data/assets.md#material-and-shader)). the packer replaces `m_UVSetIndex`
 with the Lit shader's UV-set floats where it declares them
 ([lit layers](game-data/materials.md#lit-layers)). `summarizeShader` reads a shader's name,
-first-subshader tags and declared properties from `m_ParsedForm`. `classifyHgrpMaterial` derives the
+first-subshader tags and declared properties from `m_ParsedForm`. `loadMaterial`
+([game/material-load.ts](../packages/extractor/src/game/material-load.ts)) locates a material's
+shader and textures and classifies it. it lives apart from asset-decode.ts so the conversion worker,
+which loads meshes and textures from there, doesn't import the classification, and changing it keeps
+the [pack cache](#pack-cache). `classifyHgrpMaterial`
+([game/material-classify.ts](../packages/extractor/src/game/material-classify.ts)) derives the
 shader family (from the shader name), blend kind, queue, alpha-test threshold, cull mode and the Lit
 normal/MRO layout; Unity's queue boundaries (≥2450 alpha test, ≥3000 transparent) are refined by
 HGRP's own surface, blend, alpha-test and cull properties. it reads only properties the shader

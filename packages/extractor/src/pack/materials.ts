@@ -1,5 +1,4 @@
 import {
-	type MaterialClassification,
 	type MaterialRecord,
 	ShaderPropertyFlags,
 	ShaderPropertyType,
@@ -11,6 +10,8 @@ import type {
 	ShaderFamily,
 	TextureSlot,
 } from '@endfield-noclip/package-format/materials';
+
+import type { MaterialClassification } from '../game/material-classify.ts';
 
 // material table rows: a shader table holding each shader's declared property defaults, and per material only
 // what differs from them. Unity keeps stale properties from earlier shaders in a material; undeclared ones are
