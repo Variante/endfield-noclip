@@ -32,8 +32,8 @@ export const EffectRow = {
 	/** per slot: UV scroll per second (xy), the UV rotation's cosine and sine */
 	anim: 32,
 	/**
-	 * per slot: role, plus 8 when the slot's UVs take the distortion, plus 16 when its red channel is its
-	 * alpha, plus 32 times its {@link SlotSource}, or {@link SLOT_NO_BASE}
+	 * per slot: role, plus 16 when its red channel is its alpha, plus 32 times its {@link SlotSource}, or
+	 * {@link SLOT_NO_BASE}, plus {@link slotDisturb} of the share of the distortion its UVs take
 	 */
 	slotBits: 60,
 	/** the blend layer's tint rgb (HDR), w = how strongly it covers */
@@ -107,6 +107,15 @@ export type SlotSource = (typeof SlotSource)[keyof typeof SlotSource];
  * weights pick isn't computed (polar or screen UVs without their keyword and switch)
  */
 export const SLOT_NO_BASE = 128;
+
+/**
+ * the {@link EffectRow.slotBits} term for the share of the distortion a slot's UVs take (`*UseDisturb`), in
+ * 1/1024ths above the low byte, which f32 holds exactly
+ *
+ * @param share the material's `*UseDisturb`, 0 for none and 1 for all of it
+ * @returns the term to add to the slot's bits
+ */
+export const slotDisturb = (share: number): number => Math.round(Math.max(share, 0) * 1024) * 256;
 
 /**
  * slots of a VFXBaseV2 look: the main texture, then `_SampleTex0`…; the sixth sample texture shares
@@ -413,7 +422,7 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		if (i === 0) {
 			const bits =
 				EffectRole.Main +
-				(float('_MainTexUseDisturb', 0) !== 0 ? 8 : 0) +
+				slotDisturb(float('_MainTexUseDisturb', 0)) +
 				(float('_UseMainTexAsAlpha', 0) !== 0 ? 16 : 0) +
 				source('_MainTex');
 			setSlot(look, i, slot, animOf('_MainTex'), bits);
@@ -432,7 +441,7 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		const anim = animOf(`_SampleTex${n}`);
 		let bits =
 			role +
-			(float(`_SampleTex${n}UseDisturb`, 0) !== 0 ? 8 : 0) +
+			slotDisturb(float(`_SampleTex${n}UseDisturb`, 0)) +
 			(float(`_UseSampleTex${n}AsAlpha`, 0) !== 0 ? 16 : 0);
 		if (n === 5) {
 			// the shader computes the sixth's UVs in its vertex stage, from the mesh's UV sets alone, and scrolls them
@@ -564,7 +573,7 @@ export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 			transform,
 			{ speed: [speed[0], speed[1]], cos: Math.cos(angle), sin: -Math.sin(angle) },
 			role +
-				(useDisturb !== 0 ? 8 : 0) +
+				slotDisturb(useDisturb) +
 				(asAlpha ? 16 : 0) +
 				(sources.get(float(source, 0)) ?? SlotSource.Uv0) * 32,
 		);

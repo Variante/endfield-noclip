@@ -75,11 +75,16 @@ const ROLE_MASK = 3u;
 const ROLE_BLEND = 4u;
 const ROLE_DISSOLVE = 5u;
 const ROLE_NONE = 7u;
-const SLOT_DISTURBED = 8u;
 const SLOT_RED_ALPHA = 16u;
 // two bits of `SlotSource` (effect-looks.ts): UV0, UV1, polar, screen
 const SLOT_SOURCE_SHIFT = 5u;
 const SLOT_NO_BASE = 128u;
+
+// the share of the distortion a slot's UVs take, in 1/1024ths above the low byte (`slotDisturb` in
+// effect-looks.ts)
+fn slot_disturb(bits: u32) -> f32 {
+	return f32(bits >> 8u) / 1024.0;
+}
 
 const FX_HAS_COLORS = 67108864u;
 
@@ -292,10 +297,7 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 			continue;
 		}
 		let base = fx_slot_base(bases, bits);
-		var uv = fx_slot_coords(id, slot, base[0]);
-		if ((bits & SLOT_DISTURBED) != 0u) {
-			uv += offset;
-		}
+		let uv = fx_slot_coords(id, slot, base[0]) + offset * slot_disturb(bits);
 		var t = fx_sample(
 			slot,
 			uv,
@@ -331,10 +333,7 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 	}
 	let bits = fx_slot_bits(id, 0u);
 	let base = fx_slot_base(bases, bits);
-	var uv = fx_slot_coords(id, 0u, base[0]);
-	if ((bits & SLOT_DISTURBED) != 0u) {
-		uv += offset;
-	}
+	let uv = fx_slot_coords(id, 0u, base[0]) + offset * slot_disturb(bits);
 	var main_sample = fx_sample(
 		0u,
 		uv,

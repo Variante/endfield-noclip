@@ -13,7 +13,10 @@ both are unlit and premultiplied (one, one minus source alpha), and build their 
 of textures by role:
 
 - **disturb**: the texture's red channel, remapped by `_Bi_Disturb`, shifts the UVs of the textures
-  sampled after it that opt in (`*UseDisturb`), by `_DisturbU/VIntensity1` (or `…2` for the second)
+  sampled after it by `_DisturbU/VIntensity1` (or `…2` for the second), each texture taking the
+  share its `*UseDisturb` sets (mostly 0–1, often fractional). the rising mist puffs of
+  `M_fxmap_dung02_rdg005_camille_range_smoke_01_1102` (Si's Painting, map02_lv010) shift their main
+  texture by a tenth: shifted fully, their 2×2 sheet's neighbouring puffs reach the quads' edges
 - **weight**: scales that shift (`_WeightTexIntensity · _DisturbUseWeight`) and the dissolve
   threshold
 - **mask**: multiplies the main texture's colour and alpha

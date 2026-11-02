@@ -73,7 +73,12 @@ test('a VFXDecal is a transparent, shadowless box drawn by its back faces, its d
 					_DisturbTex2: slot(4),
 					_BlendTex: slot(5, [2, 2]),
 				},
-				floats: { _TintColorAlpha: 0.5, _MaskTexUseDisturb: 1, _UseMaskTexAsAlpha: 1, _AngleBlendFallOff: 5 },
+				floats: {
+					_TintColorAlpha: 0.5,
+					_MaskTexUseDisturb: 0.25,
+					_UseMaskTexAsAlpha: 1,
+					_AngleBlendFallOff: 5,
+				},
 				colors: { _DecalBaseColor: [2, 0.5, 1, 0.8] },
 			}),
 		],
@@ -91,7 +96,8 @@ test('a VFXDecal is a transparent, shadowless box drawn by its back faces, its d
 		EffectRole.Disturb1,
 		ROLE_NONE,
 		ROLE_NONE,
-		EffectRole.Mask + 8 + 16,
+		// a quarter of the distortion, in 1/1024ths above the low byte
+		EffectRole.Mask + 16 + 256 * 256,
 	]);
 	// the HDR base colour as stored, its alpha times `_TintColorAlpha`
 	assert.deepEqual(

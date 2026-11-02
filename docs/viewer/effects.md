@@ -11,6 +11,8 @@ meshes play through the [particles](particles.md#particles); what's left out is 
 
 - VFXBaseV2's sixth sample texture takes the vertex offset's slot, and the vertex stage samples the
   offset texture from the look's seventh slot.
+- each slot's share of the distortion (`*UseDisturb`) rides in its slot bits above the low byte, in
+  1/1024ths (`slotDisturb`), since the look's rows are full.
 - [`_BlendMode` 1](../game-data/effects.md#vfxbasev2-and-vfxdecal) materials draw into the
   transparent pass's glow, unfogged, as additive mist does; drawn over, the glare at the corroded
   planet's centre (seen from Dijiang's deck) was a dark square.
