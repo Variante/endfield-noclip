@@ -76,6 +76,31 @@ export const labelStory = async (
 };
 
 /**
+ * @param missions the scene's missions
+ * @returns the main story missions' ids in story order: by episode, mission and decimal (`d`) number, read
+ *   from ids in the `e<episode>m<mission>[d<decimal>]` scheme; main missions outside it are left out
+ */
+export const mainStoryOrder = (missions: readonly MissionInfo[]): string[] => {
+	const keyed = mapDefined(missions, ({ id, category }) => {
+		const key = category === 'main' ? storyOrder(id) : null;
+		return key === null ? undefined : { id, key };
+	});
+	return keyed
+		.toSorted((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.key[2] - b.key[2])
+		.map(({ id }) => id);
+};
+
+/**
+ * @param id a mission id
+ * @returns its episode, mission and decimal numbers (0 without a decimal), or `null` outside the
+ *   `e<episode>m<mission>[d<decimal>]` scheme
+ */
+export const storyOrder = (id: string): [number, number, number] | null => {
+	const match = /^e(\d+)m(\d+)(?:d(\d+))?$/.exec(id);
+	return match === null ? null : [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+};
+
+/**
  * @returns the quest's 1-based position in the mission's main flow; a quest off it, half a step after its
  *   predecessor's position (it starts once that completes); `null` when no predecessor chain reaches the
  *   flow

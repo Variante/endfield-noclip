@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
 import type { SceneControl } from './states.ts';
-import { storyOrder, storyPointPicks, storyPoints } from './story.ts';
+import { storyPointPicks, storyPoints } from './story.ts';
 
 const control = (
 	kind: 'quest' | 'mission',
@@ -70,9 +70,4 @@ it('lists a point per mission start and per step quest controls sit at, once per
 			[null, []],
 		],
 	);
-});
-
-it('orders main story missions by episode, mission and decimal', () => {
-	const ids = ['e1m10', 'e1m9d5', 'e0m2', 'e1m9', 'c13m1'];
-	assert.deepEqual(ids.map(storyOrder), [[1, 10], [1, 9.5], [0, 2], [1, 9], null]);
 });

@@ -37,6 +37,7 @@ it('selects mutually exclusive upgrades while preserving shared and script-gated
 		streamAreas: null,
 		proximities: [],
 		missions: [],
+		mainStory: [],
 	};
 	const initial = resolveSceneValues(states, {});
 	const before = { alternatives: [[{ control: 'poi:facility', mask: 1 }]] };
@@ -99,6 +100,7 @@ it('derives scene states from the quests they follow, unless the user overrides 
 		streamAreas: null,
 		proximities: [],
 		missions: [],
+		mainStory: [],
 	};
 	assert.deepEqual(resolveSceneValues(states, {}), {
 		'quest:q': 3,
@@ -133,6 +135,7 @@ it('shows a group when the level owns it or every level does, and its condition 
 		streamAreas: null,
 		proximities: [],
 		missions: [],
+		mainStory: [],
 	};
 	const conditions = conditionResults(states, { 'sceneState:0': 1, 'sceneState:1': 0 });
 	assert.deepEqual(conditions, [true, false]);

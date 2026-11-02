@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { MissionRuntime } from '@endfield-noclip/formats/endfield/mission-runtime';
-import type { SceneControl } from '@endfield-noclip/package-format/states';
+import type { MissionInfo, SceneControl } from '@endfield-noclip/package-format/states';
 
-import { labelStory, stripMarkup } from './story.ts';
+import { labelStory, mainStoryOrder, stripMarkup } from './story.ts';
 import type { WorldIndex } from './world-index.ts';
 
 // invented text, standing in for the install's
@@ -98,4 +98,23 @@ test('quests take their objective text, step and mission; unknown missions keep 
 
 test('rich-text tags are stripped from labels', () => {
 	assert.equal(stripMarkup(' Use the <@gd.key>blue lever</> now '), 'Use the blue lever now');
+});
+
+test('orders main story missions by episode, mission and decimal, leaving out ids outside the scheme', () => {
+	const mission = (id: string, category: MissionInfo['category'] = 'main'): MissionInfo => ({
+		id,
+		name: null,
+		category,
+		chapter: null,
+		episode: null,
+		levelId: null,
+	});
+	const missions = ['e1m10', 'e1m9d10', 'e1m9d5', 'e0m2', 'e1m9', 'c13m1'].map((id) => mission(id));
+	assert.deepEqual(mainStoryOrder([...missions, mission('e2m1', 'side')]), [
+		'e0m2',
+		'e1m9',
+		'e1m9d5',
+		'e1m9d10',
+		'e1m10',
+	]);
 });

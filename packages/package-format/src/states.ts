@@ -29,6 +29,11 @@ export interface StatesInfo {
 	proximities: ProximityInfo[];
 	/** the missions quest and mission controls belong to, for labels and grouping */
 	missions: MissionInfo[];
+	/**
+	 * the main story's {@link missions} ids in story order, for one progress choice over all of them. the order
+	 * is read from the ids (`e<episode>m<mission>[d<decimal>]`), not from game data
+	 */
+	mainStory: string[];
 }
 
 /** a mission, labelled from the game's text */

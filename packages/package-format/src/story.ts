@@ -72,13 +72,3 @@ export const storyPoints = (
 	points.push({ point: null, mission: '', quests: [] });
 	return points;
 };
-
-/**
- * @param id a mission id
- * @returns a key that orders main story missions by episode and mission number, decimals (`d`) included;
- *   `null` for ids outside the `e<episode>m<mission>[d<decimal>]` scheme
- */
-export const storyOrder = (id: string): [number, number] | null => {
-	const match = /^e(\d+)m(\d+)(?:d(\d+))?$/.exec(id);
-	return match === null ? null : [Number(match[1]), Number(`${match[2]}.${match[3] ?? 0}`)];
-};

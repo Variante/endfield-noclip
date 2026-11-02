@@ -4,12 +4,7 @@ import type {
 	SceneControl,
 	SceneControlKind,
 } from '@endfield-noclip/package-format/states';
-import {
-	storyOrder,
-	storyPointPicks,
-	storyPoints,
-	type StoryPoint,
-} from '@endfield-noclip/package-format/story';
+import { storyPointPicks, storyPoints, type StoryPoint } from '@endfield-noclip/package-format/story';
 
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
@@ -309,11 +304,11 @@ const StoryProgress = ({
 			};
 		}),
 	];
-	// the point whose picks the current values match, if any
+	// the point whose picks the current values match, if any; a dropped pick stands for the control's default
+	const defaults = new Map(all.map((entry) => [entry.id, entry.default]));
 	const current = points.findIndex(({ point }) =>
 		Object.entries(storyPointPicks(all, order, point)).every(
-			([id, value]) =>
-				(viewer.sceneValues[id] ?? 3) === (value ?? all.find((entry) => entry.id === id)?.default ?? 3),
+			([id, value]) => (viewer.sceneValues[id] ?? defaults.get(id)) === (value ?? defaults.get(id)),
 		),
 	);
 	return (
@@ -345,6 +340,7 @@ const StoryControls = ({
 	controls,
 	all,
 	missions,
+	mainLine,
 	describe,
 	levelName,
 }: {
@@ -353,6 +349,8 @@ const StoryControls = ({
 	/** every control of the package */
 	all: readonly SceneControl[];
 	missions: ReadonlyMap<string, MissionInfo>;
+	/** the main story's mission ids in story order */
+	mainLine: readonly string[];
 	describe: (rule: string) => string;
 	/** a level id's display name */
 	levelName: (id: string) => string;
@@ -363,15 +361,6 @@ const StoryControls = ({
 			<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
 		));
 	const unplaced = grouped.get(null) ?? [];
-	// the main story's episodes and missions run in one line
-	const mainLine = mapDefined([...missions.values()], (mission) =>
-		mission.category === 'main' && storyOrder(mission.id) !== null ? mission.id : undefined,
-	);
-	mainLine.sort((a, b) => {
-		const [ae, am] = storyOrder(a)!;
-		const [be, bm] = storyOrder(b)!;
-		return ae - be || am - bm;
-	});
 	return (
 		<>
 			{mainLine.some((id) => grouped.has(id)) && (
@@ -520,6 +509,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 								controls={listed}
 								all={manifest.states.controls}
 								missions={missions}
+								mainLine={manifest.states.mainStory}
 								describe={describe}
 								levelName={(id) => manifest.levels.find((entry) => entry.id === id)?.name ?? id}
 							/>

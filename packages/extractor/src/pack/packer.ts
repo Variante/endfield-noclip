@@ -124,7 +124,7 @@ import {
 	type LevelScripts,
 } from '../game/script-drivers.ts';
 import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
-import { labelStory } from '../game/story.ts';
+import { labelStory, mainStoryOrder } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
 import { scriptWaterLevels } from '../game/water-volume-scripts.ts';
 import { readWaterVolumes } from '../game/water-volumes.ts';
@@ -1966,15 +1966,18 @@ const sceneStates = async (
 		streamAreas: await streamAreasInfo(world, scene.options.scene, collected.areas),
 		proximities: [],
 		missions: [],
+		mainStory: [],
 	};
 	const controls = finishControls(states);
 	const kept = new Set(controls.map((control) => control.id));
+	const missions = await labelStory(world, controls);
 	return {
 		levels,
 		...states,
 		controls,
 		proximities: collected.proximities.filter((proximity) => kept.has(proximity.control)),
-		missions: await labelStory(world, controls),
+		missions,
+		mainStory: mainStoryOrder(missions),
 	};
 };
 
@@ -2167,6 +2170,7 @@ const writePackage = async (
 			streamAreas: states.streamAreas,
 			proximities: states.proximities,
 			missions: states.missions,
+			mainStory: states.mainStory,
 		},
 		archives,
 		global: states.global,

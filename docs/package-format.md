@@ -709,7 +709,9 @@ harvest controls, then scene states.
   main-flow step), and `StatesInfo.missions` names those missions (`MissionInfo`: name, quest log
   category, chapter, episode, where it takes place), so a viewer can group them; the names are the
   install's English text, extracted at pack time
-  ([quest and mission labels](extraction.md#quest-and-mission-labels)).
+  ([quest and mission labels](extraction.md#quest-and-mission-labels)). `StatesInfo.mainStory` lists
+  the main story's missions in story order, which the extractor reads from their ids
+  (`e<episode>m<mission>[d<decimal>]`, compared number by number), not from game data.
   [story.ts](../packages/package-format/src/story.ts) turns a point in an ordered mission list into
   consistent picks for all of them.
 - **drivers**: script controls carry `drivers`, what sets them in game according to the level
