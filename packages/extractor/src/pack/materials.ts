@@ -79,7 +79,8 @@ const NORMAL_SLOT = /normal|bump/i;
 
 /**
  * the floats `HGRP/Lit` picks each map's UV set with, in place of the slot's `m_UVSetIndex` (see
- * `docs/game-data/materials.md#lit-layers`)
+ * `docs/game-data/materials.md#lit-layers`). the shaders sharing Lit's surface ({@link LIT_UV_SET_FAMILIES})
+ * declare the same floats; effect shaders declare a `_MaskUVSet` of their own, for other slots
  */
 const LIT_UV_SET_PROPERTIES: Record<string, string> = {
 	_BaseColorMap: '_BaseUVSet',
@@ -89,6 +90,14 @@ const LIT_UV_SET_PROPERTIES: Record<string, string> = {
 	_MaskMap: '_MaskUVSet',
 	_EmissiveMap: '_EmissiveUVSet',
 };
+
+/** the families whose shaders pick UV sets by {@link LIT_UV_SET_PROPERTIES} */
+const LIT_UV_SET_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
+	'lit',
+	'litTransparent',
+	'litEffect',
+	'trunk',
+]);
 
 /** a material converted for the table */
 export interface ConvertedMaterial {
@@ -156,7 +165,7 @@ export const convertMaterial = (
 		}
 		let uv = slot.uvSet;
 		{
-			const property = defaults.family === 'lit' ? LIT_UV_SET_PROPERTIES[name] : undefined;
+			const property = LIT_UV_SET_FAMILIES.has(defaults.family) ? LIT_UV_SET_PROPERTIES[name] : undefined;
 			const fallback = property === undefined ? undefined : defaults.floats[property];
 			if (property !== undefined && fallback !== undefined) {
 				uv = Math.round(record.floats[property] ?? record.ints[property] ?? fallback);

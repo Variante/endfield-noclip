@@ -39,6 +39,7 @@ export interface ShaderEntry {
 export type ShaderFamily =
 	| 'lit'
 	| 'litTransparent'
+	| 'litEffect'
 	| 'leaf'
 	| 'trunk'
 	| 'grass'
@@ -89,7 +90,8 @@ export interface ReadyMaterial {
 	/**
 	 * the Lit families' `_BaseTextureMapCount`: 0 adds an MRO map (R metallic, G roughness, B occlusion) and an
 	 * `RAG` normal map; 1 and 2 use an `RG` normal map with roughness in B, and metallic from the base map's
-	 * alpha (1) or `_Metallic` (2). `null` outside the Lit families
+	 * alpha (1) or `_Metallic` (2). `null` for shaders without the switch; the Lit families and
+	 * `HGRP/Foliage/Trunk` have it
 	 */
 	baseTextureMapCount: number | null;
 	/** bound textures by Unity property name (`_BaseColorMap`, `_NormalMap`, …); empty slots are absent */

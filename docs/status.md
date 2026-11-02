@@ -130,18 +130,19 @@ packs or renders correctly.
   ([emission](game-data/materials.md#emission)), and what sets it for static scenery is untraced
 - foliage ([foliage](game-data/materials.md#foliage)): wind, the grass's per-instance colour and
   terrain albedo blend (`_BLEND_TERRAIN_ALBEDO`), the card LOD's normal decoding (so it takes
-  neither the bend nor the masks), trunk ramps and vertex AO (trunks shade as Lit), sphere-shadow
-  proxies, the vertical-normal AO boost, broadleaf indirect transmission, contact shadows and the
-  per-instance leaf tint; layered materials. grass and tree grids
-  ([world](game-data/world.md#foliage-grids)) draw every instance at the cluster's LOD, without the
-  game's sparsity thinning; the cluster LOD measure (`rendererHalfSize`), the per-instance
-  parameters and column 7 aren't read
+  neither the bend nor the masks), trunk ramps and vertex AO (trunks take only Lit's texture layout,
+  so their detail map and top and mask layers aren't drawn either), sphere-shadow proxies, the
+  vertical-normal AO boost, broadleaf indirect transmission, contact shadows and the per-instance
+  leaf tint; layered materials. grass and tree grids ([world](game-data/world.md#foliage-grids))
+  draw every instance at the cluster's LOD, without the game's sparsity thinning; the cluster LOD
+  measure (`rendererHalfSize`), the per-instance parameters and column 7 aren't read
 - Lit layers ([lit layers](game-data/materials.md#lit-layers)): tri-channel switch textures (only R
   blends), the tri-channel mask on MRO-layout materials (untinted, sharing the MRO map's slot),
   `_UseMaskRUVSetAndTilingScale`, the parallax glow's global highlight, separate mask
   (`_UseParallaxMask`; such materials don't glow) and world-space, PBR and deform variants, the top
   layer's `_BaseHeightMap` (read as grey) and UV set 2, the noise and parallax mask blends, mask
-  layers on emissive-mapped materials, and `_TERRAIN_BLEND`'s fade into the terrain
+  layers on emissive-mapped materials, and `_TERRAIN_BLEND`'s fade into the terrain.
+  `HGRP/LitEffect` (98 map02 materials) draws as Lit without its dissolve and disturb effects
 - matte paintings ([matte paintings](game-data/materials.md#matte-paintings)): `_UseMainTexAsAlpha`
   isn't read (no map01 material sets it)
 - erosion rock ([erosion](game-data/materials.md#erosion)): the soft blend into what lies behind

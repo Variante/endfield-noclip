@@ -269,6 +269,7 @@ export const summarizeShader = (parsedForm: TypeTreeObject): ShaderSummary => {
 export type ShaderFamily =
 	| 'lit'
 	| 'litTransparent'
+	| 'litEffect'
 	| 'leaf'
 	| 'trunk'
 	| 'grass'
@@ -293,6 +294,7 @@ export type ShaderFamily =
 const FAMILIES: [RegExp, ShaderFamily][] = [
 	[/^HGRP\/Lit$/i, 'lit'],
 	[/^HGRP\/LitTransparent$/i, 'litTransparent'],
+	[/^HGRP\/LitEffect$/i, 'litEffect'],
 	[/^HGRP\/Foliage\/Leaf$/i, 'leaf'],
 	[/^HGRP\/Foliage\/Trunk$/i, 'trunk'],
 	[/^HGRP\/Foliage\/Grass$/i, 'grass'],
@@ -356,8 +358,8 @@ export interface MaterialClassification {
 	zWrite: boolean;
 	/**
 	 * Lit-family `_BaseTextureMapCount` (from the `_TWO_BASEMAP` keyword when the float is absent): 0 adds an
-	 * MRO map and an `RAG` normal map; otherwise the normal map is `RG` with roughness in B. `null` outside the
-	 * Lit families
+	 * MRO map and an `RAG` normal map; otherwise the normal map is `RG` with roughness in B. `null` for shaders
+	 * without the switch (the Lit families and the shaders that declare `_BaseTextureMapCount` have it)
 	 */
 	baseTextureMapCount: number | null;
 }
@@ -436,7 +438,8 @@ export const classifyHgrpMaterial = (
 		}
 	}
 
-	const litLike = family === 'lit' || family === 'litTransparent';
+	// the Lit families, and shaders sharing their layout switch (`HGRP/Foliage/Trunk`, `HGRP/LitEffect`)
+	const litLike = family === 'lit' || family === 'litTransparent' || declared.has('_BaseTextureMapCount');
 	const baseTextureMapCount = litLike
 		? (float('_BaseTextureMapCount') ?? (keywords.includes('_TWO_BASEMAP') ? 2 : 0))
 		: null;

@@ -630,7 +630,11 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 	// the slots: HLOD normal maps aren't tangent-space maps the shader can read, and the optional maps are only
 	// sampled where the material's layout and keywords use them. the geometry carries UV sets 0 and 1
 	const keywords = entry.keywords;
-	const lit = family === 'lit';
+	// Lit's optional layers. LitEffect declares a subset of Lit's properties plus its dissolve and disturb
+	// effects, which aren't drawn; trunks and glass share only the texture layout
+	const lit = family === 'lit' || family === 'litEffect';
+	// the shaders with Lit's layout switch (`baseTextureMapCount`): the Lit families and trunks
+	const litLayout = entry.baseTextureMapCount !== null;
 	const emissiveMap = keywords.includes('_EMISSIVE_MAP');
 	const mro = entry.baseTextureMapCount === 0;
 	const triChannel = lit && keywords.includes('_TRI_CHANNEL_MASK') && !mro;
@@ -661,11 +665,11 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 
 	if (mro) {
 		look.flags |= LookFlags.NormalRag;
-	} else if (entry.baseTextureMapCount !== null || foliage) {
+	} else if (litLayout || foliage) {
 		look.flags |= LookFlags.NormalRoughness;
 	}
 	// the two-basemap layout's occlusion and metallic sources (docs/game-data/materials.md#texture-layouts)
-	if (family === 'lit' && entry.baseTextureMapCount !== null && !mro) {
+	if (entry.baseTextureMapCount !== null && !mro) {
 		look.flags |= LookFlags.NormalOcclusion;
 		if (entry.baseTextureMapCount < 1.5) {
 			look.flags |= LookFlags.MetallicBaseAlpha;
@@ -684,10 +688,7 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 		params.set([...color, entry.alphaClipThreshold ?? -1], LookRow.tint);
 		// `_AlphaMaskChannel` picks the alpha the Lit family tests: 0 the base colour's, 1 the normal map's. in
 		// the `_BaseTextureMapCount` 1 layout the base colour's alpha is metallic, so testing it would cut holes in solid walls
-		if (
-			(family === 'lit' || family === 'litTransparent') &&
-			floatOf(entry, shader, '_AlphaMaskChannel', 0) === 1
-		) {
+		if (litLayout && floatOf(entry, shader, '_AlphaMaskChannel', 0) === 1) {
 			look.flags |= LookFlags.AlphaNormal;
 		}
 		// alpha-blended (`HGRP/LitTransparent` glass): the opacity is the alpha the alpha test would read, times

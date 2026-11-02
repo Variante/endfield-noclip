@@ -7,8 +7,10 @@ glass, decals, matte paintings and erosion rock. a material's serialized state i
 
 ## texture layouts
 
-the Lit families come in two texture layouts, picked by `_BaseTextureMapCount` (from the
-`_TWO_BASEMAP` keyword when the float is absent: 2 with it, 0 without):
+the Lit families (`HGRP/Lit`, `HGRP/LitTransparent`, `HGRP/LitEffect`) and `HGRP/Foliage/Trunk` come
+in two texture layouts, picked by `_BaseTextureMapCount` (from the `_TWO_BASEMAP` keyword when the
+float is absent: 2 with it, 0 without). LitEffect declares a subset of Lit's properties plus
+dissolve and disturb effects; trunks declare no property Lit lacks:
 
 - **MRO layout** (0): a separate `_MROMap` holds metallic in R, roughness in G and occlusion in B,
   and the normal map is stored `RAG` (x is R times A, as in DXT5nm).
