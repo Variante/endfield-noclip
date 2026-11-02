@@ -173,6 +173,8 @@ export interface SceneControl {
  *   area (centre and radius when the script has one)
  * - `level`: a script of another level, e.g. a dungeon that reuses the map
  * - `server`: script stages, properties or events only the server sets
+ * - `event`: another game event, by what sets it off ({@link ScriptEventKind}); `type` is the game's event name
+ * - `unknown`: an event the extractor doesn't classify; `type` is the game's event name
  */
 export type ControlDriver =
 	| { kind: 'quest'; quests: QuestRef[]; shows: boolean | null }
@@ -180,7 +182,16 @@ export type ControlDriver =
 	| { kind: 'area'; position: Vec3; radius: number; shows: boolean | null }
 	| { kind: 'script'; position: Vec3 | null; radius: number | null; shows: boolean | null }
 	| { kind: 'level'; levelId: string; name: string | null; shows: boolean | null }
-	| { kind: 'server'; shows: boolean | null };
+	| { kind: 'server'; shows: boolean | null }
+	| { kind: 'event'; event: ScriptEventKind; type: string; shows: boolean | null }
+	| { kind: 'unknown'; type: string; shows: boolean | null };
+
+/**
+ * what sets off an `event` driver: `combat` (fights, spawners, damage, deaths), `dialog` (a dialogue or
+ * cutscene starting or ending), `variable` (a map or global variable changing), `entity` (an entity starting,
+ * raising a custom event or being entered)
+ */
+export type ScriptEventKind = 'combat' | 'dialog' | 'variable' | 'entity';
 
 /** a quest or mission named by a driver, labelled like quest controls */
 export interface QuestRef {

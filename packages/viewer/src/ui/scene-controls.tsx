@@ -125,6 +125,25 @@ const driverText = (driver: ControlDriver): string => {
 		case 'server': {
 			return `${verb} by script stages or server events`;
 		}
+		case 'event': {
+			switch (driver.event) {
+				case 'combat': {
+					return `${verb} by a fight (${driver.type})`;
+				}
+				case 'dialog': {
+					return `${verb} after a dialogue or cutscene (${driver.type})`;
+				}
+				case 'variable': {
+					return `${verb} when a game variable changes (${driver.type})`;
+				}
+				case 'entity': {
+					return `${verb} by an entity event (${driver.type})`;
+				}
+			}
+		}
+		case 'unknown': {
+			return `${verb} by an unclassified event (${driver.type})`;
+		}
 	}
 };
 

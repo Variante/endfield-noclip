@@ -678,8 +678,8 @@ harvest controls, then scene states.
   consistent picks for all of them.
 - **drivers**: script controls carry `drivers`, what sets them in game according to the level
   scripts (`ControlDriver`: quests, a switch, a trigger area, the script's area, another level, the
-  server), each with the visibility it sets and a position where it has one
-  ([script groups](extraction.md#script-groups)).
+  server, another classified game event, or an `unknown` event by its game name), each with the
+  visibility it sets and a position where it has one ([script groups](extraction.md#script-groups)).
 
 ### stream areas
 

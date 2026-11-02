@@ -3,7 +3,7 @@ import {
 	UnsupportedLevelData,
 } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
-import type { ControlDriver, QuestRef } from '@endfield-noclip/package-format/states';
+import type { ControlDriver, QuestRef, ScriptEventKind } from '@endfield-noclip/package-format/states';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
@@ -278,7 +278,41 @@ type Cause =
 	| { kind: 'switch'; script: Script; target: Param; guards: Guard[] }
 	| { kind: 'area'; shape: Node | null; guards: Guard[] }
 	| { kind: 'script'; script: Script; guards: Guard[] }
-	| { kind: 'server'; guards: Guard[] };
+	| { kind: 'server'; guards: Guard[] }
+	| { kind: 'event'; event: ScriptEventKind; type: string; guards: Guard[] }
+	| { kind: 'unknown'; type: string; guards: Guard[] };
+
+/** an interactive's events the player sets off by using it (`targetEntity`) */
+const SWITCH_EVENTS = new Set([
+	'EntityEvent_OnInteractiveStateChanged',
+	'EntityEvent_OnUIInteract',
+	'EntityEvent_OnIntUnlocked',
+	'EntityEvent_OnIntTryUnlock',
+	'EntityEvent_OnIntUnlockFailed',
+	'EntityEvent_OnSavePropertyChanged',
+	'EntityEvent_OnBeingScanned',
+]);
+
+/** script stage, property and lifecycle events no client node raises; the server sets them */
+const SERVER_EVENTS = new Set([
+	'ScriptEvent_OnScriptStageChanged',
+	'ScriptEvent_OnPropertyChanged',
+	'ScriptEvent_OnBBVariableChanged',
+	'ScriptEvent_OnScriptComplete',
+	'ScriptEvent_OnScriptEnd',
+	'ScriptEvent_OnScriptMarkDone',
+]);
+
+/** other events, by what sets them off; header types matching none become `unknown` drivers */
+const EVENT_KINDS: [ScriptEventKind, RegExp][] = [
+	[
+		'combat',
+		/^(LevelEvent_On(Spawner\w*|Squad\w*|Encounter\w*|Spell\w*|AnyEnemy\w*|Enemy\w*|BattleSignal|EntityCastSkill|EntityHpChanged|EntityTakeDamage|EntityListTakeDamage|AnyEntityDie|SpecificEntityDie|SpecificEntityListDie|EntityWeaknessTriggered)|EntityEvent_On(EntityDie|EntityDestroy|HpChanged|IntHpZero|IntReceiveAttack|ComboSkillActivated|PhysicalNoGuard|PhysicalInfliction|EntityReceiveWaterDroneAttack))$/,
+	],
+	['dialog', /^LevelEvent_On(DialogEnter|DialogExit|ServerDialogExit|CutsceneExit)$/],
+	['variable', /^(OnMapVarChanged|MissionEvent_OnClientGlobalVarChanged)$/],
+	['entity', /^EntityEvent_On(EntityStart|CustomEventNew|LeaderEnterTrigger|EntityEnterTrigger)$/],
+];
 
 interface Indexes {
 	/** `RaiseCustomScriptEvent` nodes by `<receiver>:<key>` */
@@ -362,11 +396,17 @@ const causesOf = (script: Script, header: Node, indexes: Indexes, depth: number)
 			return [{ kind: 'quest', detail: header, guards: [] }];
 		}
 		default: {
-			if (type.startsWith('EntityEvent_')) {
+			if (SWITCH_EVENTS.has(type)) {
 				return [{ kind: 'switch', script, target: param(script, header.targetEntity), guards: [] }];
 			}
-			// script stages, properties and events without a client raiser come from the server
-			return [{ kind: 'server', guards: [] }];
+			if (SERVER_EVENTS.has(type)) {
+				return [{ kind: 'server', guards: [] }];
+			}
+			const event = EVENT_KINDS.find(([, pattern]) => pattern.test(type))?.[0];
+			if (event !== undefined) {
+				return [{ kind: 'event', event, type, guards: [] }];
+			}
+			return [{ kind: 'unknown', type, guards: [] }];
 		}
 	}
 };
@@ -596,6 +636,8 @@ export interface ScriptLinks {
 	rules: Map<string, ActivationRule>;
 	/** show and hide action targets computed at runtime (getters, the script's own slots), not followed */
 	untraced: number;
+	/** event header types the driver mapping doesn't know, with how many driver paths start at each */
+	unmapped: Map<string, number>;
 }
 
 /** the scenery drivers of a scene's script-controlled entities */
@@ -751,6 +793,8 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 	// `null` once some activation path sets a group in a way quest tests don't capture
 	const rules = new Map<string, ActivationRule | null>();
 	let untraced = 0;
+	/** header types no rule maps, by paths reaching a show or hide action from them */
+	const unmapped = new Map<string, number>();
 	for (const script of scripts) {
 		const paths = reach(script);
 		for (const node of script.nodes.values()) {
@@ -908,6 +952,15 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				}
 				break;
 			}
+			case 'event': {
+				out.push({ kind: 'event', event: cause.event, type: cause.type, shows });
+				break;
+			}
+			case 'unknown': {
+				unmapped.set(cause.type, (unmapped.get(cause.type) ?? 0) + 1);
+				out.push({ kind: 'unknown', type: cause.type, shows });
+				break;
+			}
 		}
 		return out;
 	}
@@ -918,7 +971,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			settled.set(target, rule);
 		}
 	}
-	return { drivers, rules: settled, untraced };
+	return { drivers, rules: settled, untraced, unmapped };
 };
 
 /** @returns whether the bytes hold any of the ids as a little-endian u64 */

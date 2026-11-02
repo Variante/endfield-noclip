@@ -1214,6 +1214,15 @@ const collectEntities = async (
 		counts.levelScriptsUndecoded = found.counts.undecoded;
 		counts.scriptGroupsWithDrivers = found.counts.targeted;
 		counts.scriptVisibilityUntraced = found.untraced;
+		// event types the driver mapping doesn't classify, which drivers name as `unknown`
+		counts.scriptEventTypesUnmapped = found.unmapped.size;
+		if (found.unmapped.size > 0) {
+			scene.options.log(
+				`script events without a driver mapping: ${[...found.unmapped]
+					.map(([type, paths]) => `${type} ×${paths}`)
+					.join(', ')}`,
+			);
+		}
 	}
 	for (const standIn of facilities.standIns) {
 		// a metre cube on the interactive's pivot, since its model's size isn't known

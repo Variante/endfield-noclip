@@ -953,11 +953,16 @@ scripts the MemoryPack decoder reads. the packer follows every path from each he
 show/hide action (up to 16 guard sets per node), and custom events and script starts back up to five
 hops. each root cause becomes a `ControlDriver` of the group's control, with the `visible` the
 action sets: quest ids found on the way (in guards and quest events), a switch, a trigger area, the
-script's own area, or the server. scripts of other levels that name a scene's group (dungeons
-reusing the open world, such as the racing courses) become `level` drivers; they're found by the
-group's id in their bytes. missions whose objectives check a script (stage, property) are listed as
-quest drivers of its activation. the viewer lists each control's drivers and flies to a driver's
-position.
+script's own area, or the server. header types map to causes by an explicit list: an interactive's
+use events (`OnInteractiveStateChanged`, `OnUIInteract`, unlocks, saved-property changes, being
+scanned) are switches; script stage, property and lifecycle events are the server; fights, spawners
+and deaths, dialogues and cutscenes, variable changes, and entity starts or custom events are
+`event` drivers of those kinds. any other header type becomes an `unknown` driver naming it, and the
+pack report counts and logs those types (`scriptEventTypesUnmapped`). scripts of other levels that
+name a scene's group (dungeons reusing the open world, such as the racing courses) become `level`
+drivers; they're found by the group's id in their bytes. missions whose objectives check a script
+(stage, property) are listed as quest drivers of its activation. the viewer lists each control's
+drivers and flies to a driver's position.
 
 **following quest checks on activation**
 ([following quest checks](game-data/scene-states.md#following-quest-checks-on-activation)). a script
