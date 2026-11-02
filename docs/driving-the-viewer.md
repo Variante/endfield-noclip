@@ -10,11 +10,12 @@ use the `agent-browser` CLI with WebGPU enabled; without it the canvas stays bla
 `--webgpu`:
 
 ```sh
-pnpm run dev --port 5199 --strictPort
-agent-browser --webgpu open 'http://localhost:5199/?package=map02&level=map02_lv007'
+pnpm run dev --port 0
+agent-browser --webgpu open 'http://localhost:<port>/?package=map02&level=map02_lv007'
 ```
 
-the URL takes the [`package` and `level` parameters](viewer/loading.md#url-parameters).
+read the port from the `Local:` line the server prints. the URL takes the
+[`package` and `level` parameters](viewer/loading.md#url-parameters).
 
 - after `agent-browser close`, reopen with `--webgpu` again.
 - `agent-browser console` keeps lines from before a reload; read only what follows

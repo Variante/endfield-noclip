@@ -106,12 +106,12 @@ intended" isn't a finding.
 ## 8. browser, when needed
 
 follow [driving-the-viewer.md](../../../docs/driving-the-viewer.md). use your own session and, with
-others active, your own dev server port, so you don't move another agent's camera or show them your
-debug colours:
+others active, your own dev server, so you don't move another agent's camera or show them your debug
+colours. start it in the background and take the port from its `Local:` line:
 
 ```sh
-pnpm run dev --port 5199 --strictPort
-mise exec -- agent-browser --session <task> open 'http://localhost:5199/?package=<scene>&level=<level>'
+pnpm run dev --port 0
+mise exec -- agent-browser --session <task> open 'http://localhost:<port>/?package=<scene>&level=<level>'
 ```
 
 helpers for bisecting materials on screen are named in `.research/README.md` ("investigating a
