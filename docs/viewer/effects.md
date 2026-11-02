@@ -19,6 +19,9 @@ meshes play through the [particles](particles.md#particles); what's left out is 
 - [`_BlendMode` 1](../game-data/effects.md#vfxbasev2-and-vfxdecal) materials draw into the
   transparent pass's glow, unfogged, as additive mist does; drawn over, the glare at the corroded
   planet's centre (seen from Dijiang's deck) was a dark square.
+- [water blending](../game-data/effects.md#vfxbasev2-and-vfxdecal) is left out, which matches the
+  game for the authored `_WaterHeight` below the world; a material with a higher one is unsupported,
+  since the water a `VFXWaterBlendConfig` finds isn't followed.
 - VFXDecal boxes draw their back faces without a depth test, so they still show with the camera
   inside. each covered pixel reconstructs the main pass's surface from the depth buffer, and
   `_USE_NORMALBLEND` reads its normal from the main pass's packed surface normal.

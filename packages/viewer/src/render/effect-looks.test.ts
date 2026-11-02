@@ -769,6 +769,30 @@ test('a VFXBaseV2 draws when its vertex offset is cancelled by particle mode and
 	assert.equal(look.params[EffectRow.offsetMode], 0);
 });
 
+test('a VFXBaseV2 water blend draws only while its water height lies below the world', () => {
+	// the collectible coins' effects (`M_fx_coin_02_1`) keep the authored -9999
+	const looks = materialLooks({
+		shaders: [shader('HGRP/Effect/VFXBaseV2')],
+		entries: [
+			material({
+				keywords: ['_USE_WATER_BLEND', '_USE_SOFTBLEND'],
+				slots: { _MainTex: slot(1) },
+				floats: { _WaterHeight: -9999 },
+			}),
+			material({
+				id: 1,
+				keywords: ['_USE_WATER_BLEND'],
+				slots: { _MainTex: slot(1) },
+				floats: { _WaterHeight: 42 },
+			}),
+		],
+	});
+	assert.deepEqual(
+		looks.map((look) => look.unsupported),
+		[false, true],
+	);
+});
+
 test('a VFXBaseV2 vertex offset outside particle mode samples its texture in the offset slot', () => {
 	const [look] = materialLooks({
 		shaders: [shader('HGRP/Effect/VFXBaseV2')],

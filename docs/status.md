@@ -175,18 +175,18 @@ packs or renders correctly.
   states, `_BlendMode` 2 outside a multiplying blend state, the vertex-offset mask, particle-data
   terms, the sixth sample texture together with a vertex offset, screen UVs relative to the object,
   brightening that is a scan line or centred on a fixed point (the player-centred one is left out),
-  breathing, edge colour, vertex animation textures, water blending, flipbook and particle inputs,
-  and VFXDecal's lighting, parallax, 3D-texture and particle variants; local lights and the
-  post-exposure division on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`,
-  punctual lights, matcaps and the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword
-  variants, and in its dither the vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge
-  mode. across effects: their own fog (`_USE_FOG`), the mist boxes' depth prepass and vertex colour,
-  and the game's global scene-effect colour adjustment (`_VFXParams1`, set by native code; the
-  Jingyu blight reads less saturated than in game, and Suiming's
-  [cave-exit light card](game-data/effects.md#mist) is unchecked against an in-game shot). stencil
-  [portals](game-data/effects.md#portals) draw without their masks' own colour and depth, stencil
-  operations other than keep and replace are unsupported, and none draw unless the GPU has
-  `depth32float-stencil8`
+  breathing, edge colour, vertex animation textures (the collectible coins' soft-body blob), water
+  blending under a water height above the authored one, flipbook and particle inputs, and VFXDecal's
+  lighting, parallax, 3D-texture and particle variants; local lights and the post-exposure division
+  on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and
+  the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword variants, and in its dither the
+  vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog
+  (`_USE_FOG`), the mist boxes' depth prepass and vertex colour, and the game's global scene-effect
+  colour adjustment (`_VFXParams1`, set by native code; the Jingyu blight reads less saturated than
+  in game, and Suiming's [cave-exit light card](game-data/effects.md#mist) is unchecked against an
+  in-game shot). stencil [portals](game-data/effects.md#portals) draw without their masks' own
+  colour and depth, stencil operations other than keep and replace are unsupported, and none draw
+  unless the GPU has `depth32float-stencil8`
 - particles ([particle systems](game-data/assets.md#particle-systems),
   [viewer](viewer/particles.md#particles)): mesh particles frozen in place lose their start colour
   and their drift and spin over lifetime, and take the midpoint of random start values. other

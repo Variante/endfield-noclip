@@ -364,6 +364,9 @@ const vertexOffsetDrawn = (entry: ReadyMaterial, shader: ShaderEntry): boolean =
 	readers(entry, shader).float('_InParticle', 1) === 0 &&
 	entry.slots[OFFSET_TEXTURE] !== undefined;
 
+/** a `_WaterHeight` at or below this lies under every level, so water blending leaves the effect unchanged */
+const WATER_BLEND_UNSET = -1000;
+
 /** whether a VFXBaseV2 keyword outside {@link BASE_KEYWORDS} is drawn, or changes nothing in the viewer */
 const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderEntry): boolean => {
 	const { float, color } = readers(entry, shader);
@@ -385,6 +388,11 @@ const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderE
 		case '_SAMPLE_TEX5': {
 			// the sixth sample texture takes the vertex offset's slot
 			return !vertexOffsetDrawn(entry, shader);
+		}
+		case '_USE_WATER_BLEND': {
+			// the blend absorbs and scatters only below `_WaterHeight`, which the game sets from a water surface the
+			// effect meets; the authored height lies below the world, where the blend changes nothing
+			return float('_WaterHeight', 0) <= WATER_BLEND_UNSET;
 		}
 		default: {
 			return false;
