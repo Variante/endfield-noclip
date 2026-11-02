@@ -14,10 +14,11 @@ ones inside the frustum are drawn, up to 4096.
 
 ## surface meshes
 
-the vertex stage reads the dequantized `unorm16x4` positions and, for proxy-only surfaces whose mesh
-has them, its octahedral normals. LOD surfaces face straight up, since the game shades them through
-its grid ([shading](../game-data/water.md#shading)); this also hides the polygon meshes'
-downward-facing triangles. transforms are made eye-relative on the CPU.
+the vertex stage reads the dequantized `unorm16x4` positions and, for surfaces whose `meshNormals`
+is set and whose mesh has them, its octahedral normals; other surfaces face straight up. the packer
+sets `meshNormals` on proxy-only surfaces only, since the game shades LOD surfaces through its grid
+([shading](../game-data/water.md#shading)); this also hides the polygon meshes' downward-facing
+triangles. transforms are made eye-relative on the CPU.
 
 ## `Global_Water_Config`
 

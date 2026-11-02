@@ -259,7 +259,7 @@ export class WaterRenderer {
 				continue;
 			}
 			// a water volume's surface rises and falls with its fill
-			const lift = surface.volume === null ? 0 : (volumeOffsets[surface.volume] ?? 0);
+			const lift = surface.kind === 'volume' ? (volumeOffsets[surface.volume] ?? 0) : 0;
 			const { min: packedMin, max: packedMax } = surface.bounds;
 			const min: Vec3 = [packedMin[0], packedMin[1] + lift, packedMin[2]];
 			const max: Vec3 = [packedMax[0], packedMax[1] + lift, packedMax[2]];
@@ -281,10 +281,7 @@ export class WaterRenderer {
 			data.set(resident.positionOffset, at + 12);
 			words[at + 15] = surface.config;
 			data.set(resident.positionScale, at + 16);
-			// the game draws LOD surfaces as a grid shaded with its own upward normals, so their mesh normals (wrong
-			// on some polygon meshes) never show; proxy-only surfaces take theirs
-			const lod = (surface.renderTypeMask & 2) !== 0;
-			data[at + 19] = resident.normalOffset === null || lod ? 0 : 1;
+			data[at + 19] = surface.meshNormals && resident.normalOffset !== null ? 1 : 0;
 			this.#draws.push({ geometry: resident, slot });
 			slot++;
 		}

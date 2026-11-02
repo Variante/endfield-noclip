@@ -430,8 +430,8 @@ with field-level JSDoc, are `WaterTable`, `WaterGlobal`, `WaterSector`, `WaterCo
 WaterTable
   global     WaterGlobal | null   null without water, or when the package holds no surface
   configs    WaterConfigEntry[]   { name, values } deduplicated by asset key
-  surfaces   WaterSurfaceEntry[]  { id, group, geometry, transform, bounds, config,
-                                    renderTypeMask, param1, volume }
+  surfaces   WaterSurfaceEntry[]  { kind: 'placed' | 'volume', id, group, geometry, transform,
+                                    bounds, config, meshNormals, volume (kind 'volume') }
   volumes    WaterVolumeEntry[]   { id, base, heightMax, initial, fillSpeed,
                                     levels: { fraction, speed, label }[], floaters }
 WaterGlobal  { mapSize, sectorSize, center, flowmapPrecision,
@@ -454,6 +454,10 @@ packing rules:
   with position and normal only.
 - **transform**: the column-major matrix becomes rows3x4 like instance transforms, but absolute (no
   block origin).
+- **mesh normals**: `meshNormals` is set on placed surfaces whose render type mask lacks the LOD bit
+  ([placements](game-data/water.md#placements-initchunkdata-component-30)); LOD and volume surfaces
+  face straight up. the raw mask and `param1` (nothing reads them) stay in `debug/water.json`'s
+  rows.
 - **visibility groups**: each surface's `group` indexes `StatesInfo.groups`, the owning level tag
   and the scene states of the files holding it (`gateByScene` in
   [packer.ts](../packages/extractor/src/pack/packer.ts)), shared with instances, lights and
@@ -467,11 +471,11 @@ packing rules:
   `debug/water.json` with per-surface rows (id, name, chunk file, mesh and config paths). they never
   fail the pack.
 - surfaces aren't instances and don't count toward `LevelInfo.instances`.
-- **water volumes** ([extraction](extraction.md#water)) become a surface each, with `volume`
-  indexing `volumes`: the outline triangulated into a synthetic flat mesh at y = 0, raised by the
-  transform to the authored fill, drawn as a proxy surface with the volume's config, owned by its
-  level and always loaded. a volume without a config, or whose config fails, is left out and listed
-  in `debug/water.json`. `levels` are the authored fill and every constant fill the scene's scripts
+- **water volumes** ([extraction](extraction.md#water)) become a `volume` surface each, with
+  `volume` indexing `volumes`: the outline triangulated into a synthetic flat mesh at y = 0, raised
+  by the transform to the authored fill, drawn with the volume's config, owned by its level and
+  always loaded. a volume without a config, or whose config fails, is left out and listed in
+  `debug/water.json`. `levels` are the authored fill and every constant fill the scene's scripts
   set, merged within 1e-4; each takes the speed of a script's fill-speed action just before moving
   the volume there, else the volume's. `floaters` are the synthetic entity ids of the renderers of
   every interactive placement whose component 39 names the volume.

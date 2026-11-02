@@ -31,7 +31,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 	const level = pkg.manifest.levels.find((entry) => entry.id === viewer.level);
 	const surfaces = pkg.water.surfaces;
 	const rows = viewer.waterVolumes.flatMap((state, index) => {
-		const surface = surfaces.find((entry) => entry.volume === index);
+		const surface = surfaces.find((entry) => entry.kind === 'volume' && entry.volume === index);
 		if (surface === undefined) {
 			return [];
 		}

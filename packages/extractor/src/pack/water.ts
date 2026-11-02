@@ -6,10 +6,12 @@ import type {
 	WaterConfig,
 	WaterConfigEntry,
 	WaterGlobal,
+	WaterPlacedSurface,
 	WaterSurfaceEntry,
 	WaterTable,
 	WaterVolumeEntry,
 	WaterVolumeLevel,
+	WaterVolumeSurface,
 } from '@endfield-noclip/package-format/water';
 
 import { unique } from '@mary-ext/array-fns';
@@ -52,8 +54,19 @@ export interface WaterDebug {
 	sectors: { scene: number; packed: number; untiled: number };
 	/** grid coordinates of the sectors counted in `sectors.untiled` */
 	untiledSectors: { x: number; z: number }[];
-	/** per packed surface: id, name, source chunk file, mesh and config paths */
-	rows: { id: number; name: string; file: string; mesh: string | null; config: string | null }[];
+	/**
+	 * per packed surface: id, name, source chunk file, mesh and config paths, and a placed surface's raw render
+	 * type mask and `param1` (`null` for a volume's), which the table doesn't carry
+	 */
+	rows: {
+		id: number;
+		name: string;
+		file: string;
+		mesh: string | null;
+		config: string | null;
+		renderTypeMask: number | null;
+		param1: number[] | null;
+	}[];
 	/** assets that couldn't be loaded; surfaces whose config failed are left out */
 	errors: string[];
 }
@@ -183,6 +196,8 @@ export const planWater = async (
 			file: surface.source.name,
 			mesh: pathOf(surface.meshHash) ?? null,
 			config: pathOf(surface.configHash) ?? null,
+			renderTypeMask: surface.renderTypeMask,
+			param1: surface.param1,
 		});
 	}
 	plan.debug.surfaces.packed = plan.table.surfaces.length;
@@ -210,6 +225,8 @@ export const planWater = async (
 			file: volume.source,
 			mesh: null,
 			config: pathOf(volume.configHash) ?? null,
+			renderTypeMask: null,
+			param1: null,
 		});
 	}
 	plan.debug.volumes.packed = plan.table.volumes.length;
@@ -527,11 +544,12 @@ const volumeSurface = (
 	geometry: number,
 	config: number,
 	index: number,
-): WaterSurfaceEntry => {
+): WaterVolumeSurface => {
 	const y = volume.pivot[1] + volume.heightMax * volume.fraction;
 	const xs = volume.points.map(([x]) => x);
 	const zs = volume.points.map(([, z]) => z);
 	return {
+		kind: 'volume',
 		id: Number(volume.id),
 		group: 0,
 		geometry,
@@ -539,16 +557,19 @@ const volumeSurface = (
 		bounds: { min: [Math.min(...xs), y, Math.min(...zs)], max: [Math.max(...xs), y, Math.max(...zs)] },
 		config,
 		// the game draws a volume through an HGWaterRendererV2 of a pooled prefab whose render type isn't
-		// recovered; the polygon faces up either way
-		renderTypeMask: 1,
-		param1: [0, 0, 0, 0],
+		// recovered; the polygon faces straight up either way
+		meshNormals: false,
 		volume: index,
 	};
 };
 
-const surfaceEntry = (surface: SourcedWaterSurface, geometry: number, config: number): WaterSurfaceEntry => {
+/** `HGWaterRenderType.LOD`: the game redraws the surface as an upward-facing, wave-displaced grid */
+const RENDER_TYPE_LOD = 2;
+
+const surfaceEntry = (surface: SourcedWaterSurface, geometry: number, config: number): WaterPlacedSurface => {
 	const m = surface.matrix;
 	return {
+		kind: 'placed',
 		id: surface.id,
 		// interned once every surface's owner is known
 		group: 0,
@@ -557,8 +578,7 @@ const surfaceEntry = (surface: SourcedWaterSurface, geometry: number, config: nu
 		transform: [m[0], m[4], m[8], m[12], m[1], m[5], m[9], m[13], m[2], m[6], m[10], m[14]],
 		bounds: aabbBounds(surface.bounds),
 		config,
-		renderTypeMask: surface.renderTypeMask,
-		param1: surface.param1,
-		volume: null,
+		// LOD surfaces' mesh normals never show in game (and point down on some polygon meshes)
+		meshNormals: (surface.renderTypeMask & RENDER_TYPE_LOD) === 0,
 	};
 };

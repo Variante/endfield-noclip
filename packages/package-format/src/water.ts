@@ -14,7 +14,7 @@ export interface WaterTable {
 	surfaces: WaterSurfaceEntry[];
 	/**
 	 * gameplay water volumes; their surfaces are in {@link surfaces}, naming them by
-	 * {@link WaterSurfaceEntry.volume}
+	 * {@link WaterVolumeSurface.volume}
 	 */
 	volumes: WaterVolumeEntry[];
 }
@@ -179,8 +179,26 @@ export interface WaterConfig {
 	largeWaveInvDir: number;
 }
 
-/** one water surface */
-export interface WaterSurfaceEntry {
+/** one water surface: a placed surface or a water volume's */
+export type WaterSurfaceEntry = WaterPlacedSurface | WaterVolumeSurface;
+
+/** a surface the scene places (InitChunkData component 30), with its own mesh */
+export interface WaterPlacedSurface extends WaterSurfaceBase {
+	kind: 'placed';
+}
+
+/**
+ * a gameplay water volume's surface: its outline as a flat mesh, packed at the volume's authored fill and
+ * moved with it
+ */
+export interface WaterVolumeSurface extends WaterSurfaceBase {
+	kind: 'volume';
+	/** index into {@link WaterTable.volumes} */
+	volume: number;
+}
+
+/** what every water surface has */
+export interface WaterSurfaceBase {
 	/** the game's entity id */
 	id: number;
 	/**
@@ -203,13 +221,9 @@ export interface WaterSurfaceEntry {
 	bounds: Bounds;
 	/** index into {@link WaterTable.configs} */
 	config: number;
-	/** bit mask of the game's `HGWaterRenderType` (1 `Proxy`, 2 `LOD`) */
-	renderTypeMask: number;
 	/**
-	 * the game's per-surface `param1`: (wetness offset (m), height layer 0–3, 1 to sort by distance, 1 to wet
-	 * the ground around it); see `docs/game-data/water.md#placements-initchunkdata-component-30`
+	 * whether the surface is shaded around its mesh normals (when the mesh has them) rather than straight up.
+	 * the game shades its LOD surfaces through an upward-facing grid, so only proxy-only surfaces keep theirs
 	 */
-	param1: Vec4;
-	/** index into {@link WaterTable.volumes} for a water volume's surface, `null` for a placed surface */
-	volume: number | null;
+	meshNormals: boolean;
 }
