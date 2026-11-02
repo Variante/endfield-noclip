@@ -265,8 +265,7 @@ export const loadCabins = async (
 					pose: open
 						? {
 								key: `growBox:${box.shutter}:open`,
-								animator: null,
-								transforms: new Map(),
+								clips: [],
 								active: new Map([[box.shutter, false]]),
 							}
 						: null,

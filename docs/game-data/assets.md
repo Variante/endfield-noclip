@@ -244,7 +244,7 @@ four facility templates (`int_system_domain_shop`, `int_system_domain_depot`,
 (`InteractiveModelLevelUpComponentData`), which lists model ids in visual-form order and contains
 the base model id ([scene-states.md](scene-states.md#facility-visual-forms)).
 
-### interactive doors
+### interactive view states
 
 a model's runtime looks are view states:
 `Data/Json/Interactive/ModelViewStateControllerData/<model id>.json` (MemoryPack, root
@@ -253,19 +253,50 @@ root) and layer, a state machine. each state names an AnimationClip, behaviours 
 switches a GameObject by name on or off; others play effects, audio or navmesh changes) and
 transitions that wait on blackboard keys. `clipAssetInfos` gives each clip's StringPathHash.
 
+a layer starts in its `isStartingNode` state and takes the first transition whose conditions all
+hold (`comparison` 0 =, 1 >, 2 <, 3 ≥, 4 ≤ against a bool, float, int or trigger value, `isInvert`
+negating it); a transition without conditions is taken when its state's clip ends. a layer comes to
+rest in a state none of whose transitions holds. later layers of one animator override earlier ones.
+
+a settled state's look is its clip's end pose plus its `SetActive` switches. a generic clip's muscle
+clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
+(`m_ClipBindingConstant.genericBindings`): three values per position, scale or Euler-rotation
+binding (attributes 1, 3 and 4; Euler angles in degrees, applied z, then x, then y), four per
+rotation (2), one per other float, none per PPtr curve. a binding's `path` is the CRC32 of the
+GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
+GameObject. a GameObject binding (class 1) whose attribute is the CRC32 of `m_IsActive` switches
+that GameObject on (1) or off (0). effect clips switch whole groups of effects this way; in their
+subtree, what the clip leaves alone keeps its saved activity, so a node saved off stays off.
+
+### campfires
+
+a campfire's template has a campfire component (`InteractiveCampfireComponent`). its model
+(`int_campfire_postmodel_v2`) has two animators with three layers between them, testing three keys:
+`Enabled` (the player has activated it), `InZone` (the player stands in it) and `InBattle`.
+
+| layer                                     | not activated        | activated, nobody near | player in it | in a fight  |
+| ----------------------------------------- | -------------------- | ---------------------- | ------------ | ----------- |
+| model (`P_interactive_campfire+1_003_01`) | `CloseIdle` (folded) | `Open_Idle` (unfolded) | `Open_Idle`  | `Open_Idle` |
+| color (same animator, VAT clips)          | `Empty`              | `Empty`                | `On`         | `Off`       |
+| effect (`P_interactive_campfire_effect`)  | `Locking`            | `Working`              | `Using`      | `Stopping`  |
+
+the effect prefab holds one group per look: `moren` (the locked look: red and blue rings, a text
+ring, a glow column), `shouquan` (two slowly turning rings), `yunzhuan` and `duankai`, plus
+`qiehuan*` bursts for the transitions between them. the prefab as saved has every group switched on,
+so drawn as saved it shows all of them at once, including the transition bursts' heat-haze cylinders
+(`HGRP/Effect/VFXRefract`). `Locking` leaves only `moren`'s resident effects on; `Working` only
+`shouquan`'s rings (its `lizi` sparks and, in `yunzhuan/qiehuan2`, the leftover of the switch burst,
+are particles).
+
+### interactive doors
+
 a door's template has a door component (`InteractiveDoorCommonComponent`, or Dijiang's
 `SpaceshipRoomDoorSystem`), and its model's states include a settled state (a clip, and every
 transition waits on a condition) whose clip is an open idle (`…openidle…`). its closed state is
 where the open one returns to: its one transition, then any unconditional states, up to the next
 settled one. a Dijiang room door goes `built` → `built_to_unlocked` → `unlocked`; a Power Plateau
-gate `on_idle` → `on_to_off` → `off_idle`.
-
-a settled state's look is its clip's end pose plus its `SetActive` switches. a generic clip's muscle
-clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
-(`m_ClipBindingConstant.genericBindings`): three values per position or scale binding, four per
-rotation, one per other float, none per PPtr curve. a binding's `path` is the CRC32 of the
-GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
-GameObject.
+gate `on_idle` → `on_to_off` → `off_idle`. each is drawn in its
+[settled look](#interactive-view-states).
 
 ### telescopic bridges
 

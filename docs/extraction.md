@@ -494,6 +494,13 @@ switches), sets the bound local transforms and switches while walking the hierar
 leaves follow their bones. the placement is emitted once per pose, under a door control
 ([doors](#doors)).
 
+a template with a campfire component is drawn in two poses: every animator layer settled
+([view states](game-data/assets.md#interactive-view-states)) with `Enabled` false, and with it true
+(other keys false). a pose holds one clip end pose per animator, each with its GameObject switches;
+inside a clip that switches GameObjects, a node saved off and left alone by the clip draws nothing
+rather than a stand-in. both placements sit under a per-campfire `facility:<id>` control (0 not
+activated, the default; 1 activated), in the viewer's progression list.
+
 a template whose logic controller is a [telescopic bridge](game-data/assets.md#telescopic-bridges)
 is drawn through the same poses, all with the prefab root as the Animator: retracted (the end port
 moved back, track and piece switched off), extended (the end port moved out, the track scaled), and

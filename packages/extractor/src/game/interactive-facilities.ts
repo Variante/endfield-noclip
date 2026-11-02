@@ -25,6 +25,7 @@ import type { StructureModel } from './dynamic-structures.ts';
 import type { PrefabPose } from './prefab.ts';
 import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
+import { readViewStates, settledPose } from './view-state-poses.ts';
 
 // these facility templates share the validated model-upgrade component, so their visual forms become a
 // progression control. every other template draws its base model only.
@@ -106,6 +107,36 @@ const DOOR_COMPONENTS = [
 
 /** the component of Dijiang's construction-area walls */
 const REGION_WALL_COMPONENTS = ['_SpaceshipRegionWallDataForMemoryPack'];
+
+/** the component of campfires */
+const CAMPFIRE_COMPONENTS = ['_InteractiveCampfireComponentDataForMemoryPack'];
+
+/** a campfire's looks: before and after the player activates it, with nobody near and no fight */
+interface CampfirePoses {
+	locked: { pose: PrefabPose; states: string[] };
+	activated: { pose: PrefabPose; states: string[] };
+}
+
+/**
+ * @param context install readers and the bundle resolver
+ * @param model a ModelTable id
+ * @returns the campfire model's settled looks, or `null` when it has no view states
+ * @throws {FormatError} if a state machine can't settle or a clip can't be read
+ */
+const readCampfirePoses = async (
+	context: Pick<Context, 'vfs' | 'world' | 'resolver' | 'memoryPack'>,
+	model: string,
+): Promise<CampfirePoses | null> => {
+	const states = await readViewStates(context, model);
+	if (states === null) {
+		return null;
+	}
+	// `Enabled` is whether the player activated it; `InZone` and `InBattle` follow the player, who isn't there
+	return {
+		locked: await settledPose(context, states, 'locked', new Map([['Enabled', false]])),
+		activated: await settledPose(context, states, 'activated', new Map([['Enabled', true]])),
+	};
+};
 
 /**
  * @param template a decoded interactive template
@@ -496,15 +527,18 @@ export const loadInteractiveFacilities = async (
 	// doors drawn open or closed: interactives of door templates whose model has door poses, by key. region
 	// walls, by key, are drawn while their construction area is locked
 	const doorPoses = new Map<string, DoorPoses>();
+	// campfires drawn locked or activated, by key
+	const campfirePoses = new Map<string, CampfirePoses>();
 	const regionWalls = new Set<string>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	{
 		const templateKinds = new Map<
 			string,
-			'door' | 'regionWall' | { kind: 'telescopic'; pieces: number } | null
+			'door' | 'regionWall' | 'campfire' | { kind: 'telescopic'; pieces: number } | null
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
+		const campfiresByModel = new Map<string, CampfirePoses | null>();
 		// a failed read reports and leaves the model drawn as saved
 		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
 			try {
@@ -534,6 +568,9 @@ export const loadInteractiveFacilities = async (
 						if (hasComponent(decoded, REGION_WALL_COMPONENTS)) {
 							return 'regionWall';
 						}
+						if (hasComponent(decoded, CAMPFIRE_COMPONENTS)) {
+							return 'campfire';
+						}
 						const pieces = telescopicPieces(decoded, data);
 						return pieces === null ? null : { kind: 'telescopic' as const, pieces };
 					},
@@ -546,6 +583,18 @@ export const loadInteractiveFacilities = async (
 			}
 			if (kind !== null && typeof kind === 'object') {
 				telescopic.set(key, { pieces: kind.pieces, prefab: forms[0].prefab });
+			}
+			if (kind === 'campfire') {
+				let poses = campfiresByModel.get(model);
+				if (poses === undefined) {
+					// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
+					poses = await attempt(model, () => readCampfirePoses(context, model), null);
+					campfiresByModel.set(model, poses);
+				}
+				if (poses !== null) {
+					campfirePoses.set(key, poses);
+				}
+				continue;
 			}
 			if (kind !== 'door') {
 				continue;
@@ -717,6 +766,29 @@ export const loadInteractiveFacilities = async (
 			});
 			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, poses.closed);
 			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, poses.open);
+			continue;
+		}
+		const campfire = campfirePoses.get(row.template);
+		if (campfire !== undefined) {
+			const control = `facility:${row.id}`;
+			progressions.push({
+				kind: 'facility',
+				id: control,
+				name: `Campfire (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+				rule: null,
+				assumption: 'not activated: the player activates it, and the server keeps it',
+				story: null,
+				drivers: [],
+				levelTags: [],
+				values: [
+					{ value: 0, label: `not activated (${campfire.locked.states.join(', ')})` },
+					{ value: 1, label: `activated (${campfire.activated.states.join(', ')})` },
+				],
+				default: 0,
+				derived: null,
+			});
+			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, campfire.locked.pose);
+			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, campfire.activated.pose);
 			continue;
 		}
 		if (nexus !== null && regionWalls.has(row.template)) {

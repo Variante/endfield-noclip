@@ -1,17 +1,12 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
-import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
-import { readClipEndPose } from '@endfield-noclip/formats/unity/animation-clip';
-import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 
 import type { Context } from '../context.ts';
-import { VfsGroup } from '../hg/vfs.ts';
 
 import type { PrefabPose } from './prefab.ts';
+import { readViewStates, records, statesPose, text, type ViewStateRecord } from './view-state-poses.ts';
 
 // derives settled open/closed poses from model view states: clip end pose plus GameObject switches.
 // state selection rules: docs/game-data/assets.md#interactive-doors.
-
-const ROOT = 'Beyond_Gameplay_Core_ModelViewStateController_MVSCModelViewStateControllerDataForMemoryPack';
 
 /** the open and closed looks of a door model */
 export interface DoorPoses {
@@ -22,24 +17,18 @@ export interface DoorPoses {
 	closed: PrefabPose;
 }
 
-type Record = { [key: string]: MemoryPackValue };
-
-const isRecord = (value: MemoryPackValue | undefined): value is Record =>
-	value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const records = (value: MemoryPackValue | undefined): Record[] =>
-	Array.isArray(value) ? value.filter(isRecord) : [];
-
-const text = (value: MemoryPackValue | undefined): string | null =>
-	typeof value === 'string' ? value : null;
-
 /** a state is settled when nothing moves it on by itself: each of its transitions waits on a condition */
-const settled = (state: Record): boolean =>
+const settled = (state: ViewStateRecord): boolean =>
 	state.isHaveClip === true &&
-	records(state.transitions).every(
-		(transition) =>
-			isRecord(transition.conditionGroup) && records(transition.conditionGroup.conditions).length > 0,
-	);
+	records(state.transitions).every((transition) => {
+		const group = transition.conditionGroup;
+		return (
+			group !== null &&
+			typeof group === 'object' &&
+			!Array.isArray(group) &&
+			records(group.conditions).length > 0
+		);
+	});
 
 /**
  * @param context install readers and the bundle resolver
@@ -52,23 +41,19 @@ export const readDoorPoses = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver' | 'memoryPack'>,
 	model: string,
 ): Promise<DoorPoses | null> => {
-	const path = `Data/Json/Interactive/ModelViewStateControllerData/${model}.json`;
-	const file = await context.vfs.find(VfsGroup.JsonData, path);
-	if (file === undefined) {
+	const states = await readViewStates(context, model);
+	if (states === null) {
 		return null;
 	}
-	const data = (await context.memoryPack()).decode(await context.vfs.readVerified(file), ROOT);
-	if (!isRecord(data)) {
-		throw new FormatError(`${path} isn't a view state controller`);
-	}
-	const found: { animator: string | null; states: Map<string, Record>; open: Record }[] = [];
-	for (const animator of records(data.modelAnimatorDatas)) {
+	const found: { animator: string | null; states: Map<string, ViewStateRecord>; open: ViewStateRecord }[] =
+		[];
+	for (const animator of records(states.data.modelAnimatorDatas)) {
 		const name = text(animator.modelName);
 		for (const layer of records(animator.layerFsmDatas)) {
-			const states = new Map(records(layer.stateDatas).map((state) => [text(state.stateName) ?? '', state]));
-			for (const state of states.values()) {
+			const byName = new Map(records(layer.stateDatas).map((state) => [text(state.stateName) ?? '', state]));
+			for (const state of byName.values()) {
 				if (settled(state) && /openidle/i.test(text(state.animationClipName) ?? '')) {
-					found.push({ animator: name === '$$ROOT$$' ? null : name, states, open: state });
+					found.push({ animator: name === '$$ROOT$$' ? null : name, states: byName, open: state });
 				}
 			}
 		}
@@ -77,58 +62,28 @@ export const readDoorPoses = async (
 		return null;
 	}
 	if (found.length > 1) {
-		throw new FormatError(`${path} has ${found.length} open idle states`);
+		throw new FormatError(`${states.path} has ${found.length} open idle states`);
 	}
-	const [{ animator, states, open }] = found;
+	const [{ animator, states: byName, open }] = found;
 	// the open state leaves on a condition, then plays through unconditional states to the closed one
-	let closed: Record | undefined;
+	let closed: ViewStateRecord | undefined;
 	{
 		const [leave] = records(open.transitions);
-		let state = states.get(text(leave?.targetStateName) ?? '');
+		let state = byName.get(text(leave?.targetStateName) ?? '');
 		for (let hops = 0; state !== undefined && hops < 8; hops++) {
 			if (settled(state)) {
 				closed = state;
 				break;
 			}
 			const onward = records(state.transitions);
-			state = onward.length === 1 ? states.get(text(onward[0].targetStateName) ?? '') : undefined;
+			state = onward.length === 1 ? byName.get(text(onward[0].targetStateName) ?? '') : undefined;
 		}
 	}
 	if (closed === undefined || records(open.transitions).length !== 1) {
-		throw new FormatError(`${path} has no single way from its open state back to a closed one`);
+		throw new FormatError(`${states.path} has no single way from its open state back to a closed one`);
 	}
-
-	const clips = new Map(
-		records(data.clipAssetInfos).map((info) => [text(info.animationClipName), info.animationClipHash]),
-	);
-	const [resolver, pathOf] = await Promise.all([context.resolver(), context.world.pathLookup()]);
-	const pose = async (state: Record): Promise<PrefabPose> => {
-		const name = text(state.stateName) ?? '';
-		const clipName = text(state.animationClipName);
-		const hashValue = clips.get(clipName);
-		if (typeof hashValue !== 'string' && typeof hashValue !== 'number') {
-			throw new FormatError(`${path} lists no clip ${clipName}`);
-		}
-		const hash = BigInt.asUintN(64, BigInt(hashValue));
-		const clipPath = pathOf(hash);
-		if (clipPath === undefined) {
-			throw new FormatError(`${path}: clip ${clipName} isn't in StringPathHash`);
-		}
-		const clip = await resolver.findUnique({ hash, path: clipPath }, UnityClass.AnimationClip);
-		const active = new Map<string, boolean>();
-		for (const behavior of records(state.behaviors)) {
-			const target = text(behavior.gameObjName);
-			if (text(behavior.$type)?.endsWith('SetActiveBehaviorDataForMemoryPack') && target !== null) {
-				active.set(target, behavior.active === true);
-			}
-		}
-		return {
-			key: `${model}:${name}`,
-			animator,
-			transforms: readClipEndPose(await resolver.read(clip)).transforms,
-			active,
-		};
-	};
+	const pose = (state: ViewStateRecord): Promise<PrefabPose> =>
+		statesPose(context, states, text(state.stateName) ?? '', [{ animator, states: [state] }]);
 	return {
 		openState: text(open.stateName) ?? '',
 		closedState: text(closed.stateName) ?? '',

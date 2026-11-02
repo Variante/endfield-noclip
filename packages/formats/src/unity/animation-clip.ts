@@ -8,24 +8,52 @@ export type ClipTransformValue =
 	| { kind: 'position' | 'scale'; value: [number, number, number] }
 	| { kind: 'rotation'; value: [number, number, number, number] };
 
-/** what a clip leaves each animated Transform at */
+/** what a clip leaves each animated Transform and GameObject at */
 export interface ClipEndPose {
 	/** by binding path: CRC32 of the GameObject's path below the Animator, `/`-joined, 0 for the Animator's own */
 	transforms: Map<number, ClipTransformValue[]>;
+	/** whether each GameObject whose activity the clip animates ends switched on, by binding path */
+	active: Map<number, boolean>;
 }
 
 /** Unity's `ClassID(Transform)` in a generic binding */
 const TRANSFORM = 4;
+/** Unity's `ClassID(GameObject)` in a generic binding */
+const GAME_OBJECT = 1;
+/** a GameObject binding's attribute for `m_IsActive`: CRC32 of the property name */
+const IS_ACTIVE = 0x7c5a_22f6;
+
+const DEGREES = Math.PI / 180;
+
+/**
+ * @param x rotation about x, degrees
+ * @param y rotation about y, degrees
+ * @param z rotation about z, degrees
+ * @returns Unity's `Quaternion.Euler`: z first, then x, then y
+ */
+const eulerQuaternion = (x: number, y: number, z: number): [number, number, number, number] => {
+	const [sx, cx] = [Math.sin(x * DEGREES * 0.5), Math.cos(x * DEGREES * 0.5)];
+	const [sy, cy] = [Math.sin(y * DEGREES * 0.5), Math.cos(y * DEGREES * 0.5)];
+	const [sz, cz] = [Math.sin(z * DEGREES * 0.5), Math.cos(z * DEGREES * 0.5)];
+	// qy · qx · qz
+	return [
+		cy * sx * cz + sy * cx * sz,
+		sy * cx * cz - cy * sx * sz,
+		cy * cx * sz - sy * sx * cz,
+		cy * cx * cz + sy * sx * sz,
+	];
+};
 
 /**
  * reads the values a generic (non-humanoid) AnimationClip ends on. the muscle clip stores each animated
  * value's start and stop in binding order (`m_ValueArrayDelta`), so the end pose needs no curve sampling.
- * Transform bindings take three values (position, scale) or four (rotation); other float bindings one; PPtr
- * bindings none
+ * Transform bindings take three values (position, scale, Euler rotation) or four (rotation); other float
+ * bindings one; PPtr bindings none. Euler rotations are taken in Unity's default order (z, x, y)
  *
  * @param clip AnimationClip type-tree object
- * @returns the end value of every animated Transform property
- * @throws {FormatError} for legacy clips, Euler bindings, or a value count that doesn't match the bindings
+ * @returns the end value of every animated Transform property and GameObject activity
+ * @throws {FormatError} for legacy clips, unknown Transform attributes, or a value count that doesn't match
+ *   the bindings
  */
 export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	if (booleanField(clip, 'm_Legacy')) {
@@ -39,6 +67,7 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 		return numberField(delta, 'm_Stop');
 	});
 	const transforms = new Map<number, ClipTransformValue[]>();
+	const active = new Map<number, boolean>();
 	let at = 0;
 	for (const binding of arrayField(objectField(clip, 'm_ClipBindingConstant'), 'genericBindings')) {
 		if (!isObject(binding)) {
@@ -47,12 +76,16 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 		if (numberField(binding, 'isPPtrCurve') !== 0) {
 			continue;
 		}
-		if (numberField(binding, 'typeID') !== TRANSFORM) {
+		const path = numberField(binding, 'path') >>> 0;
+		const attribute = numberField(binding, 'attribute');
+		const type = numberField(binding, 'typeID');
+		if (type === GAME_OBJECT && attribute >>> 0 === IS_ACTIVE && at < stops.length) {
+			active.set(path, stops[at] !== 0);
+		}
+		if (type !== TRANSFORM) {
 			at++;
 			continue;
 		}
-		const path = numberField(binding, 'path') >>> 0;
-		const attribute = numberField(binding, 'attribute');
 		const next = (): number => {
 			if (at >= stops.length) {
 				throw new FormatError('AnimationClip has fewer values than bindings');
@@ -73,6 +106,10 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 				value = { kind: 'scale', value: [next(), next(), next()] };
 				break;
 			}
+			case 4: {
+				value = { kind: 'rotation', value: eulerQuaternion(next(), next(), next()) };
+				break;
+			}
 			default: {
 				throw new FormatError(`unsupported AnimationClip Transform attribute ${attribute}`);
 			}
@@ -82,5 +119,5 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	if (at !== stops.length) {
 		throw new FormatError(`AnimationClip has ${stops.length} values for ${at} bound`);
 	}
-	return { transforms };
+	return { transforms, active };
 };

@@ -14,7 +14,7 @@ import {
 } from '@endfield-noclip/formats/unity/values';
 
 import { type AssetResolver, type ObjectRef, objectKey } from './assets.ts';
-import type { PrefabPose } from './prefab.ts';
+import type { PoseClip, PrefabPose } from './prefab.ts';
 
 // settled looks of a telescopic bridge (`InteractiveTelescopicPostmodelMono`): retracted, or extended by a
 // number of platform pieces. layout: docs/game-data/assets.md#telescopic-bridges.
@@ -34,8 +34,15 @@ const position = (value: readonly [number, number, number]): ClipTransformValue 
 	value: [...value],
 });
 
-/** a GameObject path's binding key, as AnimationClips and {@link PrefabPose.transforms} use */
+/** a GameObject path's binding key, as AnimationClips and {@link PoseClip.transforms} use */
 const pathKey = (path: string): number => crc32(path) >>> 0;
+
+/** Transform values bound below the prefab root, switching nothing */
+const rootClip = (transforms: Map<number, ClipTransformValue[]>): PoseClip => ({
+	animator: null,
+	transforms,
+	active: new Map(),
+});
 
 /** a GameObject's components of one class */
 const componentsOf = async (
@@ -193,8 +200,7 @@ export const readTelescopicPoses = async (
 	return {
 		retracted: {
 			key: `${key}:retracted`,
-			animator: null,
-			transforms: new Map([[pathKey(endPort.name), [position([0, 0, 0])]]]),
+			clips: [rootClip(new Map([[pathKey(endPort.name), [position([0, 0, 0])]]]))],
 			active: new Map([
 				[platform.name, false],
 				[track.name, false],
@@ -202,11 +208,14 @@ export const readTelescopicPoses = async (
 		},
 		extended: {
 			key: `${key}:extended:${pieces}`,
-			animator: null,
-			transforms: new Map([
-				[pathKey(endPort.name), [position([0, 0, pieces * length])]],
-				[pathKey(track.name), [{ kind: 'scale', value: [1, 1, pieces] }]],
-			]),
+			clips: [
+				rootClip(
+					new Map([
+						[pathKey(endPort.name), [position([0, 0, pieces * length])]],
+						[pathKey(track.name), [{ kind: 'scale', value: [1, 1, pieces] }]],
+					]),
+				),
+			],
 			active: new Map([
 				[platform.name, false],
 				[track.name, true],
@@ -214,11 +223,17 @@ export const readTelescopicPoses = async (
 		},
 		pieces: Array.from({ length: pieces }, (_, i) => ({
 			key: `${key}:piece:${i}`,
-			animator: null,
-			transforms: new Map([
-				...rail,
-				[pathKey(platform.name), [position([0, 0, i * length]), { kind: 'rotation', value: [0, 0, 0, 1] }]],
-			]),
+			clips: [
+				rootClip(
+					new Map([
+						...rail,
+						[
+							pathKey(platform.name),
+							[position([0, 0, i * length]), { kind: 'rotation', value: [0, 0, 0, 1] }],
+						],
+					]),
+				),
+			],
 			active: new Map([
 				[platform.name, true],
 				[startPort.name, false],

@@ -65,16 +65,24 @@ interface SwitchedOff {
 	standIn: string | null;
 }
 
-/** a pose a prefab is drawn in instead of as saved: a view state's clip end pose and the nodes it switches */
+/** a pose a prefab is drawn in instead of as saved: view states' clip end poses and the nodes they switch */
 export interface PrefabPose {
 	/** tells the poses of one prefab apart, for caching */
 	key: string;
+	/** clip end poses, one per Animator they bind below */
+	clips: readonly PoseClip[];
+	/** GameObjects the states switch on or off, by name */
+	active: ReadonlyMap<string, boolean>;
+}
+
+/** what one Animator's clip leaves its subtree at */
+export interface PoseClip {
 	/** the GameObject whose Animator the clip binds below, by name; `null` for the prefab root */
 	animator: string | null;
 	/** Transform values by binding path (CRC32 of the path below the Animator) */
 	transforms: ReadonlyMap<number, readonly ClipTransformValue[]>;
-	/** GameObjects the state switches on or off, by name */
-	active: ReadonlyMap<string, boolean>;
+	/** GameObjects the clip switches on or off, by binding path */
+	active: ReadonlyMap<number, boolean>;
 }
 
 const xyz = (value: TypeTreeObject): [number, number, number] => [
@@ -126,8 +134,8 @@ export const readPrefabRenderers = async (
 		/** how the parent is switched off, `null` when it's drawn */
 		parentOff: SwitchedOff | null,
 		inherited: PrefabBillboard | null,
-		/** the parent's path below the pose's Animator, `null` outside it */
-		above: string | null,
+		/** per pose clip, the parent's path below that clip's Animator, `null` outside it */
+		above: readonly (string | null)[],
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -137,19 +145,29 @@ export const readPrefabRenderers = async (
 		const data = await resolver.read(go);
 		const name = stringField(data, 'm_Name');
 		// clip bindings name GameObjects by their `/`-joined path below the Animator's own, which is ''
-		let below: string | null = null;
-		if (above !== null) {
-			below = above === '' ? name : `${above}/${name}`;
-		} else if (pose !== null && (isRoot ? pose.animator === null : name === pose.animator)) {
-			below = '';
-		}
+		const below = (pose?.clips ?? []).map((clip, i): string | null => {
+			const parentPath = above[i] ?? null;
+			if (parentPath !== null) {
+				return parentPath === '' ? name : `${parentPath}/${name}`;
+			}
+			return (isRoot ? clip.animator === null : name === clip.animator) ? '' : null;
+		});
 		// a switched-off subtree draws only stand-ins, since a script or view state can switch it on, unless the
 		// pose switched it off: that pose's other states are placed on their own. skinned meshes can still use its
 		// transforms as bones
 		let off = parentOff;
 		if (off === null) {
-			const posed = pose?.active.get(name);
-			if (posed === false) {
+			let posed = pose?.active.get(name);
+			// a settled clip that switches GameObjects owns its subtree's activity: what it leaves off stays off
+			let switching = false;
+			for (const [i, clip] of (pose?.clips ?? []).entries()) {
+				const path = below[i];
+				if (path !== null && path !== '') {
+					posed = clip.active.get(crc32(path) >>> 0) ?? posed;
+					switching ||= clip.active.size > 0;
+				}
+			}
+			if (posed === false || (posed === undefined && switching && !booleanField(data, 'm_IsActive'))) {
 				off = { standIn: null };
 			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
 				// a one-shot effect a view state plays shows for a moment, never at rest
@@ -207,8 +225,12 @@ export const readPrefabRenderers = async (
 					rotation: [...xyz(rotation), numberField(rotation, 'w')],
 					scale: xyz(objectField(t, 'm_LocalScale')),
 				};
-		if (!isRoot && below !== null) {
-			for (const value of pose?.transforms.get(crc32(below) >>> 0) ?? []) {
+		for (const [i, clip] of (pose?.clips ?? []).entries()) {
+			const path = below[i];
+			if (isRoot || path === null) {
+				continue;
+			}
+			for (const value of clip.transforms.get(crc32(path) >>> 0) ?? []) {
 				switch (value.kind) {
 					case 'position': {
 						local.position = value.value;
@@ -379,7 +401,7 @@ export const readPrefabRenderers = async (
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, null);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, []);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);

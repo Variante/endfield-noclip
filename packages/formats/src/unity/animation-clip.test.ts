@@ -36,5 +36,34 @@ test('a clip ends each Transform binding on its stop values, in binding order', 
 test('a clip whose values and bindings disagree is rejected', () => {
 	assert.throws(() => readClipEndPose(clip([binding(1, 1)], [0, 1])), /fewer values/);
 	assert.throws(() => readClipEndPose(clip([binding(1, 1)], [0, 1, 2, 3])), /4 values for 3 bound/);
-	assert.throws(() => readClipEndPose(clip([binding(1, 4)], [0, 1, 2])), /attribute 4/);
+	assert.throws(() => readClipEndPose(clip([binding(1, 5)], [0, 1, 2])), /attribute 5/);
+});
+
+test('a clip ends Euler rotations as quaternions and GameObjects on their activity', () => {
+	const pose = readClipEndPose(
+		clip(
+			// a spinning ring (x −90°, then a full turn about z), a node switched off and one switched on
+			[binding(11, 4), binding(12, 0x7c5a22f6, 1), binding(13, 0x7c5a22f6, 1)],
+			[-90, 0, -360, 0, 1],
+		),
+	);
+	const [rotation] = pose.transforms.get(11)!;
+	assert.equal(rotation.kind, 'rotation');
+	// a full turn about z flips the quaternion's sign, which is the same rotation
+	const expected = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+	const sign = Math.sign(rotation.value[3]) * Math.sign(expected[3]);
+	rotation.value.forEach((value, i) => assert.ok(Math.abs(value * sign - expected[i]) < 1e-9));
+	assert.deepEqual(
+		[...pose.active],
+		[
+			[12, false],
+			[13, true],
+		],
+	);
+});
+
+test('Euler rotations follow Unity: z first, then x, then y', () => {
+	// x 90° then y 90°: Quaternion.Euler(90, 90, 0) = (0.5, 0.5, −0.5, 0.5)
+	const [rotation] = readClipEndPose(clip([binding(1, 4)], [90, 90, 0])).transforms.get(1)!;
+	[0.5, 0.5, -0.5, 0.5].forEach((value, i) => assert.ok(Math.abs(rotation.value[i] - value) < 1e-9));
 });
