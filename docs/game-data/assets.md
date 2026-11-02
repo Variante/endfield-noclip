@@ -153,6 +153,20 @@ the snapshot points' yellow light column (`int_system_snapshot_postmodel`, in Di
 at the centre of the corroded planet seen from Dijiang's deck
 (`P_fxmap_base01_lv001_planetcorrode_01`) are billboards.
 
+### one-shot effects
+
+a prefab can carry its own view-state controller (`PostModelViewStateController`, recognised by its
+`stateList` and `animatorNode` fields). each state's `effectPlayConfigs` can name an `effectNode`, a
+GameObject the state plays as an effect; with `controlActive` set, playing it switches the node on.
+an `EffectSetting` MonoBehaviour (recognised by `effectLogicCfg`) under the node says whether the
+effect loops (`isLoop`) and for how long it plays (`duration`, in seconds).
+
+a node that is switched off as saved, and whose `EffectSetting`s all have `isLoop` 0, is a burst: it
+shows only for the moments after its state plays it, and never at rest. the challenge start point
+(`int_challenge_start_point_once_postmodel`) is one: its `OneShot` node, a 3 s ring of expanding
+spheres, 40 m decal boxes, a radial blur and smoke, plays when the challenge starts
+(`SwitchToRunning`).
+
 ## dynamic structures
 
 the dynamic ECS scene (`Data/DynamicStreaming/PC/Scene/<scene>/`) holds scenery that appears,

@@ -25,6 +25,7 @@ import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import { frozenParticleMatrix, type LocalTransform, SCALING_SHAPE } from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
+import { isOneShotEffect, isViewStateControllerType, playedEffectNodes } from './view-state-effects.ts';
 
 /** one enabled mesh renderer in a prefab's highest-detail authored LOD */
 export interface PrefabRenderer {
@@ -116,6 +117,8 @@ export const readPrefabRenderers = async (
 	const firstLod = new Set<string>();
 	const seen = new Set<string>();
 	const transforms = new Map<string, Float32Array>();
+	// GameObjects a view-state controller switches on to play an effect, found before their subtrees are visited
+	const played = new Set<string>();
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -149,7 +152,11 @@ export const readPrefabRenderers = async (
 			if (posed === false) {
 				off = { standIn: null };
 			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
-				off = { standIn: 'switched off until a script or view state turns it on' };
+				// a one-shot effect a view state plays shows for a moment, never at rest
+				off =
+					played.has(key) && (await isOneShotEffect(resolver, go))
+						? { standIn: null }
+						: { standIn: 'switched off until a script or view state turns it on' };
 			}
 		}
 		const standIn = off?.standIn ?? null;
@@ -180,6 +187,10 @@ export const readPrefabRenderers = async (
 				components.push({ ref, data: await resolver.read(ref) });
 			} else if (wanted.length > 1 && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
 				board = await resolver.read(ref);
+			} else if (ref.info.classId === UnityClass.MonoBehaviour && isViewStateControllerType(ref)) {
+				for (const node of await playedEffectNodes(resolver, ref, await resolver.read(ref))) {
+					played.add(node);
+				}
 			}
 		}
 		const transform = components.find((component) => component.ref.info.classId === UnityClass.Transform);

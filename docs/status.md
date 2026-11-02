@@ -217,7 +217,9 @@ packs or renders correctly.
 - separate scenes (interiors, offices, arenas) are unvalidated
 - interactives ([assets](game-data/assets.md#interactives)) draw their model's default pose and
   ignore per-placement component properties and view states (`ModelViewStateControllerData`), so
-  every state's effects show at once (range rings, lock marks). doors are the exception: they draw
+  every state's effects show at once (range rings, lock marks), except
+  [one-shot effects](game-data/assets.md#one-shot-effects), which aren't drawn since the viewer
+  can't play them. doors are the exception: they draw
   open or closed ([interactive doors](game-data/assets.md#interactive-doors)), closed by default
   except a Dijiang cabin's, since what opens each in game (a level script reacting to a mission's
   cutscene, the server) isn't followed. telescopic bridges likewise draw retracted or extended
