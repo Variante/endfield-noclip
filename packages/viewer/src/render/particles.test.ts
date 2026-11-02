@@ -292,6 +292,18 @@ describe('motion', () => {
 		const again = limitedPath({ ...stones, age: 2 }).offset[1];
 		assert.equal(once, again);
 	});
+	it('steps on from an earlier state to where stepping from birth gets', () => {
+		const fresh = limitedPath({ ...stones, age: 2 });
+		let state = limitedPath({ ...stones, age: 0.5 }).state;
+		for (let age = 0.5 + 1 / 60; age <= 2 + 1e-9; age += 1 / 60) {
+			state = limitedPath({ ...stones, age, from: state }).state;
+		}
+		// frame-sized steps rather than 1/30 s ones differ by a little
+		assert.ok(Math.abs(state.offset[1] - fresh.offset[1]) < 5e-3);
+		// a state past the age is ignored, so a path read earlier starts again from birth
+		const back = limitedPath({ ...stones, age: 0.5, from: fresh.state });
+		assert.equal(back.offset[1], limitedPath({ ...stones, age: 0.5 }).offset[1]);
+	});
 	it('leaves a particle under the limit alone', () => {
 		const { offset, velocity } = limitedPath({
 			...stones,

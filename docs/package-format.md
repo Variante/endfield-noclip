@@ -542,8 +542,8 @@ unless the mode is Shape. the entry keeps:
 - the Limit Velocity module as the free motion's `clamp`: its drag when its `dampen` is 0 (the
   amount and whether it scales with the particle's size and its speed squared), or its speed limit
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
-  rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz from
-  their birth, applying the limit as [the game does](game-data/assets.md#particle-systems)
+  rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz,
+  applying the limit as [the game does](game-data/assets.md#particle-systems)
 - the render alignment (Facing is kept as View) and pivot
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,

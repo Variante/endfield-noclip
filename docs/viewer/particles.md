@@ -74,13 +74,15 @@ system and its index, so any moment can be evaluated on its own:
   alone, by `k v` or `k v²` (k the amount, times the cross-section `π (size / 2)²` when it scales
   with size), and gravity falls towards the matching terminal speed; the velocity module's own terms
   and orbits aren't slowed, and the size is the start size.
-- under a speed limit (`limitedPath`) there is no closed form, so the particle is stepped from its
-  birth to its age at 30 Hz (at most 600 steps, longer ones beyond): each step adds gravity to its
-  own velocity, limits the whole speed, the velocity module's terms included, as
-  [the game does](../game-data/assets.md#particle-systems), and moves it by the whole velocity. the
-  module's terms are its linear velocity, the orbit's velocity at the particle's current place
-  (`ω × r` about the orbit's centre, rather than the closed form's turn of the whole path) and the
-  radial push away from that centre. the limit's random value is the particle's own, not the game's.
+- under a speed limit (`limitedPath`) there is no closed form, so the particle is stepped to its age
+  at 30 Hz (at most 600 steps, longer ones beyond), from its birth the first time it's drawn and
+  from where the previous frame left it after that; a step back in time starts it from its birth
+  again: each step adds gravity to its own velocity, limits the whole speed, the velocity module's
+  terms included, as [the game does](../game-data/assets.md#particle-systems), and moves it by the
+  whole velocity. the module's terms are its linear velocity, the orbit's velocity at the particle's
+  current place (`ω × r` about the orbit's centre, rather than the closed form's turn of the whole
+  path) and the radial push away from that centre. the limit's random value is the particle's own,
+  not the game's.
 - a system with a spline ([spline movers](../game-data/assets.md#spline-movers)) ignores the above:
   a particle lies at the path's point its travelled distance reaches (the speed curve integrated
   over its age, as linear velocities are), plus its start position in the shape, and leaves once

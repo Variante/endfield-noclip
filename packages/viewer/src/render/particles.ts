@@ -265,14 +265,23 @@ const LIMIT_STEP_RATE = 30;
 /** the most steps {@link limitedPath} takes; longer ages take longer steps */
 const LIMIT_MAX_STEPS = 600;
 
+/** where a stepped particle had got to: its age, its own velocity and how far it had moved */
+export interface LimitedState {
+	age: number;
+	own: Vec3;
+	offset: Vec3;
+}
+
 /**
- * a particle's path under a speed limit, stepped from its birth: each step adds gravity to the particle's own
- * velocity, pulls the whole speed (its own velocity plus the extra velocity) towards the limit, taking the
- * excess from its own velocity, then moves it by the whole velocity
+ * a particle's path under a speed limit, stepped from its birth or from an earlier state of the same path:
+ * each step adds gravity to the particle's own velocity, pulls the whole speed (its own velocity plus the
+ * extra velocity) towards the limit, taking the excess from its own velocity, then moves it by the whole
+ * velocity
  *
  * @param path the limit (and its random value), the particle's start velocity, its acceleration, the extra
- *   velocity at an age and a distance moved from the start, its age and lifetime, in seconds
- * @returns how far it has moved by `age`, and its velocity then
+ *   velocity at an age and a distance moved from the start, its age and lifetime, in seconds, and the state
+ *   to continue from (one at or before `age`, else the birth)
+ * @returns how far it has moved by `age`, its velocity then, and the state to continue from later
  */
 export const limitedPath = (path: {
 	limit: ParticleSpeedLimitInfo;
@@ -282,15 +291,21 @@ export const limitedPath = (path: {
 	extra: (age: number, moved: Vec3) => Vec3;
 	age: number;
 	life: number;
-}): { offset: Vec3; velocity: Vec3 } => {
+	from?: LimitedState;
+}): { offset: Vec3; velocity: Vec3; state: LimitedState } => {
 	const { limit, r, acceleration, extra, age, life } = path;
-	const steps = Math.min(Math.max(Math.ceil(age * LIMIT_STEP_RATE), 1), LIMIT_MAX_STEPS);
-	const h = age / steps;
+	const from =
+		path.from !== undefined && path.from.age <= age
+			? path.from
+			: { age: 0, own: path.start, offset: [0, 0, 0] as Vec3 };
+	const span = age - from.age;
+	const steps = span > 0 ? Math.min(Math.ceil(span * LIMIT_STEP_RATE), LIMIT_MAX_STEPS) : 0;
+	const h = steps > 0 ? span / steps : 0;
 	const pull = 1 - (1 - limit.dampen) ** (h * LIMIT_STEP_RATE);
-	const own: Vec3 = [...path.start];
-	const offset: Vec3 = [0, 0, 0];
+	const own: Vec3 = [...from.own];
+	const offset: Vec3 = [...from.offset];
 	for (let i = 1; i <= steps; i++) {
-		const t = i * h;
+		const t = from.age + i * h;
 		const added = extra(t, offset);
 		const whole: Vec3 = [0, 0, 0];
 		for (let axis = 0; axis < 3; axis++) {
@@ -311,7 +326,11 @@ export const limitedPath = (path: {
 		}
 	}
 	const added = extra(age, offset);
-	return { offset, velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]] };
+	return {
+		offset,
+		velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]],
+		state: { age, own: [...own], offset: [...offset] },
+	};
 };
 
 /** sample pairs {@link travelled} integrates a velocity curve over */
@@ -553,6 +572,13 @@ export class ParticleSimulation {
 	#admitted: AdmittedEmission[] = [];
 	/** the system time {@link #admitted} has been played to */
 	#admittedUntil = -Infinity;
+	/**
+	 * where each speed-limited particle drawn last frame had stepped to, so the next frame steps on from there
+	 * rather than from its birth
+	 */
+	#limited = new Map<number, LimitedState>();
+	/** the speed-limited particles placed during the current {@link evaluate} */
+	#limitedNow = new Map<number, LimitedState>();
 
 	/**
 	 * @param info the system
@@ -615,6 +641,7 @@ export class ParticleSimulation {
 	 */
 	evaluate(time: number, down: Vec3, worldToLocal: (direction: Vec3) => Vec3, out: Float32Array): number {
 		const emissions = this.#capped ? this.#admit(time) : this.#emitted(time - this.#lookback, time);
+		this.#limitedNow.clear();
 		const capacity = Math.floor(out.length / PARTICLE_FLOATS);
 		const ringBuffer = this.info.ringBuffer;
 		let count = 0;
@@ -640,6 +667,8 @@ export class ParticleSimulation {
 				count++;
 			}
 		}
+		// keep only the particles still drawn
+		[this.#limited, this.#limitedNow] = [this.#limitedNow, this.#limited];
 		return count;
 	}
 
@@ -1023,7 +1052,11 @@ export class ParticleSimulation {
 				linear[2] + spin[0] * from[1] - spin[1] * from[0] + outward[2] * radial,
 			];
 		};
-		const { offset, velocity: moving } = limitedPath({
+		const {
+			offset,
+			velocity: moving,
+			state,
+		} = limitedPath({
 			limit,
 			r: random(seed, id, Channel.SpeedLimit),
 			start: [direction[0] * speed, direction[1] * speed, direction[2] * speed],
@@ -1031,7 +1064,9 @@ export class ParticleSimulation {
 			extra,
 			age,
 			life,
+			from: this.#limited.get(id),
 		});
+		this.#limitedNow.set(id, state);
 		return { position: [start[0] + offset[0], start[1] + offset[1], start[2] + offset[2]], moving };
 	}
 
