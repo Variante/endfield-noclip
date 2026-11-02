@@ -116,9 +116,9 @@ packs or renders correctly.
   isn't drawn, `_EMISSIVE_ANIM`'s flicker variant and the emissive map's scrolling are drawn still,
   and `_EmissiveType`'s extra G/B/A colours and the emission Fresnel term are left out
 - the white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`) glow
-  green and red in the game but white in the viewer. the colour isn't in any client data we read:
-  it's a per-draw emission override set at runtime ([emission](game-data/materials.md#emission)),
-  and what sets it for static scenery is untraced
+  green and red in the game (always, per level) but white in the viewer. the colour isn't in any
+  client data we read: it's a per-draw emission override set at runtime
+  ([emission](game-data/materials.md#emission)), and what sets it for static scenery is untraced
 - foliage ([foliage](game-data/materials.md#foliage)): wind, the grass's per-instance colour and
   terrain albedo blend (`_BLEND_TERRAIN_ALBEDO`), the card LOD's normal decoding (so it takes
   neither the bend nor the masks), trunk ramps and vertex AO (trunks shade as Lit), sphere-shadow

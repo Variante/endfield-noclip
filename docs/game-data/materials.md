@@ -56,11 +56,12 @@ Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse about every 3 s.
 
 each draw also carries a runtime emission colour in its per-draw data, which replaces
 `_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
-glow green at Wuling and red at Marker Stone in the game, where each reads as a white cube with a
-coloured glow (likely a saturated colour too bright for the tonemapper to keep its hue; unverified),
-so something sets it while the game runs. the client's known setters work on GameObject renderers:
-interactives' emissive configs and VFX-driven emission. none of them covers static scenery, so the
-source is unknown.
+glow green at Wuling and red at Marker Stone in the game, always, whatever the story state or time
+of day, where each reads as a white cube with a coloured glow (likely a saturated colour too bright
+for the tonemapper to keep its hue; unverified), so something sets it while the game runs. the
+client's known setters work on GameObject renderers: interactives' emissive configs and VFX-driven
+emission. none of them covers static scenery, and the client declares no level- or environment-wide
+emission setting, so the source is unknown.
 
 the mask channel is 0 for no emission, 1 for the base colour's alpha, 2 for the normal map's B
 (two-basemap layout) or the base alpha (MRO layout), and 3 or more for the normal map's alpha
