@@ -836,7 +836,7 @@ const emissivePulseParams = (look: MaterialLook, entry: ReadyMaterial, shader: S
 		return;
 	}
 	const params = look.params;
-	// the phase is `_Time.x` (seconds / 20) / 2π times the speed
+	// the phase is `_Time.x` (seconds / 20; docs/game-data/materials.md#clock) / 2π times the speed
 	params.set(
 		[
 			floatOf(entry, shader, '_EmissiveAnimSpeed', 0) / (40 * Math.PI),
@@ -999,7 +999,7 @@ const parallaxParams = (look: MaterialLook, entry: ReadyMaterial, shader: Shader
 		],
 		LookRow.parallax,
 	);
-	// the pulse's phase advances 0.05 · speed per tick of a global clock, assumed to tick in seconds
+	// the pulse's phase advances 0.05 · speed per second (docs/game-data/materials.md#clock)
 	params.set(
 		[
 			0.05 * floatOf(entry, shader, '_ParallaxAnimSpeed', 0),
@@ -1312,8 +1312,7 @@ const erosionLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook =>
 	params.set([...hdr('_NoisePatternAlphaTintColor'), float('_FlowColorOffset', 0)], ErosionRow.noiseAlpha);
 	params.set([...hdr('_FlowTopColor'), float('_FlowRoughness', 0)], ErosionRow.flowTop);
 	params.set(hdr('_FlowBottomColor'), ErosionRow.flowBottom);
-	// the scroll advances 0.05 · speed per tick of a global clock, assumed to tick in seconds (as the parallax
-	// pulse's)
+	// the scroll advances 0.05 · speed per second (docs/game-data/materials.md#clock)
 	params.set(
 		[
 			float('_FlowNormalTilling', 0),

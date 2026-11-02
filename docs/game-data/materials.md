@@ -51,10 +51,10 @@ grid still visible.
 `_EMISSIVE_ANIM` makes the emission pulse: each cycle it rises smoothly from
 `_EmissiveMinBrightness` to full and falls back, over the share of the cycle `_EmissiveAnimInterval`
 gives it. `_EmissiveAnimSpeed` sets the rate, `_EmissiveAnimRandom` offsets the phase and
-`_EmissiveColor`'s alpha sets how deep the pulse goes. the cycle runs on Unity's `_Time.x`, assumed
-to be seconds / 20 (unchecked against the game), so the white lamp cubes on Wuling's and Marker
-Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse about every 3 s.
-`_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker; no map02 material sets it.
+`_EmissiveColor`'s alpha sets how deep the pulse goes. the cycle runs on [the clock](#clock), so the
+white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse
+about every 3 s. `_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker; no map02
+material sets it.
 
 each draw also carries a runtime emission colour in its per-draw data, which replaces
 `_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
@@ -104,9 +104,9 @@ detail map tile ×5 over UV set 1.
   `_ParallaxIntensity`. the result is emission: times the mask channel squared
   (`_ParallaxMaskChannel`, numbered like the emission mask minus one), times `N·V` to the power
   `floor(_ParallaxFresnelStrength)`, and times a pulse
-  `cos(0.05 · _ParallaxAnimSpeed · t + _ParallaxAnimRandom · (x + y + z))` remapped to
-  `[_ParallaxMinBrightness, 1]`, where `x + y + z` is the object's world position. with
-  `_ParallaxCharPos` set, `_ParallaxBrightStrength` times a smoothstep from
+  `cos(_ParallaxAnimSpeed · T + _ParallaxAnimRandom · (x + y + z))` remapped to
+  `[_ParallaxMinBrightness, 1]`, where `T` is [the clock](#clock) and `x + y + z` is the object's
+  world position. with `_ParallaxCharPos` set, `_ParallaxBrightStrength` times a smoothstep from
   `_ParallaxBrightOuterRadius` down to `…InnerRadius` of the distance to the player is added to the
   pulse. on map01 seven crystal materials use it, mostly with strength 20 within 3–25 m; one stores
   a glow colour of only 0.75, so it glows almost only near the player. `_ParallaxIgnorePostExposure`
@@ -282,11 +282,11 @@ areas. it has no base colour map; the colour comes from its other maps:
   faded out by distance over `_DistanceBlend` metres. it's added to the colour and, times
   `_NoiseEmissiveStrength`, to emission.
 - a flow band: `_FlowRampMap` read along the object-space height (`× _FlowNormalTilling`, plus the
-  metal map's G `× _FlowNoiseStrength` and `_FlowSpeedOffset`, scrolling by `_FlowNormalSpeed`),
-  coloured `_FlowBottomColor` below the height `_FlowColorOffset` and `_FlowTopColor` above it. it
-  adds `_FlowColorStrength` of itself to the colour where the metal map's B is set,
-  `_FlowColorEmissiveStrength` to emission elsewhere, and lowers roughness by `_FlowRoughness` times
-  its brightness.
+  metal map's G `× _FlowNoiseStrength` and `_FlowSpeedOffset`, scrolling by `_FlowNormalSpeed` times
+  [the clock](#clock)), coloured `_FlowBottomColor` below the height `_FlowColorOffset` and
+  `_FlowTopColor` above it. it adds `_FlowColorStrength` of itself to the colour where the metal
+  map's B is set, `_FlowColorEmissiveStrength` to emission elsewhere, and lowers roughness by
+  `_FlowRoughness` times its brightness.
 - the base and detail normal maps (each with its own scale) are summed; metal flattens the bitangent
   component.
 
@@ -298,9 +298,16 @@ blends softly into whatever lies behind (`_ObjectBlend*`, which reads the scene 
 the erosion patches the player clears. their load gate shows them while a map variable is not 2
 ([variable gates](scene-states.md#dynamic-load-gates)).
 
+## clock
+
+the animated surface terms share one rate, `T` = seconds / 20: the emission pulse reads Unity's
+`_Time.x`, which Unity defines as seconds since startup / 20, and the parallax glow's pulse and the
+erosion flow advance 0.05 × their speed per tick of the shader clock. that HGRP keeps Unity's
+`_Time` and that its clock ticks in seconds are assumed, unchecked against the game.
+
 ## open
 
-- the parallax pulse's and the erosion flow's clock is assumed to tick in seconds.
+- the [clock](#clock)'s rate is unchecked against the game.
 - the detail map's channels per `_DetailMode` (roughness from B in mode 1, from the alpha in mode 0)
   are unchecked against a shot.
 - the layers' UV set 2 is read as set 0 on the strength of map02's meshes and one in-game shot.
