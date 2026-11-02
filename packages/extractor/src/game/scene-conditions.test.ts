@@ -41,6 +41,7 @@ test('scene states follow the quests their conditions read; states without a con
 		conditionalSets,
 		groups: [],
 		streamAreas: null,
+		proximities: [],
 		missions: [],
 	};
 	assert.deepEqual(resolveSceneValues(info, { 'quest:e1m8_q#3': 2 }), {

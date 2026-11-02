@@ -69,6 +69,7 @@ import {
 } from '@endfield-noclip/package-format/materials';
 import type {
 	ConditionalSetInfo,
+	ProximityInfo,
 	SceneControl,
 	StatesInfo,
 	VisibilityGroup,
@@ -844,6 +845,7 @@ const collectEntities = async (
 			scene.pathOf,
 		);
 		pack.materialOverrides.set(material, {
+			saved: null,
 			colors: { [DECAL_COLOR_PROPERTY]: color },
 			vectors: { [DECAL_UV_PROPERTY]: uv },
 		});
@@ -1214,7 +1216,9 @@ const collectEntities = async (
 		...cabins.controls,
 		...facilities.doors.map(({ control }) => control),
 		...facilities.bridges,
+		...facilities.proximityControls,
 	];
+	collected.proximities = facilities.proximities;
 	counts.bridges = facilities.bridges.length;
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
@@ -1355,9 +1359,18 @@ const collectEntities = async (
 				if (material === null) {
 					return undefined;
 				}
+				// a pose's clips can set this renderer's material values, which then need a variant of their own
+				const saved = renderer.materialValues[index];
+				let id: number;
+				if (saved === null) {
+					id = pack.materials.internObject(material);
+				} else {
+					id = pack.materials.internObjectVariant(material, `posed ${JSON.stringify(saved)}`);
+					pack.materialOverrides.set(id, { saved, colors: {}, vectors: {} });
+				}
 				return {
 					geometry,
-					material: pack.materials.internObject(material),
+					material: id,
 					submesh: Math.min(index, renderer.submeshes - 1),
 					lod: 0,
 					role,
@@ -1778,10 +1791,18 @@ const sceneStates = async (
 		conditionalSets: collected.conditions,
 		groups: collected.groups,
 		streamAreas: await streamAreasInfo(world, scene.options.scene, collected.areas),
+		proximities: [],
 		missions: [],
 	};
 	const controls = finishControls(states);
-	return { levels, ...states, controls, missions: await labelStory(world, controls) };
+	const kept = new Set(controls.map((control) => control.id));
+	return {
+		levels,
+		...states,
+		controls,
+		proximities: collected.proximities.filter((proximity) => kept.has(proximity.control)),
+		missions: await labelStory(world, controls),
+	};
 };
 
 /**
@@ -1971,6 +1992,7 @@ const writePackage = async (
 			conditionalSets: states.conditionalSets,
 			groups: states.groups,
 			streamAreas: states.streamAreas,
+			proximities: states.proximities,
 			missions: states.missions,
 		},
 		archives,
@@ -2269,6 +2291,8 @@ class Collector {
 	controls: SceneControl[] = [];
 	/** facility form and resource node controls */
 	facilities: SceneControl[] = [];
+	/** where each interactive's proximity control counts the player as near */
+	proximities: ProximityInfo[] = [];
 	/** MapConfig scene state indices some visibility expression requires */
 	readonly sceneStates = new Set<number>();
 	/** stream areas some visibility expression requires */

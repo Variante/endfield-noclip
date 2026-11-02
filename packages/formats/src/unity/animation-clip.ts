@@ -8,12 +8,31 @@ export type ClipTransformValue =
 	| { kind: 'position' | 'scale'; value: [number, number, number] }
 	| { kind: 'rotation'; value: [number, number, number, number] };
 
+/**
+ * a material property a clip sets on a renderer, at the clip's last frame. the binding names the property by
+ * the low 28 bits of the CRC32 of its name, so the reader of the renderer's materials resolves it
+ */
+export interface ClipMaterialValue {
+	/** the low 28 bits of the CRC32 of the property's name */
+	nameHash: number;
+	/** the vector or colour component (0 to 3 for x/r to w/a), `null` for a float property */
+	component: number | null;
+	value: number;
+}
+
 /** what a clip leaves each animated Transform and GameObject at */
 export interface ClipEndPose {
 	/** by binding path: CRC32 of the GameObject's path below the Animator, `/`-joined, 0 for the Animator's own */
 	transforms: Map<number, ClipTransformValue[]>;
 	/** whether each GameObject whose activity the clip animates ends switched on, by binding path */
 	active: Map<number, boolean>;
+	/** material properties the clip sets on each renderer, by binding path */
+	materials: Map<number, ClipMaterialValue[]>;
+	/**
+	 * other renderer properties the clip sets, by binding path, then by attribute (the CRC32 of the property's
+	 * path, such as `m_Pivot.x`)
+	 */
+	renderers: Map<number, Map<number, number>>;
 }
 
 /** Unity's `ClassID(Transform)` in a generic binding */
@@ -22,6 +41,12 @@ const TRANSFORM = 4;
 const GAME_OBJECT = 1;
 /** a GameObject binding's attribute for `m_IsActive`: CRC32 of the property name */
 const IS_ACTIVE = 0x7c5a_22f6;
+/** Unity's `ClassID` of mesh, skinned mesh and particle system renderers in a generic binding */
+const RENDERERS = new Set([23, 137, 199]);
+/** a generic binding's `customType` for a material property */
+const MATERIAL_PROPERTY = 22;
+/** a material binding's top four attribute bits: vector components x to w (0–3), colour r to a (4–7), a float */
+const MATERIAL_FLOAT = 8;
 
 const DEGREES = Math.PI / 180;
 
@@ -51,9 +76,9 @@ const eulerQuaternion = (x: number, y: number, z: number): [number, number, numb
  * bindings one; PPtr bindings none. Euler rotations are taken in Unity's default order (z, x, y)
  *
  * @param clip AnimationClip type-tree object
- * @returns the end value of every animated Transform property and GameObject activity
- * @throws {FormatError} for legacy clips, unknown Transform attributes, or a value count that doesn't match
- *   the bindings
+ * @returns the end value of every animated Transform property, GameObject activity and renderer property
+ * @throws {FormatError} for legacy clips, unknown Transform attributes or material property kinds, or a value
+ *   count that doesn't match the bindings
  */
 export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	if (booleanField(clip, 'm_Legacy')) {
@@ -68,6 +93,8 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	});
 	const transforms = new Map<number, ClipTransformValue[]>();
 	const active = new Map<number, boolean>();
+	const materials = new Map<number, ClipMaterialValue[]>();
+	const renderers = new Map<number, Map<number, number>>();
 	let at = 0;
 	for (const binding of arrayField(objectField(clip, 'm_ClipBindingConstant'), 'genericBindings')) {
 		if (!isObject(binding)) {
@@ -81,6 +108,23 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 		const type = numberField(binding, 'typeID');
 		if (type === GAME_OBJECT && attribute >>> 0 === IS_ACTIVE && at < stops.length) {
 			active.set(path, stops[at] !== 0);
+		}
+		if (RENDERERS.has(type) && at < stops.length) {
+			if (numberField(binding, 'customType') === MATERIAL_PROPERTY) {
+				const kind = attribute >>> 28;
+				if (kind > MATERIAL_FLOAT) {
+					throw new FormatError(`unsupported AnimationClip material property kind ${kind}`);
+				}
+				materials
+					.getOrInsertComputed(path, () => [])
+					.push({
+						nameHash: attribute & 0x0fff_ffff,
+						component: kind === MATERIAL_FLOAT ? null : kind % 4,
+						value: stops[at],
+					});
+			} else {
+				renderers.getOrInsertComputed(path, () => new Map()).set(attribute >>> 0, stops[at]);
+			}
 		}
 		if (type !== TRANSFORM) {
 			at++;
@@ -119,7 +163,7 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	if (at !== stops.length) {
 		throw new FormatError(`AnimationClip has ${stops.length} values for ${at} bound`);
 	}
-	return { transforms, active };
+	return { transforms, active, materials, renderers };
 };
 
 /**

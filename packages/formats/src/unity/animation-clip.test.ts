@@ -80,6 +80,24 @@ test('a clip shows a GameObject when it starts or ends switched on', () => {
 	);
 });
 
+test('a clip ends renderers on their material and renderer values', () => {
+	// the blue talosite's idle loop: a glow's `_TintColorAlpha` and `_BlendTint.r`, and a shard's `m_Pivot.x`
+	const material = (path: number, attribute: number) => ({ ...binding(path, attribute, 23), customType: 22 });
+	const pose = readClipEndPose(
+		clip([material(5, 2292127880), material(5, 1141402741), binding(6, 3640387206, 199)], [0.05, 2.174, 0]),
+	);
+	assert.deepEqual(pose.materials.get(5), [
+		{ nameHash: 2292127880 & 0x0fff_ffff, component: null, value: 0.05 },
+		{ nameHash: 1141402741 & 0x0fff_ffff, component: 0, value: 2.174 },
+	]);
+	assert.deepEqual([...pose.renderers.get(6)!], [[3640387206, 0]]);
+	// the campfire's locking clip sets a vector's x component (kind 0)
+	assert.deepEqual(readClipEndPose(clip([material(5, 109495689)], [0.5])).materials.get(5), [
+		{ nameHash: 109495689, component: 0, value: 0.5 },
+	]);
+	assert.throws(() => readClipEndPose(clip([material(5, 0x9000_0000)], [1])), /material property kind 9/);
+});
+
 test('Euler rotations follow Unity: z first, then x, then y', () => {
 	// x 90° then y 90°: Quaternion.Euler(90, 90, 0) = (0.5, 0.5, −0.5, 0.5)
 	const [rotation] = readClipEndPose(clip([binding(1, 4)], [90, 90, 0])).transforms.get(1)!;

@@ -65,6 +65,12 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 		open: false,
 	},
 	{
+		kinds: ['proximity'],
+		title: 'Player nearby',
+		note: 'Interactives that change as the player approaches; the camera stands in for the player.',
+		open: false,
+	},
+	{
 		kinds: ['harvest'],
 		title: 'Harvest',
 		note: 'One choice covers every tree.',
@@ -170,7 +176,12 @@ const ControlRow = ({
 	const label = (entry: number): string =>
 		control.values.find((candidate) => candidate.value === entry)?.label ?? String(entry);
 	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
-	const follows = control.kind === 'area' ? 'Follow camera' : control.derived === null ? null : 'Follow game';
+	let follows: string | null = null;
+	if (control.kind === 'area' || control.kind === 'proximity') {
+		follows = 'Follow camera';
+	} else if (control.derived !== null) {
+		follows = 'Follow game';
+	}
 	if (follows === null && SWITCH_KINDS.has(control.kind)) {
 		return (
 			<div>

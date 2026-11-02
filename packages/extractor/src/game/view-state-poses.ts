@@ -211,7 +211,7 @@ export const statesPose = async (
 			const clip = await resolver.findUnique({ hash, path: clipPath }, UnityClass.AnimationClip);
 			// oxlint-disable-next-line no-await-in-loop -- as above
 			const end = readClipEndPose(await resolver.read(clip));
-			clips.push({ animator, transforms: end.transforms, active: end.active });
+			clips.push({ animator, ...end });
 		}
 	}
 	return { key: `${states.model}:${key}`, clips, active };

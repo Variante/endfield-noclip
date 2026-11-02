@@ -390,6 +390,10 @@ placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPER
 materials), and the box it draws is the game's VFXDecal cube
 ([decals](game-data/materials.md#decals)).
 
+**posed copies**: a prefab renderer whose placement's pose sets material values (an interactive's
+settled view state; [interactives](extraction.md#interactives)) draws a copy of its material with
+those values in place of the saved ones.
+
 ### lights
 
 the packer keeps the spot and point lights (a point with a positive length is a tube along its
@@ -670,6 +674,15 @@ packer gates non-default-area content by its areas and ships the table; the view
 test at the camera. which content a stream area gates is in
 [extraction.md](extraction.md#how-the-packer-files-instances), and the game's areas in
 [stream areas](game-data/world.md#stream-areas).
+
+### proximity
+
+`StatesInfo.proximities` (`ProximityInfo`) gives each `proximity:<id>` control an interactive's
+position and a radius. the control is 1 while the player is within that 3D distance and 0 beyond; a
+viewer sets it from the camera unless the user picks a value (`proximityValues` in
+[proximity.ts](../packages/package-format/src/proximity.ts)), and its stored default (away) only
+holds without a camera. the interactive's away and near poses require its values 0 and 1
+([interactives](extraction.md#interactives)).
 
 ## versioning
 

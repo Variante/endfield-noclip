@@ -14,7 +14,7 @@ import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-p
 import { parseSparkTable } from '@endfield-noclip/formats/hg/spark-buffer';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
-import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
+import type { ConditionalSetInfo, ProximityInfo, SceneControl } from '@endfield-noclip/package-format/states';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -111,31 +111,145 @@ const REGION_WALL_COMPONENTS = ['_SpaceshipRegionWallDataForMemoryPack'];
 /** the component of campfires */
 const CAMPFIRE_COMPONENTS = ['_InteractiveCampfireComponentDataForMemoryPack'];
 
-/** a campfire's looks: before and after the player activates it, with nobody near and no fight */
-interface CampfirePoses {
-	locked: { pose: PrefabPose; states: string[] };
-	activated: { pose: PrefabPose; states: string[] };
+/** a settled look of an interactive's model, and its settled states' names */
+interface SettledLook {
+	pose: PrefabPose;
+	states: string[];
 }
+
+/**
+ * an interactive model's looks at rest. `away` and `near` are indexed by the activation (campfires: 0 not
+ * activated, 1 activated; every other interactive has only 0). `near` is `null` when nothing the player's
+ * presence sets changes the look
+ */
+interface InteractiveLooks {
+	away: SettledLook[];
+	near: SettledLook[] | null;
+}
+
+/** a view-state key that follows the player, and how near the player must be for it to hold */
+interface PlayerKey {
+	key: string;
+	radius: number;
+}
+
+/**
+ * view-state keys the player's presence sets, by the template component that sets them: `Distance` within the
+ * interest component's distance, and a campfire's `InZone` inside its trigger sphere
+ */
+const PLAYER_KEYS = [
+	{
+		key: 'Distance',
+		component: '_MainCharacterInterestComponentDataForMemoryPack',
+		property: 'main_character_interest_distance',
+	},
+	{ key: 'InZone', component: '_TriggerObserverComponentDataForMemoryPack', property: 'radius' },
+];
+
+/**
+ * @param template a decoded interactive template
+ * @param suffix the component's type name suffix
+ * @param key the property's key
+ * @returns the float property of the template's first such component, or `null` without one
+ */
+const componentFloat = (template: MemoryPackValue, suffix: string, key: string): number | null => {
+	const components =
+		template !== null && typeof template === 'object' && !Array.isArray(template)
+			? template.componentList
+			: null;
+	for (const component of Array.isArray(components) ? components : []) {
+		if (
+			component === null ||
+			typeof component !== 'object' ||
+			Array.isArray(component) ||
+			typeof component.$type !== 'string' ||
+			!component.$type.endsWith(suffix)
+		) {
+			continue;
+		}
+		for (const property of Array.isArray(component.propertyList) ? component.propertyList : []) {
+			if (
+				property === null ||
+				typeof property !== 'object' ||
+				Array.isArray(property) ||
+				property.key !== key
+			) {
+				continue;
+			}
+			const value = property.value;
+			const [atom] =
+				value !== null &&
+				typeof value === 'object' &&
+				!Array.isArray(value) &&
+				Array.isArray(value.valueArray)
+					? value.valueArray
+					: [];
+			const bits =
+				atom !== null && typeof atom === 'object' && !Array.isArray(atom) ? atom.valueBit64 : undefined;
+			if (typeof bits !== 'string' && typeof bits !== 'number') {
+				return null;
+			}
+			// float properties keep their IEEE bits in the 64-bit atom
+			const view = new DataView(new ArrayBuffer(4));
+			view.setUint32(0, Number(BigInt.asUintN(32, BigInt(bits))));
+			return view.getFloat32(0);
+		}
+	}
+	return null;
+};
+
+/**
+ * @param template a decoded interactive template
+ * @returns the player-set keys its components drive
+ */
+const playerKeys = (template: MemoryPackValue): PlayerKey[] =>
+	PLAYER_KEYS.flatMap(({ key, component, property }) => {
+		const radius = componentFloat(template, component, property);
+		return radius === null || !(radius > 0) ? [] : [{ key, radius }];
+	});
 
 /**
  * @param context install readers and the bundle resolver
  * @param model a ModelTable id
- * @returns the campfire model's settled looks, or `null` when it has no view states
+ * @param campfire whether the model's `Enabled` key is the player's activation
+ * @param keys the player-set keys the template drives; one whose radius is largest counts
+ * @returns the model's settled looks, or `null` when it has no view states
  * @throws {FormatError} if a state machine can't settle or a clip can't be read
  */
-const readCampfirePoses = async (
+const readInteractiveLooks = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver' | 'memoryPack'>,
 	model: string,
-): Promise<CampfirePoses | null> => {
+	campfire: boolean,
+	keys: readonly PlayerKey[],
+): Promise<InteractiveLooks | null> => {
 	const states = await readViewStates(context, model);
 	if (states === null) {
 		return null;
 	}
-	// `Enabled` is whether the player activated it; `InZone` and `InBattle` follow the player, who isn't there
-	return {
-		locked: await settledPose(context, states, 'locked', new Map([['Enabled', false]])),
-		activated: await settledPose(context, states, 'activated', new Map([['Enabled', true]])),
+	const activations = campfire ? [false, true] : [null];
+	const settle = (activated: boolean | null, near: boolean) => {
+		const blackboard = new Map<string, boolean>();
+		if (activated !== null) {
+			blackboard.set('Enabled', activated);
+		}
+		for (const { key } of keys) {
+			blackboard.set(key, near);
+		}
+		const key = `${activated === null ? '' : activated ? 'activated ' : 'locked '}${near ? 'near' : 'away'}`;
+		return settledPose(context, states, key, blackboard);
 	};
+	const away: SettledLook[] = [];
+	const near: SettledLook[] = [];
+	for (const activated of activations) {
+		// oxlint-disable-next-line no-await-in-loop -- a few one-frame clips per model
+		away.push(await settle(activated, false));
+		if (keys.length > 0) {
+			// oxlint-disable-next-line no-await-in-loop -- as above
+			near.push(await settle(activated, true));
+		}
+	}
+	const changes = near.some((look, i) => look.states.join() !== away[i].states.join());
+	return { away, near: changes ? near : null };
 };
 
 /**
@@ -287,6 +401,9 @@ export const loadInteractiveFacilities = async (
 ): Promise<{
 	models: StructureModel[];
 	progressions: SceneControl[];
+	/** controls of interactives whose look follows the player's presence, and where each counts as near */
+	proximityControls: SceneControl[];
+	proximities: ProximityInfo[];
 	doors: InteractiveDoor[];
 	bridges: SceneControl[];
 	unsupported: { path: string; reason: string }[];
@@ -527,18 +644,24 @@ export const loadInteractiveFacilities = async (
 	// doors drawn open or closed: interactives of door templates whose model has door poses, by key. region
 	// walls, by key, are drawn while their construction area is locked
 	const doorPoses = new Map<string, DoorPoses>();
-	// campfires drawn locked or activated, by key
-	const campfirePoses = new Map<string, CampfirePoses>();
+	// other interactives with view states drawn as they rest, by key: campfires locked or activated, and those
+	// the player's presence changes away or near, within `radius`
+	const interactiveLooks = new Map<
+		string,
+		{ looks: InteractiveLooks; campfire: boolean; radius: number | null }
+	>();
 	const regionWalls = new Set<string>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	{
 		const templateKinds = new Map<
 			string,
-			'door' | 'regionWall' | 'campfire' | { kind: 'telescopic'; pieces: number } | null
+			| { kind: 'door' | 'regionWall' }
+			| { kind: 'telescopic'; pieces: number }
+			| { kind: 'other'; campfire: boolean; keys: PlayerKey[] }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
-		const campfiresByModel = new Map<string, CampfirePoses | null>();
+		const looksByModel = new Map<string, InteractiveLooks | null>();
 		// a failed read reports and leaves the model drawn as saved
 		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
 			try {
@@ -563,40 +686,49 @@ export const loadInteractiveFacilities = async (
 					async () => {
 						const decoded = reader.decode(await read(data), TEMPLATE_ROOT);
 						if (hasComponent(decoded, DOOR_COMPONENTS)) {
-							return 'door';
+							return { kind: 'door' as const };
 						}
 						if (hasComponent(decoded, REGION_WALL_COMPONENTS)) {
-							return 'regionWall';
-						}
-						if (hasComponent(decoded, CAMPFIRE_COMPONENTS)) {
-							return 'campfire';
+							return { kind: 'regionWall' as const };
 						}
 						const pieces = telescopicPieces(decoded, data);
-						return pieces === null ? null : { kind: 'telescopic' as const, pieces };
+						if (pieces !== null) {
+							return { kind: 'telescopic' as const, pieces };
+						}
+						return {
+							kind: 'other' as const,
+							campfire: hasComponent(decoded, CAMPFIRE_COMPONENTS),
+							keys: playerKeys(decoded),
+						};
 					},
-					null,
+					// an unreadable template is drawn as saved
+					{ kind: 'other' as const, campfire: false, keys: [] },
 				);
 				templateKinds.set(data, kind);
 			}
-			if (kind === 'regionWall') {
+			if (kind.kind === 'regionWall') {
 				regionWalls.add(key);
 			}
-			if (kind !== null && typeof kind === 'object') {
+			if (kind.kind === 'telescopic') {
 				telescopic.set(key, { pieces: kind.pieces, prefab: forms[0].prefab });
 			}
-			if (kind === 'campfire') {
-				let poses = campfiresByModel.get(model);
-				if (poses === undefined) {
+			// a doodad-group shell draws nothing itself; its forms attach to it instead
+			if (kind.kind === 'other' && !doodads.has(key)) {
+				const { campfire, keys } = kind;
+				const lookKey = `${model} ${campfire} ${keys.map((entry) => entry.key).join()}`;
+				let looks = looksByModel.get(lookKey);
+				if (looks === undefined) {
 					// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
-					poses = await attempt(model, () => readCampfirePoses(context, model), null);
-					campfiresByModel.set(model, poses);
+					looks = await attempt(model, () => readInteractiveLooks(context, model, campfire, keys), null);
+					looksByModel.set(lookKey, looks);
 				}
-				if (poses !== null) {
-					campfirePoses.set(key, poses);
+				if (looks !== null) {
+					const radius = looks.near === null ? null : Math.max(...kind.keys.map((entry) => entry.radius));
+					interactiveLooks.set(key, { looks, campfire: kind.campfire, radius });
 				}
 				continue;
 			}
-			if (kind !== 'door') {
+			if (kind.kind !== 'door') {
 				continue;
 			}
 			let poses = byModel.get(model);
@@ -651,6 +783,8 @@ export const loadInteractiveFacilities = async (
 
 	const models: StructureModel[] = [];
 	const progressions: SceneControl[] = nexus === null ? [] : [nexus.control];
+	const proximityControls: SceneControl[] = [];
+	const proximities: ProximityInfo[] = [];
 	const doors: InteractiveDoor[] = [];
 	const bridges: SceneControl[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
@@ -768,27 +902,68 @@ export const loadInteractiveFacilities = async (
 			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, poses.open);
 			continue;
 		}
-		const campfire = campfirePoses.get(row.template);
-		if (campfire !== undefined) {
-			const control = `facility:${row.id}`;
-			progressions.push({
-				kind: 'facility',
-				id: control,
-				name: `Campfire (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
-				rule: null,
-				assumption: 'not activated: the player activates it, and the server keeps it',
-				story: null,
-				drivers: [],
-				levelTags: [],
-				values: [
-					{ value: 0, label: `not activated (${campfire.locked.states.join(', ')})` },
-					{ value: 1, label: `activated (${campfire.activated.states.join(', ')})` },
-				],
-				default: 0,
-				derived: null,
-			});
-			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, campfire.locked.pose);
-			place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, campfire.activated.pose);
+		const rest = interactiveLooks.get(row.template);
+		if (rest !== undefined) {
+			const { looks, campfire, radius } = rest;
+			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
+			const activation = `facility:${row.id}`;
+			if (campfire) {
+				progressions.push({
+					kind: 'facility',
+					id: activation,
+					name: `Campfire ${where}`,
+					rule: null,
+					assumption: 'not activated: the player activates it, and the server keeps it',
+					story: null,
+					drivers: [],
+					levelTags: [],
+					values: [
+						{ value: 0, label: `not activated (${looks.away[0].states.join(', ')})` },
+						{ value: 1, label: `activated (${looks.away[1].states.join(', ')})` },
+					],
+					default: 0,
+					derived: null,
+				});
+			}
+			const nearness = `proximity:${row.id}`;
+			if (looks.near !== null && radius !== null) {
+				const states = (side: SettledLook[]) => [...new Set(side.flatMap((look) => look.states))].join(', ');
+				proximityControls.push({
+					kind: 'proximity',
+					id: nearness,
+					name: `${campfire ? 'Campfire' : row.template} ${where}`,
+					rule: null,
+					assumption: 'follows the camera, as the game follows the player',
+					story: null,
+					drivers: [],
+					levelTags: [],
+					values: [
+						{ value: 0, label: `away (${states(looks.away)})` },
+						{ value: 1, label: `within ${radius} m (${states(looks.near)})` },
+					],
+					default: 0,
+					derived: null,
+				});
+				proximities.push({ control: nearness, position: row.position, radius });
+			}
+			for (const [i, away] of looks.away.entries()) {
+				const requirements = campfire ? [{ control: activation, mask: 1 << i }] : [];
+				const near = looks.near?.[i];
+				if (near === undefined || near.states.join() === away.states.join()) {
+					place(template.forms[0], { alternatives: [requirements] }, away.pose);
+					continue;
+				}
+				place(
+					template.forms[0],
+					{ alternatives: [[...requirements, { control: nearness, mask: 1 }]] },
+					away.pose,
+				);
+				place(
+					template.forms[0],
+					{ alternatives: [[...requirements, { control: nearness, mask: 2 }]] },
+					near.pose,
+				);
+			}
 			continue;
 		}
 		if (nexus !== null && regionWalls.has(row.template)) {
@@ -853,5 +1028,5 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 	}
-	return { models, progressions, doors, bridges, unsupported, standIns };
+	return { models, progressions, proximityControls, proximities, doors, bridges, unsupported, standIns };
 };

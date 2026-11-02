@@ -18,6 +18,14 @@ game's trigger test ([stream areas](../game-data/world.md#stream-areas)) at the 
 `areasShownIn`) and gives the areas shown there 1 and the others 0 (`streamAreaValues`). the
 controls' stored default (shown) only holds without a camera.
 
+### proximity
+
+the camera stands in for the player: unless the user picks a value, each `proximity:<id>` control is
+1 while the eye is within its radius of its interactive and 0 beyond (`proximityValues`;
+[package format](../package-format.md#proximity)). the viewer recomputes them whenever the camera
+moves, with the stream areas, and re-evaluates visibility only when one changes. an interactive
+swaps between its two settled looks at once, without the game's transition clips.
+
 ## the scene conditions panel
 
 [`scene-controls.tsx`](../../packages/viewer/src/ui/scene-controls.tsx) shows the "Scene conditions"
@@ -44,6 +52,8 @@ panel:
 - **doors and bridges**: a checkbox per door, open or closed, or "Follow game" for a cabin's door; a
   checkbox per telescopic bridge, extended or retracted
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden
+- **player nearby**: a select per interactive whose look the player's presence changes, "Follow
+  camera", away or near, each labelled with its settled states
 - **harvest**: standing or felled
 - **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a
   script group derived from its scripts' quest checks; a script group lists its drivers ("Shown when

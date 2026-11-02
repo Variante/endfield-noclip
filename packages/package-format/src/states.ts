@@ -25,6 +25,8 @@ export interface StatesInfo {
 	groups: VisibilityGroup[];
 	/** the scene's stream areas, or `null` when no packed content belongs to a non-default area */
 	streamAreas: StreamAreasInfo | null;
+	/** where each `proximity` control's player counts as near */
+	proximities: ProximityInfo[];
 	/** the missions quest and mission controls belong to, for labels and grouping */
 	missions: MissionInfo[];
 }
@@ -45,6 +47,18 @@ export interface MissionInfo {
 	 * other levels, so this needn't be a level its controls are listed for
 	 */
 	levelId: string | null;
+}
+
+/**
+ * a `proximity` control's reach: the control is 1 while the player is within `radius` metres of `position`
+ * (3D distance) and 0 beyond. a viewer sets it from the camera unless the user picks a value
+ */
+export interface ProximityInfo {
+	/** the {@link SceneControl.id} */
+	control: string;
+	/** Unity coordinates */
+	position: Vec3;
+	radius: number;
 }
 
 /** where a quest or mission control sits in the story */
@@ -87,6 +101,9 @@ export interface VisibilityGroup {
  * - `door`: an interactive door, closed (0) or open (1); derived from its cabin slot for a Dijiang cabin's door
  * - `area`: a stream area, shown (1) or hidden (0). unless the user picks a value, a viewer sets it from the
  *   camera (see {@link StreamAreasInfo}); its `default` is only what holds without a camera
+ * - `proximity`: whether the player is near an interactive (1) or not (0), for its view states. unless the user
+ *   picks a value, a viewer sets it from the camera (see {@link ProximityInfo}); its `default` is only what
+ *   holds without a camera
  * - `settlement` / `poi` / `factoryRegion`: a progression level; `facility`: an interactive's visual form;
  *   `doodadGroups`: one level's resource node group level (1 to 4)
  */
@@ -105,6 +122,7 @@ export type SceneControlKind =
 	| 'door'
 	| 'bridge'
 	| 'area'
+	| 'proximity'
 	| 'settlement'
 	| 'poi'
 	| 'factoryRegion'

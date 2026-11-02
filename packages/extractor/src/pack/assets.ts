@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { MaterialRecord } from '@endfield-noclip/formats/unity/material';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
@@ -17,6 +18,7 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
+import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
 
@@ -89,7 +91,7 @@ export class AssetIds {
 	 */
 	internObject(ref: ObjectRef): number {
 		const key = objectKey(ref);
-		const hash = -BigInt(`0x${createHash('sha256').update(key).digest('hex')}`);
+		const hash = objectHash(key);
 		const existing = this.#ids.get(hash);
 		if (existing !== undefined) {
 			return existing;
@@ -99,6 +101,22 @@ export class AssetIds {
 		this.assets.push({ hash, path: key, locator: locateObject(ref) });
 		return id;
 	}
+
+	/**
+	 * interns a variant of a prefab dependency, as {@link internVariant} does for assets by path
+	 *
+	 * @param ref resolved dependency
+	 * @param variant tells variants of one object apart
+	 * @returns the variant's id
+	 */
+	internObjectVariant(ref: ObjectRef, variant: string): number {
+		const key = objectKey(ref);
+		return this.#variants.getOrInsertComputed(
+			`${key}/${variant}`,
+			() => this.assets.push({ hash: objectHash(key), path: key, locator: locateObject(ref) }) - 1,
+		);
+	}
+
 	/**
 	 * @param mesh a mesh the packer makes itself
 	 * @returns its asset id
@@ -140,15 +158,21 @@ export class AssetIds {
 	}
 }
 
+/**
+ * @param key an object's {@link objectKey}
+ * @returns its hash; negative hashes occupy a namespace separate from unsigned game hashes
+ */
+const objectHash = (key: string): bigint => -BigInt(`0x${createHash('sha256').update(key).digest('hex')}`);
+
 // #endregion
 
 // #region conversion
 
-/**
- * properties a material variant ({@link AssetIds.internVariant}) adds to its converted entry, replacing any
- * of the same name
- */
+/** what a material variant ({@link AssetIds.internVariant}, {@link AssetIds.internObjectVariant}) changes */
 export interface MaterialOverrides {
+	/** saved values replaced before conversion, as a pose's clips set them; `null` for none */
+	saved: MaterialValues | null;
+	/** properties added to the converted entry, replacing any of the same name */
 	colors: Record<string, [r: number, g: number, b: number, a: number]>;
 	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
 }
@@ -321,14 +345,19 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			const { ref, loaded } = result;
 			const place = input.places.materials[id];
 			const shader = shaders.intern(loaded.shader, loaded.classification.family);
-			const converted = convertMaterial(loaded.record, loaded.classification, shader, (slot) => {
-				const target = loaded.textures[slot]?.ref;
-				if (target === null || target === undefined) {
-					return undefined;
-				}
-				return useTexture(target, place);
-			});
 			const overrides = input.materialOverrides.get(id);
+			const converted = convertMaterial(
+				withSavedValues(loaded.record, overrides?.saved ?? null),
+				loaded.classification,
+				shader,
+				(slot) => {
+					const target = loaded.textures[slot]?.ref;
+					if (target === null || target === undefined) {
+						return undefined;
+					}
+					return useTexture(target, place);
+				},
+			);
 			const material =
 				overrides === undefined
 					? converted.material
@@ -542,6 +571,26 @@ const commit = (store: BlobStore, meta: BlobMeta, options: BlobPlacement, tally:
 		tally.raw += meta.rawLength;
 	}
 	return index;
+};
+
+/**
+ * @returns the record with the given saved values replaced, ints kept among the ints; the record itself when
+ *   there are none
+ */
+const withSavedValues = (record: MaterialRecord, saved: MaterialValues | null): MaterialRecord => {
+	if (saved === null) {
+		return record;
+	}
+	const floats = { ...record.floats };
+	const ints = { ...record.ints };
+	for (const [name, value] of Object.entries(saved.floats)) {
+		if (Object.hasOwn(ints, name)) {
+			ints[name] = value;
+		} else {
+			floats[name] = value;
+		}
+	}
+	return { ...record, floats, ints, colors: { ...record.colors, ...saved.colors } };
 };
 
 /** rewrites a material's slots from per-object ids to texture-table ids, in place (the entry is ours) */

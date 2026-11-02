@@ -275,6 +275,43 @@ GameObject. a GameObject binding (class 1) whose attribute is the CRC32 of `m_Is
 that GameObject on (1) or off (0). effect clips switch whole groups of effects this way; in their
 subtree, what the clip leaves alone keeps its saved activity, so a node saved off stays off.
 
+clips also set renderer values (mesh renderer class 23, skinned 137, particle system renderer 199):
+
+- **material properties** (`customType` 22) apply to the renderer's materials. the attribute's low
+  28 bits are the low 28 bits of the CRC32 of the property's name; its top four bits pick a vector's
+  x to w (0–3), a colour's r to a (4–7) or a float (8). the talosites' clips set `_TintColorAlpha`
+  and `_BlendTint`; the campfire's effect clips set a vector's components (kinds 0–3).
+- **other renderer properties** (`customType` 0) are named by the CRC32 of their path, such as the
+  particle pivot's `m_Pivot.x`.
+
+an Animator without a controller of its own takes its clips from these states. a model's `effectIds`
+name prefabs its states' `EffectBehavior`s play.
+
+#### keys the player sets
+
+some blackboard keys follow the player:
+
+- **`Distance`**: an interactive with a main-character interest component
+  (`MainCharacterInterestComponent`) measures, every frame, the distance from the player's position
+  to its entity and sets `Distance` true while it's at most the component's
+  `main_character_interest_distance` (talosites: 15 m), false beyond; it sets it once when it starts
+  too.
+- **`InZone`**: a campfire sets it while the player is inside its trigger (the template's
+  `TriggerObserverComponent`, a sphere of `radius` 2.5 m), but only once it's activated. inside, it
+  swaps the trigger's radius for a second value held at runtime, so leaving takes another distance.
+
+#### talosites
+
+the talosites (`int_collection_trstar_postmodel`, white; `int_collection_trstar_high_postmodel`,
+blue; template `int_collection_trstar`, a `TreasureStar` component) are effect prefabs: three
+crystal shards (mesh particles holding one particle each), a 2D star icon, billboard glows, a light
+column and a ground glow. their `FX` layer rests in `IdleLoop` while the player is beyond 15 m, and
+plays `InteractStart` into `InteractLoop` within it (`Distance`), returning through `InteractEnd`.
+idle dims the glows below their saved values (the blue bubble `glow02` to a third of its
+`_TintColorAlpha`) and holds the shards' pivots at 0, so they cluster; near brightens the glows and
+moves the shards' pivots apart, and scales the star icon up 1.8×. the white model reuses the blue
+model's clips but for its own activation start.
+
 ### campfires
 
 a campfire's template has a campfire component (`InteractiveCampfireComponent`). its model

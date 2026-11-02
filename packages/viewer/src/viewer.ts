@@ -6,6 +6,7 @@ import {
 } from '@endfield-noclip/package-format/conditions';
 import type { EnvironmentProfile } from '@endfield-noclip/package-format/environment';
 import type { LevelInfo } from '@endfield-noclip/package-format/manifest';
+import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import {
 	areasShownIn,
 	streamAreaValues,
@@ -1307,7 +1308,18 @@ export class Viewer {
 		return areasShownIn(info, zones);
 	}
 
-	/** re-evaluates visibility when the camera moved into a different set of stream areas */
+	/** proximity control values the conditions were last evaluated with */
+	#proximity: Record<string, number> = {};
+
+	/** @returns the proximity controls' values at the camera, which stands in for the player */
+	#proximityAtCamera(): Record<string, number> {
+		return proximityValues(this.scene?.pkg.manifest.states.proximities ?? [], this.camera.position);
+	}
+
+	/**
+	 * re-evaluates visibility when the camera moved into a different set of stream areas, or nearer to or
+	 * further from an interactive than its proximity radius
+	 */
 	#followStreamAreas(): void {
 		const eye = this.camera.position;
 		const last = this.#areasEye;
@@ -1321,7 +1333,9 @@ export class Viewer {
 			visible === null || current === null
 				? visible === current
 				: visible.size === current.size && visible.isSubsetOf(current);
-		if (!same) {
+		const proximity = this.#proximityAtCamera();
+		const sameProximity = Object.entries(proximity).every(([id, value]) => this.#proximity[id] === value);
+		if (!same || !sameProximity) {
 			this.#updateVisibility();
 		}
 	}
@@ -1336,11 +1350,13 @@ export class Viewer {
 		this.#visibleAreas = this.#streamAreasAtCamera();
 		this.#areasEye = [...this.camera.position];
 		const areas = states?.streamAreas ?? null;
-		// stream areas follow the camera unless pinned, so the camera's values go under the picks
-		const picks =
-			areas === null
-				? this.#scenePicks
-				: { ...streamAreaValues(areas, this.#visibleAreas), ...this.#scenePicks };
+		this.#proximity = this.#proximityAtCamera();
+		// stream areas and proximities follow the camera unless pinned, so the camera's values go under the picks
+		const picks = {
+			...(areas === null ? {} : streamAreaValues(areas, this.#visibleAreas)),
+			...this.#proximity,
+			...this.#scenePicks,
+		};
 		this.#sceneValues = states === undefined ? {} : resolveSceneValues(states, picks);
 		const values = this.#sceneValues;
 		this.#conditionResults = states === undefined ? [] : conditionResults(states, values);

@@ -35,6 +35,7 @@ it('selects mutually exclusive upgrades while preserving shared and script-gated
 		conditionalSets: [],
 		groups: [],
 		streamAreas: null,
+		proximities: [],
 		missions: [],
 	};
 	const initial = resolveSceneValues(states, {});
@@ -96,6 +97,7 @@ it('derives scene states from the quests they follow, unless the user overrides 
 		],
 		groups: [],
 		streamAreas: null,
+		proximities: [],
 		missions: [],
 	};
 	assert.deepEqual(resolveSceneValues(states, {}), {
@@ -129,6 +131,7 @@ it('shows a group when the level owns it or every level does, and its condition 
 			{ levelTag: 0, condition: 1 },
 		],
 		streamAreas: null,
+		proximities: [],
 		missions: [],
 	};
 	const conditions = conditionResults(states, { 'sceneState:0': 1, 'sceneState:1': 0 });

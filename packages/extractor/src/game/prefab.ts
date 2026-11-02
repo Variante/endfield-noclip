@@ -2,7 +2,8 @@
 import { crc32 } from 'node:zlib';
 
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
-import type { ClipTransformValue } from '@endfield-noclip/formats/unity/animation-clip';
+import type { ClipMaterialValue, ClipTransformValue } from '@endfield-noclip/formats/unity/animation-clip';
+import { parseMaterial } from '@endfield-noclip/formats/unity/material';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { multiplyMatrices, trsMatrix, transformBounds } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
@@ -60,7 +61,21 @@ export interface PrefabRenderer {
 	 * to the camera. skinned meshes and particle systems don't take it
 	 */
 	billboard: PrefabBillboard | null;
+	/**
+	 * per material slot, the saved values the pose's clips replace on this renderer, `null` where they replace
+	 * none
+	 */
+	materialValues: (MaterialValues | null)[];
 }
+
+/** material values a pose sets on a renderer, by property name, replacing the material's saved ones */
+export interface MaterialValues {
+	floats: Record<string, number>;
+	colors: Record<string, [number, number, number, number]>;
+}
+
+/** a ParticleSystemRenderer's `m_Pivot` components as clip bindings name them */
+const PIVOT_ATTRIBUTES = ['x', 'y', 'z'].map((axis) => crc32(`m_Pivot.${axis}`) >>> 0);
 
 /**
  * how a GameObject is switched off: `standIn` names why for a subtree drawn as stand-ins, and is `null` for
@@ -88,6 +103,10 @@ export interface PoseClip {
 	transforms: ReadonlyMap<number, readonly ClipTransformValue[]>;
 	/** GameObjects the clip switches on or off, by binding path */
 	active: ReadonlyMap<number, boolean>;
+	/** material properties the clip sets on renderers, by binding path */
+	materials: ReadonlyMap<number, readonly ClipMaterialValue[]>;
+	/** other renderer properties the clip sets, by binding path, then by attribute */
+	renderers: ReadonlyMap<number, ReadonlyMap<number, number>>;
 }
 
 /** an Animator above a GameObject */
@@ -133,6 +152,8 @@ export const readPrefabRenderers = async (
 		particles: ParticleSystemInfo | null;
 		unsupported: string | null;
 		billboard: PrefabBillboard | null;
+		/** material values the pose's clips set on the renderer */
+		posedMaterials: readonly ClipMaterialValue[];
 	}[] = [];
 	const excluded = new Set<string>();
 	const firstLod = new Set<string>();
@@ -171,6 +192,20 @@ export const readPrefabRenderers = async (
 			}
 			return (isRoot ? clip.animator === null : name === clip.animator) ? '' : null;
 		});
+		// renderer values the pose's clips leave on this GameObject
+		const posedMaterials: ClipMaterialValue[] = [];
+		const posedRenderer = new Map<number, number>();
+		for (const [i, clip] of (pose?.clips ?? []).entries()) {
+			const path = below[i];
+			if (path === null) {
+				continue;
+			}
+			const binding = crc32(path) >>> 0;
+			posedMaterials.push(...(clip.materials.get(binding) ?? []));
+			for (const [attribute, value] of clip.renderers.get(binding) ?? []) {
+				posedRenderer.set(attribute, value);
+			}
+		}
 		// a switched-off subtree draws only stand-ins, since a script or view state can switch it on, unless the
 		// pose switched it off: that pose's other states are placed on their own. skinned meshes can still use its
 		// transforms as bones
@@ -313,6 +348,7 @@ export const readPrefabRenderers = async (
 						particles: null,
 						unsupported: standIn,
 						billboard: null,
+						posedMaterials,
 					});
 				}
 			}
@@ -334,6 +370,7 @@ export const readPrefabRenderers = async (
 							particles: null,
 							unsupported: standIn,
 							billboard,
+							posedMaterials,
 						});
 					}
 				}
@@ -346,8 +383,17 @@ export const readPrefabRenderers = async (
 		);
 		const system = components.find((component) => component.ref.info.classId === UnityClass.ParticleSystem);
 		if (particles !== undefined && system !== undefined) {
+			// the pose can move the particles' pivot; a copy keeps the cached renderer as saved
+			let rendererData = particles.data;
+			if (PIVOT_ATTRIBUTES.some((attribute) => posedRenderer.has(attribute))) {
+				const saved = objectField(rendererData, 'm_Pivot');
+				const [x, y, z] = PIVOT_ATTRIBUTES.map(
+					(attribute, i) => posedRenderer.get(attribute) ?? numberField(saved, 'xyz'[i]),
+				);
+				rendererData = { ...rendererData, m_Pivot: { x, y, z } };
+			}
 			// a switched-off system stands in at its emitter whatever it would play
-			const particle = standIn === null ? frozenParticleMatrix(system.data, particles.data, local) : null;
+			const particle = standIn === null ? frozenParticleMatrix(system.data, rendererData, local) : null;
 			if (particle !== null) {
 				const mesh = await resolver.resolve(particles.ref, pptrField(particles.data, 'm_Mesh'));
 				if (mesh !== null) {
@@ -359,10 +405,11 @@ export const readPrefabRenderers = async (
 						particles: null,
 						unsupported: null,
 						billboard: null,
+						posedMaterials,
 					});
 				}
 			} else {
-				const read = readParticleSystem(system.data, particles.data);
+				const read = readParticleSystem(system.data, rendererData);
 				// the shape scaling mode scales the shape alone, leaving the particles' sizes
 				const scale = numberField(system.data, 'scalingMode') === SCALING_SHAPE ? [1, 1, 1] : local.scale;
 				const emitter = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, scale));
@@ -392,6 +439,7 @@ export const readPrefabRenderers = async (
 							billboard: quad
 								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: emitter }
 								: null,
+							posedMaterials,
 						});
 					}
 				} else if (read !== null && 'info' in read) {
@@ -410,6 +458,7 @@ export const readPrefabRenderers = async (
 								particles: { ...read.info, mesh: i },
 								unsupported: null,
 								billboard: null,
+								posedMaterials,
 							});
 						}
 					}
@@ -470,6 +519,13 @@ export const readPrefabRenderers = async (
 				}
 			}
 		}
+		const materialValues: (MaterialValues | null)[] = [];
+		for (const material of materials) {
+			// oxlint-disable-next-line no-await-in-loop -- material reads are cached by the resolver
+			materialValues.push(
+				material === null ? null : await posedMaterialValues(resolver, material, candidate.posedMaterials),
+			);
+		}
 		result.push({
 			name: candidate.name,
 			matrix,
@@ -477,6 +533,7 @@ export const readPrefabRenderers = async (
 			pose: skin,
 			mesh: candidate.mesh,
 			materials,
+			materialValues,
 			submeshes: arrayField(mesh, 'm_SubMeshes').length,
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,
@@ -486,6 +543,46 @@ export const readPrefabRenderers = async (
 		});
 	}
 	return result;
+};
+
+/** @returns property names by the hash clip bindings name them with: the low 28 bits of their CRC32 */
+const byHash = (names: Iterable<string>): Map<number, string> =>
+	new Map([...names].map((name) => [crc32(name) & 0x0fff_ffff, name]));
+
+/**
+ * resolves the material values a pose sets on a renderer against one of its materials. clips name properties
+ * by a hash of the name, so a value whose property the material doesn't save is left out
+ *
+ * @returns the replaced values by name, or `null` when the pose replaces none of this material's
+ */
+const posedMaterialValues = async (
+	resolver: AssetResolver,
+	material: ObjectRef,
+	values: readonly ClipMaterialValue[],
+): Promise<MaterialValues | null> => {
+	if (values.length === 0) {
+		return null;
+	}
+	const record = parseMaterial(await resolver.read(material));
+	const floatNames = byHash([...Object.keys(record.floats), ...Object.keys(record.ints)]);
+	const colorNames = byHash(Object.keys(record.colors));
+	const floats: Record<string, number> = {};
+	const colors: Record<string, [number, number, number, number]> = {};
+	for (const { nameHash, component, value } of values) {
+		if (component === null) {
+			const name = floatNames.get(nameHash);
+			if (name !== undefined) {
+				floats[name] = value;
+			}
+			continue;
+		}
+		const name = colorNames.get(nameHash);
+		if (name !== undefined) {
+			colors[name] ??= [...record.colors[name]];
+			colors[name][component] = value;
+		}
+	}
+	return Object.keys(floats).length + Object.keys(colors).length === 0 ? null : { floats, colors };
 };
 
 /**

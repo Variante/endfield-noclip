@@ -42,6 +42,8 @@ const rootClip = (transforms: Map<number, ClipTransformValue[]>): PoseClip => ({
 	animator: null,
 	transforms,
 	active: new Map(),
+	materials: new Map(),
+	renderers: new Map(),
 });
 
 /** a GameObject's components of one class */
