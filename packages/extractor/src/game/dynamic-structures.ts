@@ -7,7 +7,7 @@ import {
 	type DynamicResourceEntity,
 	type DynamicResourceGrid,
 } from '@endfield-noclip/formats/endfield/dynamic-resources';
-import type { DynamicEntity, ExtraSceneSlot } from '@endfield-noclip/formats/endfield/dynamic-scene';
+import type { ExtraSceneSlot } from '@endfield-noclip/formats/endfield/dynamic-scene';
 import {
 	parseDynamicChunk,
 	readChunkEntities,
@@ -28,66 +28,6 @@ import { controllerKey, progressionId } from './scenery-variants.ts';
 
 /** `EDynamicSceneEntityType.Tree`: harvestable trees, whose logic state is standing or felled */
 const TREE_ENTITY = 19;
-/** `ResourceWithIdControlBySettlement`: an outpost, whose logic state is its level */
-const SETTLEMENT_ENTITY = 16;
-/** `ResourceWithIdControlByMapVar`: scenery loaded while one map variable holds a value */
-const MAP_VAR_ENTITY = 38;
-
-/**
- * finds outpost tiers: an outpost's per-level scenery (its beacon beam and boards), which reads the level
- * through one map variable per tier instead of the outpost's logic state. client data doesn't map tiers to
- * variables, so they're recognised by layout: an outpost's owner with id `u`, its factory region at `u + 1`,
- * then owners at `u + 2`, `u + 3`, … each loading while one map variable equals 1, on consecutive variable
- * ids. tier `n` (from 1) shows at level `n`
- *
- * @param entities dynamic entities in stored order
- * @returns the progression requirement standing in for each tier owner's gate, by owner id
- */
-export const outpostTiers = (entities: readonly DynamicEntity[]): Map<bigint, Alternatives> => {
-	const byId = new Map<bigint, DynamicEntity>();
-	for (const entity of entities) {
-		if (entity.uid !== null) {
-			byId.set(entity.uid, entity);
-		}
-	}
-	const tiers = new Map<bigint, Alternatives>();
-	for (const outpost of entities) {
-		const controller = outpost.controllers[0];
-		if (
-			outpost.uid === null ||
-			outpost.entityType !== SETTLEMENT_ENTITY ||
-			controller?.kind !== 'settlement'
-		) {
-			continue;
-		}
-		const found: bigint[] = [];
-		let key: number | null = null;
-		for (let id = outpost.uid + 2n; ; id++) {
-			const gate = byId.get(id)?.gates;
-			const variable = gate?.length === 1 ? gate[0] : undefined;
-			if (
-				byId.get(id)?.entityType !== MAP_VAR_ENTITY ||
-				variable?.kind !== 'mapVar' ||
-				variable.compare !== 0 ||
-				variable.value !== 1 ||
-				(key !== null && variable.key !== key + 1)
-			) {
-				break;
-			}
-			key = variable.key;
-			found.push(id);
-		}
-		// a lone variable-gated neighbour is too weak a pattern to tie to the outpost
-		if (found.length < 2) {
-			continue;
-		}
-		const control = progressionId(controller.kind, controllerKey(controller));
-		for (const [i, id] of found.entries()) {
-			tiers.set(id, [[{ control, mask: 1 << (i + 1) }]]);
-		}
-	}
-	return tiers;
-};
 
 /** a prefab placement and its owning level */
 export interface StructureModel {
@@ -169,12 +109,7 @@ export const loadDynamicStructures = async (
 		counts: { owners: owners.length, ecsGroups: 0, models: 0, effects: 0 },
 	};
 	const controls = new Map<string, SceneControl>();
-	const tiers = outpostTiers(owners.map((owner) => owner.entity));
-	game.note(
-		owners.flatMap(({ entity }) =>
-			entity.uid !== null && tiers.has(entity.uid) ? [] : entity.gates.map(gateCondition),
-		),
-	);
+	game.note(owners.flatMap(({ entity }) => entity.gates.map(gateCondition)));
 	const chunks = new Map<string, Map<number, ConditionalSetInfo>>();
 	const models = new Map<string, StructureModel>();
 	const ordinals = new Map<number, number>();
@@ -215,12 +150,10 @@ export const loadDynamicStructures = async (
 			result.slots.push({ id: owned, slot: extraScene });
 		}
 		const controller = entity.controllers[0];
-		const gates =
-			(entity.uid === null ? undefined : tiers.get(entity.uid)) ??
-			entity.gates.reduce<Alternatives>(
-				(partial, gate) => allOf(partial, game.requirements(gateCondition(gate))),
-				[[]],
-			);
+		const gates = entity.gates.reduce<Alternatives>(
+			(partial, gate) => allOf(partial, game.requirements(gateCondition(gate))),
+			[[]],
+		);
 		for (const [i, group] of entity.resourceGroups.entries()) {
 			const ref = group.resources;
 			if (ref.count === 0) {

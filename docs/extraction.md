@@ -810,14 +810,11 @@ combined condition (`all`/`any`, `reverse = !loadWhen`) over the quest and missi
 gate's variable is a variable control like a MapConfig one. variables with `controlLoad` 0 aren't
 listed as gates.
 
-**outpost tiers.** as plain variables every outpost tier would draw at once, since client data
-doesn't say which tier variables the game sets. `outpostTiers`
-([dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts)) recognises them by
-their layout ([dynamic load gates](game-data/scene-states.md#dynamic-load-gates)). tier `n` replaces
-its variable gate with the outpost's level `n`, so level 0 shows none.
-
-other server-set variable gates stay plain variable controls: Yinglung Pass's energy point towers
-(`defenceFnish`) follow their own control.
+server-set variable gates stay plain variable controls: Yinglung Pass's
+[outpost tiers](game-data/scene-states.md#dynamic-load-gates) (#321–324) and energy point towers
+(`defenceFnish`) each follow their own control. a variable's default is the highest value the scene
+compares it against, so every tier variable defaults to 1 and all four tiers show until the user
+turns some off.
 
 **outpost upgrade missions.** [upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)
 are read from `SettlementBasicDataTable` by

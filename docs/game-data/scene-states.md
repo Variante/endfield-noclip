@@ -127,17 +127,19 @@ every gate on an entity must pass.
 variable keys are numeric client game-variable ids, not root strings. MapConfig's `mapVarName2NumId`
 names a map's variables.
 
-**outpost tiers.** some outposts' per-level scenery (Yinglung Pass's beacon beam, boards and screens
-at `stm_hongs_3`) follows the outpost's level through map variables rather than logic-state masks:
-one `ResourceWithIdControlByMapVar` owner per level, each loading while its variable equals 1
-(`judianEffect1`–`4` on map02). the game sets them from the outpost's level, which client data
-doesn't spell out. they share a layout: the outpost's owner id `u`, its factory region at `u + 1`,
-then at least two such owners at `u + 2`, `u + 3`, … on consecutive variable ids.
+**outpost tiers.** Yinglung Pass (`stm_hongs_3`) has per-level scenery (its beacon beam, boards and
+screens) on map variables rather than logic-state masks: one `ResourceWithIdControlByMapVar` owner
+per tier, each loading while its variable equals 1 (`judianEffect1`–`4`, #321–324 on map02). its
+owners follow the outpost's own (`u`) and its factory region's (`u + 1`) ids, on consecutive
+variable ids; no other outpost on map01 or map02 has them. nothing in readable client data sets
+these variables: no table, level script, mission or C# string names them, and MapConfig only names
+them (most Lua scripts are encrypted, so those weren't searched). they're server-driven, and their
+link to the outpost's level is only suggested by name and layout.
 
-other variable gates are set by the server. Yinglung Pass's energy point towers switch between a red
-and a green set on map variable `defenceFnish` (#297, = 0 / = 1), presumably set when its defence
-encounter is cleared; no client quest, script or scene state reads it, so it has no link to story
-progress.
+other variable gates are set by the server too. Yinglung Pass's energy point towers switch between a
+red and a green set on map variable `defenceFnish` (#297, = 0 / = 1), presumably set when its
+defence encounter is cleared; no client quest, script or scene state reads it, so it has no link to
+story progress.
 
 ## progressions
 
