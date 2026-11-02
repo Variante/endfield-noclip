@@ -221,16 +221,20 @@ them is in [extraction.md](extraction.md#environments)):
 - `environmentPhases`: every phase a volume applies, uncomposed: all sections, with the list of
   those it marks active. deduplicated by name.
 - `environmentVolumes`: every global, box and prism volume: name without its `#…` suffix, visibility
-  `group` (owning level tag and loading condition), shape in world coordinates, blend mode,
-  priority, blend distance, fade durations, phase index (or `null` when the phase can't be read; the
-  viewer skips those), and `activation: 'unknown'`.
+  `group` (owning level tag and loading condition), its `environmentVolume` `control`, shape in
+  world coordinates, blend mode (0–3; a volume with any other mode is dropped and listed in
+  `debug/environments.json`), priority, blend distance, fade durations, and phase index (or `null`
+  when the phase can't be read; such a volume has no control and never applies).
 
 `LevelInfo.environment` names a level's base volume (whose phase is never `null`) and post profile
 ([the level's base environment](extraction.md#the-levels-base-environment)); a viewer starts its
 blend from all of that phase's sections.
 
-the package marks every volume `activation: 'unknown'` because nothing in the chunk data says
-whether a volume starts enabled ([activation](game-data/environment.md#activation)).
+nothing in the chunk data says whether a volume starts enabled
+([activation](game-data/environment.md#activation)), so each volume with a phase gets an
+`environmentVolume:<index>` control, which its group requires on. it defaults on, except for a
+scripted volume (blend mode 3), whose fade-in script isn't followed: off, and at full strength when
+the user turns it on. a viewer therefore decides whether a volume applies from its group alone.
 
 ## binary encodings
 
@@ -462,7 +466,7 @@ WaterTable
   surfaces   WaterSurfaceEntry[]  { kind: 'placed' | 'volume', id, group, geometry, transform,
                                     bounds, config, meshNormals, volume (kind 'volume') }
   volumes    WaterVolumeEntry[]   { id, base, heightMax, initial, fillSpeed,
-                                    levels: { fraction, speed, label }[],
+                                    levels: { fraction, speed }[], control,
                                     floaters: { blob, row }[] }
 WaterGlobal  { mapSize, sectorSize, center, flowmapPrecision,
                flowMap, causticMap, normalMaps, rainMap, sectors: { x, z, texture }[] }
@@ -511,10 +515,14 @@ packing rules:
   always loaded. a volume without a config, or whose config fails, is left out and listed in
   `debug/water.json`. `levels` are the authored fill and every constant fill the scene's scripts
   set, merged within 1e-4; each takes the speed of a script's fill-speed action just before moving
-  the volume there, else the volume's. `floaters` are the stored instance rows, as (block blob, row
-  index), of the renderers of every interactive placement whose component 39 names the volume; the
-  packer finds them by entity id once the blocks are stored, and lists a floater with no stored row
-  in `debug/water.json`.
+  the volume there, else the volume's. a volume scripts set to more than one fill gets a
+  `waterLevel:<id>` control, its values indexing `levels` (labelled with the fill's percentage and
+  height, and whether the level authors it) and defaulting to the authored fill; its drivers say
+  what runs each script action setting a fill, with that fill as their `value`. it gates no content,
+  so it's listed whatever groups require, with the volume's level tag. `floaters` are the stored
+  instance rows, as (block blob, row index), of the renderers of every interactive placement whose
+  component 39 names the volume; the packer finds them by entity id once the blocks are stored, and
+  lists a floater with no stored row in `debug/water.json`.
 
 ### particles
 

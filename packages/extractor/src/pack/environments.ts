@@ -10,15 +10,16 @@ import { type LensFlareDataSRP, readLensFlareData } from '@endfield-noclip/forma
 import { ShaderPropertyType } from '@endfield-noclip/formats/unity/material';
 import type { PlainKinds, PlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
-import type {
-	BlendSchema,
-	CelestialConfig,
-	EnvironmentPhaseInfo,
-	EnvironmentProfile,
-	EnvironmentSchema,
-	EnvironmentSections,
-	EnvironmentVolumeInfo,
-	PostProfile,
+import {
+	type BlendSchema,
+	type CelestialConfig,
+	type EnvironmentPhaseInfo,
+	type EnvironmentProfile,
+	type EnvironmentSchema,
+	type EnvironmentSections,
+	type EnvironmentVolumeInfo,
+	isEnvironmentBlendMode,
+	type PostProfile,
 } from '@endfield-noclip/package-format/environment';
 import type { LevelEnvironment } from '@endfield-noclip/package-format/manifest';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
@@ -287,6 +288,11 @@ export const planEnvironments = async (
 			report({ kind: 'volume', volume: name, reason: shape });
 			continue;
 		}
+		const { blendMode } = volume;
+		if (!isEnvironmentBlendMode(blendMode)) {
+			report({ kind: 'volume', volume: name, reason: `unknown blend mode ${blendMode}` });
+			continue;
+		}
 		const loadedPhase = volumePhases[i];
 		if (typeof loadedPhase === 'string') {
 			report({ kind: 'phase', volume: name, reason: loadedPhase });
@@ -309,13 +315,13 @@ export const planEnvironments = async (
 			name,
 			group: 0,
 			shape,
-			blendMode: volume.blendMode,
+			control: null,
+			blendMode,
 			priority: volume.priority,
 			blendDistance: volume.blendDistance,
 			fadeInDuration: volume.fadeInDuration,
 			fadeOutDuration: volume.fadeOutDuration,
 			phase: index,
-			activation: 'unknown',
 		});
 		plan.volumeOwners.push({ levelTag: tag, sceneStates, condition });
 	}

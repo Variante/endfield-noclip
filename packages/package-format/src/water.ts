@@ -35,11 +35,13 @@ export interface WaterVolumeEntry {
 	initial: number;
 	/** metres per second the surface moves at between fills, as scripts move it */
 	fillSpeed: number;
-	/**
-	 * fills the scene's level scripts set the volume to, ascending and deduplicated, each with what sets it;
-	 * {@link initial} is always listed
-	 */
+	/** fills the scene's level scripts set the volume to, ascending and deduplicated; {@link initial} is listed */
 	levels: WaterVolumeLevel[];
+	/**
+	 * the `waterLevel` control whose value indexes {@link levels}, with what sets each; `null` when scripts set
+	 * no fill other than {@link initial}
+	 */
+	control: string | null;
 	/** instance rows of the interactives that float on the volume: they follow its surface up and down */
 	floaters: WaterFloater[];
 }
@@ -61,8 +63,6 @@ export interface WaterVolumeLevel {
 	 * else {@link WaterVolumeEntry.fillSpeed}
 	 */
 	speed: number;
-	/** what sets it, e.g. "authored", "scripts 46300000013 (moves here)" */
-	label: string;
 }
 
 /** the scene's `Global_Water_Config`: maps shared by every surface. textures are the game's, unchanged */

@@ -66,6 +66,7 @@ import {
 } from '@endfield-noclip/package-format/materials';
 import type {
 	ConditionalSetInfo,
+	ControlDriver,
 	ProximityInfo,
 	SceneControl,
 	ScriptControl,
@@ -92,7 +93,7 @@ import {
 	type TreeInfo,
 } from '@endfield-noclip/package-format/tree';
 import type { Bounds, Rect } from '@endfield-noclip/package-format/values';
-import type { WaterFloater, WaterTable } from '@endfield-noclip/package-format/water';
+import type { WaterFloater, WaterTable, WaterVolumeEntry } from '@endfield-noclip/package-format/water';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
 
@@ -104,7 +105,7 @@ import { RENDER_PIPELINE_QUAD_PATH } from '../game/builtin-resources.ts';
 import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
-import { GameState } from '../game/game-state.ts';
+import { allOf, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
@@ -116,6 +117,7 @@ import {
 	sceneStateControl,
 	sceneStateControls,
 	type SceneStateDefinition,
+	SWITCH_VALUES,
 	unnamedSceneStateControl,
 } from '../game/scene-conditions.ts';
 import { loadProgressions, progressionControl, progressionId } from '../game/scenery-variants.ts';
@@ -124,12 +126,11 @@ import {
 	entityVisibilityTargets,
 	loadLevelScripts,
 	loadScriptDrivers,
-	type LevelScripts,
 } from '../game/script-drivers.ts';
 import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
 import { labelStory, mainStoryOrder } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
-import { scriptWaterLevels } from '../game/water-volume-scripts.ts';
+import { scriptWaterLevels, type ScriptWaterLevel, waterActionTarget } from '../game/water-volume-scripts.ts';
 import { readWaterVolumes } from '../game/water-volumes.ts';
 import type { ChunkFile, ChunkSource, WorldIndex } from '../game/world-index.ts';
 import { orderedPool } from '../pool.ts';
@@ -180,7 +181,14 @@ import { PhaseTimer } from './phase-timer.ts';
 import { type SkippedEntityRow, SkippedEntities } from './skipped-entities.ts';
 import { packTerrain as packTerrainStep, type TerrainDebug } from './terrain.ts';
 import { TileTreeBuilder } from './tile-tree.ts';
-import { finishWater, planWater, type WaterDebug, type WaterPlan, type WaterVolumeInput } from './water.ts';
+import {
+	finishWater,
+	planWater,
+	type WaterDebug,
+	type WaterLevelSource,
+	type WaterPlan,
+	type WaterVolumeInput,
+} from './water.ts';
 
 // #region options and report
 
@@ -385,7 +393,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 		const terrainPacked = await packTerrain(context, pack);
 		timer.end('terrain');
 
-		const scriptWater = scriptWaterLevels(entities.levelScripts);
+		const { scriptWater } = entities;
 		entities.counts.waterScriptActionsComputed = scriptWater.computed;
 		// independent; only water interns geometries, so ids stay deterministic
 		const [environments, water] = await Promise.all([
@@ -417,7 +425,12 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			}),
 		]);
 		timer.end('environments and water');
-		const lights = gateByScene(entities.collected, scene, environments, water, entities.lights);
+		const lights = gateByScene(entities.collected, scene, {
+			environments,
+			water,
+			waterDrivers: entities.waterDrivers,
+			lights: entities.lights,
+		});
 		entities.counts.lights = lights.lights.length;
 		for (const [reason, count] of Object.entries(entities.lights.skipped)) {
 			entities.counts[`lightsSkipped ${reason}`] = count;
@@ -771,8 +784,10 @@ const collectEntities = async (
 	 * LevelData files they couldn't be read from
 	 */
 	waterVolumes: WaterVolumeInput;
-	/** the scene's decoded level scripts, for the water levels they set */
-	levelScripts: LevelScripts;
+	/** the constant water fills the scene's level scripts set, and how many they compute */
+	scriptWater: { levels: ScriptWaterLevel[]; computed: number };
+	/** by {@link waterActionTarget}, what runs each script action setting a water fill */
+	waterDrivers: ReadonlyMap<string, ControlDriver[]>;
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1114,6 +1129,9 @@ const collectEntities = async (
 		),
 	);
 	const levelScripts = await loadLevelScripts(context, scene.options.scene, new Set(scripted.keys()));
+	const scriptWater = scriptWaterLevels(levelScripts);
+	/** by {@link waterActionTarget}, the drivers of the script action setting a water fill */
+	const waterDrivers = new Map<string, ControlDriver[]>();
 	for (const index of dynamic.sceneStates) {
 		collected.sceneStates.add(index);
 	}
@@ -1230,11 +1248,22 @@ const collectEntities = async (
 			}
 		}
 		counts.scriptInteractives = facilities.scriptControls.size;
-		const found = await loadScriptDrivers(context, levelScripts, new Set(scripted.keys()));
+		const found = await loadScriptDrivers(
+			context,
+			levelScripts,
+			new Set(scripted.keys()),
+			scriptWater.levels.map((level) => ({
+				script: level.script,
+				node: level.node,
+				target: waterActionTarget(level),
+			})),
+		);
 		for (const [id, drivers] of found.drivers) {
 			const control = scripted.get(id);
 			if (control !== undefined) {
 				control.drivers = drivers;
+			} else if (id.startsWith('water:')) {
+				waterDrivers.set(id, drivers);
 			}
 		}
 		// a group its scripts set by quest checks whenever they run follows those quests; its default is then the
@@ -1560,7 +1589,8 @@ const collectEntities = async (
 			roomType,
 		})),
 		waterVolumes: { volumes: waterVolumes.volumes, floaterRows, unsupported: waterVolumes.unsupported },
-		levelScripts,
+		scriptWater,
+		waterDrivers,
 	};
 };
 
@@ -1627,30 +1657,54 @@ const progressionControls = async (
  *
  * @param collected the entity pass's collector; its conditions, groups and controls are extended
  * @param scene the scene's MapConfig states and game state
- * @param environments planned environments; volume groups are filled in
- * @param water planned water; surface groups are filled in
- * @param lights the entity pass's lights
+ * @param inputs planned environments (volume groups and controls are filled in), planned water (surface
+ *   groups and volume controls), the drivers of the scripts that set water fills, and the entity pass's
+ *   lights
  * @returns the lights table
  */
 const gateByScene = (
 	collected: Collector,
 	scene: Pick<SceneIndex, 'sceneStates' | 'game'>,
-	environments: EnvironmentPlan,
-	water: WaterPlan,
-	lights: LightCollector,
+	inputs: {
+		environments: EnvironmentPlan;
+		water: WaterPlan;
+		waterDrivers: ReadonlyMap<string, ControlDriver[]>;
+		lights: LightCollector;
+	},
 ): LightsTable => {
+	const { environments, water, waterDrivers, lights } = inputs;
 	for (const [i, volume] of environments.volumes.entries()) {
 		const { levelTag, sceneStates, condition } = environments.volumeOwners[i];
 		// a prefab volume loads with its placement; chunk volumes with the scene states of their files
-		volume.group =
-			condition === null
-				? collected.groupOfStates(levelTag, sceneStates)
-				: collected.group(levelTag, collected.condition(condition));
+		const loads = condition ?? (sceneStates.length === 0 ? null : collected.stateVisibility(sceneStates));
+		if (volume.phase === null) {
+			volume.group = collected.group(levelTag, loads === null ? null : collected.condition(loads));
+			continue;
+		}
+		const control = environmentVolumeControl(i, volume);
+		collected.controls.push(control);
+		volume.control = control.id;
+		const on = [[{ control: control.id, mask: 2 }]];
+		volume.group = collected.group(
+			levelTag,
+			collected.condition({ alternatives: loads === null ? on : allOf(loads.alternatives, on) }),
+		);
 	}
 	for (const [i, surface] of water.table.surfaces.entries()) {
 		const { levelTag, sources } = water.surfaceOwners[i];
 		surface.group =
 			sources === null ? collected.group(levelTag, null) : collected.groupOfSources(levelTag, sources);
+		if (surface.kind === 'volume') {
+			const control = waterLevelControlOf(
+				water.table.volumes[surface.volume],
+				water.levelSources[surface.volume],
+				waterDrivers,
+				levelTag,
+			);
+			if (control !== null) {
+				collected.valueControls.push(control);
+			}
+		}
 	}
 	const lightsTable = lights.finish(
 		(levelTag, sources) => collected.groupOfSources(levelTag, sources),
@@ -1666,6 +1720,76 @@ const gateByScene = (
 		.map(unnamedSceneStateControl);
 	collected.controls = [...collected.controls, ...controls, ...unnamed];
 	return lightsTable;
+};
+
+/**
+ * @param index the volume's manifest index
+ * @param volume an environment volume with a phase
+ * @returns the control that switches it: on by default, except a scripted (mode 3) volume, whose script isn't
+ *   followed
+ */
+const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo): SceneControl => ({
+	kind: 'environmentVolume',
+	id: `environmentVolume:${index}`,
+	name: volume.name,
+	rule: null,
+	assumption:
+		volume.blendMode === 3
+			? 'off: a level script fades it in, which isn’t followed; on previews it at full strength'
+			: 'on: it applies wherever it holds the camera',
+	followsCamera: false,
+	levelTags: [],
+	values: SWITCH_VALUES,
+	default: volume.blendMode === 3 ? 0 : 1,
+	derived: null,
+});
+
+/**
+ * @param volume a water volume's table entry
+ * @param sources where each of its levels comes from
+ * @param drivers by {@link waterActionTarget}, what runs each script action setting a fill
+ * @param levelTag the level owning the volume
+ * @returns its `waterLevel` control, at the authored fill and listing what sets each fill; `null` when no
+ *   script sets another fill
+ */
+const waterLevelControlOf = (
+	volume: WaterVolumeEntry,
+	sources: readonly WaterLevelSource[],
+	drivers: ReadonlyMap<string, ControlDriver[]>,
+	levelTag: number,
+): SceneControl | null => {
+	if (volume.control === null) {
+		return null;
+	}
+	const found: ControlDriver[] = [];
+	for (const [value, { actions }] of sources.entries()) {
+		for (const action of actions) {
+			for (const driver of drivers.get(waterActionTarget(action)) ?? []) {
+				const set = { ...driver, value };
+				if (!found.some((known) => JSON.stringify(known) === JSON.stringify(set))) {
+					found.push(set);
+				}
+			}
+		}
+	}
+	return {
+		kind: 'waterLevel',
+		id: volume.control,
+		name: `Water volume ${volume.id}`,
+		rule: null,
+		assumption: 'the authored fill, before any script runs',
+		followsCamera: false,
+		drivers: found,
+		levelTags: [levelTag],
+		values: volume.levels.map(({ fraction }, value) => ({
+			value,
+			label: `${Math.round(fraction * 100)}% (${(volume.base + volume.heightMax * fraction).toFixed(1)} m)${
+				sources[value]?.authored ? ', authored' : ''
+			}`,
+		})),
+		default: volume.levels.findIndex(({ fraction }) => fraction === volume.initial),
+		derived: null,
+	};
 };
 
 /** the top of the 27-bit per-level id space, for ids the game doesn't assign */
@@ -1955,7 +2079,8 @@ const sceneStates = async (
 		missions: [],
 		mainStory: [],
 	};
-	const controls = finishControls(states);
+	// water levels gate no content, so they're kept whatever groups require
+	const controls = [...finishControls(states), ...collected.valueControls];
 	const kept = new Set(controls.map((control) => control.id));
 	const missions = await labelStory(world, controls);
 	return {
@@ -2516,6 +2641,8 @@ class Collector {
 	controls: SceneControl[] = [];
 	/** facility form and resource node controls */
 	facilities: SceneControl[] = [];
+	/** controls that gate no content (water levels), listed with the level tags they're given */
+	valueControls: SceneControl[] = [];
 	/** where each interactive's proximity control counts the player as near */
 	proximities: ProximityInfo[] = [];
 	/** MapConfig scene state indices some visibility expression requires */

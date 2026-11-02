@@ -51,13 +51,15 @@ the post profile, not a Unity `VolumeProfile`.
 
 the "volumes at camera" toggle turns blending by position off: the scene-wide global volumes and the
 level's base volume apply fully wherever the camera is, giving the level's own look. a pinned phase
-goes over that look instead of the volume blend. per-volume checkboxes override the scene-state
-decision either way; `volumeApplies` is the one place that decides whether a volume may apply.
+goes over that look instead of the volume blend. `volumeApplies` is the one place that decides
+whether a volume may apply: it has a phase and its visibility group's condition holds.
 
 ## activation
 
-the package marks every volume `activation: 'unknown'`, and the viewer treats a loaded, non-manual
-volume as enabled. checkboxes and phase pinning override this assumption. volume names do not
+a volume's group requires its `environmentVolume` control on, alongside its scene states, so the
+volume checkboxes are scene controls like any other: picks, "Reset" and level tags work the same
+way. the package defaults scripted volumes (blend mode 3) off and others on; a scripted volume that
+is on applies at full strength inside it. phase pinning goes over either. volume names do not
 establish activation ([activation](../game-data/environment.md#activation)).
 
 ## weather

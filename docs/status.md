@@ -329,11 +329,12 @@ packs or renders correctly.
   that drive entity level or animator state (doors, bridges, puzzles: `ModelViewStateControllerData`
   state machines) aren't controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
-  aren't represented; script-driven water levels are picked by hand, not tied to the switches,
-  clocks and quests that drive them, and fills a script computes at runtime aren't offered
-  (`waterScriptActionsComputed`); a set amount is assumed to move the surface rather than snap it;
-  the shop, depot and terminal level → visual form mapping, and the resource-node level's link to
-  regional development, aren't recovered
+  aren't represented; script-driven water levels are picked by hand: their controls list what sets
+  each fill but don't follow it; scripted environment volumes (blend mode 3) default off and preview
+  at full strength rather than following their script's factor; fills a script computes at runtime
+  aren't offered (`waterScriptActionsComputed`); a set amount is assumed to move the surface rather
+  than snap it; the shop, depot and terminal level → visual form mapping, and the resource-node
+  level's link to regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server
   sets show as "server", and groups no client script names have none
 - interactives level scripts show and hide default to shown, since whether they start hidden isn't

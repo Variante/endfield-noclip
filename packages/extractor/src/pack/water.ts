@@ -90,8 +90,25 @@ export interface WaterPlan {
 	 * volume's `floaters` once the instance blocks are stored
 	 */
 	floaterIds: (readonly number[])[];
+	/**
+	 * per table volume, per entry of its `levels`: whether the level authors it, and the script actions that
+	 * set it, for the volume's `waterLevel` control
+	 */
+	levelSources: WaterLevelSource[][];
 	debug: WaterDebug;
 }
+
+/** where one fill of a water volume comes from */
+export interface WaterLevelSource {
+	authored: boolean;
+	actions: ScriptWaterLevel[];
+}
+
+/**
+ * @param volume a water volume's id
+ * @returns the id of its `waterLevel` control
+ */
+export const waterLevelControl = (volume: string): string => `waterLevel:${volume}`;
 
 /** the scene's gameplay water volumes, as the entity pass found them */
 export interface WaterVolumeInput {
@@ -142,6 +159,7 @@ export const planWater = async (
 		surfaceOwners: [],
 		textures: [],
 		floaterIds: [],
+		levelSources: [],
 		debug: {
 			surfaces: { scene: water.surfaces.length, packed: 0 },
 			volumes: { scene: options.volumes.volumes.length, packed: 0 },
@@ -221,7 +239,9 @@ export const planWater = async (
 			continue;
 		}
 		const index = plan.table.volumes.length;
-		plan.table.volumes.push(volumeEntry(volume, options.scriptLevels));
+		const { entry, sources } = volumeEntry(volume, options.scriptLevels);
+		plan.table.volumes.push(entry);
+		plan.levelSources.push(sources);
 		plan.floaterIds.push(options.volumes.floaterRows.get(volume.id) ?? []);
 		plan.table.surfaces.push(volumeSurface(volume, geometry, config, index));
 		plan.surfaceOwners.push({ levelTag: volume.levelTag, sources: null });
@@ -513,20 +533,16 @@ const FRACTION_EPSILON = 1e-4;
 /**
  * @param volume a volume
  * @param scripts every constant fill the scene's scripts set
- * @returns the volume's table entry, with its authored fill and the fills scripts set it to; its floaters are
- *   left for {@link finishWater}
+ * @returns the volume's table entry, with its authored fill and the fills scripts set it to (its floaters are
+ *   left for {@link finishWater}), and per level where it comes from
  */
 export const volumeEntry = (
 	volume: LevelWaterVolume,
 	scripts: readonly ScriptWaterLevel[],
-): WaterVolumeEntry => {
-	const found: {
-		fraction: number;
-		speed: number | null;
-		authored: boolean;
-		moves: Set<string>;
-		snaps: Set<string>;
-	}[] = [{ fraction: volume.fraction, speed: null, authored: true, moves: new Set(), snaps: new Set() }];
+): { entry: WaterVolumeEntry; sources: WaterLevelSource[] } => {
+	const found: { fraction: number; speed: number | null; source: WaterLevelSource }[] = [
+		{ fraction: volume.fraction, speed: null, source: { authored: true, actions: [] } },
+	];
 	for (const level of scripts) {
 		if (level.volume !== volume.id) {
 			continue;
@@ -536,37 +552,31 @@ export const volumeEntry = (
 		const fraction = Math.min(Math.max(raw, 0), 1);
 		let entry = found.find((other) => Math.abs(other.fraction - fraction) < FRACTION_EPSILON);
 		if (entry === undefined) {
-			entry = { fraction, speed: null, authored: false, moves: new Set(), snaps: new Set() };
+			entry = { fraction, speed: null, source: { authored: false, actions: [] } };
 			found.push(entry);
 		}
-		(level.smooth ? entry.moves : entry.snaps).add(level.script);
+		entry.source.actions.push(level);
 		if (level.speed !== null) {
 			entry.speed ??= level.speed;
 		}
 	}
-	const levels: WaterVolumeLevel[] = found
-		.toSorted((a, b) => a.fraction - b.fraction)
-		.map(({ fraction, speed, authored, moves, snaps }) => {
-			const parts: string[] = [];
-			if (authored) {
-				parts.push('authored');
-			}
-			if (moves.size > 0) {
-				parts.push(`moved to by script ${[...moves].join(', ')}`);
-			}
-			if (snaps.size > 0) {
-				parts.push(`set by script ${[...snaps].join(', ')}`);
-			}
-			return { fraction, speed: speed ?? volume.fillSpeed, label: parts.join('; ') };
-		});
+	const sorted = found.toSorted((a, b) => a.fraction - b.fraction);
+	const levels: WaterVolumeLevel[] = sorted.map(({ fraction, speed }) => ({
+		fraction,
+		speed: speed ?? volume.fillSpeed,
+	}));
 	return {
-		id: volume.id,
-		base: volume.pivot[1],
-		heightMax: volume.heightMax,
-		initial: volume.fraction,
-		fillSpeed: volume.fillSpeed,
-		levels,
-		floaters: [],
+		entry: {
+			id: volume.id,
+			base: volume.pivot[1],
+			heightMax: volume.heightMax,
+			initial: volume.fraction,
+			fillSpeed: volume.fillSpeed,
+			levels,
+			control: levels.length > 1 ? waterLevelControl(volume.id) : null,
+			floaters: [],
+		},
+		sources: sorted.map(({ source }) => source),
 	};
 };
 

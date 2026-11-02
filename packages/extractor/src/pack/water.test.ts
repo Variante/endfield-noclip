@@ -129,20 +129,36 @@ describe('volumeEntry', () => {
 	};
 
 	it('merges the authored fill with script fills, taking the speed scripts move it at', () => {
-		const entry = volumeEntry(volume, [
-			{ volume: volume.id, script: '13', kind: 'fraction', value: 0.5, smooth: false, speed: null },
-			{ volume: volume.id, script: '13', kind: 'fraction', value: 0.37, smooth: true, speed: 0.1192 },
-			{ volume: volume.id, script: '13', kind: 'fraction', value: 0.37, smooth: false, speed: null },
-			{ volume: volume.id, script: '2', kind: 'amount', value: 8, smooth: true, speed: null },
-			{ volume: 'other', script: '2', kind: 'fraction', value: 0.9, smooth: false, speed: null },
-		]);
+		const level = (
+			script: string,
+			node: number,
+			kind: 'fraction' | 'amount',
+			value: number,
+			smooth: boolean,
+			speed: number | null,
+			id = volume.id,
+		) => ({ volume: id, script, node, kind, value, smooth, speed });
+		const actions = [
+			level('13', 1, 'fraction', 0.5, false, null),
+			level('13', 2, 'fraction', 0.37, true, 0.1192),
+			level('13', 3, 'fraction', 0.37, false, null),
+			level('2', 4, 'amount', 8, true, null),
+			level('2', 5, 'fraction', 0.9, false, null, 'other'),
+		];
+		const { entry, sources } = volumeEntry(volume, actions);
 		assert.equal(entry.base, 51.187);
 		assert.equal(entry.initial, 0.5);
+		assert.equal(entry.control, 'waterLevel:46300000002');
 		assert.deepEqual(entry.floaters, []);
 		assert.deepEqual(entry.levels, [
-			{ fraction: 0.08, speed: 0.11, label: 'moved to by script 2' },
-			{ fraction: 0.37, speed: 0.1192, label: 'moved to by script 13; set by script 13' },
-			{ fraction: 0.5, speed: 0.11, label: 'authored; set by script 13' },
+			{ fraction: 0.08, speed: 0.11 },
+			{ fraction: 0.37, speed: 0.1192 },
+			{ fraction: 0.5, speed: 0.11 },
+		]);
+		assert.deepEqual(sources, [
+			{ authored: false, actions: [actions[3]] },
+			{ authored: false, actions: [actions[1], actions[2]] },
+			{ authored: true, actions: [actions[0]] },
 		]);
 	});
 });
@@ -214,6 +230,7 @@ describe('finishWater', () => {
 			table,
 			textures: [],
 			floaterIds: [],
+			levelSources: [],
 			debug: {
 				surfaces: { scene: 0, packed: 0 },
 				volumes: { scene: 0, packed: 0 },
@@ -253,6 +270,7 @@ describe('finishWater', () => {
 			initial: 0,
 			fillSpeed: 1,
 			levels: [],
+			control: null,
 			floaters: [],
 		});
 		const plan: WaterPlan = {
@@ -260,6 +278,7 @@ describe('finishWater', () => {
 			table: { global: null, configs: [], surfaces: [], volumes: [volume('1'), volume('2')] },
 			textures: [],
 			floaterIds: [[7, 8], [9]],
+			levelSources: [[], []],
 			debug: {
 				surfaces: { scene: 0, packed: 0 },
 				volumes: { scene: 2, packed: 2 },
@@ -296,6 +315,7 @@ describe('finishWater', () => {
 			table: { global: null, configs: [], surfaces: [], volumes: [] },
 			textures: [],
 			floaterIds: [],
+			levelSources: [],
 			debug: {
 				surfaces: { scene: 3, packed: 0 },
 				volumes: { scene: 0, packed: 0 },

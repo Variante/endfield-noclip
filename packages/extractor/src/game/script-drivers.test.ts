@@ -90,12 +90,13 @@ test('follows show and hide actions back to quests, switches, the script area an
 		missionsOf: new Map(),
 		label: async (id) => ({ id, mission: 'Mission', name: 'Step two' }),
 		levelNames: new Map([['dung', 'A Dungeon']]),
+		actions: [],
 	});
 	assert.deepEqual(drivers.get('555'), [
-		{ kind: 'quest', quests: [{ id: 'x1m1_q#2', mission: 'Mission', name: 'Step two' }], shows: true },
-		{ kind: 'script', position: [10, 0, 10], radius: 50, shows: true },
-		{ kind: 'switch', template: 'int_switch', position: [1, 2, 3], shows: false },
-		{ kind: 'level', levelId: 'dung', name: 'A Dungeon', shows: true },
+		{ kind: 'quest', quests: [{ id: 'x1m1_q#2', mission: 'Mission', name: 'Step two' }], value: 1 },
+		{ kind: 'script', position: [10, 0, 10], radius: 50, value: 1 },
+		{ kind: 'switch', template: 'int_switch', position: [1, 2, 3], value: 0 },
+		{ kind: 'level', levelId: 'dung', name: 'A Dungeon', value: 1 },
 	]);
 	// the activation path checks a quest state other than complete or in progress
 	assert.equal(rules.size, 0);
@@ -159,6 +160,7 @@ test('derives what a group shows from the quest checks its scripts make when the
 		missionsOf: new Map(),
 		label: async (id) => ({ id, mission: null, name: null }),
 		levelNames: new Map(),
+		actions: [],
 	});
 	const m1 = { kind: 'mission', id: 'm1', compare: 0, target: 3 } as const;
 	const q1 = { kind: 'quest', id: 'm2_q#1', compare: 0, target: 3 } as const;
@@ -172,7 +174,7 @@ test('derives what a group shows from the quest checks its scripts make when the
 	assert.deepEqual(drivers.get('props')?.[0], {
 		kind: 'quest',
 		quests: [{ id: 'm2_q#1', mission: null, name: null }],
-		shows: true,
+		value: 1,
 	});
 
 	const any = (reverse: boolean, tests: GameCondition[]) => ({
@@ -202,7 +204,8 @@ test('follows entity show and hide actions on interactives, counting targets com
 				isVisible: constant(false),
 				targetEntities: constant([pointer('779'), { logicId: '0', slotId: 3, useSlotId: true }]),
 			}),
-			node('EntityShow', { ID: 5, nextID: -1, entityPtr: { idRef: 9, paramSource: 3, path: null } }),
+			node('EntityShow', { ID: 5, nextID: 6, entityPtr: { idRef: 9, paramSource: 3, path: null } }),
+			node('WaterVolumeInfiniteSetHeight', { ID: 6, nextID: -1 }),
 		],
 	});
 	assert.deepEqual([...entityVisibilityTargets([own], new Set(['lv1']))], ['777', '778', '779']);
@@ -213,13 +216,16 @@ test('follows entity show and hide actions on interactives, counting targets com
 		missionsOf: new Map(),
 		label: async (id) => ({ id, mission: null, name: null }),
 		levelNames: new Map(),
+		actions: [{ script: '300', node: 6, target: 'water' }],
 	});
-	const quest = (shows: boolean) => [
-		{ kind: 'quest', quests: [{ id: 'q1', mission: null, name: null }], shows },
+	const quest = (value: number | null) => [
+		{ kind: 'quest', quests: [{ id: 'q1', mission: null, name: null }], value },
 	];
-	assert.deepEqual(drivers.get('777'), quest(false));
-	assert.deepEqual(drivers.get('778'), quest(true));
-	assert.deepEqual(drivers.get('779'), quest(false));
+	assert.deepEqual(drivers.get('777'), quest(0));
+	assert.deepEqual(drivers.get('778'), quest(1));
+	assert.deepEqual(drivers.get('779'), quest(0));
+	// another action's drivers, whose value the caller sets
+	assert.deepEqual(drivers.get('water'), quest(null));
 	// the slot pointer and the getter
 	assert.equal(untraced, 2);
 });

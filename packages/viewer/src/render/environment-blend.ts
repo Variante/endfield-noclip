@@ -36,11 +36,10 @@ export interface BlendOptions {
 	volumes: boolean;
 	/** apply only this phase over the level's own look, instead of the volumes */
 	pinnedPhase: number | null;
-	/** manual preview overrides, keyed by manifest volume index; they win over scene states */
-	enabled?: Readonly<Record<number, boolean>>;
 	/**
 	 * per `states.conditionalSets` entry of the manifest, whether the selected scene values satisfy it; a
-	 * volume whose condition is unsatisfied isn't loaded. without it, every volume counts as loaded
+	 * volume whose condition is unsatisfied (its scene states, or its own `environmentVolume` control) doesn't
+	 * apply. without it, every volume with a phase counts as applying
 	 */
 	loaded?: readonly boolean[];
 }
@@ -57,36 +56,20 @@ const volumesOf = (manifest: PackageManifest): { id: number; volume: Environment
 };
 
 /**
- * @returns whether a volume applies where it holds the camera: a manual override decides; else scripted
- *   volumes (mode 3) don't, and others do when their scene states load them
+ * @returns whether a volume applies where it holds the camera: it has a phase, and its group's condition
+ *   holds (its scene states and its `environmentVolume` control, which the package defaults off for scripted
+ *   ones)
  */
 const volumeApplies = (
 	manifest: PackageManifest,
 	volume: EnvironmentVolumeInfo,
-	id: number,
-	{ enabled, loaded }: Pick<BlendOptions, 'enabled' | 'loaded'>,
+	{ loaded }: Pick<BlendOptions, 'loaded'>,
 ): volume is EnvironmentVolumeInfo & { phase: number } => {
-	const manual = enabled?.[id];
-	if (volume.phase === null || manual === false) {
+	if (volume.phase === null) {
 		return false;
 	}
 	const condition = volumeCondition(manifest, volume);
-	if (manual !== true && condition !== null && loaded !== undefined && !loaded[condition]) {
-		return false;
-	}
-	switch (volume.blendMode) {
-		case 0:
-		case 1:
-		case 2: {
-			return true;
-		}
-		case 3: {
-			return manual ?? false;
-		}
-		default: {
-			return false;
-		}
-	}
+	return condition === null || loaded === undefined || (loaded[condition] ?? false);
 };
 
 /**
@@ -228,7 +211,7 @@ export const blendEnvironment = (
 	if (options.pinnedPhase !== null || !options.volumes) {
 		for (const { id, volume } of volumesOf(manifest)) {
 			const sceneWide = volume.shape.kind === 'global' && volumeLevelTag(manifest, volume) === 0;
-			if ((id === environment.volume || sceneWide) && volumeApplies(manifest, volume, id, options)) {
+			if ((id === environment.volume || sceneWide) && volumeApplies(manifest, volume, options)) {
 				apply(id, volume.name, volume.phase, 1);
 			}
 		}
@@ -238,12 +221,13 @@ export const blendEnvironment = (
 	} else {
 		const speed = time?.fades.step(eye) ?? JUMP_SPEED;
 		for (const { id, volume } of volumesOf(manifest)) {
-			if (!volumeApplies(manifest, volume, id, options)) {
-				continue;
-			}
-			const factor = volumeFactor(id, volume, distanceInsideVolume(volume.shape, eye), speed, time);
-			if (factor !== null) {
-				apply(id, volume.name, volume.phase, factor);
+			if (volumeApplies(manifest, volume, options)) {
+				apply(
+					id,
+					volume.name,
+					volume.phase,
+					volumeFactor(id, volume, distanceInsideVolume(volume.shape, eye), speed, time),
+				);
 			}
 		}
 	}
@@ -255,14 +239,17 @@ export const blendEnvironment = (
 	};
 };
 
-/** @returns how strongly a volume applies `distance` m inside it, or `null` for an unknown blend mode */
+/**
+ * @returns how strongly a volume applies `distance` m inside it; a scripted volume (mode 3) at full strength,
+ *   since its script's factor isn't followed
+ */
 const volumeFactor = (
 	id: number,
 	volume: EnvironmentVolumeInfo,
 	distance: number,
 	speed: number,
 	time: BlendTime | undefined,
-): number | null => {
+): number => {
 	const inside = distance > 0;
 	switch (volume.blendMode) {
 		case 0:
@@ -284,9 +271,6 @@ const volumeFactor = (
 			const change = (time.dt * speed) / duration;
 			return time.fades.fade(id, inside, Number.isNaN(change) ? 1 : change);
 		}
-		default: {
-			return null;
-		}
 	}
 };
 
@@ -307,7 +291,7 @@ const VIEW_STEPS = 64;
  * @param target the point the view looks at
  * @param eye the viewpoint
  * @param options optionally which points are clear to view from (off the ground and out of the scenery), and
- *   the blend's preview overrides, so only volumes the blend would apply count
+ *   which conditional sets hold, so only volumes the blend would apply count
  * @returns the point nearest `eye` on the segment from `target` that qualifies, or `null` when none does
  */
 export const eyeInLevelVolume = (
@@ -316,14 +300,12 @@ export const eyeInLevelVolume = (
 	environment: LevelEnvironment,
 	target: Vec3,
 	eye: Vec3,
-	options: { clear?: (point: Vec3) => boolean } & Pick<BlendOptions, 'enabled' | 'loaded'>,
+	options: { clear?: (point: Vec3) => boolean } & Pick<BlendOptions, 'loaded'>,
 ): Vec3 | null => {
-	const applicable = manifest.environmentVolumes.filter((volume, id) =>
-		volumeApplies(manifest, volume, id, options),
-	);
+	const applicable = manifest.environmentVolumes.filter((volume) => volumeApplies(manifest, volume, options));
 	const owner = (volume: EnvironmentVolumeInfo): number => volumeLevelTag(manifest, volume);
 	const own = manifest.environmentVolumes[environment.volume];
-	if (own === undefined || !volumeApplies(manifest, own, environment.volume, options)) {
+	if (own === undefined || !volumeApplies(manifest, own, options)) {
 		return null;
 	}
 	const others = applicable.filter((volume) => owner(volume) !== 0 && owner(volume) !== level);

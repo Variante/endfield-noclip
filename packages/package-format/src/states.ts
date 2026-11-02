@@ -115,6 +115,10 @@ export interface VisibilityGroup {
  *   `doodadGroups`: one level's resource node group level (1 to 4)
  * - `activation`: whether the player has activated an interactive (a campfire), not activated (0) or activated
  *   (1)
+ * - `environmentVolume`: whether an environment volume may apply, off (0) or on (1); see
+ *   `EnvironmentVolumeInfo.control`
+ * - `waterLevel`: the fill a gameplay water volume is at, as an index into `WaterVolumeEntry.levels`; it gates
+ *   no content, so a viewer moves the volume's surface to it
  */
 export type SceneControlKind =
 	| 'quest'
@@ -138,11 +142,13 @@ export type SceneControlKind =
 	| 'factoryRegion'
 	| 'facility'
 	| 'doodadGroups'
-	| 'activation';
+	| 'activation'
+	| 'environmentVolume'
+	| 'waterLevel';
 
 /**
  * one selectable piece of game state. quest and mission controls also say where they sit in the story, and
- * script controls what sets them in game
+ * script and water level controls what sets them in game
  */
 export type SceneControl =
 	| (SceneControlBase & {
@@ -155,10 +161,20 @@ export type SceneControl =
 			/** what sets it in game, deduplicated; empty when no client script does */
 			drivers: ControlDriver[];
 	  })
-	| (SceneControlBase & { kind: Exclude<SceneControlKind, 'quest' | 'mission' | 'script'> });
+	| (SceneControlBase & {
+			kind: 'waterLevel';
+			/** what sets each fill in game, deduplicated; empty when no client script does */
+			drivers: ControlDriver[];
+	  })
+	| (SceneControlBase & {
+			kind: Exclude<SceneControlKind, 'quest' | 'mission' | 'script' | 'waterLevel'>;
+	  });
 
 /** a `script` control */
 export type ScriptControl = Extract<SceneControl, { kind: 'script' }>;
+
+/** a control level scripts set, which lists what sets it */
+export type DrivenControl = Extract<SceneControl, { kind: 'script' | 'waterLevel' }>;
 
 /** what every {@link SceneControl} has */
 export interface SceneControlBase {
@@ -190,9 +206,9 @@ export interface SceneControlBase {
 }
 
 /**
- * something that sets a script-controlled group in game, found by following the level scripts that show or
- * hide it back to what starts them. `shows` is the value the script sets: true shows the group, false hides
- * it, `null` when the script computes it
+ * something that sets a control in game, found by following the level scripts that set it back to what starts
+ * them. `value` is the control value the script sets (for a script control, 1 shows the group and 0 hides
+ * it), `null` when the script computes it
  *
  * - `quest`: a quest or mission state the chain listens for or checks
  * - `switch`: an interactive's event (a switch, lever or other object the player uses), with its template and
@@ -206,14 +222,14 @@ export interface SceneControlBase {
  * - `unknown`: an event the extractor doesn't classify; `type` is the game's event name
  */
 export type ControlDriver =
-	| { kind: 'quest'; quests: QuestRef[]; shows: boolean | null }
-	| { kind: 'switch'; template: string | null; position: Vec3 | null; shows: boolean | null }
-	| { kind: 'area'; position: Vec3; radius: number; shows: boolean | null }
-	| { kind: 'script'; position: Vec3 | null; radius: number | null; shows: boolean | null }
-	| { kind: 'level'; levelId: string; name: string | null; shows: boolean | null }
-	| { kind: 'server'; shows: boolean | null }
-	| { kind: 'event'; event: ScriptEventKind; type: string; shows: boolean | null }
-	| { kind: 'unknown'; type: string; shows: boolean | null };
+	| { kind: 'quest'; quests: QuestRef[]; value: number | null }
+	| { kind: 'switch'; template: string | null; position: Vec3 | null; value: number | null }
+	| { kind: 'area'; position: Vec3; radius: number; value: number | null }
+	| { kind: 'script'; position: Vec3 | null; radius: number | null; value: number | null }
+	| { kind: 'level'; levelId: string; name: string | null; value: number | null }
+	| { kind: 'server'; value: number | null }
+	| { kind: 'event'; event: ScriptEventKind; type: string; value: number | null }
+	| { kind: 'unknown'; type: string; value: number | null };
 
 /**
  * what sets off an `event` driver: `combat` (fights, spawners, damage, deaths), `dialog` (a dialogue or

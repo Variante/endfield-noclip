@@ -31,15 +31,18 @@ const sectionsPhase = (
 const LEVEL_1 = 0;
 const LEVEL_2 = 1;
 const LEVEL_1_WITH_STATE = 2;
+const LEVEL_2_SWITCHED = 3;
 const groups = [
 	{ levelTag: 1, condition: null },
 	{ levelTag: 2, condition: null },
 	{ levelTag: 1, condition: 0 },
+	{ levelTag: 2, condition: 1 },
 ];
 
 const volume = (patch: Partial<EnvironmentVolumeInfo>): EnvironmentVolumeInfo => ({
 	name: 'v',
 	group: LEVEL_1,
+	control: null,
 	shape: { kind: 'global' },
 	blendMode: 1,
 	priority: 100,
@@ -47,7 +50,6 @@ const volume = (patch: Partial<EnvironmentVolumeInfo>): EnvironmentVolumeInfo =>
 	fadeInDuration: 0,
 	fadeOutDuration: 0,
 	phase: 0,
-	activation: 'unknown',
 	...patch,
 });
 
@@ -180,19 +182,18 @@ describe('environment blend', () => {
 		assert.equal(density(blended(m, [5, 25, 50], options)), 2);
 	});
 
-	it('previews volumes with unknown activation without classifying their names', () => {
+	it('applies volumes without classifying their names', () => {
 		for (const name of ['night', 'fight', 'ordinary']) {
-			const m = manifest([phase(name, 9)], [volume({ name, activation: 'unknown' })]);
+			const m = manifest([phase(name, 9)], [volume({ name })]);
 			assert.equal(density(blended(m, [0, 0, 0], options)), 9);
 		}
 	});
 
-	it('skips volumes whose scene states are off, unless previewed by hand', () => {
+	it('skips volumes whose condition (scene states, their own switch) fails', () => {
 		const m = manifest([phase('night', 5)], [volume({ group: LEVEL_1_WITH_STATE, blendMode: 0 })]);
 		const at: Vec3 = [0, 0, 0];
 		assert.equal(density(blended(m, at, { ...options, loaded: [false, true] })), 0);
 		assert.equal(density(blended(m, at, { ...options, loaded: [true, true] })), 5);
-		assert.equal(density(blended(m, at, { ...options, loaded: [false, true], enabled: { 0: true } })), 5);
 	});
 
 	it('with volumes off, applies the scene-wide global volumes and the base volume wherever the camera is', () => {
@@ -274,35 +275,33 @@ describe('eyeInLevelVolume', () => {
 	it('counts only volumes the blend would apply', () => {
 		const m = manifest(
 			[phase('base', 1), phase('next door', 2)],
-			[volume({ shape: square, blendDistance: 1 }), volume({ group: LEVEL_2, phase: 1, shape: square })],
+			[
+				volume({ shape: square, blendDistance: 1 }),
+				volume({ group: LEVEL_2_SWITCHED, phase: 1, shape: square }),
+			],
 		);
 		// the switched-off neighbour doesn't block the view
-		const eye = eyeInLevelVolume(m, 1, own, target, [50, 30, 50], { enabled: { 1: false } });
+		const eye = eyeInLevelVolume(m, 1, own, target, [50, 30, 50], { loaded: [true, false] });
 		assert.deepEqual(eye, [50, 30, 50]);
-		assert.equal(eyeInLevelVolume(m, 1, own, target, [50, 30, 50], {}), null);
+		assert.equal(eyeInLevelVolume(m, 1, own, target, [50, 30, 50], { loaded: [true, true] }), null);
 	});
 
 	it('finds no viewpoint when the base volume doesn’t apply', () => {
-		const m = manifest([phase('scripted', 1)], [volume({ shape: square, blendMode: 3 })]);
-		assert.deepEqual(eyeInLevelVolume(m, 1, own, target, [50, 210, 50], {}), null);
+		const m = manifest([phase('scripted', 1)], [volume({ group: LEVEL_1_WITH_STATE, shape: square })]);
+		assert.deepEqual(eyeInLevelVolume(m, 1, own, target, [50, 210, 50], { loaded: [false] }), null);
 	});
 });
 
-it('overrides unknown activation without bypassing volume bounds or pinned phases', () => {
-	const m = manifest([phase('scripted', 9)], [volume({ shape: square, blendMode: 3 })], {
-		heightFog: { heightFogDensity: 1, enable: true },
-	});
-	assert.equal(density(blended(m, [50, 25, 50], options)), 1);
-	assert.equal(density(blended(m, [50, 25, 50], { ...options, enabled: { 0: true } })), 9);
-	assert.equal(density(blended(m, [150, 25, 50], { ...options, enabled: { 0: true } })), 1);
-	assert.equal(
-		density(blended(m, [50, 25, 50], { volumes: true, pinnedPhase: 0, enabled: { 0: false } })),
-		9,
+it('applies a switched-on scripted volume at full strength inside its bounds; a pinned phase applies anyway', () => {
+	const m = manifest(
+		[phase('scripted', 9)],
+		[volume({ group: LEVEL_1_WITH_STATE, shape: square, blendMode: 3 })],
+		{ heightFog: { heightFogDensity: 1, enable: true } },
 	);
-	const automatic = manifest([phase('regular', 5)], [volume({})], {
-		heightFog: { heightFogDensity: 1, enable: true },
-	});
-	assert.equal(density(blended(automatic, [0, 0, 0], { ...options, enabled: { 0: false } })), 1);
+	assert.equal(density(blended(m, [50, 25, 50], { ...options, loaded: [false] })), 1);
+	assert.equal(density(blended(m, [50, 25, 50], { ...options, loaded: [true] })), 9);
+	assert.equal(density(blended(m, [150, 25, 50], { ...options, loaded: [true] })), 1);
+	assert.equal(density(blended(m, [50, 25, 50], { volumes: true, pinnedPhase: 0, loaded: [false] })), 9);
 });
 
 /** blends a base phase's sections towards a phase setting `active`, `x` m inside a 20 m blend distance */

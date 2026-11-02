@@ -707,18 +707,20 @@ export const loadLevelScripts = async (
 };
 
 /**
- * finds what shows and hides a scene's script-controlled entities
+ * finds what shows and hides a scene's script-controlled entities, and what runs other actions
  *
  * @param context install readers
  * @param levelScripts the scene's level scripts
  * @param entities ids of the scene's script-controlled entities: dynamic entities' global ids, interactives'
  *   logic ids
- * @returns drivers and activation rules by entity id
+ * @param actions other actions whose drivers to list, by their target key
+ * @returns drivers by entity id and action target, and activation rules by entity id
  */
 export const loadScriptDrivers = async (
 	context: Pick<Context, 'vfs' | 'world'>,
 	levelScripts: LevelScripts,
 	entities: ReadonlySet<string>,
+	actions: readonly ScriptAction[],
 ): Promise<ScriptDrivers> => {
 	const { vfs, world } = context;
 	const { scripts, ownLevels, undecoded } = levelScripts;
@@ -761,10 +763,15 @@ export const loadScriptDrivers = async (
 		missionsOf: await missionScriptReferences(context),
 		label: (id) => labels.getOrInsertComputed(id, () => questRef(world, id)),
 		levelNames: await world.names(),
+		actions,
 	});
 	return {
 		...links,
-		counts: { scripts: scripts.length, undecoded, targeted: links.drivers.size },
+		counts: {
+			scripts: scripts.length,
+			undecoded,
+			targeted: [...links.drivers.keys()].filter((id) => entities.has(id)).length,
+		},
 	};
 };
 
@@ -782,6 +789,15 @@ export interface LinkContext {
 	label: (id: string) => Promise<QuestRef>;
 	/** level display names by id */
 	levelNames: ReadonlyMap<string, string>;
+	/** other actions whose drivers to find, each under its own target key; their drivers' values are `null` */
+	actions: readonly ScriptAction[];
+}
+
+/** an action node of a script, whose drivers are listed under `target` */
+export interface ScriptAction {
+	script: string;
+	node: number;
+	target: string;
 }
 
 /**
@@ -810,19 +826,32 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			for (const target of action.targets) {
 				if (entities.has(target)) {
 					// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
-					await link(script, paths, node, target, action.shows);
+					await link(script, paths, node, target, action.shows === null ? null : Number(action.shows), true);
 				}
 			}
 		}
 	}
+	const byId = new Map(scripts.map((script) => [script.id, script]));
+	for (const { script: id, node: nodeId, target } of context.actions) {
+		const script = byId.get(id);
+		const node = script?.nodes.get(nodeId);
+		if (script !== undefined && node !== undefined) {
+			// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
+			await link(script, reach(script), node, target, null, false);
+		}
+	}
 
-	/** adds the drivers and activation paths of one action setting one target */
+	/**
+	 * adds the drivers of one action setting one target to `value`, and for a visibility action (`activation`)
+	 * its activation paths
+	 */
 	async function link(
 		script: Script,
 		paths: Map<number, Reach[]>,
 		node: Node,
 		target: string,
-		shows: boolean | null,
+		value: number | null,
+		activation: boolean,
 	): Promise<void> {
 		const found: ControlDriver[] = [];
 		if (!ownLevels.has(script.level)) {
@@ -830,16 +859,16 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				kind: 'level',
 				levelId: script.level,
 				name: levelNames.get(script.level) ?? null,
-				shows,
+				value,
 			});
 		} else {
 			for (const path of paths.get(Number(node.ID)) ?? []) {
 				for (const cause of causesOf(script, path.header, indexes, 0)) {
 					// oxlint-disable-next-line no-await-in-loop -- labels are cached per quest
-					found.push(...(await driversOf(cause, [...path.guards, ...cause.guards], shows)));
+					found.push(...(await driversOf(cause, [...path.guards, ...cause.guards], value)));
 				}
-				if (ACTIVATION.has(typeOf(path.header))) {
-					noteActivation(script, target, path.guards, shows);
+				if (activation && ACTIVATION.has(typeOf(path.header))) {
+					noteActivation(script, target, path.guards, value === null ? null : value === 1);
 				}
 			}
 		}
@@ -890,7 +919,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 	}
 
 	/** @returns the drivers a cause becomes */
-	async function driversOf(cause: Cause, guards: Guard[], shows: boolean | null): Promise<ControlDriver[]> {
+	async function driversOf(cause: Cause, guards: Guard[], value: number | null): Promise<ControlDriver[]> {
 		const quests = [...questIds(guards), ...(cause.kind === 'quest' ? questIds(cause.detail) : [])];
 		const out: ControlDriver[] = [];
 		if (quests.length > 0) {
@@ -898,7 +927,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				kind: 'quest',
 				// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
 				quests: await Promise.all(unique(quests).sort().map(label)),
-				shows,
+				value,
 			});
 		}
 		switch (cause.kind) {
@@ -919,7 +948,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 					template = placement?.template ?? null;
 					position = placement?.position ?? null;
 				}
-				out.push({ kind: 'switch', template, position, shows });
+				out.push({ kind: 'switch', template, position, value });
 				break;
 			}
 			case 'area': {
@@ -927,8 +956,8 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				const radius = cause.shape?.radius;
 				out.push(
 					position !== null && typeof radius === 'number'
-						? { kind: 'area', position, radius, shows }
-						: { kind: 'server', shows },
+						? { kind: 'area', position, radius, value }
+						: { kind: 'server', value },
 				);
 				break;
 			}
@@ -936,7 +965,7 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				const missions = missionsOf.get(cause.script.id);
 				if (missions !== undefined && quests.length === 0) {
 					// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
-					out.push({ kind: 'quest', quests: await Promise.all([...missions].sort().map(label)), shows });
+					out.push({ kind: 'quest', quests: await Promise.all([...missions].sort().map(label)), value });
 				}
 				const shape = asNode(
 					asList(cause.script.data.startShapeList)[0] ?? asList(cause.script.data.activeShapeList)[0],
@@ -946,23 +975,23 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 					kind: 'script',
 					position,
 					radius: position !== null && typeof shape?.radius === 'number' ? shape.radius : null,
-					shows,
+					value,
 				});
 				break;
 			}
 			case 'server': {
 				if (quests.length === 0) {
-					out.push({ kind: 'server', shows });
+					out.push({ kind: 'server', value });
 				}
 				break;
 			}
 			case 'event': {
-				out.push({ kind: 'event', event: cause.event, type: cause.type, shows });
+				out.push({ kind: 'event', event: cause.event, type: cause.type, value });
 				break;
 			}
 			case 'unknown': {
 				unmapped.set(cause.type, (unmapped.get(cause.type) ?? 0) + 1);
-				out.push({ kind: 'unknown', type: cause.type, shows });
+				out.push({ kind: 'unknown', type: cause.type, value });
 				break;
 			}
 		}

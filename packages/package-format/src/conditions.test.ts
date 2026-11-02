@@ -28,6 +28,9 @@ const control = (
 		case 'script': {
 			return { ...base, kind: base.kind, drivers: [] };
 		}
+		case 'waterLevel': {
+			return { ...base, kind: base.kind, drivers: [] };
+		}
 		default: {
 			return { ...base, kind: base.kind };
 		}

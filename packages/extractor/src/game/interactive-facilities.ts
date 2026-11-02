@@ -876,7 +876,7 @@ export const loadInteractiveFacilities = async (
 		if (scripted.has(logicId)) {
 			const control = `script:${logicId}`;
 			switches.push(control);
-			scriptControls.getOrInsertComputed(logicId, () => ({
+			scriptControls.getOrInsertComputed(logicId, (): ScriptControl => ({
 				kind: 'script',
 				id: control,
 				name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,

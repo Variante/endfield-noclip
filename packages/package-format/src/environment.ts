@@ -83,21 +83,36 @@ export interface EnvironmentVolumeInfo {
 	/** the object's name */
 	name: string;
 	/**
-	 * index into `StatesInfo.groups`: the owning level (tag 0 for scene-wide) and the scene states that load
-	 * it. a volume applies wherever it holds the camera, whichever level is shown, once its condition holds
+	 * index into `StatesInfo.groups`: the owning level (tag 0 for scene-wide), the scene states that load it,
+	 * and its {@link control}. a volume applies wherever it holds the camera, whichever level is shown, once its
+	 * condition holds
 	 */
 	group: number;
+	/**
+	 * the `environmentVolume` control that switches it, which its group requires on; `null` for a volume
+	 * without a phase, which never applies. a scripted volume (blend mode 3) defaults off, since the script
+	 * that fades it in isn't followed, and previews at full strength when on
+	 */
+	control: string | null;
 	shape: EnvironmentVolumeShape;
-	blendMode: number;
+	blendMode: EnvironmentBlendMode;
 	priority: number;
 	blendDistance: number;
 	fadeInDuration: number;
 	fadeOutDuration: number;
 	/** index into {@link PackageManifest.environmentPhases}, or `null` if the phase is unset or unreadable */
 	phase: number | null;
-	/** script activation has not been recovered; previewing this volume assumes it is enabled */
-	activation: 'unknown';
 }
+
+/** how a volume blends in: 0 replaces, 1 by distance, 2 over time, 3 by a scripted factor */
+export type EnvironmentBlendMode = 0 | 1 | 2 | 3;
+
+/**
+ * @param mode a volume's `_blendMode`
+ * @returns whether it's one of the four blend modes
+ */
+export const isEnvironmentBlendMode = (mode: number): mode is EnvironmentBlendMode =>
+	mode === 0 || mode === 1 || mode === 2 || mode === 3;
 
 /**
  * `HGLightConfig`: the sun. physical units: `directLux` is illuminance and `directEV100` the exposure, so

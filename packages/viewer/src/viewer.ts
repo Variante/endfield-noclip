@@ -137,8 +137,8 @@ export interface ViewerOptions {
 	animate: boolean;
 	water: boolean;
 	/**
-	 * how many times faster than the game water volumes move between levels; `Infinity` jumps (see
-	 * {@link Viewer.setWaterLevel})
+	 * how many times faster than the game water volumes move to the level their `waterLevel` control picks;
+	 * `Infinity` jumps
 	 */
 	waterLevelRate: number;
 	ao: boolean;
@@ -154,8 +154,6 @@ export interface ViewerOptions {
 	environmentVolumes: boolean;
 	/** an environment phase to show over the base instead of the volumes, or `null` */
 	environmentPin: number | null;
-	/** per-volume preview overrides; absent entries keep the default preview */
-	environmentEnabled: Readonly<Record<number, boolean>>;
 	/** a material channel instead of the lit image */
 	debugView: DebugView;
 }
@@ -204,7 +202,6 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	localLights: true,
 	environmentVolumes: true,
 	environmentPin: null,
-	environmentEnabled: {},
 	debugView: 'lit',
 };
 
@@ -685,7 +682,6 @@ export class Viewer {
 		this.scene = null;
 		this.#scenePicks = {};
 		this.#sceneValues = {};
-		this.options.environmentEnabled = {};
 		this.options.environmentPin = null;
 		this.#fades.reset();
 		this.#setIrradiance(new IrradianceVolume(this.#gfx.device, EMPTY_IRRADIANCE, []));
@@ -847,7 +843,7 @@ export class Viewer {
 	#blendEnvironment(force: boolean, dt: number): void {
 		const options = this.options;
 		const eye = this.camera.position;
-		const settings = `${options.environmentVolumes}|${options.environmentPin}|${JSON.stringify(options.environmentEnabled)}|${this.#conditionResults.join()}`;
+		const settings = `${options.environmentVolumes}|${options.environmentPin}|${this.#conditionResults.join()}`;
 		const last = this.#blendEye;
 		if (
 			!force &&
@@ -873,7 +869,6 @@ export class Viewer {
 						{
 							volumes: options.environmentVolumes,
 							pinnedPhase: options.environmentPin,
-							enabled: options.environmentEnabled,
 							loaded: this.#conditionResults,
 						},
 						{ fades: this.#fades, dt },
@@ -1045,7 +1040,6 @@ export class Viewer {
 		for (let i = 0; i < VIEW_HEADINGS; i++) {
 			const yaw = (i / VIEW_HEADINGS) * 2 * Math.PI;
 			const position = eyeInLevelVolume(manifest, level.tag, base, target, fromHeading(yaw), {
-				enabled: this.options.environmentEnabled,
 				loaded: this.#conditionResults,
 				// over the treetops and the cell's tallest scenery (Yinglung's chasm walls are meshes). holes in
 				// the terrain aren't clear; terrain that isn't resident yet is
@@ -1232,24 +1226,10 @@ export class Viewer {
 		return this.#waterLevels.states;
 	}
 
-	/**
-	 * moves a water volume towards one of its levels, at the speed the game moves it there times
-	 * {@link ViewerOptions.waterLevelRate}
-	 *
-	 * @param index the volume, in {@link waterVolumes}
-	 * @param fraction one of its levels' fills
-	 */
-	setWaterLevel(index: number, fraction: number): void {
-		this.#waterLevels.setTarget(index, fraction, !Number.isFinite(this.options.waterLevelRate));
-		this.#dirty = true;
-		this.#emitState();
-	}
-
 	/** restores scene control and environment preview defaults for the current package */
 	resetSceneValues(): void {
 		this.#scenePicks = {};
 		this.#waterLevels.reset();
-		this.options.environmentEnabled = {};
 		this.options.environmentPin = null;
 		this.#fades.reset();
 		this.#updateVisibility();
@@ -1344,6 +1324,8 @@ export class Viewer {
 		};
 		this.#sceneValues = states === undefined ? {} : resolveSceneValues(states, picks);
 		const values = this.#sceneValues;
+		// water volumes move to the fill their `waterLevel` control picks, at the game's speed times the rate
+		this.#waterLevels.follow(values, !Number.isFinite(this.options.waterLevelRate));
 		this.#conditionResults = states === undefined ? [] : conditionResults(states, values);
 		const shown =
 			states === undefined ? [] : groupsShown(states, this.#level?.tag ?? null, this.#conditionResults);
@@ -1357,9 +1339,6 @@ export class Viewer {
 	/** @param patch options to change */
 	setOptions(patch: Partial<ViewerOptions>): void {
 		Object.assign(this.options, patch);
-		if (patch.environmentEnabled !== undefined) {
-			this.#fades.reset();
-		}
 		this.#targets.renderScale = Math.min(1, Math.max(0.25, this.options.renderScale));
 		this.#post.taa.enabled = this.options.antialiasing;
 		if (patch.debugView !== undefined || patch.antialiasing !== undefined) {

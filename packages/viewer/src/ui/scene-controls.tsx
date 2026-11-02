@@ -1,7 +1,6 @@
 import { ruleText } from '@endfield-noclip/package-format/conditions';
 import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type {
-	ControlDriver,
 	MissionInfo,
 	RuleText,
 	SceneControl,
@@ -20,6 +19,7 @@ import { useId, useState } from 'react';
 import { volumeCondition, volumeLevelTag } from '../render/environment-blend.ts';
 import type { Viewer } from '../viewer.ts';
 
+import { Drivers } from './drivers.tsx';
 import { useViewerState } from './use-viewer.ts';
 import { WaterLevels } from './water-levels.tsx';
 
@@ -99,82 +99,6 @@ const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null;
 	},
 ];
 
-/** @returns a driver in words: what it does to the group, and why */
-const driverText = (driver: ControlDriver): string => {
-	const verb = driver.shows === null ? 'Set' : driver.shows ? 'Shown' : 'Hidden';
-	switch (driver.kind) {
-		case 'quest': {
-			const quests = driver.quests.map((quest) =>
-				quest.mission === null
-					? quest.id
-					: quest.name === null
-						? quest.mission
-						: `${quest.mission}: ${quest.name}`,
-			);
-			return `${verb} by quest progress: ${quests.join('; ')}`;
-		}
-		case 'switch': {
-			return `${verb} when the player uses ${driver.template ?? 'an interactive'}`;
-		}
-		case 'area': {
-			return `${verb} when the player enters an area (${Math.round(driver.radius)} m)`;
-		}
-		case 'script': {
-			return `${verb} while its level script runs${driver.radius === null ? '' : ` (area ${Math.round(driver.radius)} m)`}`;
-		}
-		case 'level': {
-			return `${verb} by ${driver.name ?? driver.levelId}, another level reusing the map`;
-		}
-		case 'server': {
-			return `${verb} by script stages or server events`;
-		}
-		case 'event': {
-			switch (driver.event) {
-				case 'combat': {
-					return `${verb} by a fight (${driver.type})`;
-				}
-				case 'dialog': {
-					return `${verb} after a dialogue or cutscene (${driver.type})`;
-				}
-				case 'variable': {
-					return `${verb} when a game variable changes (${driver.type})`;
-				}
-				case 'entity': {
-					return `${verb} by an entity event (${driver.type})`;
-				}
-			}
-		}
-		case 'unknown': {
-			return `${verb} by an unclassified event (${driver.type})`;
-		}
-	}
-};
-
-/** what sets a script group in game, with a button to fly to each place it starts from */
-const Drivers = ({ viewer, drivers }: { viewer: Viewer; drivers: readonly ControlDriver[] }) => {
-	if (drivers.length === 0) {
-		return null;
-	}
-	return (
-		<ul className="drivers">
-			{drivers.map((driver) => {
-				const position = 'position' in driver ? driver.position : null;
-				const radius = 'radius' in driver ? (driver.radius ?? 20) : 20;
-				return (
-					<li key={JSON.stringify(driver)}>
-						{driverText(driver)}
-						{position !== null && (
-							<button type="button" onClick={() => viewer.flyToPoint(position, Math.min(radius, 120) * 1.5)}>
-								Go
-							</button>
-						)}
-					</li>
-				);
-			})}
-		</ul>
-	);
-};
-
 /** kinds whose controls are plain on/off switches */
 const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set([
 	'sceneState',
@@ -205,7 +129,6 @@ const ControlRow = ({
 	const label = (entry: number): string =>
 		control.values.find((candidate) => candidate.value === entry)?.label ?? String(entry);
 	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
-	const drivers = control.kind === 'script' ? control.drivers : [];
 	let follows: string | null = null;
 	if (control.followsCamera) {
 		follows = 'Follow camera';
@@ -226,7 +149,7 @@ const ControlRow = ({
 						<small className="muted">{detail}</small>
 					</span>
 				</label>
-				<Drivers viewer={viewer} drivers={drivers} />
+				<Drivers viewer={viewer} control={control} />
 			</div>
 		);
 	}
@@ -253,7 +176,7 @@ const ControlRow = ({
 					))}
 				</select>
 			</label>
-			<Drivers viewer={viewer} drivers={drivers} />
+			<Drivers viewer={viewer} control={control} />
 		</div>
 	);
 };
@@ -486,11 +409,13 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	});
 	const levelNames = new Map(manifest.levels.map((entry) => [entry.tag, entry.name ?? entry.id]));
 	const controlNames = new Map(manifest.states.controls.map((entry) => [entry.id, entry.name]));
-	/** @returns the scene states a volume loads with, by name */
-	const loadingStates = (condition: number): string =>
+	/** @returns the controls a volume loads with besides its own switch, by name */
+	const loadingStates = (condition: number, own: string | null): string =>
 		unique(
 			manifest.states.conditionalSets[condition].alternatives.flatMap((requirements) =>
-				requirements.map(({ control }) => controlNames.get(control) ?? control),
+				mapDefined(requirements, ({ control }) =>
+					control === own ? undefined : (controlNames.get(control) ?? control),
+				),
 			),
 		).join(' or ');
 	return (
@@ -538,40 +463,41 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 			<details>
 				<summary>Lighting / environment volumes ({volumes.length})</summary>
 				<p className="muted small">A pinned phase overrides these.</p>
-				{volumes.map(({ volume, id, owner, condition }) => (
-					<label className="toggle scene-toggle" key={id}>
-						<input
-							type="checkbox"
-							disabled={volume.phase === null}
-							checked={
-								viewer.options.environmentEnabled[id] ??
-								(volume.blendMode !== 3 && (condition === null || viewer.conditionResults[condition]))
-							}
-							onChange={(event) =>
-								viewer.setOptions({
-									environmentEnabled: {
-										...viewer.options.environmentEnabled,
-										[id]: event.currentTarget.checked,
-									},
-								})
-							}
-						/>
-						<span>
-							{volume.name}
-							<small className="muted">
-								{volume.phase === null
-									? 'Phase unavailable'
-									: volume.blendMode === 3
-										? 'Scripted blend · preview at full strength'
-										: `Priority ${volume.priority}`}
-								{condition !== null && ` · with ${loadingStates(condition)}`}
-								{owner !== 0 &&
-									owner !== level?.tag &&
-									` · from ${levelNames.get(owner) ?? `level ${owner}`}`}
-							</small>
-						</span>
-					</label>
-				))}
+				{volumes.map(({ volume, id, owner, condition }) => {
+					const { control } = volume;
+					const states = condition === null ? '' : loadingStates(condition, control);
+					return (
+						<label className="toggle scene-toggle" key={id}>
+							<input
+								type="checkbox"
+								disabled={control === null}
+								checked={control !== null && viewer.sceneValues[control] === 1}
+								onChange={(event) =>
+									control !== null && viewer.setSceneValue(control, Number(event.currentTarget.checked))
+								}
+							/>
+							<span>
+								{volume.name}
+								<small className="muted">
+									{control === null
+										? 'Phase unavailable'
+										: volume.blendMode === 3
+											? 'Scripted blend · preview at full strength'
+											: `Priority ${volume.priority}`}
+									{states !== '' && ` · with ${states}`}
+									{condition !== null &&
+										control !== null &&
+										viewer.sceneValues[control] === 1 &&
+										!viewer.conditionResults[condition] &&
+										' (not loaded)'}
+									{owner !== 0 &&
+										owner !== level?.tag &&
+										` · from ${levelNames.get(owner) ?? `level ${owner}`}`}
+								</small>
+							</span>
+						</label>
+					);
+				})}
 			</details>
 		</section>
 	);

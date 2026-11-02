@@ -80,10 +80,10 @@ applies the budget.
 ## inspecting
 
 - environment: `viewer.environmentName`, `viewer.appliedVolumes` (volumes blended at the camera, in
-  order), `viewer.environmentPhases()`, and
-  `viewer.options.environmentVolumes / environmentPin / environmentEnabled`. volumes have height
-  bands, so pose near the ground to see a level's own look; a high camera gets only the scene's
-  global environment.
+  order), `viewer.environmentPhases()`, and `viewer.options.environmentVolumes / environmentPin`;
+  switch a volume with `viewer.setSceneValue(volume.control, 0 | 1)`. volumes have height bands, so
+  pose near the ground to see a level's own look; a high camera gets only the scene's global
+  environment.
 - `viewer.scene.pkg.manifest` holds levels, environment profiles, `environmentVolumes` and
   `environmentPhases`. `await import('/src/render/environment.ts')` gives `deriveEnvironment` for
   checking derived values against a profile.

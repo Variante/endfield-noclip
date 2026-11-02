@@ -12,6 +12,8 @@ export interface ScriptWaterLevel {
 	volume: string;
 	/** the script's id */
 	script: string;
+	/** the action's node id in the script */
+	node: number;
 	/** `fraction` of the volume's height, or `amount` out of its maximum */
 	kind: 'fraction' | 'amount';
 	value: number;
@@ -20,6 +22,13 @@ export interface ScriptWaterLevel {
 	/** metres per second a fill-speed action just before sets, or `null` */
 	speed: number | null;
 }
+
+/**
+ * @param level a fill a script sets
+ * @returns the key its action's drivers are listed under
+ */
+export const waterActionTarget = (level: Pick<ScriptWaterLevel, 'script' | 'node'>): string =>
+	`water:${level.script}:${level.node}`;
 
 /** a script's file name under its level directory, the order fills are listed in */
 const scriptFile = ({ level, id }: { level: string; id: string }): string => `${level}/${id}.json`;
@@ -109,6 +118,7 @@ export const scriptLevels = (
 			result.push({
 				volume,
 				script,
+				node: Number(node.ID),
 				kind: 'fraction',
 				value,
 				smooth,
@@ -116,7 +126,15 @@ export const scriptLevels = (
 			});
 		} else if (type === 'SetAmount') {
 			// whether a set amount moves or snaps the surface isn't recovered; it's listed as moving at the volume's speed
-			result.push({ volume, script, kind: 'amount', value, smooth: true, speed: null });
+			result.push({
+				volume,
+				script,
+				node: Number(node.ID),
+				kind: 'amount',
+				value,
+				smooth: true,
+				speed: null,
+			});
 		}
 	}
 	return { levels: result, computed };

@@ -72,23 +72,27 @@ export class WaterLevels {
 	}
 
 	/**
-	 * starts moving a volume towards one of its levels, at that level's speed
+	 * starts moving each volume towards the level its `waterLevel` control picks, at that level's speed
 	 *
-	 * @param index the volume
-	 * @param fraction the level's fill
+	 * @param values every scene control's value
 	 * @param instant whether to jump there
+	 * @returns whether any volume's target changed
 	 */
-	setTarget(index: number, fraction: number, instant: boolean): void {
-		const volume = this.#volumes[index];
-		if (volume === undefined) {
-			return;
+	follow(values: Readonly<Record<string, number>>, instant: boolean): boolean {
+		let changed = false;
+		for (const [i, volume] of this.#volumes.entries()) {
+			const level = volume.control === null ? undefined : volume.levels[values[volume.control] ?? -1];
+			if (level === undefined || level.fraction === this.#target[i]) {
+				continue;
+			}
+			this.#target[i] = level.fraction;
+			this.#speed[i] = level.speed;
+			if (instant) {
+				this.#current[i] = level.fraction;
+			}
+			changed = true;
 		}
-		const level = volume.levels.find((entry) => entry.fraction === fraction);
-		this.#target[index] = fraction;
-		this.#speed[index] = level?.speed ?? volume.fillSpeed;
-		if (instant) {
-			this.#current[index] = fraction;
-		}
+		return changed;
 	}
 
 	/** puts every volume back at its authored fill */

@@ -58,13 +58,14 @@ panel:
 - **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a
   script group derived from its scripts' quest checks; a script group lists its drivers ("Shown when
   the player uses …", "Hidden by quest progress: …"), with "Go" flying to a driver's place
-- **water levels**: a select per gameplay water volume of the fills scripts set it to
+- **water levels**: a select per gameplay water volume's `waterLevel` control, over the fills
+  scripts set it to, listing what sets each ("Set to 37% … by quest progress: …")
   ([water volumes](water.md#water-volumes))
-- **lighting / environment volumes**: volumes owned by the shown level or reaching into it. a volume
-  follows its scene-state condition unless ticked or unticked here, which overrides it.
-  scripted-blend volumes (blend mode 3) are off unless ticked. packed volumes carry
-  `activation: 'unknown'` because their script enablement isn't recovered (see
-  [environment.md](../game-data/environment.md))
+- **lighting / environment volumes**: volumes owned by the shown level or reaching into it, each a
+  checkbox over its `environmentVolume` control, which its group requires alongside its scene states
+  ("(not loaded)" when those fail). scripted-blend volumes (blend mode 3) default off, since the
+  script that fades them in isn't followed (see
+  [environment.md](../game-data/environment.md#activation))
 
 every row shows the control's rule and the assumption behind its default. controls are listed where
 their `levelTags` include 0 or the shown level's tag. "Reset" drops every pick. the settings panel's

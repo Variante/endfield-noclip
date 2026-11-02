@@ -1,5 +1,6 @@
 import type { Viewer } from '../viewer.ts';
 
+import { Drivers } from './drivers.tsx';
 import { useViewerState, useViewerStats } from './use-viewer.ts';
 
 /** how fast water volumes move between levels, as multiples of the game's speed */
@@ -30,18 +31,18 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 	}
 	const level = pkg.manifest.levels.find((entry) => entry.id === viewer.level);
 	const surfaces = pkg.water.surfaces;
+	const controls = new Map(pkg.manifest.states.controls.map((control) => [control.id, control]));
+	// a volume is listed with its `waterLevel` control, for the levels that control is listed for
 	const rows = viewer.waterVolumes.flatMap((state, index) => {
 		const surface = surfaces.find((entry) => entry.kind === 'volume' && entry.volume === index);
-		if (surface === undefined) {
+		const control = state.entry.control === null ? undefined : controls.get(state.entry.control);
+		if (surface === undefined || control === undefined) {
 			return [];
 		}
-		const owner = pkg.manifest.states.groups[surface.group]?.levelTag ?? 0;
-		const { entry } = state;
 		const listed =
-			(entry.levels.length > 1 || entry.floaters.length > 0) &&
-			(level === undefined || owner === 0 || owner === level.tag) &&
-			matches(`water volume ${entry.id}`);
-		return listed ? [{ state, index, surface }] : [];
+			(level === undefined || control.levelTags.includes(0) || control.levelTags.includes(level.tag)) &&
+			matches(`${control.name} ${control.id}`);
+		return listed ? [{ state, surface, control }] : [];
 	});
 	return (
 		<details>
@@ -63,7 +64,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 					))}
 				</select>
 			</label>
-			{rows.map(({ state: { entry, current, target }, index, surface }) => {
+			{rows.map(({ state: { entry, current, target }, surface, control }) => {
 				const height = (fraction: number): number => entry.base + entry.heightMax * fraction;
 				const { min, max } = surface.bounds;
 				const center: [number, number, number] = [
@@ -73,10 +74,10 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 				];
 				const size = Math.max(max[0] - min[0], max[2] - min[2]);
 				return (
-					<div key={entry.id}>
+					<div key={control.id}>
 						<label className="scene-choice">
 							<span>
-								Water volume {entry.id}
+								{control.name}
 								<small className="muted">
 									{current === target
 										? `at ${metres(height(current))}`
@@ -85,12 +86,13 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 								</small>
 							</span>
 							<select
-								value={String(target)}
-								onChange={(event) => viewer.setWaterLevel(index, Number(event.currentTarget.value))}
+								value={String(viewer.sceneValues[control.id] ?? control.default)}
+								onChange={(event) => viewer.setSceneValue(control.id, Number(event.currentTarget.value))}
 							>
-								{entry.levels.map((option) => (
-									<option key={option.fraction} value={String(option.fraction)}>
-										{metres(height(option.fraction))} ({Math.round(option.fraction * 100)}%) · {option.label}
+								{control.values.map((option) => (
+									<option key={option.value} value={String(option.value)}>
+										{option.label}
+										{option.value === control.default ? ' (initial)' : ''}
 									</option>
 								))}
 							</select>
@@ -98,6 +100,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 						<button type="button" onClick={() => viewer.flyToPoint(center, Math.min(size, 120) * 0.75)}>
 							Go
 						</button>
+						<Drivers viewer={viewer} control={control} />
 					</div>
 				);
 			})}
