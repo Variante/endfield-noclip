@@ -131,6 +131,12 @@ rotate and take the distortion (`_MaskTexUseDisturb`) like the main texture's. t
 around the Very Large Rift's portal (`glow_04_line` in `p_fxmap_dung02_dg005_boss_semicircle_01`) is
 a mask-only material.
 
+`_USE_VERTOFFSET` moves the vertices as VFXBaseV2's does, in both passes, without the vertex alpha's
+weight and the pull towards the camera. the rift's escaping trails
+(`p_fxmap_dung02_dg005_boss_semicircle_escapism_trail_02`, children `blue02` and `red02`, placed
+around the arena) are such: tall sheets pushed half a metre in along their normals by a scrolling
+noise, dissolved and distorted into streaks.
+
 ## reflection-only effects
 
 `HGRP/Effect/VFXReflectionPass` is never shaded into the image. its passes are `ForwardReflection`

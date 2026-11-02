@@ -560,6 +560,57 @@ test('a VFXDitherAlpha stack look raises its alpha to `_DitherAlphaExp`; other s
 	assert.equal(base.params[EffectRow.decal + 3], 1);
 });
 
+test('a VFXDitherAlpha stack look moves its vertices by its offset texture outside particle mode', () => {
+	// the rift's escaping trails (`M_fxmap_dung02_dg005_boss_semicircle_escapism_trail_01_1101`)
+	const dither: ShaderEntry = {
+		...shader('HGRP/Effect/VFXDitherAlpha'),
+		family: 'vfxDitherAlpha',
+		floats: { _UseMainTexAsAlpha: 1, _InParticle: 1 },
+		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white', _OffsetTex: 'white' },
+	};
+	const trail = {
+		blend: 'alphaTest',
+		blendFactors: null,
+		keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_VERTOFFSET'],
+		slots: { _MainTex: slot(1, [2.5, 1]), _DisturbTex1: slot(2), _DissolveTex: slot(3), _OffsetTex: slot(4) },
+		floats: {
+			_InParticle: 0,
+			_OffsetIntensity: -0.5,
+			_OffsetSwitchDir: 2,
+			// VFXBaseV2's own; the dither shader doesn't read them
+			_UseVertexColorAlphaAsVertOffsetWeight: 1,
+			_VertCameraOffset: 3,
+		},
+		vectors: { _OffsetSpeed: [0.005, -0.05, 0, 0] },
+	} satisfies Partial<ReadyMaterial>;
+	const [moved, particle, alone] = materialLooks({
+		shaders: [dither],
+		entries: [
+			material({ id: 0, ...trail }),
+			material({ id: 1, ...trail, floats: { ...trail.floats, _InParticle: 1 } }),
+			material({ id: 2, ...trail, keywords: ['_USE_VERTOFFSET'] }),
+		],
+	});
+	assert.equal(moved.flags, LookFlags.Effect);
+	assert.deepEqual(moved.textures, [1, 2, 3, -1, -1, -1, 4]);
+	assert.equal(moved.params[EffectRow.slotBits + OFFSET_SLOT], ROLE_NONE);
+	assert.deepEqual(
+		Array.from(
+			moved.params.subarray(EffectRow.anim + OFFSET_SLOT * 4, EffectRow.anim + OFFSET_SLOT * 4 + 2),
+			(v) => Number(v.toFixed(4)),
+		),
+		[0.005, -0.05],
+	);
+	assert.deepEqual([...moved.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)], [0, 0, 0, 2]);
+	assert.deepEqual([...moved.params.subarray(EffectRow.offset, EffectRow.offset + 4)], [-0.5, 0, 0, 0]);
+	assert.deepEqual([...moved.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 0]);
+	// particle mode cancels the offset, so the look draws without it
+	assert.equal(particle.flags, LookFlags.Effect);
+	assert.equal(particle.params[EffectRow.offsetMode], 0);
+	// a vertex offset alone doesn't move a material onto the stack
+	assert.equal((alone.flags & LookFlags.Effect) !== 0, false);
+});
+
 test('a VFXRefract samples the scene behind at an offset by its texture and is masked by its mask red', () => {
 	// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
 	const refract: ShaderEntry = {

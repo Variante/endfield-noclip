@@ -163,9 +163,10 @@ packs or renders correctly.
   there is unknown
 - scene effects ([scene effects](game-data/effects.md)): only VFXBaseV2, VFXDecal, the mist
   (FogSimple, VFXFakeVolumeFog), VFXWater's waterfall sheets, VFXDitherAlpha's plain variant and its
-  unlit distortion, dissolve, red mask and polar or screen UV variants (blended rather than
-  dithered, and writing no depth), and VFXRefract's mask, polar UV, colour offset and soft blend
-  variants draw; other effect shaders (VFXAdvance, …) and materials in these shaders' undrawn
+  unlit distortion, dissolve, red mask and polar or screen UV variants, with or without a vertex
+  offset (blended rather than dithered, and writing no depth; the Very Large Rift's escaping trails
+  are unchecked against an in-game shot), and VFXRefract's mask, polar UV, colour offset and soft
+  blend variants draw; other effect shaders (VFXAdvance, …) and materials in these shaders' undrawn
   variants show as [unsupported](viewer/materials.md#unsupported-materials); reflection-only effects
   aren't drawn, as in the game (their part in the reflections is under screen-space reflections).
   VFXRefract's dissolve, blend, saturation, spread, Fresnel mask and trail aren't drawn, and its

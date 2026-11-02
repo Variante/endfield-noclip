@@ -44,7 +44,10 @@ coverage. that alpha is raised to `_DitherAlphaExp` as the game's is, which thin
 Rift's red sky ring (`wenli_01_red` in `p_fxmap_dung02_dg005_boss_semicircle_sky_02`, exponent 3) to
 streaks. unlike the game's, they don't write depth, so they don't hide effects behind them. the
 stack's mask scales the colour as well as the alpha, so a mask draws only as its red
-(`_UseMaskTexAsAlpha`, the default), where its colour is white.
+(`_UseMaskTexAsAlpha`, the default), where its colour is white. their vertex offset fills the same
+rows as VFXBaseV2's (`setVertexOffset`), leaving out VFXBaseV2's vertex-alpha weight and camera
+pull; `vs_effect` still adds that pull's 1 mm. a vertex offset alone doesn't bring a material onto
+the stack, and those stay unsupported.
 
 [reflection-only effects](../game-data/effects.md#reflection-only-effects) aren't drawn, since the
 game never shades them into the image. the viewer's screen-space reflections don't take their normal

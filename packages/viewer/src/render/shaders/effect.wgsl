@@ -141,9 +141,9 @@ fn inverse3(m: mat3x3f) -> mat3x3f {
 	return transpose(mat3x3f(a, b, c)) * (1.0 / det);
 }
 
-// VFXBaseV2's vertex offset: along a direction (object or world space, or the normal), by the offset texture's
-// red channel remapped by `_Bi_Offset`, optionally weighted by the vertex alpha, plus a pull towards the camera
-// of up to `_VertCameraOffset` metres. `rel` is the vertex's camera-relative position, the camera at the origin
+// the vertex offset of VFXBaseV2 and VFXDitherAlpha: along a direction (object or world space, or the
+// normal), by the offset texture's red channel remapped by `_Bi_Offset`; VFXBaseV2's is optionally weighted by
+// the vertex alpha, plus a pull towards the camera of up to `_VertCameraOffset` metres. `rel` is the vertex's camera-relative position, the camera at the origin
 fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, rel: vec3f, uv: vec4f, vertex_alpha: f32) -> vec3f {
 	let dir_row = fx_row(id, FX_OFFSET_DIR);
 	let params = fx_row(id, FX_OFFSET);

@@ -68,13 +68,14 @@ export const EffectRow = {
 	 */
 	decal: 108,
 	/**
-	 * VFXBaseV2 vertex offset: `_OffsetDir` xyz, then how it's read: 0 in object space, 1 in world space, 2
-	 * along the vertex normal (`_OffsetSwitchDir`)
+	 * vertex offset (VFXBaseV2, VFXDitherAlpha): `_OffsetDir` xyz, then how it's read: 0 in object space, 1 in
+	 * world space, 2 along the vertex normal (`_OffsetSwitchDir`)
 	 */
 	offsetDir: 112,
 	/**
-	 * VFXBaseV2 vertex offset: `_OffsetIntensity`, `_Bi_Offset`, how much the vertex alpha weighs the offset,
-	 * the most it pulls vertices towards the camera (`_VertCameraOffset`, m)
+	 * vertex offset (VFXBaseV2, VFXDitherAlpha): `_OffsetIntensity`, `_Bi_Offset`, how much the vertex alpha
+	 * weighs the offset, the most it pulls vertices towards the camera (`_VertCameraOffset`, m; VFXBaseV2
+	 * only)
 	 */
 	offset: 116,
 	/**
@@ -335,6 +336,28 @@ const setShared = (look: EffectLook, entry: ReadyMaterial, shader: ShaderEntry, 
 	params[EffectRow.soft + 2] = float('_IgnorePostExposure', 1);
 };
 
+/**
+ * fills the vertex offset's slot and rows: along `_OffsetDir` (or the normal) by `_OffsetIntensity` times the
+ * offset texture's red, remapped by `_Bi_Offset`. VFXBaseV2 and VFXDitherAlpha share this form; the vertex
+ * alpha's weight and the pull towards the camera are VFXBaseV2's own and are left at 0
+ */
+const setVertexOffset = (
+	look: EffectLook,
+	entry: ReadyMaterial,
+	shader: ShaderEntry,
+	slot: TextureSlot,
+): void => {
+	const { float, color } = readers(entry, shader);
+	const params = look.params;
+	const speed = color('_OffsetSpeed') ?? [0, 0, 0, 0];
+	// the vertex stage reads the scroll after the `_ST`, unscaled and unrotated
+	setSlot(look, OFFSET_SLOT, slot, { speed: [speed[0], speed[1]], cos: 1, sin: 0 }, ROLE_NONE);
+	const dir = color('_OffsetDir') ?? [0, 0, 0, 0];
+	params.set([dir[0], dir[1], dir[2], float('_OffsetSwitchDir', 0)], EffectRow.offsetDir);
+	params.set([float('_OffsetIntensity', 0), float('_Bi_Offset', 0), 0, 0], EffectRow.offset);
+	params.set([1, float('_OffsetUVSet', 0) !== 0 ? 1 : 0], EffectRow.offsetMode);
+};
+
 /** whether a VFXBaseV2 material moves its vertices by the offset texture in {@link OFFSET_SLOT} */
 const vertexOffsetDrawn = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
 	entry.keywords.includes('_USE_VERTOFFSET') &&
@@ -516,21 +539,9 @@ export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLo
 		float('_InParticle', 1) === 0 &&
 		offsetSlot !== undefined
 	) {
-		const speed = color('_OffsetSpeed') ?? [0, 0, 0, 0];
-		// the vertex stage reads the scroll after the `_ST`, unscaled and unrotated
-		setSlot(look, OFFSET_SLOT, offsetSlot, { speed: [speed[0], speed[1]], cos: 1, sin: 0 }, ROLE_NONE);
-		const dir = color('_OffsetDir') ?? [0, 0, 0, 0];
-		params.set([dir[0], dir[1], dir[2], float('_OffsetSwitchDir', 0)], EffectRow.offsetDir);
-		params.set(
-			[
-				float('_OffsetIntensity', 0),
-				float('_Bi_Offset', 0),
-				float('_UseVertexColorAlphaAsVertOffsetWeight', 0),
-				float('_VertCameraOffset', 0),
-			],
-			EffectRow.offset,
-		);
-		params.set([1, float('_OffsetUVSet', 0) !== 0 ? 1 : 0], EffectRow.offsetMode);
+		setVertexOffset(look, entry, shader, offsetSlot);
+		params[EffectRow.offset + 2] = float('_UseVertexColorAlphaAsVertOffsetWeight', 0);
+		params[EffectRow.offset + 3] = float('_VertCameraOffset', 0);
 	}
 	if (entry.keywords.includes('_USE_LIGHTING')) {
 		params[EffectRow.offsetMode + 2] = 1;
@@ -569,10 +580,16 @@ const DITHER_EFFECT_KEYWORDS = new Set([
 ]);
 
 /**
+ * keywords of `HGRP/Effect/VFXDitherAlpha` that {@link vfxDitherEffectLook} also draws, alongside one of the
+ * above
+ */
+const DITHER_EFFECT_EXTRA_KEYWORDS = new Set(['_USE_VERTOFFSET']);
+
+/**
  * an unlit `HGRP/Effect/VFXDitherAlpha` material with a distortion, a dissolve, a mask or polar or screen
- * UVs, drawn by the texture stack. the game writes such a surface to the G-buffer where its alpha beats a
- * per-pixel noise; the viewer blends it over by that alpha instead, which its temporal antialiasing would
- * average the dither to anyway
+ * UVs, and optionally a vertex offset, drawn by the texture stack. the game writes such a surface to the
+ * G-buffer where its alpha beats a per-pixel noise; the viewer blends it over by that alpha instead, which
+ * its temporal antialiasing would average the dither to anyway
  *
  * @param entry a material of `HGRP/Effect/VFXDitherAlpha`
  * @param shader its shader
@@ -583,7 +600,9 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 	const keywords = entry.keywords;
 	if (
 		!keywords.some((keyword) => DITHER_EFFECT_KEYWORDS.has(keyword)) ||
-		keywords.some((keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword)) ||
+		keywords.some(
+			(keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword) && !DITHER_EFFECT_EXTRA_KEYWORDS.has(keyword),
+		) ||
 		float('_UseLighting', 0) !== 0 ||
 		float('_DitherAlphaMode', 0) !== 0 ||
 		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0) ||
@@ -688,6 +707,11 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 	params[EffectRow.unfogged] = 0;
 	params[EffectRow.unfogged + 3] =
 		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
+	// the game scales the offset by `1 − _InParticle`; an unset offset texture binds white, the shader's default
+	if (keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0) {
+		const slot = entry.slots[OFFSET_TEXTURE] ?? { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+		setVertexOffset(look, entry, shader, slot);
+	}
 	return look;
 };
 
