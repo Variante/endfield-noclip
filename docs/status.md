@@ -219,11 +219,12 @@ packs or renders correctly.
   in-game shot). stencil [portals](game-data/effects.md#portals) draw without their masks' own
   colour and depth, stencil operations other than keep and replace are unsupported, and none draw
   unless the GPU has `depth32float-stencil8`
-- effect distance bands ([effect LOD tables](game-data/assets.md#effect-lod-tables)) are measured
-  from each renderer rather than the effect's origin and switch without the game's fade; only prefab
-  renderers take them (whether static scenery has distance-banded effects is unchecked); the
-  quality-level half of an entry (`settingLodLevel`, `platformLayer`) is ignored, as for the highest
-  preset, and what the game fills in for a band an entry has no info for is unchecked (read as on)
+- effect distance bands ([effect LOD tables](game-data/assets.md#effect-lod-tables)) switch without
+  the game's fade, and a billboarded renderer's offset from the effect's origin doesn't turn with
+  the camera; only prefab renderers take them (whether static scenery has distance-banded effects is
+  unchecked); the quality-level half of an entry (`settingLodLevel`, `platformLayer`) is ignored, as
+  for the highest preset, and what the game fills in for a band an entry has no info for is
+  unchecked (read as on)
 - particles ([particle systems](game-data/assets.md#particle-systems),
   [viewer](viewer/particles.md#particles)): mesh particles frozen in place lose their start colour
   and their drift and spin over lifetime, and take the midpoint of random start values. other

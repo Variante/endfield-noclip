@@ -6,7 +6,7 @@ import { type Chain, ChainFlags } from '@endfield-noclip/package-format/instance
 import { buildInstanceRows, markBillboardRows, ROW_WORDS, RowBillboard, RowKind } from './instance-rows.ts';
 
 it('marks the rows of billboard chains, keeping the rest of their info words', () => {
-	const chain = (flags: number): Chain => ({ lodCount: 1, flags, draws: [] });
+	const chain = (flags: number): Chain => ({ lodCount: 1, flags, draws: [], distanceOrigin: null });
 	const chains = [chain(0), chain(ChainFlags.BillboardFacing), chain(ChainFlags.BillboardUpright)];
 	const rows = buildInstanceRows(
 		{

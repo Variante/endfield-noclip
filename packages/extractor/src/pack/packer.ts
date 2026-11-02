@@ -14,8 +14,10 @@ import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
 import { terrainLeafLevel, type TerrainSurfacesData } from '@endfield-noclip/formats/hg/terrain';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import {
+	inverseTransformPoint,
 	multiplyMatrices,
 	transformBounds,
+	transformPoint,
 	trsMatrix,
 	unityEulerQuaternion,
 } from '@endfield-noclip/formats/unity/transform';
@@ -33,7 +35,6 @@ import {
 	encodeChains,
 	encodeInstanceBlock,
 	type ChainDraw,
-	ChainFlags,
 	DrawRole,
 	type InstanceBlock,
 	NO_MATERIAL,
@@ -1476,9 +1477,9 @@ const collectEntities = async (
 			} else if (renderer.shadowOnly) {
 				role = DrawRole.ShadowOnly;
 			}
-			// an effect's LOD table shows the renderer at some camera distances: one draw per span, measured from
-			// the renderer rather than the effect's origin
-			const spans = (renderer.distances ?? [{ near: 0, far: Infinity }]).map(({ near, far }) => ({
+			// an effect's LOD table shows the renderer at some camera distances from the effect's origin: one draw
+			// per span
+			const spans = (renderer.distances?.ranges ?? [{ near: 0, far: Infinity }]).map(({ near, far }) => ({
 				minSquared: near > 0 ? near * near : -1,
 				maxSquared: Number.isFinite(far) ? far * far : 3.4028234663852886e38,
 			}));
@@ -1515,11 +1516,13 @@ const collectEntities = async (
 			floating?.push(entityId);
 			addStructure(
 				{
-					chain: pack.chains.intern(
-						1,
-						draws,
-						(renderer.billboard?.flag ?? 0) | (renderer.distances === null ? 0 : ChainFlags.CameraDistance),
-					),
+					chain: pack.chains.intern(1, draws, {
+						billboard: renderer.billboard?.flag ?? 0,
+						distanceOrigin:
+							renderer.distances === null
+								? null
+								: distanceOrigin(matrix, transformPoint(rootMatrix, renderer.distances.origin)),
+					}),
 					matrix,
 					bounds,
 					entityId,
@@ -2223,6 +2226,28 @@ const treeGrid = (surface: TerrainSurfacesData | undefined): TreeGrid => {
 		hlodLevels: [leafLevel, leafLevel - 1, leafLevel - 2],
 		shardLevel: Math.max(0, leafLevel - 3),
 	};
+};
+
+/**
+ * @param matrix an instance's transform
+ * @param origin a world point
+ * @returns the point in the instance's frame, to the millimetre so placements of one prefab share chains; the
+ *   instance's own origin when its transform has no inverse (a zero scale, so nothing draws)
+ */
+const distanceOrigin = (matrix: Float32Array, origin: readonly number[]): [number, number, number] => {
+	let local: [number, number, number] = [0, 0, 0];
+	try {
+		local = inverseTransformPoint(matrix, origin);
+	} catch (error) {
+		if (!(error instanceof RangeError)) {
+			throw error;
+		}
+	}
+	return [
+		Math.round(local[0] * 1000) / 1000,
+		Math.round(local[1] * 1000) / 1000,
+		Math.round(local[2] * 1000) / 1000,
+	];
 };
 
 /**

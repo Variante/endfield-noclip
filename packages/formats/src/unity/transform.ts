@@ -105,6 +105,62 @@ export const multiplyMatrices = (parent: Float32Array, local: Float32Array): Flo
 };
 
 /**
+ * @param matrix affine column-major matrix
+ * @param point a point
+ * @returns the point transformed by the matrix
+ */
+export const transformPoint = (matrix: Float32Array, point: readonly number[]): [number, number, number] => {
+	const out: [number, number, number] = [matrix[12], matrix[13], matrix[14]];
+	for (let r = 0; r < 3; r++) {
+		for (let c = 0; c < 3; c++) {
+			out[r] += matrix[c * 4 + r] * point[c];
+		}
+	}
+	return out;
+};
+
+/**
+ * @param matrix affine column-major matrix
+ * @param point a point
+ * @returns the point the matrix takes to `point`
+ * @throws {RangeError} if the matrix's linear part is singular
+ */
+export const inverseTransformPoint = (
+	matrix: Float32Array,
+	point: readonly number[],
+): [number, number, number] => {
+	const m = (r: number, c: number): number => matrix[c * 4 + r];
+	// cofactors of the 3×3 linear part, transposed: its adjugate
+	const adjugate = [
+		[
+			m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1),
+			m(0, 2) * m(2, 1) - m(0, 1) * m(2, 2),
+			m(0, 1) * m(1, 2) - m(0, 2) * m(1, 1),
+		],
+		[
+			m(1, 2) * m(2, 0) - m(1, 0) * m(2, 2),
+			m(0, 0) * m(2, 2) - m(0, 2) * m(2, 0),
+			m(0, 2) * m(1, 0) - m(0, 0) * m(1, 2),
+		],
+		[
+			m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0),
+			m(0, 1) * m(2, 0) - m(0, 0) * m(2, 1),
+			m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0),
+		],
+	];
+	const determinant = m(0, 0) * adjugate[0][0] + m(0, 1) * adjugate[1][0] + m(0, 2) * adjugate[2][0];
+	if (Math.abs(determinant) < 1e-12) {
+		throw new RangeError('the matrix has no inverse');
+	}
+	const d = [point[0] - matrix[12], point[1] - matrix[13], point[2] - matrix[14]];
+	const out: [number, number, number] = [0, 0, 0];
+	for (let r = 0; r < 3; r++) {
+		out[r] = (adjugate[r][0] * d[0] + adjugate[r][1] * d[1] + adjugate[r][2] * d[2]) / determinant;
+	}
+	return out;
+};
+
+/**
  * @param bounds local axis-aligned bounds
  * @param matrix affine column-major matrix
  * @returns enclosing world bounds, including rotated and nonuniformly scaled extents

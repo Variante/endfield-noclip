@@ -66,9 +66,12 @@ over open ground; the blend's individual costs remain unprofiled.
 CPU over the selected row ranges. per instance it:
 
 1. culls by projected bounding-sphere radius (`minBoxPixels`, default 1.5 px) and by frustum planes;
-2. computes Unity's LODGroup metric (object size relative to screen height) and picks every chain
-   draw whose `(minSquared, maxSquared]` band contains it. an instance past the chain's smallest
-   threshold, or with nothing drawn in its band, is culled, matching the game;
+2. computes Unity's LODGroup metric (object size relative to screen height, the size being twice the
+   largest half-extent of its world bounds; unverified, see
+   [chains](../package-format.md#binary-encodings)), or for a `CameraDistance` chain the squared
+   distance to its distance origin, and picks every chain draw whose `(minSquared, maxSquared]` band
+   contains it. an instance past the chain's smallest threshold, or with nothing drawn in its band,
+   is culled, matching the game;
 3. if all picked geometries are resident, appends the row to a bucket keyed by (geometry, submesh,
    material, mirrored). otherwise it requests the geometry at a priority of its projected pixel
    height and draws the nearest LOD whose geometry is all resident (coarser first on ties), which is

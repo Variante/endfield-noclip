@@ -8,9 +8,22 @@ const bits = (value: number): number => {
 	return u32[0];
 };
 
+/** how a chain's instances are placed and switched, beyond its draws */
+export interface ChainPlacement {
+	/** `ChainFlags.BillboardFacing` or `BillboardUpright` when the renderer turns to the camera, else 0 */
+	billboard: number;
+	/**
+	 * where the draws' thresholds measure the camera's distance from, in the instance's frame, when they're
+	 * distances ({@link Chain.distanceOrigin}); `null` for screen-relative sizes
+	 */
+	distanceOrigin: [x: number, y: number, z: number] | null;
+}
+
+const SCREEN_SIZED: ChainPlacement = { billboard: 0, distanceOrigin: null };
+
 /**
  * LOD-chain templates, deduplicated by their ordered draws (geometry, material, submesh, LOD, role,
- * thresholds, source flags, particle system), LOD count and billboard mode
+ * thresholds, source flags, particle system), LOD count, billboard mode and distance origin
  */
 export class ChainTable {
 	readonly chains: Chain[] = [];
@@ -19,11 +32,12 @@ export class ChainTable {
 	/**
 	 * @param lodCount the renderer's LOD count
 	 * @param draws its draws in the game's order
-	 * @param billboard `ChainFlags.BillboardFacing` or `BillboardUpright` when the renderer turns to the camera
+	 * @param placement billboard mode and distance origin
 	 * @returns the chain id; equal inputs return equal ids
 	 */
-	intern(lodCount: number, draws: readonly ChainDraw[], billboard = 0): number {
-		let key = `${lodCount},${billboard}`;
+	intern(lodCount: number, draws: readonly ChainDraw[], placement: ChainPlacement = SCREEN_SIZED): number {
+		const { billboard, distanceOrigin } = placement;
+		let key = `${lodCount},${billboard},${distanceOrigin?.map(bits).join(',')}`;
 		for (const draw of draws) {
 			key += `|${draw.geometry},${draw.material},${draw.submesh},${draw.lod},${draw.role},${bits(draw.minSquared)},${bits(draw.maxSquared)},${draw.sourceFlags},${draw.particles}`;
 		}
@@ -32,8 +46,9 @@ export class ChainTable {
 			() =>
 				this.chains.push({
 					lodCount,
-					flags: chainFlags(draws) | billboard,
+					flags: chainFlags(draws) | billboard | (distanceOrigin === null ? 0 : ChainFlags.CameraDistance),
 					draws: draws.map((draw) => ({ ...draw })),
+					distanceOrigin: distanceOrigin === null ? null : [...distanceOrigin],
 				}) - 1,
 		);
 	}

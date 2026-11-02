@@ -19,6 +19,7 @@ import {
 	encodeChains,
 	encodeInstanceBlock,
 	type Chain,
+	ChainFlags,
 	DrawRole,
 	type InstanceBlock,
 } from './instances.ts';
@@ -129,10 +130,20 @@ describe('chains', () => {
 						particles: 3,
 					},
 				],
+				distanceOrigin: null,
 			},
-			{ lodCount: 1, flags: 2, draws: [] },
+			{ lodCount: 1, flags: 2, draws: [], distanceOrigin: null },
+			{ lodCount: 1, flags: ChainFlags.CameraDistance, draws: [], distanceOrigin: [0.5, -2, 12.25] },
+			{ lodCount: 1, flags: 0, draws: [], distanceOrigin: null },
 		];
 		assert.deepEqual(decodeChains(encodeChains(chains)), chains);
+	});
+
+	it('refuses a distance origin without its flag', () => {
+		assert.throws(
+			() => encodeChains([{ lodCount: 1, flags: 0, draws: [], distanceOrigin: [0, 0, 0] }]),
+			RangeError,
+		);
 	});
 });
 

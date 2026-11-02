@@ -1,5 +1,5 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
-import { type Chain, ChainFlags, DrawRole } from '@endfield-noclip/package-format/instances';
+import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances';
 import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 
 import { CULL_FLOATS, ROW_WORDS } from '../render/instance-rows.ts';
@@ -314,7 +314,8 @@ export class MeshSelector {
 					continue;
 				}
 				const slots = this.#chainSlots(runs[r]);
-				const byDistance = (this.#chains[runs[r]].flags & ChainFlags.CameraDistance) !== 0;
+				// effect distance bands measure from the effect's origin, in the instance's frame
+				const origin = this.#chains[runs[r]].distanceOrigin;
 				const last = Math.min(end, runEnd);
 				for (let i = Math.max(first, runFirst); i < last; i++) {
 					const at = i * ROW_WORDS;
@@ -340,7 +341,15 @@ export class MeshSelector {
 					}
 					// Unity's LODGroup metric: the object's size relative to the screen height
 					const relative = (2 * cull[i * CULL_FLOATS + 1] * pixelFactor) / (distance * viewportHeight);
-					const squared = byDistance ? x * x + y * y + z * z : relative * relative;
+					let squared = relative * relative;
+					if (origin !== null) {
+						// rows hold the transform's top three rows, row-major, translation relative to the block
+						const [px, py, pz] = origin;
+						const dx = ox + f32[at] * px + f32[at + 1] * py + f32[at + 2] * pz + f32[at + 3];
+						const dy = oy + f32[at + 4] * px + f32[at + 5] * py + f32[at + 6] * pz + f32[at + 7];
+						const dz = oz + f32[at + 8] * px + f32[at + 9] * py + f32[at + 10] * pz + f32[at + 11];
+						squared = dx * dx + dy * dy + dz * dz;
+					}
 					const priority = relative * viewportHeight * (castOnly ? CASTER_PRIORITY : 1);
 
 					let pendingCount = 0;

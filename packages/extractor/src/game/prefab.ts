@@ -77,11 +77,16 @@ export interface PrefabRenderer {
 	 * none
 	 */
 	materialValues: (MaterialValues | null)[];
-	/**
-	 * the camera distances from the renderer the effect LOD tables above it leave it on at, ascending; `null`
-	 * when nothing switches it by distance
-	 */
-	distances: readonly DistanceRange[] | null;
+	/** where the effect LOD tables above the renderer show it by camera distance; `null` when nothing does */
+	distances: DistanceBands | null;
+}
+
+/** the camera distances an effect's distance LOD shows something at */
+export interface DistanceBands {
+	/** ascending */
+	ranges: readonly DistanceRange[];
+	/** the point they're measured from, in prefab space: the EffectSetting's GameObject */
+	origin: [x: number, y: number, z: number];
 }
 
 /** material values a pose sets on a renderer, by property name, replacing the material's saved ones */
@@ -170,7 +175,7 @@ export const readPrefabRenderers = async (
 		billboard: PrefabBillboard | null;
 		/** material values the pose's clips set on the renderer */
 		posedMaterials: readonly ClipMaterialValue[];
-		distances: readonly DistanceRange[] | null;
+		distances: DistanceBands | null;
 	}[] = [];
 	const excluded = new Set<string>();
 	const firstLod = new Set<string>();
@@ -180,12 +185,19 @@ export const readPrefabRenderers = async (
 	const played = new Set<string>();
 	// GameObjects an EffectSetting's LOD table switches, found before their subtrees are visited
 	const lodSwitched = new Set<string>();
-	// by GameObject, the distances an EffectSetting's distance LOD leaves it on at, found likewise
-	const distanceSwitched = new Map<string, DistanceRange[]>();
-	const switchByDistance = (key: string, ranges: DistanceRange[]): void => {
+	// by GameObject, the distances an EffectSetting's distance LOD leaves it on at and that setting's GameObject,
+	// found likewise
+	const distanceSwitched = new Map<string, { ranges: DistanceRange[]; setting: string }>();
+	const switchByDistance = (key: string, ranges: DistanceRange[], setting: string): void => {
 		const known = distanceSwitched.get(key);
-		distanceSwitched.set(key, known === undefined ? ranges : intersectRanges(known, ranges));
+		// under nested tables, the later (inner) setting's origin
+		distanceSwitched.set(key, {
+			ranges: known === undefined ? ranges : intersectRanges(known.ranges, ranges),
+			setting,
+		});
 	};
+	// by GameObject with a distance LOD, its position in prefab space: where the camera's distance is measured from
+	const settingOrigins = new Map<string, [number, number, number]>();
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -198,7 +210,7 @@ export const readPrefabRenderers = async (
 		/** the Animators above the parent: what their clips never show, and the parent's path below each */
 		animators: readonly AnimatorScope[],
 		/** the distances the parent shows at, `null` for any */
-		parentDistances: readonly DistanceRange[] | null,
+		parentDistances: DistanceBands | null,
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -279,6 +291,7 @@ export const readPrefabRenderers = async (
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		const movers: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		let board: TypeTreeObject | null = null;
+		let hasDistanceLod = false;
 		for (const item of arrayField(data, 'm_Component')) {
 			if (!isObject(item)) {
 				throw new FormatError('prefab component is not an object');
@@ -311,9 +324,10 @@ export const readPrefabRenderers = async (
 				}
 				const byDistance = await effectDistanceLod(resolver, ref, settingData);
 				if (byDistance !== null) {
-					switchByDistance(key, byDistance.self);
+					hasDistanceLod = true;
+					switchByDistance(key, byDistance.self, key);
 					for (const [node, ranges] of byDistance.nodes) {
-						switchByDistance(node, ranges);
+						switchByDistance(node, ranges, key);
 					}
 				}
 			} else if (ref.info.classId === UnityClass.Animator) {
@@ -321,13 +335,6 @@ export const readPrefabRenderers = async (
 				if (hidden.size > 0) {
 					scopes.push({ hidden, path: '' });
 				}
-			}
-		}
-		let distances = parentDistances;
-		{
-			const own = distanceSwitched.get(key);
-			if (own !== undefined) {
-				distances = distances === null ? own : intersectRanges(distances, own);
 			}
 		}
 		const transform = components.find((component) => component.ref.info.classId === UnityClass.Transform);
@@ -370,6 +377,22 @@ export const readPrefabRenderers = async (
 			? parent
 			: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 		transforms.set(objectKey(transform.ref), matrix);
+		if (hasDistanceLod) {
+			settingOrigins.set(key, [matrix[12], matrix[13], matrix[14]]);
+		}
+		let distances = parentDistances;
+		{
+			const own = distanceSwitched.get(key);
+			// a setting is visited before what it switches, so its origin is known
+			const origin = own && settingOrigins.get(own.setting);
+			if (own !== undefined && origin !== undefined) {
+				// under nested tables, the inner table's origin with both tables' ranges
+				distances = {
+					ranges: distances === null ? own.ranges : intersectRanges(distances.ranges, own.ranges),
+					origin,
+				};
+			}
+		}
 		// a billboard sets its GameObject's world rotation, so the nearest one up the hierarchy wins
 		const billboard = (board && readBillboard(board, matrix)) ?? inherited;
 		for (const component of components) {

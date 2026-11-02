@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+	inverseTransformPoint,
 	multiplyMatrices,
 	multiplyQuaternions,
 	quaternionUnityEuler,
 	transformBounds,
+	transformPoint,
 	trsMatrix,
 	unityEulerQuaternion,
 } from './transform.ts';
@@ -31,6 +33,18 @@ test('nested transforms preserve parent rotation and scale without mutating eith
 	near(bounds.center, [10, 0, -2]);
 	near(bounds.extents, [6, 4, 2]);
 	assert.deepEqual([parent, child], saved);
+});
+
+test('inverse point transforms undo rotation, nonuniform scale and translation', () => {
+	const matrix = trsMatrix([10, 20, 30], unityEulerQuaternion([30, 45, 60]), [2, 3, 0.5]);
+	near(transformPoint(matrix, [1, 2, 3]), [
+		...transformBounds({ center: [1, 2, 3], extents: [0, 0, 0] }, matrix).center,
+	]);
+	near(inverseTransformPoint(matrix, transformPoint(matrix, [1, -2, 3])), [1, -2, 3]);
+	assert.throws(
+		() => inverseTransformPoint(trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 0, 1]), [0, 0, 0]),
+		RangeError,
+	);
 });
 
 test('Unity Euler angles round-trip through a quaternion, and quaternions compose parent first', () => {

@@ -233,12 +233,12 @@ whether a volume starts enabled ([activation](game-data/environment.md#activatio
 all little-endian, every section 4-byte aligned. the tables share a 16-byte header:
 `u32 magic, u16 version, u16 0, u32 count, u32 count-or-0`.
 
-| member                  | magic  | layout                                                                                                                                                                                                                                                      |
-| ----------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tree.bin`              | `EFTR` | header (nodes, refs); 48-byte nodes: `u8 level, u8 childMask, u16 flags, i32 x, i32 z, f32×3 min, f32×3 max, f32 geometricError, u32 refFirst, u32 refCount`; 24-byte refs: `u8 kind, u8 tier, u16 0, u32 group, u32 blob, u32 first, u32 count, f32 param` |
-| `tables/chains.bin`     | `EFCH` | header (chains, draws); 8-byte chains: `u32 firstDraw, u16 drawCount, u8 lodCount, u8 flags`; 28-byte draws: `u32 geometry, u32 material, u16 submesh, u8 lod, u8 role, f32 minSquared, f32 maxSquared, u32 sourceFlags, u32 particles`                     |
-| `tables/blobs.bin`      | `EFBX` | header (blobs, 0); 32-byte records: `16-byte hash, u16 archive, u8 codec, u8 kind, u32 offset, u32 length, u32 rawLength`                                                                                                                                   |
-| `tables/irradiance.bin` | `EFIV` | header (cells, 0); u32 cell keys ascending, then u32 blob indices                                                                                                                                                                                           |
+| member                  | magic  | layout                                                                                                                                                                                                                                                                                                                |
+| ----------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tree.bin`              | `EFTR` | header (nodes, refs); 48-byte nodes: `u8 level, u8 childMask, u16 flags, i32 x, i32 z, f32×3 min, f32×3 max, f32 geometricError, u32 refFirst, u32 refCount`; 24-byte refs: `u8 kind, u8 tier, u16 0, u32 group, u32 blob, u32 first, u32 count, f32 param`                                                           |
+| `tables/chains.bin`     | `EFCH` | header (chains, draws); 8-byte chains: `u32 firstDraw, u16 drawCount, u8 lodCount, u8 flags`; 28-byte draws: `u32 geometry, u32 material, u16 submesh, u8 lod, u8 role, f32 minSquared, f32 maxSquared, u32 sourceFlags, u32 particles`; then `f32×3` distance origins, one per `CameraDistance` chain in chain order |
+| `tables/blobs.bin`      | `EFBX` | header (blobs, 0); 32-byte records: `16-byte hash, u16 archive, u8 codec, u8 kind, u32 offset, u32 length, u32 rawLength`                                                                                                                                                                                             |
+| `tables/irradiance.bin` | `EFIV` | header (cells, 0); u32 cell keys ascending, then u32 blob indices                                                                                                                                                                                                                                                     |
 
 nodes are ordered coarse to fine (level, then z, then x); a node's `childMask` bit `dz·2 + dx` marks
 child `(2x + dx, 2z + dz)`, and its bounds cover everything it and its descendants draw, overhang
@@ -247,20 +247,25 @@ included.
 **chains** are LOD-chain templates deduplicated across the scene by LOD count and ordered draws,
 thresholds compared by f32 bit pattern ([chains.ts](../packages/extractor/src/pack/chains.ts)). a
 draw shows while `minSquared < s² ≤ maxSquared`, `s` being Unity's LODGroup screen-relative height;
-a negative `minSquared` never culls by size. roles: `Lit`, `ShadowOnly` (shadow proxies), `Card`
-(foliage imposter `_cardmesh` geometry), `Hlod`, `Unsupported` (a [stand-in](#stand-ins) for content
-the viewer can't draw, drawn with its unsupported look). `sourceFlags` keeps the game's renderer
-flag word for bits not yet understood. `particles` indexes the [particles table](#particles) when
-the draw is a particle system's mesh, else it's `0xffffffff`. the chain flags mark which roles it
-has (`HasShadowOnly`, `Hlod`, `HasCard`) and whether its instances are billboards
-(`BillboardFacing`, `BillboardUpright`): their transform's rotation is then relative to the
-camera's, and their bounds hold every orientation ([billboards](game-data/assets.md#billboards)).
-`CameraDistance` makes the chain's thresholds squared camera distances from the instance's
-translation, in m², instead of screen-relative sizes. the packer sets it on prefab renderers an
-[effect LOD table](game-data/assets.md#effect-lod-tables) switches by distance, with one draw per
-span of distances they show at; it measures from the renderer, not from the effect's origin as the
-game does, and switches without the game's fade. the nearest billboard up the hierarchy turns a mesh
-renderer ([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
+a negative `minSquared` never culls by size. the viewer measures `s` as twice the largest
+half-extent of the instance's world bounds over its distance, relative to the screen height; which
+size the game's thresholds were authored against is unverified, and rotated objects' bounds
+overstate it. roles: `Lit`, `ShadowOnly` (shadow proxies), `Card` (foliage imposter `_cardmesh`
+geometry), `Hlod`, `Unsupported` (a [stand-in](#stand-ins) for content the viewer can't draw, drawn
+with its unsupported look). `sourceFlags` keeps the game's renderer flag word for bits not yet
+understood. `particles` indexes the [particles table](#particles) when the draw is a particle
+system's mesh, else it's `0xffffffff`. the chain flags mark which roles it has (`HasShadowOnly`,
+`Hlod`, `HasCard`) and whether its instances are billboards (`BillboardFacing`, `BillboardUpright`):
+their transform's rotation is then relative to the camera's, and their bounds hold every orientation
+([billboards](game-data/assets.md#billboards)). `CameraDistance` makes the chain's thresholds
+squared camera distances, in m², instead of screen-relative sizes, measured from the chain's
+distance origin: a point in the instance's frame, which the instance's transform takes to the world.
+the packer sets it on prefab renderers an [effect LOD table](game-data/assets.md#effect-lod-tables)
+switches by distance, with one draw per span of distances they show at, and puts the origin on the
+effect's own GameObject as the game measures it (to the millimetre, so placements of a prefab share
+chains); under a billboard the stored rotation turns the offset, not the one the camera gives. it
+switches without the game's fade. the nearest billboard up the hierarchy turns a mesh renderer
+([billboard.ts](../packages/extractor/src/game/billboard.ts)): mode 0 flags the chain
 `BillboardFacing`, the others `BillboardUpright` (about the world's vertical, which is their axis on
 upright placements). the packer stores the offset times the renderer's rotation relative to the
 billboard, at the renderer's own position, so a renderer away from the billboard's origin turns in

@@ -52,8 +52,8 @@ export const ChainFlags = {
 	 */
 	BillboardUpright: 1 << 4,
 	/**
-	 * the draws' `minSquared` and `maxSquared` are squared camera distances from the instance's translation, in
-	 * m², rather than screen-relative sizes
+	 * the draws' `minSquared` and `maxSquared` are squared camera distances from {@link Chain.distanceOrigin},
+	 * in m², rather than screen-relative sizes
 	 */
 	CameraDistance: 1 << 5,
 } as const;
@@ -76,9 +76,8 @@ export interface ChainDraw {
 	role: DrawRole;
 	/**
 	 * shown while `minSquared < s² <= maxSquared`, `s` being the instance's screen-relative height as in
-	 * Unity's LODGroup (times the viewer's LOD bias), or the camera's distance in a
-	 * {@link ChainFlags.CameraDistance} chain. `maxSquared` is `FLT_MAX` on the nearest LOD; a negative
-	 * `minSquared` means never culled by size
+	 * Unity's LODGroup, or the camera's distance in a {@link ChainFlags.CameraDistance} chain. `maxSquared` is
+	 * `FLT_MAX` on the nearest LOD; a negative `minSquared` means never culled by size
 	 */
 	minSquared: number;
 	maxSquared: number;
@@ -98,6 +97,11 @@ export interface Chain {
 	/** {@link ChainFlags} */
 	flags: number;
 	draws: ChainDraw[];
+	/**
+	 * in a {@link ChainFlags.CameraDistance} chain, the point camera distances are measured from, in the
+	 * instance's frame (its transform takes it to the world); `null` otherwise
+	 */
+	distanceOrigin: [x: number, y: number, z: number] | null;
 }
 
 /**
@@ -127,6 +131,7 @@ export interface InstanceBlock {
 
 const CHAIN_SIZE = 8;
 const DRAW_SIZE = 28;
+const ORIGIN_SIZE = 12;
 /** {@link ChainDraw.particles} of a draw without particles, as encoded */
 const NO_PARTICLES = 0xff_ff_ff_ff;
 const INSTANCE_HEADER_SIZE = 32;
@@ -136,7 +141,7 @@ const INSTANCE_ROW_SIZE = 4 + 48 + 24 + 4;
 /** 'EFCH' */
 const CHAINS_HEADER: HeaderShape = {
 	magic: 0x48_43_46_45,
-	version: 3,
+	version: 4,
 	size: TABLE_HEADER_SIZE,
 	label: 'chain table',
 };
@@ -150,19 +155,26 @@ const INSTANCES_HEADER: HeaderShape = {
 
 const isDrawRole = enumGuard(DrawRole);
 
+const hasDistanceOrigin = (flags: number): boolean => (flags & ChainFlags.CameraDistance) !== 0;
+
 /**
  * tables/chains.bin: 16-byte header (`'EFCH'`, u16 version, u16 0, u32 chainCount, u32 drawCount), 8-byte
  * chains (u32 firstDraw, u16 drawCount, u8 lodCount, u8 flags), then 28-byte draws (u32 geometry, u32
  * material, u16 submesh, u8 lod, u8 role, f32 minSquared, f32 maxSquared, u32 sourceFlags, u32 particles,
- * `0xffffffff` for none).
+ * `0xffffffff` for none), then f32×3 distance origins, one per {@link ChainFlags.CameraDistance} chain in
+ * chain order.
  *
  * @param chains chain templates in id order
  * @returns the encoded table
- * @throws {RangeError} if a chain has more than 65,535 draws
+ * @throws {RangeError} if a chain has more than 65,535 draws, or has a distance origin without the
+ *   `CameraDistance` flag or the flag without one
  */
 export const encodeChains = (chains: readonly Chain[]): Uint8Array => {
 	const drawCount = chains.reduce((sum, chain) => sum + chain.draws.length, 0);
-	const out = new Uint8Array(TABLE_HEADER_SIZE + chains.length * CHAIN_SIZE + drawCount * DRAW_SIZE);
+	const originCount = chains.filter((chain) => hasDistanceOrigin(chain.flags)).length;
+	const out = new Uint8Array(
+		TABLE_HEADER_SIZE + chains.length * CHAIN_SIZE + drawCount * DRAW_SIZE + originCount * ORIGIN_SIZE,
+	);
 	const view = viewOf(out);
 	writeHeader(view, CHAINS_HEADER);
 	view.setUint32(8, chains.length, true);
@@ -170,10 +182,20 @@ export const encodeChains = (chains: readonly Chain[]): Uint8Array => {
 
 	let chainAt = TABLE_HEADER_SIZE;
 	let drawAt = TABLE_HEADER_SIZE + chains.length * CHAIN_SIZE;
+	let originAt = drawAt + drawCount * DRAW_SIZE;
 	let firstDraw = 0;
 	for (const chain of chains) {
 		if (chain.draws.length > 0xff_ff) {
 			throw new RangeError(`chain has ${chain.draws.length} draws, more than a u16 counts`);
+		}
+		if (hasDistanceOrigin(chain.flags) !== (chain.distanceOrigin !== null)) {
+			throw new RangeError('a chain has a distance origin exactly when it has the CameraDistance flag');
+		}
+		if (chain.distanceOrigin !== null) {
+			for (let i = 0; i < 3; i++) {
+				view.setFloat32(originAt + i * 4, chain.distanceOrigin[i], true);
+			}
+			originAt += ORIGIN_SIZE;
 		}
 		view.setUint32(chainAt, firstDraw, true);
 		view.setUint16(chainAt + 4, chain.draws.length, true);
@@ -209,9 +231,20 @@ export const decodeChains = (data: Uint8Array): Chain[] => {
 	checkHeader(view, CHAINS_HEADER);
 	const chainCount = view.getUint32(8, true);
 	const drawCount = view.getUint32(12, true);
-	checkLength(data, TABLE_HEADER_SIZE + chainCount * CHAIN_SIZE + drawCount * DRAW_SIZE, 'chain table');
+	let originCount = 0;
+	if (data.length >= TABLE_HEADER_SIZE + chainCount * CHAIN_SIZE) {
+		for (let c = 0; c < chainCount; c++) {
+			originCount += Number(hasDistanceOrigin(view.getUint8(TABLE_HEADER_SIZE + c * CHAIN_SIZE + 7)));
+		}
+	}
+	checkLength(
+		data,
+		TABLE_HEADER_SIZE + chainCount * CHAIN_SIZE + drawCount * DRAW_SIZE + originCount * ORIGIN_SIZE,
+		'chain table',
+	);
 
 	const drawsAt = TABLE_HEADER_SIZE + chainCount * CHAIN_SIZE;
+	let originAt = drawsAt + drawCount * DRAW_SIZE;
 	const chains: Chain[] = [];
 	for (let c = 0; c < chainCount; c++) {
 		const at = TABLE_HEADER_SIZE + c * CHAIN_SIZE;
@@ -235,7 +268,14 @@ export const decodeChains = (data: Uint8Array): Chain[] => {
 				particles: particlesOf(view.getUint32(drawAt + 24, true)),
 			});
 		}
-		chains.push({ lodCount: view.getUint8(at + 6), flags: view.getUint8(at + 7), draws });
+		const flags = view.getUint8(at + 7);
+		let distanceOrigin: Chain['distanceOrigin'] = null;
+		if (hasDistanceOrigin(flags)) {
+			const f = (i: number): number => view.getFloat32(originAt + i * 4, true);
+			distanceOrigin = [f(0), f(1), f(2)];
+			originAt += ORIGIN_SIZE;
+		}
+		chains.push({ lodCount: view.getUint8(at + 6), flags, draws, distanceOrigin });
 	}
 	return chains;
 };
