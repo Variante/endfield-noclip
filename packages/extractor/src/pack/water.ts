@@ -18,8 +18,6 @@ import type { Context } from '../context.ts';
 import { errorText } from '../errors.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
 import type { SyntheticMesh } from '../game/synthetic-mesh.ts';
-import type { ScriptWaterLevel } from '../game/water-volume-scripts.ts';
-import type { LevelWaterVolume } from '../game/water-volumes.ts';
 import {
 	loadSectorTexture,
 	loadWaterGlobalConfig,
@@ -27,6 +25,8 @@ import {
 	readSceneWater,
 	type SourcedWaterSurface,
 } from '../game/water-source.ts';
+import type { ScriptWaterLevel } from '../game/water-volume-scripts.ts';
+import type { LevelWaterVolume } from '../game/water-volumes.ts';
 import type { ChunkSource } from '../game/world-index.ts';
 
 import type { Place } from './asset-placement.ts';
@@ -458,13 +458,19 @@ export const volumeEntry = (
 	floaters: readonly number[],
 	scripts: readonly ScriptWaterLevel[],
 ): WaterVolumeEntry => {
-	const found: { fraction: number; speed: number | null; authored: boolean; moves: Set<string>; snaps: Set<string> }[] =
-		[{ fraction: volume.fraction, speed: null, authored: true, moves: new Set(), snaps: new Set() }];
+	const found: {
+		fraction: number;
+		speed: number | null;
+		authored: boolean;
+		moves: Set<string>;
+		snaps: Set<string>;
+	}[] = [{ fraction: volume.fraction, speed: null, authored: true, moves: new Set(), snaps: new Set() }];
 	for (const level of scripts) {
 		if (level.volume !== volume.id) {
 			continue;
 		}
-		const raw = level.kind === 'fraction' ? level.value : volume.amountMax > 0 ? level.value / volume.amountMax : 0;
+		const raw =
+			level.kind === 'fraction' ? level.value : volume.amountMax > 0 ? level.value / volume.amountMax : 0;
 		const fraction = Math.min(Math.max(raw, 0), 1);
 		let entry = found.find((other) => Math.abs(other.fraction - fraction) < FRACTION_EPSILON);
 		if (entry === undefined) {

@@ -12,13 +12,16 @@ export interface WaterTable {
 	/** surface configs, deduplicated; {@link WaterSurfaceEntry.config} indexes this list */
 	configs: WaterConfigEntry[];
 	surfaces: WaterSurfaceEntry[];
-	/** gameplay water volumes; their surfaces are in {@link surfaces}, naming them by {@link WaterSurfaceEntry.volume} */
+	/**
+	 * gameplay water volumes; their surfaces are in {@link surfaces}, naming them by
+	 * {@link WaterSurfaceEntry.volume}
+	 */
 	volumes: WaterVolumeEntry[];
 }
 
 /**
- * a gameplay water volume (LevelData `waterVolumes`): a polygon of water whose surface level scripts raise and
- * lower. its surface sits at `base + heightMax · fraction`; its {@link WaterSurfaceEntry} is packed at
+ * a gameplay water volume (LevelData `waterVolumes`): a polygon of water whose surface level scripts raise
+ * and lower. its surface sits at `base + heightMax · fraction`; its {@link WaterSurfaceEntry} is packed at
  * {@link initial}, and a viewer moves it and the volume's {@link floaters} vertically by the difference
  */
 export interface WaterVolumeEntry {
