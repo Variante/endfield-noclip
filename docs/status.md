@@ -92,7 +92,9 @@ packs or renders correctly.
   - off-screen casters reach only 250 m, so the sun can leak past that reach, and `_ShadowCullMode`
     isn't read
   - outside the game's sun-off volumes, rooms get the outdoor sun wherever no drawn geometry shadows
-    them
+    them. map02's 61 `shadowOC_CAVE_*` entities, oriented boxes over caves (InitChunkData component
+    61, [world](game-data/world.md#initchunkdata-layout)), are likely the game's cave shadow
+    occluders; they aren't packed and what they do is unchecked
   - local reflection probes, GTAO in specular occlusion, contact shadows; the AO multi-bounce fit
     uses the albedo's luminance rather than each channel, and the specular ambient falls back to the
     ambient probe until the reflection cubemap streams in
@@ -171,7 +173,9 @@ packs or renders correctly.
   render-object column 7 isn't read. `HGRP/WaterDecal` foam at the foot of waterfalls shows as
   [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the water's own
   foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer` values aren't
-  packed); other fluid types are unverified
+  packed); map02's 248 `P_waterdecal_01` chunk entities (InitChunkData component 31,
+  [world](game-data/world.md#initchunkdata-layout)) aren't packed at all, listed in
+  `debug/skipped-entities.json`; other fluid types are unverified
 - water volumes ([viewer](viewer/water.md#water-volumes)): volumes that don't name a `WaterConfig`
   (54 of map02's 61, listed in `debug/water.json`) aren't drawn. the game draws them through a
   surface prefab per water type (`WaterVolumeManagerConfig.waterSurfaceSettingDict`,

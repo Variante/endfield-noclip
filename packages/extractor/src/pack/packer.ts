@@ -172,6 +172,7 @@ import { LightCollector } from './lights.ts';
 import { type CacheReport, PackCache } from './pack-cache.ts';
 import { ParticleTable } from './particles.ts';
 import { PhaseTimer } from './phase-timer.ts';
+import { type SkippedEntityRow, SkippedEntities } from './skipped-entities.ts';
 import { packTerrain as packTerrainStep, type TerrainDebug } from './terrain.ts';
 import { TileTreeBuilder } from './tile-tree.ts';
 import { finishWater, planWater, type WaterDebug, type WaterPlan, type WaterVolumeInput } from './water.ts';
@@ -520,6 +521,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			unsupportedInteractives: entities.unsupportedInteractives,
 			unsupportedPrefabs: entities.unsupportedPrefabs,
 			standIns: entities.standIns,
+			skippedEntities: entities.skipped,
 		});
 		timer.end('debug');
 
@@ -753,6 +755,8 @@ const collectEntities = async (
 	unsupportedPrefabs: { path: string; reason: string }[];
 	/** content drawn as stand-ins, once each */
 	standIns: StandInReport[];
+	/** entities left out, by reason and component set */
+	skipped: SkippedEntityRow[];
 	/** environment volumes that placed prefabs carry */
 	placedVolumes: SceneEnvironmentVolume[];
 	/** Dijiang's cabin slots, with the group that shows their built cabin */
@@ -768,6 +772,7 @@ const collectEntities = async (
 	const { grid, subset } = scene;
 	const collected = new Collector();
 	const lights = new LightCollector();
+	const skipped = new SkippedEntities();
 	const counts: Record<string, number> = {
 		read: 0,
 		unique: 0,
@@ -775,6 +780,7 @@ const collectEntities = async (
 		decal: 0,
 		decalSkipped: 0,
 		noMatrix: 0,
+		noBounds: 0,
 		excluded: 0,
 		packed: 0,
 		foliageGrids: 0,
@@ -969,22 +975,32 @@ const collectEntities = async (
 					const draw = material === undefined ? null : decalDraw(entity.decal, material);
 					if (draw === null) {
 						counts.decalSkipped++;
+						skipped.add(
+							'static',
+							material === undefined ? 'rect decal without a material' : 'no decal cube mesh',
+							entity,
+						);
 						continue;
 					}
 					counts.decal++;
 					draws = [draw];
 				} else if (entity.renderer === null) {
 					counts.noRenderer++;
+					skipped.add('static', 'no renderer', entity);
 					continue;
 				}
 				if (entity.matrix === null) {
 					counts.noMatrix++;
+					skipped.add('static', 'no matrix', entity);
 					continue;
 				}
-				const bounds: Aabb = entity.bounds ?? {
-					center: [entity.matrix[12], entity.matrix[13], entity.matrix[14]],
-					extents: [0, 0, 0],
-				};
+				// without bounds a row can't be filed, culled or sized for LOD
+				if (entity.bounds === null) {
+					counts.noBounds++;
+					skipped.add('static', 'no bounds', entity);
+					continue;
+				}
+				const { bounds } = entity;
 				const [x, , z] = bounds.center;
 				if (!subset.includesEntity(entity.levelTag, x, z)) {
 					counts.excluded++;
@@ -1168,7 +1184,12 @@ const collectEntities = async (
 		}
 	}
 	for (const { entity, visibility } of dynamic.entities) {
-		if (seen.has(entity.id) || entity.matrix === null) {
+		if (seen.has(entity.id)) {
+			continue;
+		}
+		if (entity.matrix === null) {
+			seen.add(entity.id);
+			skipped.add('dynamic', 'no matrix', entity);
 			continue;
 		}
 		// a dynamic structure's decal material isn't read, so its box stands in for it
@@ -1180,10 +1201,11 @@ const collectEntities = async (
 			);
 			continue;
 		}
+		seen.add(entity.id);
 		if (entity.renderer === null || entity.bounds === null) {
+			skipped.add('dynamic', entity.renderer === null ? 'no renderer' : 'no bounds', entity);
 			continue;
 		}
-		seen.add(entity.id);
 		const [x, , z] = entity.bounds.center;
 		if (!subset.includesEntity(entity.levelTag, x, z)) {
 			continue;
@@ -1536,6 +1558,7 @@ const collectEntities = async (
 		unsupportedInteractives: facilities.unsupported,
 		unsupportedPrefabs,
 		standIns: reportedStandIns,
+		skipped: skipped.rows(),
 		placedVolumes: placed.volumes,
 		cabinRooms: cabins.rooms.map(({ control, levelTag, position, roomType }) => ({
 			group: collected.group(levelTag, collected.condition({ alternatives: [[{ control, mask: 2 }]] })),
@@ -2711,6 +2734,7 @@ const writeDebug = async (
 		unsupportedInteractives: { path: string; reason: string }[];
 		unsupportedPrefabs: { path: string; reason: string }[];
 		standIns: StandInReport[];
+		skippedEntities: SkippedEntityRow[];
 	},
 ): Promise<void> => {
 	const dir = join(outDir, 'debug');
@@ -2723,6 +2747,7 @@ const writeDebug = async (
 	await writeFile(join(dir, 'unsupported-interactives.json'), json(debug.unsupportedInteractives));
 	await writeFile(join(dir, 'unsupported-prefabs.json'), json(debug.unsupportedPrefabs));
 	await writeFile(join(dir, 'stand-ins.json'), json(debug.standIns));
+	await writeFile(join(dir, 'skipped-entities.json'), json(debug.skippedEntities));
 	await writeFile(
 		join(dir, 'assets.json'),
 		json({

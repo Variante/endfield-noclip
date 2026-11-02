@@ -417,10 +417,12 @@ the entity pass ([packer.ts](../packages/extractor/src/pack/packer.ts), `collect
 scene's chunk files in a fixed order (always-loaded before scene-state files, the default area
 before stream areas, then by name). an entity first met in an always-loaded file of the default area
 stays unconditional; any other entity collects every file holding it and loads while any of them
-does: the file's scene state and stream area both on. entities without a renderer or matrix are
-skipped; rect decals draw the decal cube instead ([decal copies](package-format.md#materials)).
-every row goes to a block of one visibility group (its level tag and the condition that loads it,
-see [package-format.md](package-format.md#visibility-groups)), so a level, a scene state or a stream
+does: the file's scene state and stream area both on. entities without a renderer, matrix or bounds
+are skipped and tallied in `debug/skipped-entities.json` (lights and water surfaces among them,
+which other passes pack); rect decals draw the decal cube instead
+([decal copies](package-format.md#materials)). every row goes to a block of one visibility group
+(its level tag and the condition that loads it, see
+[package-format.md](package-format.md#visibility-groups)), so a level, a scene state or a stream
 area can be shown or hidden as a whole:
 
 | destination | what goes there                                                                                                                                              | where it lives                           |
@@ -708,6 +710,7 @@ ignores:
 | `unsupported-interactives.json` | interactive LevelData files skipped as a whole, and templates or models that couldn't be resolved                                                                                                                                                                                                                                                                                                                                                                                       |
 | `unsupported-prefabs.json`      | prefabs that couldn't be instantiated, with reasons                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `stand-ins.json`                | content packed as [stand-ins](package-format.md#stand-ins): what it belongs to, its name, why, and for placed cubes the position of their centre (prefab renderers are listed once per prefab)                                                                                                                                                                                                                                                                                          |
+| `skipped-entities.json`         | chunk and DynamicStreaming entities that became no instance row, by reason and [component set](game-data/world.md#initchunkdata-layout): a count and a few names each                                                                                                                                                                                                                                                                                                                   |
 
 start from these when something is missing in the viewer: `instances.jsonl` maps a drawn block back
 to entities and chunk files, and `assets.json` says why an asset didn't convert.
