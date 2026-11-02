@@ -8,7 +8,18 @@
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
-import { describeLightBeam, describeMistCard, describeMistVolume } from './material-effects.ts';
+import {
+	describeDitherEffect,
+	describeLightBeam,
+	describeLitDecal,
+	describeMistCard,
+	describeMistVolume,
+	describeRefract,
+	describeVfxBase,
+	describeVfxDecal,
+	describeWaterSheet,
+	isDitherEffect,
+} from './material-effects.ts';
 import {
 	describeDithered,
 	describeErosion,
@@ -54,12 +65,13 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 	if (UNDRAWN_SHADERS.has(shader.name)) {
 		return { kind: 'undrawn', reason: 'writes only the reflections’ inputs' };
 	}
+	const noLook = unsupported('the viewer has no look for this shader');
 	if (shader.family === 'unknown') {
-		return { kind: 'unsupported', reason: 'the viewer has no look for this shader' };
+		return noLook;
 	}
 	// the opaque path has no additive blending
 	if (material.blend === 'additive' && !EFFECT_FAMILIES.has(shader.family)) {
-		return { kind: 'unsupported', reason: 'additive blending outside the effect shaders' };
+		return unsupported('additive blending outside the effect shaders');
 	}
 	const reader = readerOf(material, shader);
 	switch (shader.family) {
@@ -73,22 +85,39 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 			return describeMistCard(reader);
 		}
 		case 'vfxFakeVolumeFog': {
-			return shader.name === 'HGRP/Effect/VFXFakeVolumeFog'
-				? describeMistVolume(reader)
-				: unsupported('the viewer has no look for this shader');
+			return shader.name === 'HGRP/Effect/VFXFakeVolumeFog' ? describeMistVolume(reader) : noLook;
 		}
 		case 'volumetricBeam': {
 			return describeLightBeam(reader);
 		}
 		case 'vfxDitherAlpha': {
-			// the effect variants (a distortion, dissolve, mask or polar or screen UVs) still draw as legacy effects
-			const effect =
-				shader.name === 'HGRP/Effect/VFXDitherAlpha' &&
-				['_USE_DISSOLVE', '_USE_DISTURB', '_USE_MASK', '_USE_POLARUV', '_USE_SCREENUV'].some(reader.has);
-			return effect ? { kind: 'legacy' } : describeDithered(reader);
+			return isDitherEffect(reader) ? describeDitherEffect(reader) : describeDithered(reader);
+		}
+		case 'vfxBase': {
+			return shader.name === 'HGRP/Effect/VFXBaseV2' ? describeVfxBase(reader) : noLook;
+		}
+		case 'water': {
+			return shader.name === 'HGRP/Effect/VFXWater' ? describeWaterSheet(reader) : noLook;
+		}
+		case 'vfxRefract': {
+			return shader.name === 'HGRP/Effect/VFXRefract' ? describeRefract(reader) : noLook;
+		}
+		case 'decal': {
+			switch (shader.name) {
+				case 'HGRP/Effect/VFXDecal': {
+					return describeVfxDecal(reader);
+				}
+				case 'HGRP/DecalLit': {
+					return describeLitDecal(reader);
+				}
+				default: {
+					return noLook;
+				}
+			}
 		}
 		default: {
-			return LIT_FAMILIES.has(shader.family) ? describeLit(reader) : { kind: 'legacy' };
+			// the other effect families (VFXAdvance, WaterDecal, …) have no look
+			return LIT_FAMILIES.has(shader.family) ? describeLit(reader) : noLook;
 		}
 	}
 };

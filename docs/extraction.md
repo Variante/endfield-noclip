@@ -255,8 +255,14 @@ declares, falling back to the shader's defaults: materials keep the properties o
 before, and map02's Lit materials carrying LitTransparent's `_SurfaceType` and blend factors would
 otherwise classify as glass. a texture slot whose PPtr can't be followed is left empty and the
 material still converts; `pack` counts it as a `texture slot` failure and lists it in the material's
-debug row. the viewer maps families to shading in
-[render/materials.ts](../packages/viewer/src/render/materials.ts).
+debug row. `describeMaterial`
+([game/material-describe.ts](../packages/extractor/src/game/material-describe.ts)) then interprets
+the converted material into its [surface](package-format.md#materials): the surface shaders in
+[game/material-surfaces.ts](../packages/extractor/src/game/material-surfaces.ts), the effects in
+[game/material-effects.ts](../packages/extractor/src/game/material-effects.ts), each reading its
+properties through [game/material-values.ts](../packages/extractor/src/game/material-values.ts),
+which falls back to the shader's declared defaults. like the classification, these stay out of the
+conversion worker's imports.
 
 **transform.** [transform.ts](../packages/formats/src/unity/transform.ts) builds column-major TRS
 matrices, applying Unity Euler angles in the game's order

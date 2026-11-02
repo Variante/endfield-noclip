@@ -414,7 +414,12 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 							vectors: { ...converted.material.vectors, ...overrides.vectors },
 						};
 			// described once its textures have their final ids
-			materialEntries.push({ id, status: 'ready', ...material, surface: { kind: 'legacy' } });
+			materialEntries.push({
+				id,
+				status: 'ready',
+				...material,
+				surface: { kind: 'unsupported', reason: 'not described' },
+			});
 			materialDebug.push({
 				object: objectKey(ref),
 				name: loaded.record.name,

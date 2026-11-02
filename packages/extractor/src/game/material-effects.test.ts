@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { ShaderEntry, ShaderFamily, TextureSlot } from '@endfield-noclip/package-format/materials';
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type ShaderEntry,
+	type ShaderFamily,
+	type TextureSlot,
+} from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
 import { describeMaterial } from './material-describe.ts';
@@ -188,5 +194,688 @@ describe('light beams', () => {
 	it('marks blending the game pairs with neither mode unsupported', () => {
 		const odd = riftBeam({ floats: { _BlendMode: 1, _BlendSrcFactor: 5, _BlendDstFactor: 10 } });
 		assert.equal(odd.kind, 'unsupported');
+	});
+});
+
+/** a layer's role, red-alpha flag, source and disturb share */
+const roleOf = (
+	layer: { role: string; redAlpha: boolean; source: string | null; disturbShare: number } | null,
+) => (layer === null ? null : [layer.role, layer.redAlpha, layer.source, layer.disturbShare]);
+
+describe('VFXDecal', () => {
+	const decal = shader('HGRP/Effect/VFXDecal', 'decal');
+
+	it('takes its keyworded textures with their roles, the HDR base colour as stored, and its angle fade', () => {
+		const stack = ofKind(
+			describeMaterial(
+				material({
+					keywords: ['_USE_MASK', '_USE_DISTURB', '_USE_NORMALBLEND'],
+					slots: {
+						_MainTex: slot(1),
+						_MaskTex: slot(2),
+						_DisturbTex1: slot(3),
+						_DisturbTex2: slot(4),
+						_BlendTex: slot(5, [2, 2]),
+					},
+					floats: {
+						_TintColorAlpha: 0.5,
+						_MaskTexUseDisturb: 0.25,
+						_UseMaskTexAsAlpha: 1,
+						_AngleBlendFallOff: 5,
+					},
+					colors: { _DecalBaseColor: [2, 0.5, 1, 0.8] },
+				}),
+				decal,
+			),
+			'effectStack',
+		);
+		assert.equal(stack.variant, 'decal');
+		// main, disturb 1, mask; disturb 2 and blend lack their keywords, and there's no weight texture
+		assert.deepEqual(stack.layers.map(roleOf), [
+			['main', false, 'uv0', 0],
+			['disturb1', false, 'uv0', 0],
+			null,
+			null,
+			['mask', true, 'uv0', 0.25],
+			null,
+			null,
+		]);
+		assert.deepEqual(stack.tint, [2, 0.5, 1, 0.4]);
+		assert.equal(stack.decalFade?.angle, 5);
+		assert.equal(stack.unfogged, true);
+	});
+
+	it('starts its mask from polar UVs where computed, its weight from the box where screen UVs are not', () => {
+		const stack = ofKind(
+			describeMaterial(
+				material({
+					keywords: ['_USE_MASK', '_USE_WEIGHT', '_USE_POLARUV'],
+					slots: { _MainTex: slot(1), _MaskTex: slot(2), _WeightTex: slot(3) },
+					floats: {
+						_UsePolarUV: 1,
+						_MaskSwitchUV: 2,
+						_WeightSwitchUV: 1,
+						_WeightTexIntensity: 0.5,
+						_DissolveUseWeight: 1,
+					},
+				}),
+				decal,
+			),
+			'effectStack',
+		);
+		assert.equal(stack.layers[4]?.source, 'polar');
+		assert.equal(stack.layers[3]?.source, 'uv0');
+		assert.deepEqual(stack.weight, { disturb: 0.5, dissolve: 0.5, used: true });
+	});
+});
+
+describe('lit decals', () => {
+	const litDecal = shader('HGRP/DecalLit', 'decal');
+	const placement = {
+		colors: { [DECAL_COLOR_PROPERTY]: [0.3, 0.6, 0.25, 0.9] as [number, number, number, number] },
+		vectors: { [DECAL_UV_PROPERTY]: [1, 0.5, 0, 0.25] as [number, number, number, number] },
+	};
+	const floats = {
+		_ColorMask2: 2,
+		_ColorMask3: 14,
+		_DecalOpacity: 0.5,
+		_AngleBlendFallOff: 2,
+		_RoughnessMin: 0.4,
+	};
+
+	it('draws its base and PBR maps through the placement and writes what its masks allow', () => {
+		const decal = ofKind(
+			describeMaterial(
+				material({
+					keywords: ['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
+					slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+					floats,
+					...placement,
+				}),
+				litDecal,
+			),
+			'litDecal',
+		);
+		assert.deepEqual(
+			[decal.base, decal.pbr, decal.placementUv],
+			[1, { texture: 2, ownTransform: null }, [1, 0.5, 0, 0.25]],
+		);
+		assert.deepEqual(
+			decal.color.map((v) => Math.round(v * 1000) / 1000),
+			[0.3, 0.6, 0.25, 0.45],
+		);
+		assert.equal(decal.angleFade, 2);
+		// roughness only: `_ColorMask2` 2 is blue
+		assert.deepEqual([decal.writesNormal, decal.writesRoughness, decal.relight], [false, true, false]);
+	});
+
+	it('relights without albedo, projects its water flow at world positions, and skips what changes nothing', () => {
+		const placed = (overrides: Partial<MaterialValues>) =>
+			describeMaterial(
+				material({ slots: { _BaseColorMap: slot(1) }, floats, ...placement, ...overrides }),
+				litDecal,
+			);
+		const relit = ofKind(
+			placed({
+				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+				floats: { ...floats, _ColorMask3: 0 },
+			}),
+			'litDecal',
+		);
+		assert.equal(relit.relight, true);
+		const water = ofKind(
+			placed({
+				keywords: ['_BLEND_WATER_FLOW'],
+				slots: { _BaseColorMap: slot(1), _WaterNormalTex: slot(3, [0.1, 0.2]) },
+				floats: {
+					...floats,
+					_ColorMask2: 14,
+					_ColorMask3: 0,
+					_WaterNormalScale: 0.4,
+					_WaterRoughness: 0.13,
+					_NormalFactor: 0.01,
+					_AngleBlendFallOff2: 0.1,
+				},
+				vectors: { ...placement.vectors, _UVMovement: [0.02, 0.05, 1, 1] },
+			}),
+			'litDecal',
+		);
+		// its `_ST` scale per metre
+		assert.deepEqual(water.pbr, { texture: 3, ownTransform: [0.1, 0.2, 0, 0] });
+		assert.deepEqual([water.writesNormal, water.writesRoughness, water.relight], [true, true, true]);
+		assert.deepEqual(water.waterFlow, {
+			normalScale: 0.4,
+			roughness: 0.13,
+			normalFactor: 0.01,
+			movement: [0.02, 0.05, 1, 1],
+			levelFade: 0.1,
+		});
+		assert.equal(placed({ colors: {}, vectors: {} }).kind, 'unsupported');
+		assert.equal(placed({ keywords: ['_BLEND_SLUDGE_EROSION'] }).kind, 'unsupported');
+		// writes no albedo, and has no map to change the surface with
+		assert.equal(placed({ floats: { ...floats, _ColorMask3: 0 } }).kind, 'undrawn');
+	});
+
+	it('glows by its PBR map channel with _BLEND_EMISSIVE', () => {
+		// Deep Dale Street's purple glow decals (dung02_rdg008)
+		const emissive = ofKind(
+			describeMaterial(
+				material({
+					blend: 'opaque',
+					keywords: ['_BLEND_EMISSIVE', '_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
+					slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
+					floats: {
+						_AffectNormal: 1,
+						_AlbedoAffectEmissive: 0,
+						_ColorMask2: 14,
+						_ColorMask3: 14,
+						_EmissiveChannel: 3,
+					},
+					colors: { ...placement.colors, _EmissiveColor: [1, 1, 1, 1] },
+					vectors: placement.vectors,
+				}),
+				litDecal,
+			),
+			'litDecal',
+		);
+		// `_SampleTex1`'s alpha, times the albedo, ignoring the post exposure
+		assert.deepEqual(emissive.emission, {
+			color: [1, 1, 1],
+			channel: 3,
+			albedoAffect: 0,
+			ignorePostExposure: 1,
+		});
+	});
+});
+
+describe('VFXBaseV2', () => {
+	const base = shader('HGRP/Effect/VFXBaseV2', 'vfxBase');
+	const stackOf = (overrides: Partial<MaterialValues>, entry = base) =>
+		describeMaterial(material({ slots: { _MainTex: slot(1) }, ...overrides }), entry);
+
+	it("takes a sample texture's role from its weights and the _ST of that role's texture", () => {
+		const stack = ofKind(
+			stackOf({
+				keywords: ['_SAMPLE_TEX0', '_SAMPLE_TEX1', '_USE_SOFTBLEND'],
+				slots: {
+					_MainTex: slot(1),
+					_SampleTex0: slot(2),
+					_DisturbTex1: slot(2, [3, 0.5]),
+					_SampleTex1: slot(4),
+					_BlendTex: slot(4, [0.3, 2]),
+				},
+				floats: { _SampleTex0UseWeight0: 1, _SampleTex1UseWeight4: 1, _SoftDistance: 4 },
+				vectors: { _SampleTex1UVRotateMat: [0, 1, -1, 0], _SampleTex1UVSpeed: [0, -0.1, 0, 0] },
+			}),
+			'effectStack',
+		);
+		assert.deepEqual(
+			stack.layers.slice(0, 3).map((layer) => [layer?.texture, layer?.role, layer?.scale]),
+			[
+				[1, 'main', [1, 1]],
+				[2, 'disturb1', [3, 0.5]],
+				[4, 'blend', [0.3, 2]],
+			],
+		);
+		assert.deepEqual(
+			[stack.layers[2]?.scroll, stack.layers[2]?.rotation],
+			[
+				[0, -0.1],
+				[0, 1],
+			],
+		);
+		assert.deepEqual(stack.soft, { distance: 4, bias: 0 });
+	});
+
+	it('marks features the viewer lacks, additive blending and a missing main texture unsupported', () => {
+		const kinds = [
+			stackOf({
+				keywords: ['_USE_VERTOFFSET'],
+				floats: { _InParticle: 0 },
+				slots: { _MainTex: slot(1, [1, 1]) },
+			}),
+			stackOf({ blend: 'additive' }),
+			stackOf({ slots: {} }, { ...base, textures: { _MainTex: 'black' } }),
+			stackOf({ keywords: ['_USE_BRIGHT'], floats: { _BrightType: 1 } }),
+			stackOf({ keywords: ['_USE_BRIGHT'], vectors: { _BrightCenter: [10, 0, 5, 1] } }),
+			stackOf({ keywords: ['_USE_WATER_BLEND'], floats: { _WaterHeight: 42 } }),
+		].map((surface) => surface.kind);
+		// a vertex offset without an offset texture, whose shader declares no white default
+		assert.deepEqual(kinds, [
+			'unsupported',
+			'unsupported',
+			'unsupported',
+			'unsupported',
+			'unsupported',
+			'unsupported',
+		]);
+		assert.equal(
+			stackOf({ keywords: ['_USE_WATER_BLEND'], floats: { _WaterHeight: -9999 } }).kind,
+			'effectStack',
+		);
+	});
+
+	it('stays out of the fog without _USE_FOG, and starts slots from polar UVs only where computed', () => {
+		assert.equal(ofKind(stackOf({}), 'effectStack').unfogged, true);
+		assert.equal(ofKind(stackOf({ keywords: ['_USE_FOG'] }), 'effectStack').unfogged, false);
+		const polar = ofKind(
+			stackOf({
+				keywords: ['_SAMPLE_TEX0', '_USE_POLARUV', '_USE_SCREENUV'],
+				slots: { _MainTex: slot(1), _SampleTex0: slot(2) },
+				floats: { _UsePolarUV: 1, _SampleTex0UseWeight0: 1 },
+				vectors: { _SampleTex0UVWeights: [0, 0, 1, 0], _MainTexUVWeights: [0, 0, 0, 1] },
+			}),
+			'effectStack',
+		);
+		// screen UVs without `_UseScreenUV` aren't computed
+		assert.deepEqual([polar.layers[0]?.source, polar.layers[1]?.source], [null, 'polar']);
+	});
+
+	it('puts the sixth sample texture in the last slot, scrolled by the first sample texture', () => {
+		const stack = ofKind(
+			stackOf({
+				keywords: ['_SAMPLE_TEX5'],
+				slots: { _MainTex: slot(1), _SampleTex5: slot(2), _DissolveTex: slot(3, [2, 3]) },
+				floats: { _SampleTex5UseWeight5: 1 },
+				vectors: { _SampleTex0UVSpeed: [0, -1, 0, 0], _SampleTex5UVSpeed: [5, 5, 0, 0] },
+			}),
+			'effectStack',
+		);
+		const sixth = stack.layers[6];
+		assert.deepEqual(
+			[sixth?.texture, sixth?.role, sixth?.scale, sixth?.scroll],
+			[2, 'dissolve', [2, 3], [0, -1]],
+		);
+	});
+
+	it('adds under _BlendMode 1, multiplies under 2 with the multiplying blend state, and not otherwise', () => {
+		const additive = { ...base, floats: { _BlendMode: 1 } };
+		// the flash under the rift's ripples: `Blend DstColor Zero`
+		const multiply = { blend: 'custom' as const, blendFactors: [2, 0] as [number, number] };
+		const modes = [
+			stackOf({}, additive),
+			stackOf({ floats: { _BlendMode: 0 } }, additive),
+			stackOf({ floats: { _BlendMode: 2 } }, additive),
+			stackOf({ ...multiply, floats: { _BlendMode: 2 } }, additive),
+			stackOf({ ...multiply, floats: { _BlendMode: 0 } }, additive),
+		].map((surface) => (surface.kind === 'effectStack' ? surface.blendMode : surface.kind));
+		assert.deepEqual(modes, [1, 0, 'unsupported', 2, 'unsupported']);
+	});
+
+	it('samples a switched-on sample texture without a texture at its white default, and not another', () => {
+		const masks = ['white', 'black'].map((fallback) =>
+			ofKind(
+				stackOf(
+					{
+						keywords: ['_SAMPLE_TEX0'],
+						floats: { _SampleTex0UseWeight3: 1, _UseSampleTex0AsAlpha: 1, _UseMask: 1 },
+					},
+					{ ...base, textures: { _MainTex: 'white', _SampleTex0: fallback } },
+				),
+				'effectStack',
+			),
+		);
+		assert.deepEqual(roleOf(masks[0].layers[1]), ['mask', true, 'uv0', 0]);
+		assert.equal(masks[0].layers[1]?.texture, -1);
+		assert.equal(masks[1].layers[1], null);
+		// slot 0 binds white without a main texture when that's the default
+		const noMain = ofKind(
+			stackOf(
+				{ slots: { _SampleTex0: slot(2) }, keywords: ['_SAMPLE_TEX0'], floats: { _SampleTex0UseWeight3: 1 } },
+				{ ...base, textures: { _MainTex: 'white' } },
+			),
+			'effectStack',
+		);
+		assert.equal(noMain.layers[0], null);
+	});
+
+	it('draws with a vertex offset cancelled by particle mode, and moves vertices outside it', () => {
+		const cancelled = ofKind(
+			stackOf({
+				keywords: ['_USE_BRIGHT', '_USE_VERTOFFSET'],
+				floats: { _InParticle: 1, _OffsetIntensity: 0.5 },
+			}),
+			'effectStack',
+		);
+		assert.equal(cancelled.offset, null);
+		const moved = ofKind(
+			stackOf({
+				keywords: ['_USE_VERTOFFSET'],
+				slots: { _MainTex: slot(1), _OffsetTex: slot(2, [1, 0.5]) },
+				floats: { _InParticle: 0, _OffsetIntensity: 0.5, _OffsetSwitchDir: 1, _OffsetUVSet: 1 },
+				vectors: { _OffsetDir: [0, 1, 0, 0], _OffsetSpeed: [0, 0.2, 0, 0] },
+			}),
+			'effectStack',
+		);
+		assert.deepEqual(moved.offset, {
+			texture: { texture: 2, scale: [1, 0.5], offset: [0, 0], scroll: [0, 0.2], rotation: [1, 0] },
+			uv1: true,
+			direction: [0, 1, 0],
+			space: 1,
+			intensity: 0.5,
+			bias: 0,
+			vertexAlphaWeight: 0,
+			cameraPull: 0,
+		});
+	});
+
+	it('writes only the stencil when opaque with a replacing stencil, and rejects other stencil operations', () => {
+		const portal = { ...base, floats: { _StencilComp: 8, _StencilOp: 2, _StencilRef: 3, _ZTest: 4 } };
+		const mask = ofKind(stackOf({ blend: 'opaque' }, portal), 'stencilMask');
+		assert.deepEqual(mask.stencil, {
+			compare: 'always',
+			replace: true,
+			reference: 3,
+			readMask: 255,
+			writeMask: 255,
+			depthCompare: 'less-equal',
+		});
+		assert.equal(stackOf({}, { ...base, floats: { _StencilComp: 3, _StencilOp: 1 } }).kind, 'unsupported');
+		// the effects behind a portal test what its mask wrote
+		const chasm = ofKind(
+			stackOf({
+				floats: { _StencilComp: 3, _StencilRef: 7, _StencilReadMask: 7, _StencilWriteMask: 7, _ZTest: 8 },
+			}),
+			'effectStack',
+		);
+		assert.deepEqual(chasm.stencil, {
+			compare: 'equal',
+			replace: false,
+			reference: 7,
+			readMask: 7,
+			writeMask: 7,
+			depthCompare: 'always',
+		});
+		assert.equal(ofKind(stackOf({}), 'effectStack').stencil, null);
+	});
+});
+
+describe('VFXDitherAlpha effect variants', () => {
+	const dither = (floats: Record<string, number>, textures: Record<string, string>) =>
+		shader('HGRP/Effect/VFXDitherAlpha', 'vfxDitherAlpha', { floats, textures });
+
+	it('draw an unlit dissolve, distortion and polar UVs as a fogged texture stack', () => {
+		// the rift's ripple walls (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_1102_01`)
+		const entry = dither(
+			{ _MainTexUseDisturb: 1, _DissolveTexUseDisturb: 1, _UseMainTexAsAlpha: 1, _InParticle: 1 },
+			{ _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white' },
+		);
+		const ripple = ofKind(
+			describeMaterial(
+				material({
+					blend: 'alphaTest',
+					blendFactors: null,
+					keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_POLARUV', '_USE_SCREENUV'],
+					slots: {
+						_MainTex: slot(1, [2, 1]),
+						_DisturbTex1: slot(2, [0.5, 10]),
+						_DissolveTex: slot(3, [2, 5]),
+					},
+					floats: {
+						_DisturbUIntensity1: 0.15,
+						_DisturbVIntensity1: 0.15,
+						_UsePolarUV: 1,
+						_UseNearCameraFade: 1,
+						_NearCameraFadeDistanceStart2: 1000,
+						_NearCameraFadeDistanceEnd2: 500,
+					},
+					colors: { _TintColor: [0.5, 0.5, 1, 1] },
+					vectors: { _DisturbUVSpeed1: [0, 0.05, 0, 0], _DissolveUVWeights: [0, 0, 1, 0] },
+				}),
+				entry,
+			),
+			'effectStack',
+		);
+		assert.equal(ripple.variant, 'dither');
+		// the main texture's red is its alpha, and it takes all of the distortion; the dissolve starts from polar UVs
+		assert.deepEqual(ripple.layers.slice(0, 3).map(roleOf), [
+			['main', true, 'uv0', 1],
+			['disturb1', false, 'uv0', 0],
+			['dissolve', false, 'polar', 1],
+		]);
+		assert.deepEqual([ripple.dissolve.on, ripple.distorted, ripple.unfogged], [true, true, false]);
+		assert.deepEqual(ripple.layers[1]?.scroll, [0, 0.05]);
+		assert.deepEqual(ripple.near, { on: true, range: [0, 1, 1000, 500] });
+		// lit variants aren't drawn this way
+		const lit = describeMaterial(
+			material({ blend: 'alphaTest', keywords: ['_USE_DISSOLVE'], floats: { _UseLighting: 1 } }),
+			entry,
+		);
+		assert.equal(lit.kind, 'unsupported');
+	});
+
+	it('mask only the tested alpha, by the mask red, and raise the alpha to _DitherAlphaExp', () => {
+		// the rift's outer ring (`M_fxmap_map_lv008_boss_semicircle_01_fj_08`)
+		const entry = dither(
+			{ _UseMaskTexAsAlpha: 1, _MaskTexUseDisturb: 1, _UseMainTexAsAlpha: 1, _DitherAlphaExp: 1 },
+			{ _MainTex: 'white', _MaskTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white' },
+		);
+		const ring = (floats: Record<string, number>, keywords = ['_USE_MASK']) =>
+			describeMaterial(
+				material({
+					blend: 'alphaTest',
+					blendFactors: null,
+					keywords,
+					slots: { _MainTex: slot(1), _MaskTex: { ...slot(1), offset: [1, 0] } },
+					floats: { _MaskTexUseDisturb: 0, _TintColorAlpha: 0.5, ...floats },
+					colors: { _TintColor: [0.35, 0.32, 1, 1] },
+				}),
+				entry,
+			);
+		const masked = ofKind(ring({}), 'effectStack');
+		assert.deepEqual(roleOf(masked.layers[3]), ['mask', true, 'uv0', 0]);
+		assert.deepEqual([masked.layers[3]?.offset, masked.masked, masked.tint[3]], [[1, 0], true, 0.5]);
+		// the stack's mask would tint by the mask's colour, which the game's colour pass doesn't
+		assert.equal(ring({ _UseMaskTexAsAlpha: 0 }).kind, 'unsupported');
+		const raised = ofKind(
+			ring({ _DitherAlphaExp: 3 }, ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_MASK']),
+			'effectStack',
+		);
+		assert.equal(raised.alphaPower, 3);
+	});
+
+	it('move their vertices by the offset texture outside particle mode, without VFXBaseV2-only terms', () => {
+		// the rift's escaping trails (`M_fxmap_dung02_dg005_boss_semicircle_escapism_trail_01_1101`)
+		const entry = dither(
+			{ _UseMainTexAsAlpha: 1, _InParticle: 1 },
+			{ _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white', _OffsetTex: 'white' },
+		);
+		const trail = (
+			floats: Record<string, number>,
+			keywords = ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_VERTOFFSET'],
+		) =>
+			describeMaterial(
+				material({
+					blend: 'alphaTest',
+					blendFactors: null,
+					keywords,
+					slots: {
+						_MainTex: slot(1, [2.5, 1]),
+						_DisturbTex1: slot(2),
+						_DissolveTex: slot(3),
+						_OffsetTex: slot(4),
+					},
+					floats: {
+						_InParticle: 0,
+						_OffsetIntensity: -0.5,
+						_OffsetSwitchDir: 2,
+						_UseVertexColorAlphaAsVertOffsetWeight: 1,
+						_VertCameraOffset: 3,
+						...floats,
+					},
+					vectors: { _OffsetSpeed: [0.005, -0.05, 0, 0] },
+				}),
+				entry,
+			);
+		const moved = ofKind(trail({}), 'effectStack');
+		assert.deepEqual(
+			[
+				moved.offset?.texture.texture,
+				moved.offset?.texture.scroll,
+				moved.offset?.space,
+				moved.offset?.intensity,
+			],
+			[4, [0.005, -0.05], 2, -0.5],
+		);
+		assert.deepEqual(
+			[moved.offset?.vertexAlphaWeight, moved.offset?.cameraPull, moved.offset?.uv1],
+			[0, 0, false],
+		);
+		assert.equal(ofKind(trail({ _InParticle: 1 }), 'effectStack').offset, null);
+		// a vertex offset alone doesn't make it an effect variant, and the dithered surface doesn't draw it
+		assert.deepEqual(trail({}, ['_USE_VERTOFFSET']), {
+			kind: 'unsupported',
+			reason: 'keywords _USE_VERTOFFSET',
+		});
+	});
+});
+
+describe('VFXRefract', () => {
+	const refract = (overrides: Partial<ShaderEntry> = {}) =>
+		shader('HGRP/Effect/VFXRefract', 'vfxRefract', {
+			floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1, _RBIntensity: 1, _GOffset: -1 },
+			vectors: { _RefractDir: [1, 1, 0, 0], _RBOffset: [0, 0, 0, 0] },
+			...overrides,
+		});
+
+	it('offsets the scene behind by its texture, masked by its mask red, on UV0 under either switch', () => {
+		// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
+		const ground = ofKind(
+			describeMaterial(
+				material({
+					blend: 'alphaBlend',
+					blendFactors: [5, 10],
+					keywords: ['_USE_MASK', '_USE_POLARUV'],
+					slots: { _MaskTex: slot(1, [3, 1]), _RefractTex: slot(2, [2, 1]) },
+					floats: { _Intensity: 0.5, _TintColorAlpha: 2, _RefractIsNormal: 0, _MaskTexUVRotate: 180 },
+					vectors: { _RefractUVSpeed: [0, 0.1, 0, 1] },
+				}),
+				refract(),
+			),
+			'refract',
+		);
+		assert.deepEqual(
+			[ground.refraction.texture, ground.refraction.scroll, ground.refractionPolar],
+			[2, [0, 0.1], false],
+		);
+		assert.deepEqual(
+			[ground.mask?.texture.texture, ground.mask?.polar, ground.mask?.redAlpha],
+			[1, false, true],
+		);
+		// half a turn: cos −1
+		assert.equal(ground.mask?.texture.rotation[0], -1);
+		assert.deepEqual([ground.direction, ground.strength, ground.isNormal], [[1, 1], 1, false]);
+		assert.deepEqual([ground.softDistance, ground.colorOffsets], [0, null]);
+		const dissolve = describeMaterial(
+			material({ blend: 'alphaBlend', keywords: ['_USE_DISSOLVE'], slots: { _RefractTex: slot(2) } }),
+			refract(),
+		);
+		assert.equal(dissolve.kind, 'unsupported');
+	});
+
+	it('splits colours along its offset and fades in front of the scene', () => {
+		// the Deep Dale Street fog walls' heat haze (`M_fxmap_map02_lv008_fogwall_01_09`)
+		const masks = refract({
+			colors: {
+				_RBMainColorMask: [1, 0, 0, 1],
+				_RBOffsetColorMask: [0, 1, 1, 1],
+				_RBOffset1ColorMask: [0, 1, 0, 1],
+				_RBOffset2ColorMask: [0, 0, 1, 1],
+			},
+		});
+		const haze = (keywords: string[]) =>
+			ofKind(
+				describeMaterial(
+					material({
+						blend: 'alphaBlend',
+						blendFactors: [5, 10],
+						keywords,
+						slots: { _MaskTex: slot(1), _RefractTex: slot(2) },
+						floats: { _GOffset: -0.89, _Intensity: 0.109, _TintColorAlpha: 0.39, _SoftDistance: 2.42 },
+						vectors: { _RBOffset: [0, 9.31, 0, 0] },
+					}),
+					masks,
+				),
+				'refract',
+			);
+		const two = haze(['_USE_MASK', '_USE_RBOFFSET', '_USE_RGBOFFSET', '_USE_SOFTBLEND']);
+		const offsets = two.colorOffsets;
+		assert.ok(offsets !== null);
+		assert.equal(offsets.offset[0], 0);
+		assert.ok(Math.abs(offsets.offset[1] - 9.31 * 0.01 * 0.109) < 1e-9);
+		assert.deepEqual([offsets.secondShare, offsets.intensity], [-0.89, 1]);
+		assert.deepEqual(
+			[offsets.main, offsets.first, offsets.second],
+			[
+				[1, 0, 0],
+				[0, 1, 0],
+				[0, 0, 1],
+			],
+		);
+		assert.equal(two.softDistance, 2.42);
+		// one further sample: its own mask, no second
+		const one = haze(['_USE_RBOFFSET']);
+		assert.deepEqual(
+			[one.colorOffsets?.first, one.colorOffsets?.second, one.softDistance],
+			[[0, 1, 1], null, 0],
+		);
+	});
+});
+
+describe('VFXWater', () => {
+	it('lays out a flipbook sheet: its frames as they are, motion vectors and normals, the HDR tint as stored', () => {
+		// without a main texture the sheet samples the shader's white default
+		const water = shader('HGRP/Effect/VFXWater', 'water', { textures: { _MainTex: 'white' } });
+		const sheet = ofKind(
+			describeMaterial(
+				material({
+					keywords: [
+						'_SUBSURFACE',
+						'_USE_MASK',
+						'_USE_SEQUENCE_FRAME',
+						'_USE_SEQUENCE_FRAME_MV',
+						'_USE_SEQUENCE_FRAME_NORMAL',
+						'_USE_SOFTBLEND',
+					],
+					slots: {
+						_MaskTex: slot(2, [2, 3]),
+						_SequenceBaseColorMap: slot(5, [4, 4]),
+						_SequenceMotionVectorMap: slot(6),
+						_SequenceNormalMap: slot(7),
+					},
+					floats: {
+						_TintColorAlpha: 2,
+						_PlaybackSpeed: 40,
+						_FrameNormalScale: 0.3,
+						_SoftDistance: 3,
+						_Roughness: 0.6,
+					},
+					colors: { _TintColor: [0.5, 0.25, 2, 1] },
+					vectors: { _SequenceFrameSize: [8, 4, 0, 0] },
+				}),
+				water,
+			),
+			'waterSheet',
+		);
+		assert.deepEqual(sheet.tint, [0.5, 0.25, 2, 2]);
+		assert.equal(sheet.textures.main, null);
+		assert.deepEqual([sheet.textures.mask?.texture, sheet.textures.mask?.scale], [2, [2, 3]]);
+		assert.deepEqual([sheet.textures.sequence?.texture, sheet.textures.sequence?.scale], [5, [1, 1]]);
+		assert.equal(sheet.textures.sequenceMotion?.texture, 6);
+		assert.deepEqual(
+			[
+				sheet.textures.normals?.texture.texture,
+				sheet.textures.normals?.flipbook,
+				sheet.textures.normals?.scale,
+			],
+			[7, true, 0.3],
+		);
+		assert.deepEqual(
+			[sheet.sequence.columns, sheet.sequence.rows, sheet.sequence.framesPerSecond],
+			[8, 4, 40],
+		);
+		assert.deepEqual([sheet.mainAsAlpha, sheet.maskAsAlpha, sheet.vertexColor], [true, true, true]);
+		assert.deepEqual(sheet.soft, { distance: 3, bias: 0 });
+		assert.equal(describeMaterial(material({ keywords: ['VFX_WATER_REFRACT'] }), water).kind, 'unsupported');
 	});
 });

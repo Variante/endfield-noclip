@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type ReadyMaterial,
-	type ShaderEntry,
-	type TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
 import type {
+	EffectStackSurface,
+	EffectTexture,
 	LightBeamSurface,
+	LitDecalSurface,
 	MistCardSurface,
 	MistVolumeSurface,
+	RefractSurface,
+	StackLayer,
+	WaterSheetSurface,
 } from '@endfield-noclip/package-format/surfaces';
 
 import {
@@ -31,814 +31,415 @@ import {
 } from './effect-looks.ts';
 import { LookFlags, materialLooks } from './materials.ts';
 
-const shader = (name: string): ShaderEntry => ({
-	name,
-	family: 'vfxBase',
-	floats: {},
-	colors: {},
-	vectors: {},
-	textures: {},
-	normalMaps: [],
-});
+const SHADERS: ShaderEntry[] = [
+	{ name: 'any', family: 'unknown', floats: {}, colors: {}, vectors: {}, textures: {}, normalMaps: [] },
+];
 
-const slot = (texture: number, scale: [number, number] = [1, 1]): TextureSlot => ({
-	texture,
-	uv: 0,
-	scale,
-	offset: [0, 0],
-});
-
-const material = (overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
-	id: 0,
+/** a ready material drawing `surface` */
+const described = (
+	id: number,
+	surface: ReadyMaterial['surface'],
+	cull: ReadyMaterial['cull'] = 'back',
+): ReadyMaterial => ({
+	id,
 	status: 'ready',
-	surface: { kind: 'legacy' },
+	surface,
 	shader: 0,
 	keywords: [],
 	renderQueue: 3000,
 	blend: 'premultiplied',
 	blendFactors: [1, 10],
 	alphaClipThreshold: null,
-	cull: 'back',
+	cull,
 	zWrite: false,
 	baseTextureMapCount: null,
 	slots: {},
 	floats: {},
 	colors: {},
 	vectors: {},
+});
+
+const texture = (id: number, overrides: Partial<EffectTexture> = {}): EffectTexture => ({
+	texture: id,
+	scale: [1, 1],
+	offset: [0, 0],
+	scroll: [0, 0],
+	rotation: [1, 0],
 	...overrides,
 });
 
-test('a VFXDecal is a transparent, shadowless box drawn by its back faces, its disturb textures ahead of the rest', () => {
-	const [look] = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXDecal')],
-		entries: [
-			material({
-				keywords: ['_USE_MASK', '_USE_DISTURB', '_USE_NORMALBLEND'],
-				slots: {
-					_MainTex: slot(1),
-					_MaskTex: slot(2),
-					_DisturbTex1: slot(3),
-					_DisturbTex2: slot(4),
-					_BlendTex: slot(5, [2, 2]),
-				},
-				floats: {
-					_TintColorAlpha: 0.5,
-					_MaskTexUseDisturb: 0.25,
-					_UseMaskTexAsAlpha: 1,
-					_AngleBlendFallOff: 5,
-				},
-				colors: { _DecalBaseColor: [2, 0.5, 1, 0.8] },
-			}),
-		],
-	});
-	assert.equal(look.drawn, true);
-	assert.equal(look.transparent, true);
-	assert.equal(look.castsShadows, false);
-	assert.equal(look.cull, 'front');
-	assert.equal(look.flags, LookFlags.Effect | LookFlags.EffectDecal);
-	// main, disturb 1, mask; disturb 2 and blend lack their keywords, and there's no weight texture
-	assert.deepEqual(look.textures, [1, 3, -1, -1, 2, -1, -1]);
-	const bits = [...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 5)];
-	assert.deepEqual(bits, [
-		EffectRole.Main,
-		EffectRole.Disturb1,
-		ROLE_NONE,
-		ROLE_NONE,
-		// a quarter of the distortion, in 1/1024ths above the low byte
-		EffectRole.Mask + 16 + 256 * 256,
-	]);
-	// the HDR base colour as stored, its alpha times `_TintColorAlpha`
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)],
-		[2, 0.5, 1, 0.4000000059604645],
-	);
-	assert.equal(look.params[EffectRow.decal + 1], 5);
+const layer = (id: number, role: StackLayer['role'], overrides: Partial<StackLayer> = {}): StackLayer => ({
+	...texture(id),
+	role,
+	redAlpha: false,
+	source: 'uv0',
+	disturbShare: 0,
+	...overrides,
 });
 
-test('a lit decal placement draws its base and PBR maps through its UV transform, writing what its masks allow', () => {
-	const placement = {
-		colors: { [DECAL_COLOR_PROPERTY]: [0.3, 0.6, 0.25, 0.9] as [number, number, number, number] },
-		vectors: { [DECAL_UV_PROPERTY]: [1, 0.5, 0, 0.25] as [number, number, number, number] },
-	};
-	const floats = {
-		_ColorMask2: 2,
-		_ColorMask3: 14,
-		_DecalOpacity: 0.5,
-		_AngleBlendFallOff: 2,
-		_RoughnessMin: 0.4,
-	};
-	const [look, roughnessOnly, unplaced, waterFlow, sludge, bare] = materialLooks({
-		shaders: [shader('HGRP/DecalLit')],
+/** a VFXBaseV2 stack with a main texture and nothing optional */
+const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface => ({
+	kind: 'effectStack',
+	variant: 'base',
+	layers: [layer(1, 'main'), null, null, null, null, null, null],
+	tint: [1, 1, 1, 1],
+	blendTint: [1, 1, 1, 0],
+	disturb: [0, 0, 0, 0],
+	disturbBias: 0,
+	distorted: false,
+	weight: { disturb: 0, dissolve: 0, used: false },
+	dissolve: { on: false, threshold: -1.01, sharpness: 1, edgeWidth: 0, edgeColor: [0, 0, 0] },
+	masked: false,
+	fresnel: null,
+	soft: null,
+	ignorePostExposure: 1,
+	vertexColor: true,
+	near: { on: false, range: [0, 1, 1e5, 2e5] },
+	brighten: { threshold: 1, intensity: 0 },
+	decalFade: null,
+	alphaPower: 1,
+	offset: null,
+	lighting: null,
+	unfogged: true,
+	blendMode: 0,
+	screenUv: { byDepth: true, heightAsV: false },
+	stencil: null,
+	...overrides,
+});
+
+test('a texture stack packs each layer’s role, red alpha, source and distortion share into its slot bits', () => {
+	const [look] = materialLooks({
+		shaders: SHADERS,
 		entries: [
-			material({
-				id: 0,
-				keywords: ['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
-				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
-				floats,
-				...placement,
-			}),
-			material({
-				id: 1,
-				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
-				floats: { ...floats, _ColorMask3: 0 },
-				...placement,
-			}),
-			material({ id: 2, slots: { _BaseColorMap: slot(1) }, floats }),
-			material({
-				id: 3,
-				keywords: ['_BLEND_WATER_FLOW'],
-				slots: { _BaseColorMap: slot(1), _WaterNormalTex: slot(3, [0.1, 0.2]) },
-				floats: {
-					...floats,
-					_ColorMask2: 14,
-					_ColorMask3: 0,
-					_WaterNormalScale: 0.4,
-					_WaterRoughness: 0.13,
-					_NormalFactor: 0.01,
-					_AngleBlendFallOff2: 0.1,
+			described(
+				0,
+				stack({
+					layers: [
+						layer(1, 'main', { source: null }),
+						layer(2, 'disturb1', { source: 'polar', scale: [3, 0.5] }),
+						null,
+						null,
+						layer(4, 'mask', { redAlpha: true, disturbShare: 0.25, scroll: [0, -0.1], rotation: [0, 1] }),
+						null,
+						null,
+					],
+					tint: [2, 0.5, 1, 0.4],
+					soft: { distance: 4, bias: 0 },
+				}),
+			),
+		],
+	});
+	assert.deepEqual(
+		[look.transparent, look.castsShadows, look.cull, look.flags],
+		[true, false, 'back', LookFlags.Effect],
+	);
+	assert.deepEqual(look.textures, [1, 2, -1, -1, 4, -1, -1]);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 5)],
+		[
+			EffectRole.Main + SLOT_NO_BASE,
+			EffectRole.Disturb1 + SlotSource.Polar * 32,
+			ROLE_NONE,
+			ROLE_NONE,
+			// a quarter of the distortion, in 1/1024ths above the low byte
+			EffectRole.Mask + 16 + 256 * 256,
+		],
+	);
+	assert.deepEqual([...look.params.subarray(EffectRow.uv + 4, EffectRow.uv + 8)], [3, 0.5, 0, 0]);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.anim + 16, EffectRow.anim + 20)],
+		[0, -0.1, 0, 1].map(Math.fround),
+	);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)],
+		[2, 0.5, 1, 0.4].map(Math.fround),
+	);
+	assert.equal(look.params[EffectRow.soft], 4);
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.unfogged, EffectRow.unfogged + 4)],
+		[1, EffectKind.Stack, 0, 1],
+	);
+});
+
+test('a stack decal is a box drawn by its back faces with its fades; a multiplying stack draws over the scene', () => {
+	const [decal, multiply] = materialLooks({
+		shaders: SHADERS,
+		entries: [
+			described(
+				0,
+				stack({
+					variant: 'decal',
+					decalFade: { edge: [0.1, 0.2], width: 0.3, height: 2, heightOffset: 0.5, angle: 5 },
+					weight: { disturb: 0.5, dissolve: 0.5, used: true },
+				}),
+			),
+			described(1, stack({ blendMode: 2 })),
+		],
+	});
+	assert.deepEqual([decal.cull, decal.flags], ['front', LookFlags.Effect | LookFlags.EffectDecal]);
+	assert.deepEqual(
+		[...decal.params.subarray(EffectRow.decalFade, EffectRow.decalFade + 4)],
+		[0.1, 0.2, 0.3, 2].map(Math.fround),
+	);
+	assert.deepEqual([...decal.params.subarray(EffectRow.decal, EffectRow.decal + 4)], [0.5, 5, 0, 1]);
+	assert.deepEqual([...decal.params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
+	assert.equal(multiply.screen, 'multiply');
+	assert.equal(multiply.params[EffectRow.unfogged + 2], 2);
+});
+
+test('a stack’s vertex offset takes the offset slot and rows, and its stencil is tested under reversed-Z', () => {
+	const [moved, portal, mask] = materialLooks({
+		shaders: SHADERS,
+		entries: [
+			described(
+				0,
+				stack({
+					offset: {
+						texture: texture(2, { scale: [1, 0.5], scroll: [0, 0.2] }),
+						uv1: true,
+						direction: [0, 1, 0],
+						space: 1,
+						intensity: 0.5,
+						bias: 0,
+						vertexAlphaWeight: 0,
+						cameraPull: 0,
+					},
+					alphaPower: 3,
+				}),
+			),
+			described(
+				1,
+				stack({
+					stencil: {
+						compare: 'equal',
+						replace: false,
+						reference: 3,
+						readMask: 255,
+						writeMask: 255,
+						depthCompare: 'less-equal',
+					},
+				}),
+			),
+			described(2, {
+				kind: 'stencilMask',
+				stencil: {
+					compare: 'always',
+					replace: true,
+					reference: 3,
+					readMask: 255,
+					writeMask: 255,
+					depthCompare: 'less-equal',
 				},
-				vectors: { ...placement.vectors, _UVMovement: [0.02, 0.05, 1, 1] },
-				colors: placement.colors,
-			}),
-			material({
-				id: 4,
-				keywords: ['_BLEND_SLUDGE_EROSION'],
-				slots: { _BaseColorMap: slot(1) },
-				floats,
-				...placement,
-			}),
-			// writes no albedo, and has no map to change the surface with
-			material({
-				id: 5,
-				slots: { _BaseColorMap: slot(1) },
-				floats: { ...floats, _ColorMask3: 0 },
-				...placement,
 			}),
 		],
 	});
-	assert.equal(look.flags, LookFlags.Effect | LookFlags.EffectDecal);
-	assert.equal(look.cull, 'front');
+	assert.equal(moved.textures[OFFSET_SLOT], 2);
+	// the fragment stage skips the slot
+	assert.equal(moved.params[EffectRow.slotBits + OFFSET_SLOT], ROLE_NONE);
+	assert.deepEqual(
+		[...moved.params.subarray(EffectRow.uv + OFFSET_SLOT * 4, EffectRow.uv + OFFSET_SLOT * 4 + 4)],
+		[1, 0.5, 0, 0],
+	);
+	assert.deepEqual([...moved.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)], [0, 1, 0, 1]);
+	assert.equal(moved.params[EffectRow.offset], 0.5);
+	assert.deepEqual([...moved.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 1]);
+	assert.equal(moved.params[EffectRow.decal + 3], 3);
+	assert.deepEqual(
+		[portal.stencil?.compare, portal.stencil?.depthCompare, portal.stencil?.maskOnly],
+		['equal', 'greater-equal', false],
+	);
+	assert.deepEqual([mask.transparent, mask.castsShadows, mask.stencil?.maskOnly], [false, false, true]);
+});
+
+test('a lit decal draws its maps through the placement or the PBR map’s own transform, and relights without albedo', () => {
+	const decal: LitDecalSurface = {
+		kind: 'litDecal',
+		base: 1,
+		placementUv: [1, 0.5, 0, 0.25],
+		color: [0.3, 0.6, 0.25, 0.45],
+		pbr: { texture: 2, ownTransform: null },
+		relight: false,
+		roughness: [0.4, 1],
+		normalScale: 1,
+		angleFade: 2,
+		writesNormal: false,
+		writesRoughness: true,
+		writesMetallic: false,
+		writesOcclusion: false,
+		blendSceneNormal: 0,
+		metallic: 0,
+		occlusionStrength: 1,
+		pbrBase: false,
+		metallicChannel: 0,
+		occlusionChannel: 0,
+		affectNormal: 0,
+		waterFlow: null,
+		emission: { color: [1, 1, 1], channel: 3, albedoAffect: 0, ignorePostExposure: 1 },
+	};
+	const [look, water] = materialLooks({
+		shaders: SHADERS,
+		entries: [
+			described(0, decal),
+			described(1, {
+				...decal,
+				relight: true,
+				pbr: { texture: 3, ownTransform: [0.1, 0.2, 0, 0] },
+				waterFlow: {
+					normalScale: 0.4,
+					roughness: 0.13,
+					normalFactor: 0.01,
+					movement: [0.02, 0.05, 1, 1],
+					levelFade: 0.1,
+				},
+				emission: null,
+			}),
+		],
+	});
+	assert.deepEqual(
+		[look.flags, look.cull, look.relight],
+		[LookFlags.Effect | LookFlags.EffectDecal, 'front', false],
+	);
 	assert.deepEqual(look.textures.slice(0, 2), [1, 2]);
 	assert.deepEqual(
 		[...look.params.subarray(EffectRow.uv, EffectRow.uv + 8)],
 		[1, 0.5, 0, 0.25, 1, 0.5, 0, 0.25],
 	);
-	// the placement's colour as stored, its alpha times the opacity
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)].map((v) => Math.round(v * 1000) / 1000),
-		[0.3, 0.6, 0.25, 0.45],
-	);
 	assert.equal(look.params[DecalLitRow.surface + 3], 2);
-	// roughness only: `_ColorMask2` 2 is blue
 	assert.deepEqual([...look.params.subarray(DecalLitRow.writes, DecalLitRow.writes + 2)], [0, 1]);
-	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.LitDecal);
-	assert.equal(look.relight, false);
-	// writing no albedo, it relights the surface beneath
-	assert.equal(roughnessOnly.drawn, true);
-	assert.equal(roughnessOnly.relight, true);
-	// the water flow relights it with its world-projected normal map, its `_ST` scale per metre
-	assert.equal(waterFlow.relight, true);
-	assert.deepEqual(waterFlow.textures.slice(0, 2), [1, 3]);
+	assert.deepEqual([...look.params.subarray(DecalLitRow.emissive, DecalLitRow.emissive + 4)], [1, 1, 1, 1]);
 	assert.deepEqual(
-		[...waterFlow.params.subarray(EffectRow.uv + 4, EffectRow.uv + 6)].map(
-			(v) => Math.round(v * 1000) / 1000,
-		),
+		[...look.params.subarray(DecalLitRow.emissiveMask, DecalLitRow.emissiveMask + 3)],
+		[3, 0, 1],
+	);
+	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.LitDecal);
+	assert.equal(water.relight, true);
+	assert.deepEqual(
+		[...water.params.subarray(EffectRow.uv + 4, EffectRow.uv + 6)].map((v) => Math.round(v * 1000) / 1000),
 		[0.1, 0.2],
 	);
-	assert.deepEqual([...waterFlow.params.subarray(DecalLitRow.writes, DecalLitRow.writes + 2)], [1, 1]);
 	assert.deepEqual(
-		[...waterFlow.params.subarray(DecalLitRow.water, DecalLitRow.water + 4)].map(
+		[...water.params.subarray(DecalLitRow.water, DecalLitRow.water + 4)].map(
 			(v) => Math.round(v * 1000) / 1000,
 		),
 		[1, 0.4, 0.13, 0.01],
 	);
-	assert.deepEqual(
-		[...waterFlow.params.subarray(DecalLitRow.flow, DecalLitRow.flow + 4)].map(
-			(v) => Math.round(v * 1000) / 1000,
-		),
-		[0.02, 0.05, 1, 1],
-	);
-	// without a placement or with a variant the viewer lacks it's unsupported; with nothing to change it isn't
-	// drawn
-	assert.equal(unplaced.unsupported, true);
-	assert.equal(sludge.unsupported, true);
-	assert.equal(bare.drawn, false);
-	assert.equal(bare.unsupported, false);
 });
 
-test('an emissive lit decal glows by its PBR map channel, and decal variants the viewer lacks show as unsupported', () => {
-	// the real shader's family and defaults, and the opaque blend state the packer reads off decal materials
-	const decalShader: ShaderEntry = {
-		...shader('HGRP/DecalLit'),
-		family: 'decal',
-		floats: { _EmissiveChannel: 0, _AlbedoAffectEmissive: 1, _IgnorePostExposure: 1 },
-		colors: { _EmissiveColor: [1, 1, 1, 1] },
-	};
-	const placed = {
-		renderQueue: 2000,
-		blend: 'opaque' as const,
-		slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
-		colors: { [DECAL_COLOR_PROPERTY]: [0.23, 0.3, 0.69, 0.88] as [number, number, number, number] },
-		vectors: { [DECAL_UV_PROPERTY]: [1, 1, 1, 1] as [number, number, number, number] },
-	};
-	// Deep Dale Street's purple glow decals (dung02_rdg008)
-	const [emissive, sludge] = materialLooks({
-		shaders: [decalShader],
-		entries: [
-			material({
-				id: 0,
-				keywords: ['_BLEND_EMISSIVE', '_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
-				floats: {
-					_AffectNormal: 1,
-					_AlbedoAffectEmissive: 0,
-					_BlendEmissive: 1,
-					_ColorMask2: 14,
-					_ColorMask3: 14,
-					_EmissiveChannel: 3,
-					_RoughnessMin: 0.656,
-				},
-				...placed,
-			}),
-			material({ id: 1, keywords: ['_BLEND_SLUDGE_EROSION'], floats: { _ColorMask3: 14 }, ...placed }),
-		],
-	});
-	assert.equal(emissive.unsupported, false);
-	assert.equal(emissive.transparent, true);
-	assert.equal(emissive.relight, false);
-	assert.deepEqual(
-		[...emissive.params.subarray(DecalLitRow.emissive, DecalLitRow.emissive + 4)],
-		[1, 1, 1, 1],
-	);
-	// `_SampleTex1`'s alpha, times the albedo, ignoring the post exposure
-	assert.deepEqual(
-		[...emissive.params.subarray(DecalLitRow.emissiveMask, DecalLitRow.emissiveMask + 3)],
-		[3, 0, 1],
-	);
-	// an undrawn variant must not fall through to the opaque path, which draws its projection box as a solid
-	assert.equal(sludge.unsupported, true);
-});
-
-test('a VFXBaseV2 sample texture takes its role from its weights and the _ST of that role', () => {
-	const [look] = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				keywords: ['_SAMPLE_TEX0', '_SAMPLE_TEX1', '_USE_SOFTBLEND'],
-				slots: {
-					_MainTex: slot(1),
-					_SampleTex0: slot(2),
-					_DisturbTex1: slot(2, [3, 0.5]),
-					_SampleTex1: slot(4),
-					_BlendTex: slot(4, [0.3, 2]),
-				},
-				floats: { _SampleTex0UseWeight0: 1, _SampleTex1UseWeight4: 1, _SoftDistance: 4 },
-				vectors: { _SampleTex1UVRotateMat: [0, 1, -1, 0], _SampleTex1UVSpeed: [0, -0.1, 0, 0] },
-			}),
-		],
-	});
-	assert.equal(look.flags, LookFlags.Effect);
-	assert.equal(look.cull, 'back');
-	assert.deepEqual(look.textures.slice(0, 3), [1, 2, 4]);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.uv + 4, EffectRow.uv + 12)],
-		[3, 0.5, 0, 0, 0.30000001192092896, 2, 0, 0],
-	);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.anim + 8, EffectRow.anim + 12)],
-		[0, -0.10000000149011612, 0, 1],
-	);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 3)],
-		[EffectRole.Main, EffectRole.Disturb1, EffectRole.Blend],
-	);
-	assert.equal(look.params[EffectRow.soft], 4);
-});
-
-test('effects with features the viewer lacks, or additive blending, show as unsupported', () => {
-	const looks = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				id: 0,
-				keywords: ['_USE_VERTOFFSET'],
-				slots: { _MainTex: slot(1) },
-				floats: { _InParticle: 0 },
-			}),
-			material({ id: 1, blend: 'additive', slots: { _MainTex: slot(1) } }),
-			material({ id: 2, slots: {} }),
-			material({
-				id: 3,
-				keywords: ['_USE_BRIGHT'],
-				slots: { _MainTex: slot(1) },
-				floats: { _BrightType: 1 },
-			}),
-			material({
-				id: 4,
-				keywords: ['_USE_BRIGHT'],
-				slots: { _MainTex: slot(1) },
-				vectors: { _BrightCenter: [10, 0, 5, 1] },
-			}),
-		],
-	});
-	assert.deepEqual(
-		looks.map((look) => look.unsupported),
-		[true, true, true, true, true],
-	);
-});
-
-test('effects without _USE_FOG are marked to stay out of the fog', () => {
-	const looks = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2'), shader('HGRP/Effect/VFXDecal')],
-		entries: [
-			material({ id: 0, shader: 0, slots: { _MainTex: slot(1) } }),
-			material({ id: 1, shader: 0, keywords: ['_USE_FOG'], slots: { _MainTex: slot(1) } }),
-			material({ id: 2, shader: 1, slots: { _MainTex: slot(1) } }),
-			material({ id: 3, shader: 1, keywords: ['_USE_FOG'], slots: { _MainTex: slot(1) } }),
-		],
-	});
-	assert.deepEqual(
-		looks.map((look) => look.params[EffectRow.unfogged]),
-		[1, 0, 1, 0],
-	);
-});
-
-test('effect slots start from polar UVs where the material computes them, and from zero where it does not', () => {
-	const looks = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2'), shader('HGRP/Effect/VFXDecal')],
-		entries: [
-			material({
-				id: 0,
-				keywords: ['_SAMPLE_TEX0', '_USE_POLARUV', '_USE_SCREENUV'],
-				slots: { _MainTex: slot(1), _SampleTex0: slot(2) },
-				floats: { _UsePolarUV: 1, _SampleTex0UseWeight0: 1 },
-				vectors: { _SampleTex0UVWeights: [0, 0, 1, 0], _MainTexUVWeights: [0, 0, 0, 1] },
-			}),
-			material({
-				id: 1,
-				shader: 1,
-				keywords: ['_USE_MASK', '_USE_WEIGHT', '_USE_POLARUV'],
-				slots: { _MainTex: slot(1), _MaskTex: slot(2), _WeightTex: slot(3) },
-				floats: {
-					_UsePolarUV: 1,
-					_MaskSwitchUV: 2,
-					_WeightSwitchUV: 1,
-					_WeightTexIntensity: 0.5,
-					_DissolveUseWeight: 1,
-				},
-			}),
-		],
-	});
-	const bits = (look: (typeof looks)[number], index: number) => look.params[EffectRow.slotBits + index];
-	// screen UVs without `_UseScreenUV` aren't computed
-	assert.equal(bits(looks[0], 0), EffectRole.Main + SLOT_NO_BASE);
-	assert.equal(bits(looks[0], 1), EffectRole.Disturb1 + SlotSource.Polar * 32);
-	// the decal's mask reads polar UVs; its weight's screen switch falls back to the box
-	assert.equal(bits(looks[1], 4), EffectRole.Mask + SlotSource.Polar * 32);
-	assert.equal(bits(looks[1], 3), EffectRole.Weight);
-	assert.deepEqual([...looks[1].params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
-});
-
-test('a VFXBaseV2 sixth sample texture takes the vertex offset slot and the first sample texture speed', () => {
-	const [look] = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				keywords: ['_SAMPLE_TEX5'],
-				slots: { _MainTex: slot(1), _SampleTex5: slot(2), _DissolveTex: slot(3, [2, 3]) },
-				floats: { _SampleTex5UseWeight5: 1 },
-				vectors: { _SampleTex0UVSpeed: [0, -1, 0, 0], _SampleTex5UVSpeed: [5, 5, 0, 0] },
-			}),
-		],
-	});
-	assert.equal(look.textures[OFFSET_SLOT], 2);
-	assert.equal(look.params[EffectRow.slotBits + OFFSET_SLOT], EffectRole.Dissolve);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.uv + OFFSET_SLOT * 4, EffectRow.uv + OFFSET_SLOT * 4 + 2)],
-		[2, 3],
-	);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.anim + OFFSET_SLOT * 4, EffectRow.anim + OFFSET_SLOT * 4 + 2)],
-		[0, -1],
-	);
-});
-
-test('a VFXBaseV2 adds its light under _BlendMode 1, the shader default, and multiplies the scene under 2', () => {
-	const additive = { ...shader('HGRP/Effect/VFXBaseV2'), floats: { _BlendMode: 1 } };
-	// the flash under the rift's ripples (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_1109`): `Blend DstColor Zero`
-	const multiply: Pick<ReadyMaterial, 'blend' | 'blendFactors'> = { blend: 'custom', blendFactors: [2, 0] };
-	const looks = materialLooks({
-		shaders: [additive],
-		entries: [
-			material({ id: 0, slots: { _MainTex: slot(1) } }),
-			material({ id: 1, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 0 } }),
-			material({ id: 2, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 2 } }),
-			material({ id: 3, ...multiply, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 2 } }),
-			material({ id: 4, ...multiply, slots: { _MainTex: slot(1) }, floats: { _BlendMode: 0 } }),
-		],
-	});
-	assert.equal(looks[0].params[EffectRow.unfogged + 2], 1);
-	assert.equal(looks[0].screen, null);
-	assert.equal(looks[1].params[EffectRow.unfogged + 2], 0);
-	// a multiplying layer needs the multiplying blend state, and the reverse
-	assert.equal(looks[2].unsupported, true);
-	assert.equal(looks[3].screen, 'multiply');
-	assert.equal(looks[3].params[EffectRow.unfogged + 2], 2);
-	assert.equal(looks[4].unsupported, true);
-});
-
-test('an unlit VFXDitherAlpha with a dissolve, distortion and polar UVs draws its texture stack, fogged', () => {
-	// the rift's ripple walls (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_1102_01`)
-	const dither: ShaderEntry = {
-		...shader('HGRP/Effect/VFXDitherAlpha'),
-		family: 'vfxDitherAlpha',
-		floats: { _MainTexUseDisturb: 1, _DissolveTexUseDisturb: 1, _UseMainTexAsAlpha: 1, _InParticle: 1 },
-		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white' },
-	};
-	const [ripple, solid, lit] = materialLooks({
-		shaders: [dither],
-		entries: [
-			material({
-				id: 0,
-				blend: 'alphaTest',
-				blendFactors: null,
-				cull: 'front',
-				keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_POLARUV', '_USE_SCREENUV'],
-				slots: { _MainTex: slot(1, [2, 1]), _DisturbTex1: slot(2, [0.5, 10]), _DissolveTex: slot(3, [2, 5]) },
-				floats: {
-					_DisturbUIntensity1: 0.15,
-					_DisturbVIntensity1: 0.15,
-					_UsePolarUV: 1,
-					_UseNearCameraFade: 1,
-					_NearCameraFadeDistanceStart2: 1000,
-					_NearCameraFadeDistanceEnd2: 500,
-				},
-				colors: { _TintColor: [0.5, 0.5, 1, 1] },
-				vectors: { _DisturbUVSpeed1: [0, 0.05, 0, 0], _DissolveUVWeights: [0, 0, 1, 0] },
-			}),
-			material({ id: 1, blend: 'alphaTest', slots: { _MainTex: slot(1) } }),
-			material({ id: 2, blend: 'alphaTest', keywords: ['_USE_DISSOLVE'], floats: { _UseLighting: 1 } }),
-		],
-	});
-	assert.equal(ripple.flags, LookFlags.Effect);
-	assert.equal(ripple.screen, null);
-	assert.equal(ripple.cull, 'front');
-	assert.deepEqual(ripple.textures, [1, 2, 3, -1, -1, -1, -1]);
-	assert.deepEqual(
-		[...ripple.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 3)],
-		[
-			// the main texture's red is its alpha, and it takes all of the distortion
-			EffectRole.Main + 16 + 1024 * 256,
-			EffectRole.Disturb1,
-			// the dissolve starts from polar UVs
-			EffectRole.Dissolve + 1024 * 256 + SlotSource.Polar * 32,
-		],
-	);
-	assert.equal(ripple.params[EffectRow.dissolve + 3], 1);
-	assert.equal(ripple.params[EffectRow.misc + 3], 1);
-	assert.equal(ripple.params[EffectRow.anim + 4 + 1], Math.fround(0.05));
-	// a G-buffer surface, so fogged
-	assert.equal(ripple.params[EffectRow.unfogged], 0);
-	assert.deepEqual([...ripple.params.subarray(EffectRow.near + 2, EffectRow.near + 4)], [1000, 500]);
-	// without those keywords it stays on the opaque path; lit ones aren't drawn this way
-	assert.equal((solid.flags & LookFlags.Effect) !== 0, false);
-	assert.equal(lit.unsupported, true);
-});
-
-test('a VFXDitherAlpha mask scales only the tested alpha, by its red, and is drawn only in that mode', () => {
-	// the rift's outer ring (`M_fxmap_map_lv008_boss_semicircle_01_fj_08`)
-	const dither: ShaderEntry = {
-		...shader('HGRP/Effect/VFXDitherAlpha'),
-		family: 'vfxDitherAlpha',
-		floats: { _UseMaskTexAsAlpha: 1, _MaskTexUseDisturb: 1, _UseMainTexAsAlpha: 1 },
-		textures: { _MainTex: 'white', _MaskTex: 'white' },
-	};
-	const ring = {
-		blend: 'alphaTest',
-		blendFactors: null,
-		keywords: ['_USE_MASK'],
-		slots: { _MainTex: slot(1), _MaskTex: { ...slot(1), offset: [1, 0] } },
-		floats: { _MaskTexUseDisturb: 0, _TintColorAlpha: 0.5 },
-		colors: { _TintColor: [0.35, 0.32, 1, 1] },
-	} satisfies Partial<ReadyMaterial>;
-	const [masked, tinting] = materialLooks({
-		shaders: [dither],
-		entries: [
-			material({ id: 0, ...ring }),
-			material({ id: 1, ...ring, floats: { ...ring.floats, _UseMaskTexAsAlpha: 0 } }),
-		],
-	});
-	assert.equal(masked.flags, LookFlags.Effect);
-	assert.deepEqual(masked.textures, [1, -1, -1, 1, -1, -1, -1]);
-	assert.equal(masked.params[EffectRow.slotBits + 3], EffectRole.Mask + 16);
-	assert.deepEqual([...masked.params.subarray(EffectRow.uv + 12, EffectRow.uv + 16)], [1, 1, 1, 0]);
-	assert.equal(masked.params[EffectRow.dissolveColor + 3], 1);
-	assert.equal(masked.params[EffectRow.tint + 3], 0.5);
-	// the stack's mask would tint by the mask's colour, which the game's colour pass doesn't
-	assert.equal(tinting.unsupported, true);
-});
-
-test('a VFXDitherAlpha stack look raises its alpha to `_DitherAlphaExp`; other stack looks keep it', () => {
-	// the rift's red sky ring (`M_fxmap_dung02_dg005_boss_semicircle_sky_02_fj_03`)
-	const dither: ShaderEntry = {
-		...shader('HGRP/Effect/VFXDitherAlpha'),
-		family: 'vfxDitherAlpha',
-		floats: { _UseMaskTexAsAlpha: 1, _UseMainTexAsAlpha: 1, _DitherAlphaExp: 1 },
-		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white', _MaskTex: 'white' },
-	};
-	const [ring, base] = materialLooks({
-		shaders: [dither, shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				id: 0,
-				blend: 'alphaTest',
-				blendFactors: null,
-				keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_MASK', '_USE_POLARUV', '_USE_SCREENUV'],
-				slots: { _MainTex: slot(1), _DisturbTex1: slot(2), _DissolveTex: slot(3) },
-				floats: { _UsePolarUV: 1, _DitherAlphaExp: 3 },
-			}),
-			material({ id: 1, shader: 1, slots: { _MainTex: slot(1) } }),
-		],
-	});
-	assert.equal(ring.flags, LookFlags.Effect);
-	// no mask texture: the shader's default white
-	assert.deepEqual(ring.textures, [1, 2, 3, -1, -1, -1, -1]);
-	assert.equal(ring.params[EffectRow.decal + 3], 3);
-	assert.equal(base.params[EffectRow.decal + 3], 1);
-});
-
-test('a VFXDitherAlpha stack look moves its vertices by its offset texture outside particle mode', () => {
-	// the rift's escaping trails (`M_fxmap_dung02_dg005_boss_semicircle_escapism_trail_01_1101`)
-	const dither: ShaderEntry = {
-		...shader('HGRP/Effect/VFXDitherAlpha'),
-		family: 'vfxDitherAlpha',
-		floats: { _UseMainTexAsAlpha: 1, _InParticle: 1 },
-		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white', _OffsetTex: 'white' },
-	};
-	const trail = {
-		blend: 'alphaTest',
-		blendFactors: null,
-		keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_VERTOFFSET'],
-		slots: { _MainTex: slot(1, [2.5, 1]), _DisturbTex1: slot(2), _DissolveTex: slot(3), _OffsetTex: slot(4) },
-		floats: {
-			_InParticle: 0,
-			_OffsetIntensity: -0.5,
-			_OffsetSwitchDir: 2,
-			// VFXBaseV2's own; the dither shader doesn't read them
-			_UseVertexColorAlphaAsVertOffsetWeight: 1,
-			_VertCameraOffset: 3,
+test('a refraction draws over the composited scene, its mask red as alpha, with its colour offsets', () => {
+	const refract: RefractSurface = {
+		kind: 'refract',
+		refraction: texture(2, { scroll: [0, 0.1] }),
+		refractionPolar: false,
+		mask: { texture: texture(1, { rotation: [-1, 0] }), polar: true, redAlpha: true },
+		direction: [1, 1],
+		strength: 1,
+		bias: 0,
+		isNormal: false,
+		maskUsesRefraction: 0,
+		colorOffsets: {
+			offset: [0, 0.01],
+			secondShare: -0.89,
+			intensity: 1,
+			main: [1, 0, 0],
+			first: [0, 1, 0],
+			mainAsMask: 0,
+			second: null,
 		},
-		vectors: { _OffsetSpeed: [0.005, -0.05, 0, 0] },
-	} satisfies Partial<ReadyMaterial>;
-	const [moved, particle, alone] = materialLooks({
-		shaders: [dither],
-		entries: [
-			material({ id: 0, ...trail }),
-			material({ id: 1, ...trail, floats: { ...trail.floats, _InParticle: 1 } }),
-			material({ id: 2, ...trail, keywords: ['_USE_VERTOFFSET'] }),
-		],
-	});
-	assert.equal(moved.flags, LookFlags.Effect);
-	assert.deepEqual(moved.textures, [1, 2, 3, -1, -1, -1, 4]);
-	assert.equal(moved.params[EffectRow.slotBits + OFFSET_SLOT], ROLE_NONE);
-	assert.deepEqual(
-		Array.from(
-			moved.params.subarray(EffectRow.anim + OFFSET_SLOT * 4, EffectRow.anim + OFFSET_SLOT * 4 + 2),
-			(v) => Number(v.toFixed(4)),
-		),
-		[0.005, -0.05],
-	);
-	assert.deepEqual([...moved.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)], [0, 0, 0, 2]);
-	assert.deepEqual([...moved.params.subarray(EffectRow.offset, EffectRow.offset + 4)], [-0.5, 0, 0, 0]);
-	assert.deepEqual([...moved.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 0]);
-	// particle mode cancels the offset, so the look draws without it
-	assert.equal(particle.flags, LookFlags.Effect);
-	assert.equal(particle.params[EffectRow.offsetMode], 0);
-	// a vertex offset alone doesn't move a material onto the stack
-	assert.equal((alone.flags & LookFlags.Effect) !== 0, false);
-});
-
-test('a VFXRefract samples the scene behind at an offset by its texture and is masked by its mask red', () => {
-	// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
-	const refract: ShaderEntry = {
-		...shader('HGRP/Effect/VFXRefract'),
-		family: 'vfxRefract',
-		floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1 },
-		vectors: { _RefractDir: [1, 1, 0, 0] },
+		softDistance: 2.42,
+		near: { on: false, range: [0, 1, 1e5, 2e5] },
 	};
-	const [ground, dissolve] = materialLooks({
-		shaders: [refract],
-		entries: [
-			material({
-				id: 0,
-				blend: 'alphaBlend',
-				blendFactors: [5, 10],
-				cull: 'none',
-				keywords: ['_USE_MASK', '_USE_POLARUV'],
-				slots: { _MaskTex: slot(1, [3, 1]), _RefractTex: slot(2, [2, 1]) },
-				floats: { _Intensity: 0.5, _TintColorAlpha: 2, _RefractIsNormal: 0, _MaskTexUVRotate: 180 },
-				vectors: { _RefractUVSpeed: [0, 0.1, 0, 1] },
-			}),
-			material({ id: 1, blend: 'alphaBlend', keywords: ['_USE_DISSOLVE'], slots: { _RefractTex: slot(2) } }),
-		],
-	});
-	assert.equal(ground.screen, 'refract');
-	assert.equal(ground.transparent, true);
-	assert.deepEqual(ground.textures, [2, 1, -1, -1, -1, -1, -1]);
-	// the switches pick UV0
+	const [look] = materialLooks({ shaders: SHADERS, entries: [described(0, refract, 'none')] });
+	assert.deepEqual([look.screen, look.transparent], ['refract', true]);
+	assert.deepEqual(look.textures, [2, 1, -1, -1, -1, -1, -1]);
 	assert.deepEqual(
-		[...ground.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 2)],
-		[SlotSource.Uv0 * 32, SlotSource.Uv0 * 32 + 16],
+		[...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 2)],
+		[SlotSource.Uv0 * 32, SlotSource.Polar * 32 + 16],
 	);
-	assert.deepEqual([...ground.params.subarray(RefractRow.refract, RefractRow.refract + 4)], [1, 1, 1, 0]);
-	assert.deepEqual([...ground.params.subarray(RefractRow.refract2, RefractRow.refract2 + 4)], [0, 0, 1, 0]);
-	assert.equal(ground.params[EffectRow.anim + 1], 0.10000000149011612);
-	// half a turn: cos −1
-	assert.equal(ground.params[EffectRow.anim + 4 + 2], -1);
-	assert.equal(ground.params[EffectRow.unfogged + 1], EffectKind.Refract);
-	assert.equal(dissolve.unsupported, true);
-	// no soft blend or colour offsets
-	assert.equal(ground.params[EffectRow.soft], 0);
-	assert.equal(ground.params[RefractRow.rbMain + 3], 0);
+	assert.deepEqual([...look.params.subarray(RefractRow.refract, RefractRow.refract + 4)], [1, 1, 1, 0]);
+	assert.deepEqual([...look.params.subarray(RefractRow.refract2, RefractRow.refract2 + 4)], [0, 0, 1, 0]);
+	assert.equal(look.params[EffectRow.anim + 4 + 2], -1);
+	assert.deepEqual([...look.params.subarray(RefractRow.rbMain, RefractRow.rbMain + 4)], [1, 0, 0, 1]);
+	assert.deepEqual([...look.params.subarray(RefractRow.rbFirst, RefractRow.rbFirst + 4)], [0, 1, 0, 0]);
+	assert.equal(look.params[RefractRow.rbSecond + 3], 0);
+	assert.ok(Math.abs(look.params[EffectRow.soft] - 2.42) < 1e-6);
+	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.Refract);
 });
 
-test('a VFXRefract splits colours along its offset and fades in front of the scene', () => {
-	// the Deep Dale Street fog walls' heat haze (`M_fxmap_map02_lv008_fogwall_01_09`)
-	const refract: ShaderEntry = {
-		...shader('HGRP/Effect/VFXRefract'),
-		family: 'vfxRefract',
-		floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1, _RBIntensity: 1, _GOffset: -1 },
-		colors: {
-			_RBMainColorMask: [1, 0, 0, 1],
-			_RBOffsetColorMask: [0, 1, 1, 1],
-			_RBOffset1ColorMask: [0, 1, 0, 1],
-			_RBOffset2ColorMask: [0, 0, 1, 1],
+test('a water sheet lays out its frames, motion vectors and normals, and keeps its own rows', () => {
+	const sheet: WaterSheetSurface = {
+		kind: 'waterSheet',
+		tint: [0.5, 0.25, 2, 2],
+		textures: {
+			main: null,
+			disturb: null,
+			mask: texture(2, { scale: [2, 3] }),
+			dissolve: null,
+			sequence: texture(5),
+			sequenceMotion: texture(6),
+			normals: { texture: texture(7), flipbook: true, scale: 0.3 },
 		},
-		vectors: { _RefractDir: [1, 1, 0, 0], _RBOffset: [0, 0, 0, 0] },
+		disturbNormal: false,
+		mainAsAlpha: true,
+		maskAsAlpha: true,
+		vertexOpacity: false,
+		fresnelOpacity: false,
+		vertexColor: true,
+		blendMode: 0,
+		useLighting: 1,
+		randomUv: 0,
+		disturbBias: 0,
+		disturb: [0, 0],
+		disturbUse: [0, 0, 0, 0],
+		dissolve: { on: false, threshold: -1.01, sharpness: 1, edgeWidth: 0, edgeColor: [0, 0, 0] },
+		sequence: {
+			columns: 8,
+			rows: 4,
+			framesPerSecond: 40,
+			randomStartByPosition: 0,
+			motionStrength: 0,
+			opacityScale: 1,
+			opacityThreshold: 0,
+			colorThreshold: 0,
+			tint: [1, 1, 1],
+		},
+		roughness: 0.6,
+		specular: 1,
+		directSpecular: 1,
+		fresnel: 0,
+		subsurface: [1, 1, 1, 1],
+		indirectSaturation: 1,
+		soft: { distance: 3, bias: 0 },
+		ignorePostExposure: 1,
+		near: { on: false, range: [0, 1, 1e5, 2e5] },
 	};
-	const keywords = ['_USE_MASK', '_USE_RBOFFSET', '_USE_RGBOFFSET', '_USE_SOFTBLEND'];
-	const [haze, twoSamples] = materialLooks({
-		shaders: [refract],
-		entries: [0, 1].map((id) =>
-			material({
-				id,
-				blend: 'alphaBlend',
-				blendFactors: [5, 10],
-				cull: 'none',
-				keywords: id === 0 ? keywords : ['_USE_RBOFFSET'],
-				slots: { _MaskTex: slot(1), _RefractTex: slot(2) },
-				floats: { _GOffset: -0.89, _Intensity: 0.109, _TintColorAlpha: 0.39, _SoftDistance: 2.42 },
-				vectors: { _RBOffset: [0, 9.31, 0, 0] },
-			}),
-		),
-	});
-	assert.equal(haze.unsupported, false);
-	assert.equal(haze.screen, 'refract');
-	const rb = [...haze.params.subarray(RefractRow.rb, RefractRow.rb + 4)];
-	assert.equal(rb[0], 0);
-	assert.ok(Math.abs(rb[1] - 9.31 * 0.01 * 0.109) < 1e-6);
-	assert.ok(Math.abs(rb[2] + 0.89) < 1e-6);
-	assert.equal(rb[3], 1);
-	assert.deepEqual([...haze.params.subarray(RefractRow.rbMain, RefractRow.rbMain + 4)], [1, 0, 0, 1]);
-	assert.deepEqual([...haze.params.subarray(RefractRow.rbFirst, RefractRow.rbFirst + 4)], [0, 1, 0, 0]);
-	assert.deepEqual([...haze.params.subarray(RefractRow.rbSecond, RefractRow.rbSecond + 4)], [0, 0, 1, 1]);
-	assert.ok(Math.abs(haze.params[EffectRow.soft] - 2.42) < 1e-6);
-	// one further sample: its own mask, no second
-	assert.deepEqual([...twoSamples.params.subarray(RefractRow.rbFirst, RefractRow.rbFirst + 3)], [0, 1, 1]);
-	assert.equal(twoSamples.params[RefractRow.rbSecond + 3], 0);
-	assert.equal(twoSamples.params[EffectRow.soft], 0);
-});
-
-test('a VFXBaseV2 without a main texture draws with its shader default only when that is white', () => {
-	const looks = materialLooks({
-		shaders: [
-			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'white' } },
-			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'black' } },
-		],
-		entries: [
-			material({
-				id: 0,
-				shader: 0,
-				keywords: ['_SAMPLE_TEX0'],
-				slots: { _SampleTex0: slot(2) },
-				floats: { _SampleTex0UseWeight3: 1 },
-			}),
-			material({ id: 1, shader: 1 }),
-		],
-	});
-	assert.deepEqual(
-		looks.map((look) => look.unsupported),
-		[false, true],
-	);
-	// slot 0 binds white; the mask still applies
-	assert.deepEqual(looks[0].textures.slice(0, 2), [-1, 2]);
-});
-
-test('a VFXBaseV2 sample texture switched on without a texture samples its shader default', () => {
-	// the white talosite's shards (`M_fx_l_map02_lv008_starcollection_08`): a mask switched on with no mask
-	// texture bound, whose white default keeps them; a black default leaves the slot unsampled
-	const looks = materialLooks({
-		shaders: [
-			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'white', _SampleTex0: 'white' } },
-			{ ...shader('HGRP/Effect/VFXBaseV2'), textures: { _MainTex: 'white', _SampleTex0: 'black' } },
-		],
-		entries: [0, 1].map((id) =>
-			material({
-				id,
-				shader: id,
-				keywords: ['_SAMPLE_TEX0'],
-				slots: { _MainTex: slot(1) },
-				floats: { _SampleTex0UseWeight3: 1, _UseSampleTex0AsAlpha: 1, _UseMask: 1 },
-			}),
-		),
-	});
-	assert.deepEqual(
-		looks.map((look) => look.params[EffectRow.slotBits + 1]),
-		[EffectRole.Mask + 16, ROLE_NONE],
-	);
-	assert.deepEqual(looks[0].textures.slice(0, 2), [1, -1]);
-});
-
-test('a VFXBaseV2 draws when its vertex offset is cancelled by particle mode and its glow follows the player', () => {
-	const [look] = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				keywords: ['_USE_BRIGHT', '_USE_VERTOFFSET'],
-				slots: { _MainTex: slot(1) },
-				floats: { _InParticle: 1, _OffsetIntensity: 0.5 },
-				colors: { _BrightColor: [0, 2.6, 2.2, 0] },
-			}),
-		],
-	});
-	assert.equal(look.drawn, true);
+	const [look] = materialLooks({ shaders: SHADERS, entries: [described(0, sheet)] });
 	assert.equal(look.flags, LookFlags.Effect);
+	// main (white default), mask, flipbook colour and motion, normals in slot 6
+	assert.deepEqual(look.textures, [-1, -1, 2, -1, 5, 6, 7]);
+	assert.deepEqual([...look.params.subarray(EffectRow.tint, EffectRow.tint + 4)], [0.5, 0.25, 2, 2]);
+	assert.equal(
+		look.params[WaterSheetRow.flags],
+		WaterSheetFlags.Mask |
+			WaterSheetFlags.Sequence |
+			WaterSheetFlags.SequenceMotion |
+			WaterSheetFlags.SequenceNormal |
+			WaterSheetFlags.MainAsAlpha |
+			WaterSheetFlags.MaskAsAlpha |
+			WaterSheetFlags.VertexColor,
+	);
+	assert.deepEqual([...look.params.subarray(WaterSheetRow.sequence, WaterSheetRow.sequence + 3)], [8, 4, 40]);
+	assert.ok(Math.abs(look.params[WaterSheetRow.sequenceTint + 3] - 0.3) < 1e-6);
+	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.WaterSheet);
+	// the vertex offset stays off, since its switch shares the last rows
 	assert.equal(look.params[EffectRow.offsetMode], 0);
+	assert.equal(look.params[EffectRow.soft], 3);
 });
-
-test('a VFXBaseV2 water blend draws only while its water height lies below the world', () => {
-	// the collectible coins' effects (`M_fx_coin_02_1`) keep the authored -9999
-	const looks = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				keywords: ['_USE_WATER_BLEND', '_USE_SOFTBLEND'],
-				slots: { _MainTex: slot(1) },
-				floats: { _WaterHeight: -9999 },
-			}),
-			material({
-				id: 1,
-				keywords: ['_USE_WATER_BLEND'],
-				slots: { _MainTex: slot(1) },
-				floats: { _WaterHeight: 42 },
-			}),
-		],
-	});
-	assert.deepEqual(
-		looks.map((look) => look.unsupported),
-		[false, true],
-	);
-});
-
-test('a VFXBaseV2 vertex offset outside particle mode samples its texture in the offset slot', () => {
-	const [look] = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXBaseV2')],
-		entries: [
-			material({
-				keywords: ['_USE_VERTOFFSET'],
-				slots: { _MainTex: slot(1), _OffsetTex: slot(2, [1, 0.5]) },
-				floats: { _InParticle: 0, _OffsetIntensity: 0.5, _OffsetSwitchDir: 1, _OffsetUVSet: 1 },
-				vectors: { _OffsetDir: [0, 1, 0, 0], _OffsetSpeed: [0, 0.2, 0, 0] },
-			}),
-		],
-	});
-	assert.equal(look.drawn, true);
-	assert.equal(look.textures[OFFSET_SLOT], 2);
-	// the fragment stage skips the slot
-	assert.equal(look.params[EffectRow.slotBits + OFFSET_SLOT], ROLE_NONE);
-	assert.deepEqual(
-		[...look.params.subarray(EffectRow.uv + OFFSET_SLOT * 4, EffectRow.uv + OFFSET_SLOT * 4 + 4)],
-		[1, 0.5, 0, 0],
-	);
-	assert.deepEqual(
-		Array.from(
-			look.params.subarray(EffectRow.anim + OFFSET_SLOT * 4, EffectRow.anim + OFFSET_SLOT * 4 + 2),
-			(v) => Number(v.toFixed(4)),
-		),
-		[0, 0.2],
-	);
-	assert.deepEqual([...look.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)], [0, 1, 0, 1]);
-	assert.equal(look.params[EffectRow.offset], 0.5);
-	assert.deepEqual([...look.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 1]);
-});
-
-/** a ready material drawing `surface` */
-const described = (id: number, surface: ReadyMaterial['surface']): ReadyMaterial => material({ id, surface });
 
 test('mist: cards and boxes draw in the mist rows; boxes by their back faces, with their noise as the volume texture', () => {
 	const card: MistCardSurface = {
 		kind: 'mistCard',
-		main: slot(1),
-		noise: slot(2),
+		main: { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] },
+		noise: { texture: 2, uv: 0, scale: [1, 1], offset: [0, 0] },
 		color: [16.07, 19.84, 29.89, 1],
 		baseAlphaIntensity: 2,
 		noiseIntensity: 0,
@@ -876,7 +477,7 @@ test('mist: cards and boxes draw in the mist rows; boxes by their back faces, wi
 		},
 	};
 	const [cardLook, boxLook, plainLook] = materialLooks({
-		shaders: [shader('any')],
+		shaders: SHADERS,
 		entries: [described(0, card), described(1, box), described(2, { ...box, noise: null })],
 	});
 	assert.equal(cardLook.flags, LookFlags.Effect | LookFlags.EffectMist);
@@ -909,70 +510,6 @@ test('mist: cards and boxes draw in the mist rows; boxes by their back faces, wi
 	assert.deepEqual([plainLook.volumeTexture, plainLook.params[MistRow.volumeNoiseMix + 3]], [-1, 0]);
 });
 
-test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals and keeps its own rows', () => {
-	const looks = materialLooks({
-		// without a main texture the sheet samples the shader's white default
-		shaders: [{ ...shader('HGRP/Effect/VFXWater'), textures: { _MainTex: 'white' } }],
-		entries: [
-			material({
-				keywords: [
-					'_SUBSURFACE',
-					'_USE_MASK',
-					'_USE_SEQUENCE_FRAME',
-					'_USE_SEQUENCE_FRAME_MV',
-					'_USE_SEQUENCE_FRAME_NORMAL',
-					'_USE_SOFTBLEND',
-				],
-				slots: {
-					_MaskTex: slot(2, [2, 3]),
-					_SequenceBaseColorMap: slot(5, [4, 4]),
-					_SequenceMotionVectorMap: slot(6),
-					_SequenceNormalMap: slot(7),
-				},
-				floats: {
-					_TintColorAlpha: 2,
-					_PlaybackSpeed: 40,
-					_FrameNormalScale: 0.3,
-					_SoftDistance: 3,
-					_Roughness: 0.6,
-				},
-				colors: { _TintColor: [0.5, 0.25, 2, 1] },
-				vectors: { _SequenceFrameSize: [8, 4, 0, 0] },
-			}),
-			material({ id: 1, keywords: ['VFX_WATER_REFRACT'] }),
-		],
-	});
-	const [sheet, refract] = looks;
-	assert.equal(sheet.drawn, true);
-	assert.equal(sheet.flags, LookFlags.Effect);
-	// main (white default), mask, flipbook colour and motion, normals in slot 6
-	assert.deepEqual(sheet.textures, [-1, -1, 2, -1, 5, 6, 7]);
-	// `_TintColor` is [HDR]: as stored, its alpha times `_TintColorAlpha`
-	assert.deepEqual([...sheet.params.subarray(EffectRow.tint, EffectRow.tint + 4)], [0.5, 0.25, 2, 2]);
-	// the flipbook's frames are sampled as they are, not through its `_ST`
-	assert.deepEqual([...sheet.params.subarray(EffectRow.uv + 16, EffectRow.uv + 20)], [1, 1, 0, 0]);
-	const flags = sheet.params[WaterSheetRow.flags];
-	const expected =
-		WaterSheetFlags.Mask |
-		WaterSheetFlags.Sequence |
-		WaterSheetFlags.SequenceMotion |
-		WaterSheetFlags.SequenceNormal |
-		WaterSheetFlags.MainAsAlpha |
-		WaterSheetFlags.MaskAsAlpha |
-		WaterSheetFlags.VertexColor;
-	assert.equal(flags, expected);
-	assert.deepEqual(
-		[...sheet.params.subarray(WaterSheetRow.sequence, WaterSheetRow.sequence + 3)],
-		[8, 4, 40],
-	);
-	assert.ok(Math.abs(sheet.params[WaterSheetRow.sequenceTint + 3] - 0.3) < 1e-6);
-	assert.equal(sheet.params[EffectRow.unfogged + 1], EffectKind.WaterSheet);
-	// the vertex offset stays off, since its switch shares the last rows
-	assert.equal(sheet.params[EffectRow.offsetMode], 0);
-	assert.equal(sheet.params[EffectRow.soft], 3);
-	assert.equal(refract.unsupported, true);
-});
-
 test('a light beam is a shadowless effect with its cone, falloff and colour in the beam rows', () => {
 	// dung02_dg005's `VLB_5006340546849160366`, one of the Wuling rift's two great beams
 	const beam: LightBeamSurface = {
@@ -1001,7 +538,7 @@ test('a light beam is a shadowless effect with its cone, falloff and colour in t
 		unfogged: true,
 	};
 	const [look, fogged] = materialLooks({
-		shaders: [shader('any')],
+		shaders: SHADERS,
 		entries: [described(0, beam), described(1, { ...beam, additive: false, unfogged: false })],
 	});
 	assert.deepEqual(

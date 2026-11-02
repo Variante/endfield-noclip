@@ -13,7 +13,6 @@ import type { TextureSlot } from './materials.ts';
  * with, or `unsupported` for materials the viewer has no faithful look for
  */
 export type MaterialSurface =
-	| LegacySurface
 	| UndrawnSurface
 	| UnsupportedSurface
 	| LitSurface
@@ -22,7 +21,12 @@ export type MaterialSurface =
 	| DitheredSurface
 	| MistCardSurface
 	| MistVolumeSurface
-	| LightBeamSurface;
+	| LightBeamSurface
+	| EffectStackSurface
+	| StencilMaskSurface
+	| WaterSheetSurface
+	| LitDecalSurface
+	| RefractSurface;
 
 /** an RGBA colour */
 export type Rgba = [r: number, g: number, b: number, a: number];
@@ -36,11 +40,6 @@ export interface TiledTexture {
 
 /** a linear RGB colour */
 export type Rgb = [r: number, g: number, b: number];
-
-/** a material whose family hasn't moved to a description yet: the viewer reads its raw properties */
-export interface LegacySurface {
-	kind: 'legacy';
-}
 
 /** a material the game draws nothing visible with */
 export interface UndrawnSurface {
@@ -518,6 +517,289 @@ export interface LightBeamSurface {
 	clippingPlaneTransition: number;
 	/** drawn without fog (no `VLB_USE_FOG`) */
 	unfogged: boolean;
+}
+
+// #endregion
+
+// #region effects
+
+/** a texture an effect samples, with its UV transform and animation */
+export interface EffectTexture {
+	/** index into the texture table, or -1 for an unset slot whose shader defaults to white */
+	texture: number;
+	/** `uv' = uv · scale + offset` */
+	scale: [u: number, v: number];
+	offset: [u: number, v: number];
+	/** UV scroll per second */
+	scroll: [u: number, v: number];
+	/** the UV rotation's cosine and sine */
+	rotation: [cos: number, sin: number];
+}
+
+/** what a texture-stack layer's texture does (`docs/game-data/effects.md`) */
+export type EffectRole = 'disturb1' | 'disturb2' | 'weight' | 'mask' | 'blend' | 'dissolve' | 'main';
+
+/** where a layer's UVs start: a mesh UV set, polar coordinates about the UV centre, or the screen */
+export type EffectUvSource = 'uv0' | 'uv1' | 'polar' | 'screen';
+
+/** a texture of an effect's stack */
+export interface StackLayer extends EffectTexture {
+	role: EffectRole;
+	/** its red is its alpha */
+	redAlpha: boolean;
+	/** where its UVs start; `null` from zero, as the game's do when the source isn't computed */
+	source: EffectUvSource | null;
+	/** the share of the distortion its UVs take */
+	disturbShare: number;
+}
+
+/** a Unity `CompareFunction`, as WebGPU names it */
+export type EffectCompare =
+	| 'never'
+	| 'less'
+	| 'equal'
+	| 'less-equal'
+	| 'greater'
+	| 'not-equal'
+	| 'greater-equal'
+	| 'always';
+
+/** a stencil test and write, and the depth test that goes with it (`_Stencil*`, `_ZTest`) */
+export interface EffectStencil {
+	compare: EffectCompare;
+	/** passing fragments write the reference (Unity's Replace); the rest keep the stencil */
+	replace: boolean;
+	reference: number;
+	readMask: number;
+	writeMask: number;
+	/** the depth test, in Unity's (forward) depth */
+	depthCompare: EffectCompare;
+}
+
+/** the vertex offset of VFXBaseV2 and VFXDitherAlpha: along a direction by a texture's red */
+export interface EffectVertexOffset {
+	/** read after its `_ST`, unscaled and unrotated */
+	texture: EffectTexture;
+	/** samples UV set 1 rather than 0 */
+	uv1: boolean;
+	direction: [x: number, y: number, z: number];
+	/** 0 object space, 1 world space, 2 along the vertex normal */
+	space: number;
+	intensity: number;
+	/** `_Bi_Offset`'s remap */
+	bias: number;
+	/** how much the vertex alpha weighs it (VFXBaseV2) */
+	vertexAlphaWeight: number;
+	/** the most it pulls vertices towards the camera, in metres (VFXBaseV2) */
+	cameraPull: number;
+}
+
+/** the fades by view depth every effect shader shares */
+export interface EffectNearFade {
+	on: boolean;
+	/** start, end, second start, second end */
+	range: [number, number, number, number];
+}
+
+/** the dissolve of the texture stack */
+export interface EffectDissolve {
+	on: boolean;
+	/** sweeps from below 0 to past 1 as the schedule goes from 0 to 1 */
+	threshold: number;
+	sharpness: number;
+	edgeWidth: number;
+	/** HDR, times the tint intensity */
+	edgeColor: Rgb;
+}
+
+/**
+ * the texture stack of `HGRP/Effect/VFXBaseV2`, `HGRP/Effect/VFXDecal` and VFXDitherAlpha's effect variants
+ * (`docs/game-data/effects.md`)
+ */
+export interface EffectStackSurface {
+	kind: 'effectStack';
+	/** VFXDecal boxes project onto the surfaces inside them */
+	variant: 'base' | 'decal' | 'dither';
+	/** seven slots; the last is the vertex offset's when there is one */
+	layers: (StackLayer | null)[];
+	/** linear rgb times its intensity, alpha */
+	tint: Rgba;
+	/** the blend layer's tint (HDR) and how strongly it covers */
+	blendTint: Rgba;
+	/** distortion per unit of the first and second disturb texture: u1, v1, u2, v2 */
+	disturb: [number, number, number, number];
+	/** `_Bi_Disturb` */
+	disturbBias: number;
+	/** `_USE_DISTURB`/`_UseDisturb`: the distortion is on */
+	distorted: boolean;
+	/** the weight texture's strength on the distortion and on the dissolve, and whether it's used */
+	weight: { disturb: number; dissolve: number; used: boolean };
+	dissolve: EffectDissolve;
+	/** a mask is used: one switched on without a texture in that role leaves nothing, as in the game */
+	masked: boolean;
+	fresnel: { power: number; bias: number; flip: number; opacity: number } | null;
+	soft: { distance: number; bias: number } | null;
+	ignorePostExposure: number;
+	vertexColor: boolean;
+	near: EffectNearFade;
+	brighten: { threshold: number; intensity: number };
+	/** VFXDecal's fades: across x and z, their width, the height fade and its offset, the angle falloff */
+	decalFade: {
+		edge: [x: number, z: number];
+		width: number;
+		height: number;
+		heightOffset: number;
+		angle: number;
+	} | null;
+	/** the power the alpha is raised to (VFXDitherAlpha's `_DitherAlphaExp`) */
+	alphaPower: number;
+	offset: EffectVertexOffset | null;
+	/** `_USE_LIGHTING`: lit at the world's up rather than the surface normal */
+	lighting: { worldUp: boolean } | null;
+	/** drawn after the fog (no `_USE_FOG`); VFXDitherAlpha's G-buffer surface is fogged */
+	unfogged: boolean;
+	/** VFXBaseV2's `_BlendMode`: 0 blends over, 1 adds, 2 multiplies what lies behind */
+	blendMode: number;
+	/** screen UVs scale by the object's view depth, and take v from the world height */
+	screenUv: { byDepth: boolean; heightAsV: boolean };
+	stencil: EffectStencil | null;
+}
+
+/** an opaque VFXBaseV2 material that only writes the stencil: a portal's mask */
+export interface StencilMaskSurface {
+	kind: 'stencilMask';
+	stencil: EffectStencil;
+}
+
+/** `HGRP/Effect/VFXWater`, a sheet of falling water (`docs/game-data/effects.md#waterfalls`) */
+export interface WaterSheetSurface {
+	kind: 'waterSheet';
+	/** HDR, as stored, times its intensity, with the alpha */
+	tint: Rgba;
+	textures: {
+		main: EffectTexture | null;
+		disturb: EffectTexture | null;
+		mask: EffectTexture | null;
+		dissolve: EffectTexture | null;
+		/** the flipbook, sampled at its frames' UVs as they are */
+		sequence: EffectTexture | null;
+		sequenceMotion: EffectTexture | null;
+		/** the flipbook's normals, or a normal map */
+		normals: { texture: EffectTexture; flipbook: boolean; scale: number } | null;
+	};
+	/** the disturb texture holds a normal */
+	disturbNormal: boolean;
+	mainAsAlpha: boolean;
+	maskAsAlpha: boolean;
+	vertexOpacity: boolean;
+	fresnelOpacity: boolean;
+	vertexColor: boolean;
+	/** 1 additive */
+	blendMode: number;
+	useLighting: number;
+	randomUv: number;
+	disturbBias: number;
+	disturb: [u: number, v: number];
+	/** how far the distortion moves the main, mask, normal map and dissolve UVs */
+	disturbUse: [main: number, mask: number, normal: number, dissolve: number];
+	dissolve: EffectDissolve;
+	sequence: {
+		columns: number;
+		rows: number;
+		framesPerSecond: number;
+		randomStartByPosition: number;
+		motionStrength: number;
+		opacityScale: number;
+		opacityThreshold: number;
+		colorThreshold: number;
+		/** linear */
+		tint: Rgb;
+	};
+	roughness: number;
+	specular: number;
+	directSpecular: number;
+	fresnel: number;
+	/** hue, saturation, value (0 without `_SUBSURFACE`), indirect strength */
+	subsurface: [hue: number, saturation: number, value: number, indirect: number];
+	indirectSaturation: number;
+	soft: { distance: number; bias: number } | null;
+	ignorePostExposure: number;
+	near: EffectNearFade;
+}
+
+/** `HGRP/DecalLit`, a projected decal of the scenery (`docs/game-data/materials.md#decals`) */
+export interface LitDecalSurface {
+	kind: 'litDecal';
+	/** the base colour map, through the placement's UV transform */
+	base: number;
+	/** the placement's UV scale and offset of the box's `local.xz + 0.5` */
+	placementUv: [scaleU: number, scaleV: number, offsetU: number, offsetV: number];
+	/** the placement's colour, used as stored, with the alpha times `_DecalOpacity` */
+	color: Rgba;
+	/**
+	 * the PBR map (normal RG, roughness B): through the placement's UV transform, or its own `_ST` of the box's
+	 * UVs (`ownTransform`); or with `_BLEND_WATER_FLOW` the water normal map at world positions, its scale per
+	 * metre
+	 */
+	pbr: { texture: number; ownTransform: [number, number, number, number] | null } | null;
+	/** it writes no albedo: drawn by adding its change to the surface's light */
+	relight: boolean;
+	roughness: [min: number, max: number];
+	normalScale: number;
+	/** the angle fade's power, 0 without `_NORMAL_ANGLE_BLEND` */
+	angleFade: number;
+	writesNormal: boolean;
+	writesRoughness: boolean;
+	writesMetallic: boolean;
+	writesOcclusion: boolean;
+	blendSceneNormal: number;
+	metallic: number;
+	occlusionStrength: number;
+	/** the base map is the PBR map and the colour stands alone */
+	pbrBase: boolean;
+	metallicChannel: number;
+	occlusionChannel: number;
+	affectNormal: number;
+	/** `_BLEND_WATER_FLOW` */
+	waterFlow: {
+		normalScale: number;
+		roughness: number;
+		normalFactor: number;
+		/** the two layers' scroll speeds, then their UV scales */
+		movement: Rgba;
+		levelFade: number;
+	} | null;
+	/** `_BLEND_EMISSIVE` */
+	emission: { color: Rgb; channel: number; albedoAffect: number; ignorePostExposure: number } | null;
+}
+
+/** `HGRP/Effect/VFXRefract`, the scene behind seen at an offset (`docs/game-data/effects.md#refraction`) */
+export interface RefractSurface {
+	kind: 'refract';
+	refraction: EffectTexture;
+	refractionPolar: boolean;
+	mask: { texture: EffectTexture; polar: boolean; redAlpha: boolean } | null;
+	direction: [u: number, v: number];
+	/** `_Intensity · _TintColorAlpha` */
+	strength: number;
+	bias: number;
+	isNormal: boolean;
+	maskUsesRefraction: number;
+	/** `_USE_RBOFFSET`'s colour offsets, `null` without */
+	colorOffsets: {
+		/** in screen UVs */
+		offset: [u: number, v: number];
+		secondShare: number;
+		intensity: number;
+		/** linear colour masks */
+		main: Rgb;
+		first: Rgb;
+		mainAsMask: number;
+		/** `_USE_RGBOFFSET`'s second further sample */
+		second: Rgb | null;
+	} | null;
+	softDistance: number;
+	near: EffectNearFade;
 }
 
 // #endregion

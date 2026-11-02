@@ -4,7 +4,10 @@ how the viewer draws the effects [game-data/effects.md](../game-data/effects.md)
 VFXBaseV2, VFXDecal, the [solid effects](#solid-effects), the [waterfalls](#waterfalls), the
 [mist](#mist) and the [light beams](#light-beams)
 ([`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts),
-[`shaders/effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). effects on particle
+[`shaders/effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). the extractor reads
+each effect material's properties and keywords into a [surface](../package-format.md#materials)
+([game/material-effects.ts](../../packages/extractor/src/game/material-effects.ts)), or marks it
+unsupported with the reason; the viewer packs the surface into the look's rows. effects on particle
 meshes play through the [particles](particles.md#particles); what's left out is in
 [status](../status.md).
 
@@ -41,16 +44,16 @@ the water), into the composited scene with the main pass's depth attached read-o
   depth.
 
 unlit VFXDitherAlpha materials with a distortion, a dissolve, a mask or polar or screen UVs draw
-through VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game
-dithers with rather than dithered, which the temporal antialiasing would average to the same
-coverage. that alpha is raised to `_DitherAlphaExp` as the game's is, which thins the Very Large
-Rift's red sky ring (`wenli_01_red` in `p_fxmap_dung02_dg005_boss_semicircle_sky_02`, exponent 3) to
-streaks. unlike the game's, they don't write depth, so they don't hide effects behind them. the
-stack's mask scales the colour as well as the alpha, so a mask draws only as its red
+through VFXBaseV2's texture stack (`describeDitherEffect`, `stackLook`), fogged, blended by the
+alpha the game dithers with rather than dithered, which the temporal antialiasing would average to
+the same coverage. that alpha is raised to `_DitherAlphaExp` as the game's is, which thins the Very
+Large Rift's red sky ring (`wenli_01_red` in `p_fxmap_dung02_dg005_boss_semicircle_sky_02`,
+exponent 3) to streaks. unlike the game's, they don't write depth, so they don't hide effects behind
+them. the stack's mask scales the colour as well as the alpha, so a mask draws only as its red
 (`_UseMaskTexAsAlpha`, the default), where its colour is white. their vertex offset fills the same
-rows as VFXBaseV2's (`setVertexOffset`), leaving out VFXBaseV2's vertex-alpha weight and camera
-pull; `vs_effect` still adds that pull's 1 mm. a vertex offset alone doesn't bring a material onto
-the stack, and those stay unsupported.
+rows as VFXBaseV2's, leaving out VFXBaseV2's vertex-alpha weight and camera pull; `vs_effect` still
+adds that pull's 1 mm. a vertex offset alone doesn't bring a material onto the stack, and those stay
+unsupported.
 
 [reflection-only effects](../game-data/effects.md#reflection-only-effects) aren't drawn, since the
 game never shades them into the image. the viewer's screen-space reflections don't take their normal
@@ -67,7 +70,7 @@ rest, and each effect's stencil state and depth test pick a pipeline variant.
 ## solid effects
 
 VFXDitherAlpha shades through the opaque mesh path
-([`materials.ts`](../../packages/viewer/src/render/materials.ts), `ditherAlphaLook`). its
+([`materials.ts`](../../packages/viewer/src/render/materials.ts), `ditheredLook`). its
 [dither](../game-data/effects.md#solid-effects) is an alpha test in the cutout depth pass
 (`fs_cutout_depth` in `shaders/mesh.wgsl`), for materials without `_USE_MAIN2` in the default
 `_DitherAlphaMode`; with `_UseMainTexAsAlpha` only unlit ones, which test the texture through the
@@ -75,12 +78,12 @@ normal slot. drawn without the test, Power Plateau's `blackspot` was a dark squa
 
 ## waterfalls
 
-VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `shaders/effect.wgsl`; `vfxWaterLook` in
-[`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `_BlendMode` 1 sheets draw
-into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the unlit
-share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave falls,
-far below the game's. the normal map's frame comes from the UVs' screen derivatives rather than mesh
-tangents.
+VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `shaders/effect.wgsl`; `waterSheetLook`
+in [`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `_BlendMode` 1 sheets
+draw into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the
+unlit share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave
+falls, far below the game's. the normal map's frame comes from the UVs' screen derivatives rather
+than mesh tangents.
 
 ## mist
 
@@ -96,7 +99,7 @@ the weighted blend. at Sword Vault Dale the cards make the haze that the fog alo
 ## light beams
 
 [light beams](../game-data/lighting.md#light-beams) draw through `fs_effect`, which hands them to
-`light_beam` (`volumetricBeamLook` in
+`light_beam` (`lightBeamLook` in
 [`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `vs_effect` shapes the cone
 first (`beam_vertex`); the fragment stage takes the beam's own frame and the camera's from the
 instance's inverse transform rather than extra varyings. additive beams draw into the glow,

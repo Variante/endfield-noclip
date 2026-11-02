@@ -3,16 +3,35 @@
  * properties and keywords, or `unsupported` with the keywords or combinations the viewer doesn't draw.
  */
 
+import {
+	DECAL_COLOR_PROPERTY,
+	DECAL_UV_PROPERTY,
+	type TextureSlot,
+} from '@endfield-noclip/package-format/materials';
 import type {
+	EffectCompare,
+	EffectRole,
+	EffectStackSurface,
+	EffectStencil,
+	EffectTexture,
+	EffectUvSource,
+	EffectVertexOffset,
 	FadeRange,
 	LightBeamSurface,
+	LitDecalSurface,
 	MistCardSurface,
 	MistVolumeSurface,
+	RefractSurface,
+	Rgba,
+	StackLayer,
+	StencilMaskSurface,
+	UndrawnSurface,
 	UnsupportedSurface,
+	WaterSheetSurface,
 } from '@endfield-noclip/package-format/surfaces';
 
 import { BlendFactor } from './material-classify.ts';
-import { linearRgb, type MaterialReader, unsupported } from './material-values.ts';
+import { linearRgb, type MaterialReader, scaleRgb, unsupported } from './material-values.ts';
 
 /** @returns `unsupported` naming the material's keywords outside `drawn`, or `null` when it has none */
 export const undrawnKeywords = (
@@ -136,6 +155,1134 @@ export const describeMistVolume = (reader: MaterialReader): MistVolumeSurface | 
 		depth: [float('_FogDepthStart', 0), float('_FogDepthEnd', 0)],
 		ignorePostExposure: float('_IgnorePostExposure', 1),
 		noise,
+	};
+};
+
+// #endregion
+
+// #region the texture stack
+
+/** Unity's `CompareFunction` values, `Disabled` (0) to `Always` (8), as WebGPU names them */
+const COMPARE_FUNCTIONS: readonly EffectCompare[] = [
+	'always',
+	'never',
+	'less',
+	'equal',
+	'less-equal',
+	'greater',
+	'not-equal',
+	'greater-equal',
+	'always',
+];
+
+/** Unity's `StencilOp` values the viewer draws */
+const StencilOp = {
+	Keep: 0,
+	Replace: 2,
+} as const;
+
+/**
+ * @returns the stencil state of a VFXBaseV2 material, whose one pass takes its stencil and depth test from
+ *   these properties; `null` when it leaves the stencil alone, `unsupported` for stencil operations other
+ *   than keep and replace
+ */
+const stencilOf = (reader: MaterialReader): EffectStencil | UnsupportedSurface | null => {
+	const { float } = reader;
+	const compare = COMPARE_FUNCTIONS[float('_StencilComp', 8)] ?? 'always';
+	const op = float('_StencilOp', StencilOp.Keep);
+	if (compare === 'always' && op === StencilOp.Keep) {
+		return null;
+	}
+	if (op !== StencilOp.Keep && op !== StencilOp.Replace) {
+		return unsupported(`stencil operation ${op}`);
+	}
+	return {
+		compare,
+		replace: op === StencilOp.Replace,
+		reference: float('_StencilRef', 0) & 0xff,
+		readMask: float('_StencilReadMask', 255) & 0xff,
+		writeMask: float('_StencilWriteMask', 255) & 0xff,
+		depthCompare: COMPARE_FUNCTIONS[float('_ZTest', 4)] ?? 'less-equal',
+	};
+};
+
+/** an unset slot, where the shader's white default stands in */
+const UNSET_WHITE: TextureSlot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
+
+/** a slot as an effect texture, with its scroll and rotation */
+const effectTexture = (
+	slot: Pick<TextureSlot, 'texture' | 'scale' | 'offset'>,
+	scroll: readonly number[] = [0, 0],
+	rotation: [cos: number, sin: number] = [1, 0],
+): EffectTexture => ({
+	texture: slot.texture,
+	scale: [slot.scale[0], slot.scale[1]],
+	offset: [slot.offset[0], slot.offset[1]],
+	scroll: [scroll[0], scroll[1]],
+	rotation,
+});
+
+const UV_SOURCES: readonly EffectUvSource[] = ['uv0', 'uv1', 'polar', 'screen'];
+
+/** the shared rows of the texture stack: blend layer, distortion, dissolve, near fade and post exposure */
+const sharedOf = (reader: MaterialReader, intensity: number) => {
+	const { float, colorOrVector: color } = reader;
+	const edge = color('_DissolveEmissiveColor') ?? [0, 0, 0, 0];
+	return {
+		blendTint: color('_BlendTint') ?? [1, 1, 1, 0],
+		disturb: [
+			float('_DisturbUIntensity1', 0),
+			float('_DisturbVIntensity1', 0),
+			float('_DisturbUIntensity2', 0),
+			float('_DisturbVIntensity2', 0),
+		] satisfies [number, number, number, number],
+		dissolve: {
+			on: false,
+			// the threshold sweeps from below 0 to past 1 as the schedule goes from 0 to 1
+			threshold: float('_DissolveScheduleOffset', 0) * 2.02 - 1.01,
+			sharpness: float('_DissolveEdgeSharp', 1),
+			edgeWidth: float('_DissolveEmissiveEdge', 0),
+			edgeColor: scaleRgb(edge, intensity),
+		},
+		near: {
+			on: float('_UseNearCameraFade', 0) !== 0,
+			range: [
+				float('_NearCameraFadeDistanceStart', 0),
+				float('_NearCameraFadeDistanceEnd', 1),
+				float('_NearCameraFadeDistanceStart2', 1e5),
+				float('_NearCameraFadeDistanceEnd2', 2e5),
+			] satisfies [number, number, number, number],
+		},
+		ignorePostExposure: float('_IgnorePostExposure', 1),
+	};
+};
+
+/** the tint of the stack shaders: the LDR `_TintColor` linearized, times its intensity, and its alpha */
+const stackTintOf = (reader: MaterialReader): { tint: Rgba; intensity: number } => {
+	const { float, colorOrVector: color } = reader;
+	const intensity = float('_TintColorIntensity', 1);
+	const tint = color('_TintColor') ?? [1, 1, 1, 1];
+	return {
+		tint: [...scaleRgb(linearRgb(tint), intensity), tint[3] * float('_TintColorAlpha', 1)],
+		intensity,
+	};
+};
+
+/** a layer's UV source: the largest of its weights times UV0, UV1, polar and screen UVs, if computed */
+const sourceOf = (weights: readonly number[], computed: readonly boolean[]): EffectUvSource | null => {
+	const largest = weights.indexOf(Math.max(...weights));
+	return weights[largest] > 0 && computed[largest] ? UV_SOURCES[largest] : null;
+};
+
+/** the material property of the vertex offset's texture */
+const OFFSET_TEXTURE = '_OffsetTex';
+
+/** @returns the vertex offset's texture: the bound slot, or white when unset and the shader defaults to it */
+const offsetSlotOf = (reader: MaterialReader): TextureSlot | null =>
+	reader.slot(OFFSET_TEXTURE) ?? (reader.shader.textures[OFFSET_TEXTURE] === 'white' ? UNSET_WHITE : null);
+
+/**
+ * the vertex offset of VFXBaseV2 and VFXDitherAlpha: along `_OffsetDir` (or the normal) by `_OffsetIntensity`
+ * times the offset texture's red, remapped by `_Bi_Offset`; the game scales it by `1 − _InParticle`
+ */
+const vertexOffsetOf = (reader: MaterialReader): EffectVertexOffset | null => {
+	const { float, colorOrVector: color, has } = reader;
+	const slot = offsetSlotOf(reader);
+	if (!has('_USE_VERTOFFSET') || float('_InParticle', 1) !== 0 || slot === null) {
+		return null;
+	}
+	const dir = color('_OffsetDir') ?? [0, 0, 0, 0];
+	return {
+		// the vertex stage reads the scroll after the `_ST`, unscaled and unrotated
+		texture: effectTexture(slot, color('_OffsetSpeed') ?? [0, 0, 0, 0]),
+		uv1: float('_OffsetUVSet', 0) !== 0,
+		direction: [dir[0], dir[1], dir[2]],
+		space: float('_OffsetSwitchDir', 0),
+		intensity: float('_OffsetIntensity', 0),
+		bias: float('_Bi_Offset', 0),
+		vertexAlphaWeight: 0,
+		cameraPull: 0,
+	};
+};
+
+/** the slots of VFXBaseV2: the main texture, then `_SampleTex0`…; the sixth shares the vertex offset's slot */
+const BASE_SLOTS = [
+	'_MainTex',
+	'_SampleTex0',
+	'_SampleTex1',
+	'_SampleTex2',
+	'_SampleTex3',
+	'_SampleTex4',
+	'_SampleTex5',
+];
+
+/** the property whose `_ST` a VFXBaseV2 sample texture uses, by role */
+const ROLE_TEXTURES = ['_DisturbTex1', '_DisturbTex2', '_WeightTex', '_MaskTex', '_BlendTex', '_DissolveTex'];
+const SAMPLE_ROLES: readonly EffectRole[] = ['disturb1', 'disturb2', 'weight', 'mask', 'blend', 'dissolve'];
+
+/** keywords VFXBaseV2 can have and still be drawn */
+const BASE_KEYWORDS = new Set([
+	'_USE_LIGHTING',
+	'_SAMPLE_TEX0',
+	'_SAMPLE_TEX1',
+	'_SAMPLE_TEX2',
+	'_SAMPLE_TEX3',
+	'_SAMPLE_TEX4',
+	'_USE_FOG',
+	'_USE_SOFTBLEND',
+	'_USE_FRESNEL',
+	'_USE_POLARUV',
+]);
+
+/** a `_WaterHeight` at or below this lies under every level, so water blending leaves the effect unchanged */
+const WATER_BLEND_UNSET = -1000;
+
+/** whether a VFXBaseV2 keyword outside {@link BASE_KEYWORDS} is drawn, or changes nothing in the viewer */
+const baseKeywordDrawn = (keyword: string, reader: MaterialReader): boolean => {
+	const { float, colorOrVector: color } = reader;
+	switch (keyword) {
+		case '_USE_VERTOFFSET': {
+			// the game scales the offset by `1 − _InParticle`, so meshes left in particle mode don't move
+			const slot = offsetSlotOf(reader);
+			return float('_InParticle', 1) !== 0 || (slot !== null && slot.uv <= 1);
+		}
+		case '_USE_BRIGHT': {
+			// the radial glow and distortion around the player (no `_BrightCenter`) reach `_OuterRadius` metres,
+			// and the viewer has no player
+			return float('_BrightType', 0) === 0 && (color('_BrightCenter')?.[3] ?? 0) === 0;
+		}
+		case '_USE_SCREENUV': {
+			// screen UVs relative to the object's pivot aren't drawn
+			return float('_LocalPivortSpace', 0) === 0;
+		}
+		case '_SAMPLE_TEX5': {
+			// the sixth sample texture takes the vertex offset's slot
+			return vertexOffsetOf(reader) === null;
+		}
+		case '_USE_WATER_BLEND': {
+			// the blend absorbs and scatters only below `_WaterHeight`, which the game sets from a water surface the
+			// effect meets; the authored height lies below the world, where the blend changes nothing
+			return float('_WaterHeight', 0) <= WATER_BLEND_UNSET;
+		}
+		default: {
+			return false;
+		}
+	}
+};
+
+/** @returns whether a material's blend state multiplies what lies behind by its colour (`Blend DstColor Zero`) */
+const multipliesBehind = (reader: MaterialReader): boolean =>
+	reader.material.blend === 'custom' &&
+	reader.material.blendFactors?.[0] === BlendFactor.DstColor &&
+	reader.material.blendFactors[1] === BlendFactor.Zero;
+
+/**
+ * `HGRP/Effect/VFXBaseV2` (`docs/game-data/effects.md`): its texture stack, or with an opaque blend state
+ * that only writes the stencil, a portal's mask
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported`
+ */
+export const describeVfxBase = (
+	reader: MaterialReader,
+): EffectStackSurface | StencilMaskSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	const stencil = stencilOf(reader);
+	if (stencil !== null && 'kind' in stencil) {
+		return stencil;
+	}
+	if (material.blend === 'opaque') {
+		return stencil?.replace === true ? { kind: 'stencilMask', stencil } : unsupported('opaque blending');
+	}
+	// the shader writes its alpha times `1 − _BlendMode`: 1 adds the premultiplied colour over what's behind, and
+	// 2 writes `lerp(1, colour, alpha)` for a blend state that multiplies what's behind by it
+	const blendMode = float('_BlendMode', 0);
+	if (blendMode !== 0 && blendMode !== 1 && blendMode !== 2) {
+		return unsupported(`_BlendMode ${blendMode}`);
+	}
+	if (blendMode === 2 ? !multipliesBehind(reader) : material.blend !== 'premultiplied') {
+		return unsupported(`_BlendMode ${blendMode} with ${material.blend} blending`);
+	}
+	// drawn over the composited scene, which has no stencil
+	if (blendMode === 2 && stencil !== null) {
+		return unsupported('a multiplying blend with a stencil');
+	}
+	const undrawn = material.keywords.filter(
+		(keyword) => !BASE_KEYWORDS.has(keyword) && !baseKeywordDrawn(keyword, reader),
+	);
+	if (undrawn.length > 0) {
+		return unsupported(`keywords ${undrawn.join(', ')}`);
+	}
+	const { tint, intensity } = stackTintOf(reader);
+	const animOf = (prefix: string) => {
+		// the shaders' UV rotations are pure rotations: (a, b) of the matrix's first column is (cos, sin)
+		const rotation = color(`${prefix}UVRotateMat`) ?? [1, 0, 0, 1];
+		return {
+			scroll: color(`${prefix}UVSpeed`) ?? [0, 0, 0, 0],
+			rotation: [rotation[0], rotation[1]] as [number, number],
+		};
+	};
+	// polar and screen UVs are computed only with their keyword and switch, and are zero otherwise
+	const computed = [
+		true,
+		true,
+		has('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
+		has('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
+	];
+	// a slot's UVs are its weights times UV0, UV1, polar and screen UVs; materials set one weight
+	const source = (prefix: string) => sourceOf(color(`${prefix}UVWeights`) ?? [1, 0, 0, 0], computed);
+	const layers: (StackLayer | null)[] = BASE_SLOTS.map(() => null);
+	for (const [i, name] of BASE_SLOTS.entries()) {
+		// the main texture is always sampled, a sample texture only with its keyword
+		if (i > 0 && !has(`_SAMPLE_TEX${i - 1}`)) {
+			continue;
+		}
+		let slot = reader.slot(name);
+		// a sample texture samples the shader's default when the material binds none; an unset slot binds white.
+		// the white talosite's shards take their mask from such a slot
+		if (slot === undefined && i > 0 && reader.shader.textures[name] === 'white') {
+			slot = UNSET_WHITE;
+		}
+		if (slot === undefined) {
+			continue;
+		}
+		// the geometry carries UV sets 0 and 1 only
+		if (slot.uv > 1) {
+			return unsupported(`${name} on UV set ${slot.uv}`);
+		}
+		if (i === 0) {
+			const anim = animOf('_MainTex');
+			layers[0] = {
+				...effectTexture(slot, anim.scroll, anim.rotation),
+				role: 'main',
+				redAlpha: float('_UseMainTexAsAlpha', 0) !== 0,
+				source: source('_MainTex'),
+				disturbShare: float('_MainTexUseDisturb', 0),
+			};
+			continue;
+		}
+		const n = i - 1;
+		const role = ROLE_TEXTURES.findIndex((_, k) => float(`_SampleTex${n}UseWeight${k}`, 0) !== 0);
+		if (role < 0) {
+			continue;
+		}
+		// the shader transforms a sample texture's UVs by the `_ST` of its role's texture property
+		const transform = reader.slot(ROLE_TEXTURES[role]) ?? slot;
+		const anim = animOf(`_SampleTex${n}`);
+		let layerSource = source(`_SampleTex${n}`);
+		if (n === 5) {
+			// the shader computes the sixth's UVs in its vertex stage, from the mesh's UV sets alone, and scrolls them
+			// by the first's speed
+			const weights = color('_SampleTex5UVWeights') ?? [1, 0, 0, 0];
+			layerSource = weights[1] > weights[0] ? 'uv1' : 'uv0';
+			anim.scroll = animOf('_SampleTex0').scroll;
+		}
+		layers[i] = {
+			...effectTexture({ ...transform, texture: slot.texture }, anim.scroll, anim.rotation),
+			role: SAMPLE_ROLES[role],
+			redAlpha: float(`_UseSampleTex${n}AsAlpha`, 0) !== 0,
+			source: layerSource,
+			disturbShare: float(`_SampleTex${n}UseDisturb`, 0),
+		};
+	}
+	// without a main texture the shader samples its default; slot 0 is always sampled, and an unset slot binds
+	// white
+	if (layers[0] === null && reader.shader.textures['_MainTex'] !== 'white') {
+		return unsupported('no main texture and a non-white default');
+	}
+	const shared = sharedOf(reader, intensity);
+	const offset = vertexOffsetOf(reader);
+	return {
+		kind: 'effectStack',
+		variant: 'base',
+		layers,
+		tint,
+		blendTint: shared.blendTint,
+		disturb: shared.disturb,
+		disturbBias: float('_Bi_Disturb', 0),
+		distorted: float('_UseDisturb', 0) !== 0,
+		weight: {
+			disturb: float('_WeightTexIntensity', 1) * float('_DisturbUseWeight', 0),
+			dissolve: float('_WeightTexIntensity', 1) * float('_DissolveUseWeight', 0),
+			used: float('_UseWeightTex', 0) !== 0,
+		},
+		dissolve: { ...shared.dissolve, on: float('_UseDissolve', 0) !== 0 },
+		// as in the game, a mask or weight switched on without a texture in that role leaves nothing
+		masked: float('_UseMask', 0) !== 0,
+		fresnel: has('_USE_FRESNEL')
+			? {
+					power: float('_FresnelPower', 1),
+					bias: float('_FresnelBias', 0),
+					flip: float('_FresnelFlip', 0),
+					opacity: float('_FresnelAffectOpacity', 0),
+				}
+			: null,
+		soft: has('_USE_SOFTBLEND')
+			? { distance: Math.max(float('_SoftDistance', 1), 1e-3), bias: float('_SoftBias', 0) }
+			: null,
+		ignorePostExposure: shared.ignorePostExposure,
+		vertexColor: float('_DisableVertColor', 0) === 0,
+		near: shared.near,
+		brighten: { threshold: float('_ExpThreshold', 1), intensity: float('_ExpIntensity', 0) },
+		decalFade: null,
+		alphaPower: 1,
+		offset:
+			offset === null
+				? null
+				: {
+						...offset,
+						vertexAlphaWeight: float('_UseVertexColorAlphaAsVertOffsetWeight', 0),
+						cameraPull: float('_VertCameraOffset', 0),
+					},
+		lighting: has('_USE_LIGHTING') ? { worldUp: float('_RotateNormalToWorldUp', 0) !== 0 } : null,
+		unfogged: !has('_USE_FOG'),
+		blendMode,
+		screenUv: {
+			byDepth: float('_ScreenUVUseDepth', 1) !== 0,
+			heightAsV: float('_UsePosYAsScreenV', 0) !== 0,
+		},
+		stencil,
+	};
+};
+
+/** keywords of VFXDitherAlpha's effect variants that are drawn */
+const DITHER_EFFECT_KEYWORDS = new Set([
+	'_USE_DISSOLVE',
+	'_USE_DISTURB',
+	'_USE_MASK',
+	'_USE_POLARUV',
+	'_USE_SCREENUV',
+]);
+
+/** keywords VFXDitherAlpha's effect variants also draw, alongside one of {@link DITHER_EFFECT_KEYWORDS} */
+const DITHER_EFFECT_EXTRA_KEYWORDS = new Set(['_USE_VERTOFFSET']);
+
+/**
+ * @returns whether a VFXDitherAlpha material is one of its effect variants (a distortion, dissolve, mask or
+ *   polar or screen UVs), drawn as a texture stack rather than a dithered surface
+ */
+export const isDitherEffect = (reader: MaterialReader): boolean =>
+	reader.shader.name === 'HGRP/Effect/VFXDitherAlpha' &&
+	reader.material.keywords.some((keyword) => DITHER_EFFECT_KEYWORDS.has(keyword));
+
+/**
+ * an unlit `HGRP/Effect/VFXDitherAlpha` effect variant, optionally with a vertex offset, as a texture stack.
+ * the game writes such a surface to the G-buffer where its alpha beats a per-pixel noise; the viewer blends
+ * it over by that alpha instead, which its temporal antialiasing would average the dither to anyway
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported`
+ */
+export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	const undrawn = material.keywords.filter(
+		(keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword) && !DITHER_EFFECT_EXTRA_KEYWORDS.has(keyword),
+	);
+	if (undrawn.length > 0) {
+		return unsupported(`keywords ${undrawn.join(', ')}`);
+	}
+	if (float('_UseLighting', 0) !== 0) {
+		return unsupported('a lit effect variant');
+	}
+	if (float('_DitherAlphaMode', 0) !== 0) {
+		return unsupported(`_DitherAlphaMode ${float('_DitherAlphaMode', 0)}`);
+	}
+	if (has('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0) {
+		return unsupported('screen UVs relative to the object');
+	}
+	// the mask feeds only the tested alpha; the stack's mask also tints, which matches only when it's the red
+	if (has('_USE_MASK') && float('_UseMaskTexAsAlpha', 1) === 0) {
+		return unsupported('a mask that isn’t its red');
+	}
+	const computed = [
+		true,
+		true,
+		has('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
+		has('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
+	];
+	// the shader's slots and their properties; the distortion comes first, so it can shift the others
+	const slots = [
+		{
+			name: '_MainTex',
+			keyword: null,
+			role: 'main',
+			redAlpha: float('_UseMainTexAsAlpha', 1) !== 0,
+			disturbed: '_MainTexUseDisturb',
+			speed: '_MainTexUVSpeed',
+			rotation: '_MainTexUVRotateMat',
+			weights: '_MainTexUVWeights',
+		},
+		{
+			name: '_DisturbTex1',
+			keyword: '_USE_DISTURB',
+			role: 'disturb1',
+			redAlpha: false,
+			disturbed: null,
+			speed: '_DisturbUVSpeed1',
+			rotation: '_DisturbUVRotateMat1',
+			weights: '_DisturbUVWeights1',
+		},
+		{
+			name: '_DissolveTex',
+			keyword: '_USE_DISSOLVE',
+			role: 'dissolve',
+			redAlpha: false,
+			disturbed: '_DissolveTexUseDisturb',
+			speed: '_DissolveUVSpeed',
+			rotation: '_DissolveUVRotateMat',
+			weights: '_DissolveUVWeights',
+		},
+		{
+			name: '_MaskTex',
+			keyword: '_USE_MASK',
+			role: 'mask',
+			redAlpha: true,
+			disturbed: '_MaskTexUseDisturb',
+			speed: '_MaskTexUVSpeed',
+			rotation: '_MaskTexUVRotateMat',
+			weights: '_MaskTexUVWeights',
+		},
+	] as const;
+	const layers: (StackLayer | null)[] = Array.from({ length: 7 }, () => null);
+	for (const [i, slot] of slots.entries()) {
+		if (slot.keyword !== null && !has(slot.keyword)) {
+			continue;
+		}
+		// an unset slot binds white, the shader's default for each of these
+		const bound = reader.slot(slot.name) ?? UNSET_WHITE;
+		if (bound.uv > 1) {
+			return unsupported(`${slot.name} on UV set ${bound.uv}`);
+		}
+		const rotation = color(slot.rotation) ?? [1, 0, 0, 1];
+		layers[i] = {
+			...effectTexture(bound, color(slot.speed) ?? [0, 0, 0, 0], [rotation[0], rotation[1]]),
+			role: slot.role,
+			redAlpha: slot.redAlpha,
+			source: sourceOf(color(slot.weights) ?? [1, 0, 0, 0], computed),
+			disturbShare: slot.disturbed === null ? 0 : float(slot.disturbed, 1),
+		};
+	}
+	// the colour pass emits `tint · intensity · vertex colour · main`; the depth pass tests the tint's alpha times
+	// `_TintColorAlpha`, the vertex alpha, the main texture's alpha (its red), the mask's red, the dissolve and the
+	// near fade
+	const { tint, intensity } = stackTintOf(reader);
+	const shared = sharedOf(reader, intensity);
+	return {
+		kind: 'effectStack',
+		variant: 'dither',
+		layers,
+		tint,
+		blendTint: shared.blendTint,
+		disturb: shared.disturb,
+		disturbBias: float('_Bi_Disturb', 0),
+		distorted: has('_USE_DISTURB'),
+		weight: { disturb: 0, dissolve: 0, used: false },
+		dissolve: { ...shared.dissolve, on: has('_USE_DISSOLVE') },
+		masked: has('_USE_MASK'),
+		fresnel: null,
+		soft: null,
+		ignorePostExposure: shared.ignorePostExposure,
+		vertexColor: float('_DisableVertColor', 0) === 0,
+		near: shared.near,
+		brighten: { threshold: 1, intensity: 0 },
+		decalFade: null,
+		// the depth pass tests the saturated alpha raised to this power, which sets the share of pixels that survive
+		alphaPower: float('_DitherAlphaExp', 1),
+		offset: vertexOffsetOf(reader),
+		lighting: null,
+		// a G-buffer surface, so the deferred fog covers it
+		unfogged: false,
+		blendMode: 0,
+		screenUv: {
+			byDepth: float('_ScreenUVUseDepth', 1) !== 0,
+			heightAsV: float('_UsePosYAsScreenV', 0) !== 0,
+		},
+		stencil: null,
+	};
+};
+
+/**
+ * slots of a VFXDecal: each texture's role, the keyword that enables it, and the properties of its UV scroll,
+ * rotation (degrees), distortion switch and UV source switch (0 the box, 1 the screen, 2 polar). the shader
+ * runs through the slots in order, so the disturb textures come before the weight and the textures they
+ * distort
+ */
+const DECAL_SLOTS = [
+	{
+		name: '_MainTex',
+		role: 'main',
+		keyword: null,
+		speed: '_MainTexUVSpeed',
+		rotate: '_MainTexUVRotate',
+		disturbed: '_MainTexUseDisturb',
+		source: '_MainSwitchUV',
+	},
+	{
+		name: '_DisturbTex1',
+		role: 'disturb1',
+		keyword: '_USE_DISTURB',
+		speed: '_DisturbUVSpeed1',
+		rotate: null,
+		disturbed: null,
+		source: '_DisturbSwitchUV',
+	},
+	{
+		name: '_DisturbTex2',
+		role: 'disturb2',
+		keyword: '_USE_DISTURB_TEX2',
+		speed: '_DisturbUVSpeed2',
+		rotate: null,
+		disturbed: null,
+		source: '_DisturbSwitchUV',
+	},
+	{
+		name: '_WeightTex',
+		role: 'weight',
+		keyword: '_USE_WEIGHT',
+		speed: null,
+		rotate: null,
+		disturbed: null,
+		source: '_WeightSwitchUV',
+	},
+	{
+		name: '_MaskTex',
+		role: 'mask',
+		keyword: '_USE_MASK',
+		speed: '_MaskTexUVSpeed',
+		rotate: '_MaskTexUVRotate',
+		disturbed: '_MaskTexUseDisturb',
+		source: '_MaskSwitchUV',
+	},
+	{
+		name: '_BlendTex',
+		role: 'blend',
+		keyword: '_USE_BLEND',
+		speed: '_BlendTexUVSpeed',
+		rotate: '_BlendTexUVRotate',
+		disturbed: '_BlendTexUseDisturb',
+		source: '_BlendSwitchUV',
+	},
+	{
+		name: '_DissolveTex',
+		role: 'dissolve',
+		keyword: '_USE_DISSOLVE',
+		speed: '_DissolveUVSpeed',
+		rotate: '_DissolveUVRotate',
+		disturbed: '_DissolveTexUseDisturb',
+		source: '_DissolveSwitchUV',
+	},
+] as const;
+
+/** keywords VFXDecal can have and still be drawn */
+const DECAL_KEYWORDS = new Set([
+	'_USE_MASK',
+	'_USE_BLEND',
+	'_USE_DISSOLVE',
+	'_USE_DISTURB',
+	'_USE_DISTURB_TEX2',
+	'_USE_WEIGHT',
+	'_USE_NORMALBLEND',
+	'_USE_FOG',
+	'_USE_POLARUV',
+	'_USE_SCREENUV',
+]);
+
+/**
+ * `HGRP/Effect/VFXDecal`, a box projecting the texture stack onto the surfaces inside it
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported`
+ */
+export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	if (material.blend !== 'premultiplied') {
+		return unsupported(`${material.blend} blending`);
+	}
+	const keywords = undrawnKeywords(reader, DECAL_KEYWORDS);
+	if (keywords !== null) {
+		return keywords;
+	}
+	const base = color('_DecalBaseColor') ?? [1, 1, 1, 1];
+	// a texture's UV switch picks polar or screen UVs only where they're computed; the box's otherwise
+	const sources = new Map<number, EffectUvSource>();
+	if (has('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0) {
+		sources.set(1, 'screen');
+	}
+	if (has('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0) {
+		sources.set(2, 'polar');
+	}
+	const layers: (StackLayer | null)[] = Array.from({ length: 7 }, () => null);
+	for (const [i, { name, role, keyword, speed, rotate, disturbed, source }] of DECAL_SLOTS.entries()) {
+		const slot = reader.slot(name);
+		if (slot === undefined || (keyword !== null && !has(keyword))) {
+			continue;
+		}
+		// the geometry carries UV sets 0 and 1 only
+		if (slot.uv > 1) {
+			return unsupported(`${name} on UV set ${slot.uv}`);
+		}
+		// a rotation in degrees about the texture's centre
+		const angle = rotate === null ? 0 : (float(rotate, 0) * Math.PI) / 180;
+		// the shader applies the blend texture's `_ST` twice
+		const transform: Pick<TextureSlot, 'texture' | 'scale' | 'offset'> =
+			role === 'blend'
+				? {
+						texture: slot.texture,
+						scale: [slot.scale[0] * slot.scale[0], slot.scale[1] * slot.scale[1]],
+						offset: [slot.offset[0] * (slot.scale[0] + 1), slot.offset[1] * (slot.scale[1] + 1)],
+					}
+				: slot;
+		layers[i] = {
+			...effectTexture(transform, (speed !== null && color(speed)) || [0, 0, 0, 0], [
+				Math.cos(angle),
+				-Math.sin(angle),
+			]),
+			role,
+			redAlpha:
+				(role === 'main' && float('_UseMainTexAsAlpha', 0) !== 0) ||
+				(role === 'mask' && float('_UseMaskTexAsAlpha', 0) !== 0),
+			source: sources.get(float(source, 0)) ?? 'uv0',
+			disturbShare: disturbed === null ? 0 : float(disturbed, 0),
+		};
+	}
+	if (layers[0] === null) {
+		return unsupported('no main texture');
+	}
+	// the dissolve edge takes the base colour's red as its intensity, as the shader reads it
+	const shared = sharedOf(reader, base[0]);
+	const weighted = has('_USE_WEIGHT');
+	const intensity = float('_WeightTexIntensity', 1);
+	return {
+		kind: 'effectStack',
+		variant: 'decal',
+		layers,
+		tint: [base[0], base[1], base[2], base[3] * float('_TintColorAlpha', 1)],
+		blendTint: shared.blendTint,
+		disturb: shared.disturb,
+		disturbBias: float('_Bi_Disturb', 0),
+		distorted: has('_USE_DISTURB'),
+		// the distortion and dissolve then scale by `1 − intensity + red · intensity`
+		weight: weighted
+			? {
+					disturb: intensity * float('_DisturbUseWeight', 1),
+					dissolve: intensity * float('_DissolveUseWeight', 0),
+					used: true,
+				}
+			: { disturb: 0, dissolve: 0, used: false },
+		dissolve: { ...shared.dissolve, on: has('_USE_DISSOLVE') },
+		masked: has('_USE_MASK'),
+		fresnel: null,
+		soft: null,
+		ignorePostExposure: shared.ignorePostExposure,
+		vertexColor: false,
+		near: shared.near,
+		brighten: { threshold: 0, intensity: 0 },
+		decalFade: {
+			edge: [float('_EdgeFadeX', 0), float('_EdgeFadeZ', 0)],
+			width: float('_EdgeFadeIntensity', 0),
+			height: Math.max(float('_HeightFade', 0), 1e-3),
+			heightOffset: float('_HeightFadeOffset', 0),
+			angle: has('_USE_NORMALBLEND') ? float('_AngleBlendFallOff', 1) : 0,
+		},
+		alphaPower: 1,
+		offset: null,
+		lighting: null,
+		unfogged: !has('_USE_FOG'),
+		blendMode: 0,
+		screenUv: { byDepth: false, heightAsV: false },
+		stencil: null,
+	};
+};
+
+// #endregion
+
+// #region water sheets
+
+/**
+ * VFXWater keywords that are drawn. `VFX_WATER_SIMPLE_LIGHT`, the game's cheaper lighting from a per-draw
+ * ambient probe and the far shadow, is lit the full way
+ */
+const WATER_KEYWORDS = new Set([
+	'_SUBSURFACE',
+	'_USE_DISTURB',
+	'_USE_MASK',
+	'_USE_DISSOLVE',
+	'_USE_SOFTBLEND',
+	'_NORMAL_MAP',
+	'_USE_SEQUENCE_FRAME',
+	'_USE_SEQUENCE_FRAME_MV',
+	'_USE_SEQUENCE_FRAME_NORMAL',
+	'VFX_WATER_SIMPLE_LIGHT',
+]);
+
+/** a water sheet texture, once those on other UV sets (`'uv'`) have been rejected */
+const texture = (value: EffectTexture | null | 'uv'): EffectTexture | null => (value === 'uv' ? null : value);
+
+/**
+ * `HGRP/Effect/VFXWater`, the sheets of falling water (`docs/game-data/effects.md#waterfalls`)
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported` for features the viewer doesn't draw (refraction, vertex animation)
+ */
+export const describeWaterSheet = (reader: MaterialReader): WaterSheetSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	if (material.blend !== 'premultiplied') {
+		return unsupported(`${material.blend} blending`);
+	}
+	const keywords = undrawnKeywords(reader, WATER_KEYWORDS);
+	if (keywords !== null) {
+		return keywords;
+	}
+	const sequence = has('_USE_SEQUENCE_FRAME');
+	if (sequence && reader.slot('_SequenceBaseColorMap') === undefined) {
+		return unsupported('a flipbook without its texture');
+	}
+	/** a used slot; the sheets are drawn from UV set 0 alone */
+	const used = (name: string, on: boolean): TextureSlot | null | 'uv' => {
+		const slot = on ? reader.slot(name) : undefined;
+		if (slot === undefined) {
+			return null;
+		}
+		return slot.uv > 0 ? 'uv' : slot;
+	};
+	const animated = (name: string, on: boolean, prefix: string, suffix = ''): EffectTexture | null | 'uv' => {
+		const slot = used(name, on);
+		if (slot === null || slot === 'uv') {
+			return slot;
+		}
+		const rotation = color(`${prefix}UVRotateMat${suffix}`) ?? [1, 0, 0, 1];
+		return effectTexture(slot, color(`${prefix}UVSpeed${suffix}`) ?? [0, 0, 0, 0], [
+			rotation[0],
+			rotation[1],
+		]);
+	};
+	/** the flipbook samples its frames' UVs as they are */
+	const frames = (name: string, on: boolean): EffectTexture | null | 'uv' => {
+		const slot = used(name, on);
+		return slot === null || slot === 'uv'
+			? slot
+			: effectTexture({ texture: slot.texture, scale: [1, 1], offset: [0, 0] });
+	};
+	const main = animated('_MainTex', true, '_MainTex');
+	const disturb = animated('_DisturbTex1', has('_USE_DISTURB'), '_Disturb', '1');
+	const mask = animated('_MaskTex', has('_USE_MASK'), '_MaskTex');
+	const dissolveMap = animated('_DissolveTex', has('_USE_DISSOLVE'), '_Dissolve');
+	const sequenceMap = frames('_SequenceBaseColorMap', sequence);
+	const sequenceMotion = frames('_SequenceMotionVectorMap', sequence && has('_USE_SEQUENCE_FRAME_MV'));
+	const textures = [main, disturb, mask, dissolveMap, sequenceMap, sequenceMotion];
+	if (textures.includes('uv')) {
+		return unsupported('a texture on a UV set other than 0');
+	}
+	if (main === null && reader.shader.textures['_MainTex'] !== 'white') {
+		return unsupported('no main texture and a non-white default');
+	}
+	// the flipbook's normals, or a normal map
+	let normals: WaterSheetSurface['textures']['normals'] = null;
+	{
+		const flipbook = sequence && has('_USE_SEQUENCE_FRAME_NORMAL');
+		const name = flipbook ? '_SequenceNormalMap' : has('_NORMAL_MAP') ? '_NormalMap' : null;
+		const slot = name === null ? undefined : reader.slot(name);
+		if (slot !== undefined && slot.uv === 0) {
+			const rotation = color('_NormalMapUVRotateMat') ?? [1, 0, 0, 1];
+			normals = {
+				texture: flipbook
+					? effectTexture({ texture: slot.texture, scale: [1, 1], offset: [0, 0] })
+					: effectTexture(slot, color('_NormalMapUVSpeed') ?? [0, 0, 0, 0], [rotation[0], rotation[1]]),
+				flipbook,
+				scale: flipbook ? float('_FrameNormalScale', 1) : float('_NormalScale', 1),
+			};
+		}
+	}
+	const intensity = float('_TintColorIntensity', 1);
+	// VFXWater's `_TintColor` and `_DissolveEmissiveColor` are [HDR]: authored linear, used as stored
+	const tint = color('_TintColor') ?? [1, 1, 1, 1];
+	const shared = sharedOf(reader, intensity);
+	const frameSize = color('_SequenceFrameSize') ?? [1, 1, 0, 0];
+	return {
+		kind: 'waterSheet',
+		tint: [...scaleRgb(tint, intensity), tint[3] * float('_TintColorAlpha', 1)],
+		textures: {
+			main: texture(main),
+			disturb: texture(disturb),
+			mask: texture(mask),
+			dissolve: texture(dissolveMap),
+			sequence: texture(sequenceMap),
+			sequenceMotion: texture(sequenceMotion),
+			normals,
+		},
+		disturbNormal: float('_DisturbTex1Normal', 0) !== 0,
+		mainAsAlpha: float('_UseMainTexAsAlpha', 1) !== 0,
+		maskAsAlpha: float('_UseMaskTexAsAlpha', 1) !== 0,
+		vertexOpacity: float('_UseVertexColorAsOpacity', 0) !== 0,
+		fresnelOpacity: float('_UseFresnelAsOpacity', 0) !== 0,
+		vertexColor: float('_DisableVertColor', 0) === 0,
+		blendMode: float('_BlendMode', 0),
+		useLighting: float('_UseLighting', 1),
+		randomUv: float('_WaterRandomUV', 0),
+		disturbBias: float('_Bi_Disturb', 0),
+		disturb: [float('_DisturbUIntensity1', 0), float('_DisturbVIntensity1', 0)],
+		disturbUse: [
+			float('_MainTexUseDisturb', 0),
+			float('_MaskTexUseDisturb', 0),
+			float('_NormalMapUseDisturb', 0),
+			float('_DissolveTexUseDisturb', 0),
+		],
+		dissolve: shared.dissolve,
+		sequence: {
+			columns: Math.max(frameSize[0], 1),
+			rows: Math.max(frameSize[1], 1),
+			framesPerSecond: float('_PlaybackSpeed', 0),
+			randomStartByPosition: float('_RandomStartByPos', 0),
+			motionStrength: float('_MotionVectorDistortionStrength', 0),
+			opacityScale: float('_SequenceOpacityScale', 1),
+			opacityThreshold: float('_SequenceOpacitySdf', 0),
+			colorThreshold: float('_SequenceBaseColorSdf', 0),
+			tint: linearRgb(color('_SequenceBaseColorMapTint') ?? [1, 1, 1, 1]),
+		},
+		roughness: float('_Roughness', 1),
+		specular: float('_Specular', 1),
+		directSpecular: float('_DirSpecularStrength', 1),
+		fresnel: float('_FresnelStrength', 0),
+		subsurface: [
+			float('_SubsurfaceHue', 1),
+			float('_SubsurfaceSaturation', 1),
+			has('_SUBSURFACE') ? float('_SubsurfaceValue', 1) : 0,
+			float('_SubsurfaceIndirect', 1),
+		],
+		indirectSaturation: float('_IndirectSaturation', 1),
+		soft: has('_USE_SOFTBLEND')
+			? { distance: Math.max(float('_SoftDistance', 1), 1e-3), bias: float('_SoftBias', 0) }
+			: null,
+		ignorePostExposure: shared.ignorePostExposure,
+		near: shared.near,
+	};
+};
+
+// #endregion
+
+// #region lit decals
+
+/** lit decal keywords that are drawn; the others change the surface in ways the viewer doesn't */
+const LIT_DECAL_KEYWORDS = new Set([
+	'_COMPLETE_PBR',
+	'_NORMAL_ANGLE_BLEND',
+	'_BLEND_WATER_FLOW',
+	'_BLEND_EMISSIVE',
+]);
+
+/** Unity's `ColorWriteMask` bits */
+const WRITE_RED = 8;
+const WRITE_GREEN = 4;
+const WRITE_BLUE = 2;
+
+/**
+ * `HGRP/DecalLit`, the projected decals of the scenery (`docs/game-data/materials.md#decals`), written over
+ * the surface through the colour masks the material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2`
+ * normal and roughness, `_ColorMask3` albedo)
+ *
+ * @param reader the properties of a placement's copy of the material, with its colour and UV transform
+ * @returns its surface, `undrawn` when it changes nothing the viewer draws, or `unsupported`
+ */
+export const describeLitDecal = (
+	reader: MaterialReader,
+): LitDecalSurface | UndrawnSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	const keywords = undrawnKeywords(reader, LIT_DECAL_KEYWORDS);
+	if (keywords !== null) {
+		return keywords;
+	}
+	const placementColor = material.colors[DECAL_COLOR_PROPERTY];
+	const placementUv = material.vectors[DECAL_UV_PROPERTY];
+	if (placementColor === undefined || placementUv === undefined) {
+		return unsupported('no placement');
+	}
+	const invisible: UndrawnSurface = { kind: 'undrawn', reason: 'writes nothing the viewer draws' };
+	const waterFlow = has('_BLEND_WATER_FLOW');
+	// the emission target's mask is fixed, so emissive decals always write it
+	const emissive = !waterFlow && has('_BLEND_EMISSIVE');
+	const relight = (float('_ColorMask3', 0) & WRITE_RED) === 0;
+	const surfaceMask = float('_ColorMask2', 0);
+	if (relight && !emissive && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
+		return invisible;
+	}
+	const base = reader.slot('_BaseColorMap');
+	if (base === undefined) {
+		return unsupported('no base colour map');
+	}
+	const pbrBase = !waterFlow && float('_BaseTexChannel', 0) !== 0;
+	let pbr: LitDecalSurface['pbr'] = null;
+	if (waterFlow) {
+		// the water's normal map projects at world positions; its `_ST` scale is per metre
+		const water = reader.slot('_WaterNormalTex');
+		if (water !== undefined) {
+			pbr = { texture: water.texture, ownTransform: [water.scale[0], water.scale[1], 0, 0] };
+		}
+	} else {
+		const map = pbrBase ? base : reader.slot('_SampleTex1');
+		if (map !== undefined) {
+			// its own `_ST` applies to the box's UVs only with `_SampleTex1UVSet`
+			const own = !pbrBase && float('_SampleTex1UVSet', 0) !== 0;
+			pbr = {
+				texture: map.texture,
+				ownTransform: own ? [map.scale[0], map.scale[1], map.offset[0], map.offset[1]] : null,
+			};
+		}
+	}
+	// a relit decal changes the surface only through the PBR map and its emission
+	if (relight && pbr === null && !emissive) {
+		return invisible;
+	}
+	const pbrMask = float('_ColorMask1', 0);
+	const emission = color('_EmissiveColor') ?? [0, 0, 0, 1];
+	return {
+		kind: 'litDecal',
+		base: base.texture,
+		placementUv: [placementUv[0], placementUv[1], placementUv[2], placementUv[3]],
+		color: [
+			placementColor[0],
+			placementColor[1],
+			placementColor[2],
+			placementColor[3] * float('_DecalOpacity', 1),
+		],
+		pbr,
+		relight,
+		roughness: [float('_RoughnessMin', 0), float('_RoughnessMax', 1)],
+		normalScale: float('_NormalScale', 1),
+		angleFade: has('_NORMAL_ANGLE_BLEND') ? Math.max(float('_AngleBlendFallOff', 1), 1e-3) : 0,
+		writesNormal: pbr !== null && (surfaceMask & (WRITE_RED | WRITE_GREEN)) !== 0,
+		writesRoughness: pbr !== null && (surfaceMask & WRITE_BLUE) !== 0,
+		writesMetallic: (pbrMask & WRITE_RED) !== 0,
+		writesOcclusion: (pbrMask & WRITE_GREEN) !== 0,
+		blendSceneNormal: float('_BlendSceneNormal', 0),
+		metallic: float('_Metallic', 0),
+		occlusionStrength: float('_OcclusionStrength', 1),
+		pbrBase,
+		metallicChannel: float('_MetallicChannel', 0),
+		occlusionChannel: float('_OcclusionChannel', 0),
+		affectNormal: float('_AffectNormal', 0),
+		waterFlow: waterFlow
+			? {
+					normalScale: float('_WaterNormalScale', 1),
+					roughness: float('_WaterRoughness', 0),
+					normalFactor: float('_NormalFactor', 0),
+					movement: color('_UVMovement') ?? [0, 0, 1, 1],
+					levelFade: Math.max(float('_AngleBlendFallOff2', 1), 1e-3),
+				}
+			: null,
+		emission: emissive
+			? {
+					color: [emission[0], emission[1], emission[2]],
+					channel: float('_EmissiveChannel', 0),
+					albedoAffect: float('_AlbedoAffectEmissive', 1),
+					ignorePostExposure: float('_IgnorePostExposure', 1),
+				}
+			: null,
+	};
+};
+
+// #endregion
+
+// #region refraction
+
+/** keywords of `HGRP/Effect/VFXRefract` that are drawn */
+const REFRACT_KEYWORDS = new Set([
+	'_USE_MASK',
+	'_USE_POLARUV',
+	'_USE_RBOFFSET',
+	'_USE_RGBOFFSET',
+	'_USE_SOFTBLEND',
+]);
+
+/**
+ * `HGRP/Effect/VFXRefract`: the scene behind, seen at an offset that a texture sets, masked
+ * (`docs/game-data/effects.md#refraction`)
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported`
+ */
+export const describeRefract = (reader: MaterialReader): RefractSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	if (material.blend !== 'alphaBlend') {
+		return unsupported(`${material.blend} blending`);
+	}
+	const keywords = undrawnKeywords(reader, REFRACT_KEYWORDS);
+	if (keywords !== null) {
+		return keywords;
+	}
+	const polar = has('_USE_POLARUV');
+	/** the shader reads UV0, or polar UVs about its centre with either switch value */
+	const textureOf = (
+		name: string,
+		rotate: string,
+		speed: string,
+		switchName: string,
+	): { texture: EffectTexture; polar: boolean } | UnsupportedSurface => {
+		const switched = float(switchName, 0) !== 0;
+		if (switched && !polar) {
+			return unsupported(`${switchName} without polar UVs`);
+		}
+		const bound = reader.slot(name) ?? UNSET_WHITE;
+		if (bound.uv !== 0) {
+			return unsupported(`${name} on UV set ${bound.uv}`);
+		}
+		// the rotation in degrees, as the matrix with columns (cos, −sin) and (sin, cos)
+		const angle = (float(rotate, 0) * Math.PI) / 180;
+		return {
+			texture: effectTexture(bound, color(speed) ?? [0, 0, 0, 0], [Math.cos(angle), -Math.sin(angle)]),
+			polar: switched,
+		};
+	};
+	const refraction = textureOf('_RefractTex', '_RefractTexUVRotate', '_RefractUVSpeed', '_RefractSwitchUV');
+	if ('kind' in refraction) {
+		return refraction;
+	}
+	let mask: RefractSurface['mask'] = null;
+	if (has('_USE_MASK')) {
+		const masked = textureOf('_MaskTex', '_MaskTexUVRotate', '_MaskTexUVSpeed', '_MaskSwitchUV');
+		if ('kind' in masked) {
+			return masked;
+		}
+		mask = { ...masked, redAlpha: float('_UseMaskTexAsAlpha', 1) !== 0 };
+	}
+	const dir = color('_RefractDir') ?? [1, 1, 0, 0];
+	let colorOffsets: RefractSurface['colorOffsets'] = null;
+	// `_USE_RGBOFFSET` only adds a second further sample to `_USE_RBOFFSET`'s, with a mask per sample
+	if (has('_USE_RBOFFSET')) {
+		const offset = color('_RBOffset') ?? [0, 0, 0, 0];
+		const scale = 0.01 * float('_Intensity', 1);
+		const second = has('_USE_RGBOFFSET');
+		colorOffsets = {
+			offset: [offset[0] * scale, offset[1] * scale],
+			secondShare: float('_GOffset', -1),
+			intensity: float('_RBIntensity', 1),
+			main: linearRgb(color('_RBMainColorMask') ?? [1, 0, 0, 1]),
+			first: linearRgb(color(second ? '_RBOffset1ColorMask' : '_RBOffsetColorMask') ?? [0, 1, 1, 1]),
+			mainAsMask: float('_UseMainTexAsMask', 0),
+			second: second ? linearRgb(color('_RBOffset2ColorMask') ?? [0, 0, 1, 1]) : null,
+		};
+	}
+	return {
+		kind: 'refract',
+		refraction: refraction.texture,
+		refractionPolar: refraction.polar,
+		mask,
+		direction: [dir[0], dir[1]],
+		strength: float('_Intensity', 1) * float('_TintColorAlpha', 1),
+		bias: float('_Bi_Refract', 0),
+		isNormal: float('_RefractIsNormal', 1) !== 0,
+		maskUsesRefraction: float('_MaskTexUseRefract', 0),
+		colorOffsets,
+		// soft blend: the cover fades out over `_SoftDistance` in front of what lies behind
+		softDistance: has('_USE_SOFTBLEND') ? Math.max(float('_SoftDistance', 1), 1e-3) : 0,
+		near: {
+			on: float('_UseNearCameraFade', 0) !== 0,
+			range: [
+				float('_NearCameraFadeDistanceStart', 0),
+				float('_NearCameraFadeDistanceEnd', 1),
+				float('_NearCameraFadeDistanceStart2', 1e5),
+				float('_NearCameraFadeDistanceEnd2', 2e5),
+			],
+		},
 	};
 };
 

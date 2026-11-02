@@ -1,10 +1,12 @@
 # materials
 
 how the viewer draws the surface shaders [game-data/materials.md](../game-data/materials.md)
-describes. each material's packed state becomes a look in
-[`render/materials.ts`](../../packages/viewer/src/render/materials.ts), shaded in
-[`shaders/mesh.wgsl`](../../packages/viewer/src/render/shaders/mesh.wgsl); what's left out is in
-[status](../status.md).
+describes. the extractor reads each material's properties and keywords into a
+[surface](../package-format.md#materials)
+([game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts)), which the
+viewer packs into a look in [`render/materials.ts`](../../packages/viewer/src/render/materials.ts),
+shaded in [`shaders/mesh.wgsl`](../../packages/viewer/src/render/shaders/mesh.wgsl); what's left out
+is in [status](../status.md).
 
 ## emission
 
@@ -27,10 +29,9 @@ leaves free; an `_EMISSIVE_ANIM` look with parallax or layer maps doesn't pulse.
 
 the viewer evaluates the game's [foliage model](../game-data/materials.md#foliage) per pixel
 (`foliage_sun` in [`frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)).
-`HGRP/Foliage/Leaf`'s inputs come from
-[`leafParams`](../../packages/viewer/src/render/materials.ts), and the grass shaders' from
-[`grassParams`](../../packages/viewer/src/render/materials.ts), which take `h` as the vertex's
-object-space height.
+`HGRP/Foliage/Leaf`'s and the grass shaders' inputs are their surfaces' `foliage`
+([game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts)), packed by
+`leafParams` and `grassParams`; the grass takes `h` as the vertex's object-space height.
 
 ## glass
 
@@ -53,7 +54,7 @@ single layer resolves exactly; overlapping panes blend without sorting.
 
 the viewer has no GBuffer, so it draws a [decal](../game-data/materials.md#decals) like the VFXDecal
 boxes ([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in
-the transparent pass ([`decalLitLook`](../../packages/viewer/src/render/effect-looks.ts),
+the transparent pass ([`litDecalLook`](../../packages/viewer/src/render/effect-looks.ts),
 `fx_lit_decal` in [`effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). it takes
 the surface's normal and roughness from the main pass where the masks keep them, shades the decal
 like any surface, and lays it over by its alpha. each placement draws its own copy of the material,
@@ -108,13 +109,13 @@ path can't blend, shaders without a family (`HGRP/CharacterNPR`, `Hidden/HGRP/Li
 `HGRP/Effect/VFXSmoke_SixWay` and the like, which `pack` lists per shader), and materials that
 didn't convert. stand-ins (`DrawRole.Unsupported`) take the same look whatever their material.
 
-the pack's `debug/assets.json` lists per material why it's unsupported (`unsupported`, from its
-[surface](../package-format.md#materials)), the surface keywords the viewer doesn't draw
-(`keywordsNotDrawn`, from
-[game/material-support.ts](../../packages/extractor/src/game/material-support.ts), which mirrors
-what `render/materials.ts` reads) and the texture slots whose reference couldn't be followed
-(`slotErrors`). effect materials rejected for a keyword or texture combination aren't listed there;
-they show only as the checker.
+the extractor decides which materials are unsupported when it
+[describes their surfaces](../package-format.md#materials), and `pack` counts them by shader and
+reason. its `debug/assets.json` lists per material why it's unsupported (`unsupported`, such as the
+keywords or texture combination an effect's look rejects), the surface keywords the viewer doesn't
+draw (`keywordsNotDrawn`, from
+[game/material-support.ts](../../packages/extractor/src/game/material-support.ts)) and the texture
+slots whose reference couldn't be followed (`slotErrors`).
 
 only materials the game draws nothing visible with aren't drawn: `HGRP/WaterProxy`, whose passes all
 feed the water pipeline ([water](../game-data/water.md#waterproxy-and-waterdecal)), and lit decals

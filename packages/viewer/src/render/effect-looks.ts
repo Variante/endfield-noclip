@@ -1,17 +1,17 @@
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type ReadyMaterial,
-	type ShaderEntry,
-	type TextureSlot,
-} from '@endfield-noclip/package-format/materials';
 import type {
+	EffectNearFade,
+	EffectStackSurface,
+	EffectTexture,
+	EffectUvSource,
+	EffectVertexOffset,
 	LightBeamSurface,
+	LitDecalSurface,
 	MistCardSurface,
 	MistVolumeSurface,
+	RefractSurface,
+	StackLayer,
+	WaterSheetSurface,
 } from '@endfield-noclip/package-format/surfaces';
-
-import { linearRgb } from './color.ts';
 
 /** a look's {@link EffectRow.slotBits} role value for a texture that isn't sampled */
 export const ROLE_NONE = 7;
@@ -27,6 +27,17 @@ export const EffectRole = {
 	/** the base colour and alpha */
 	Main: 6,
 } as const;
+
+/** each {@link StackLayer} role's {@link EffectRole} */
+const ROLES: Record<StackLayer['role'], number> = {
+	disturb1: EffectRole.Disturb1,
+	disturb2: EffectRole.Disturb2,
+	weight: EffectRole.Weight,
+	mask: EffectRole.Mask,
+	blend: EffectRole.Blend,
+	dissolve: EffectRole.Dissolve,
+	main: EffectRole.Main,
+};
 
 /** float offsets of an effect look's parameters (`MaterialLook.params`); the shader reads them as vec4 rows */
 export const EffectRow = {
@@ -111,6 +122,14 @@ export const SlotSource = {
 
 export type SlotSource = (typeof SlotSource)[keyof typeof SlotSource];
 
+/** each {@link EffectUvSource}'s {@link SlotSource} */
+const SOURCES: Record<EffectUvSource, SlotSource> = {
+	uv0: SlotSource.Uv0,
+	uv1: SlotSource.Uv1,
+	polar: SlotSource.Polar,
+	screen: SlotSource.Screen,
+};
+
 /**
  * {@link EffectRow.slotBits} bit of a slot whose UVs start from zero, as the game's do when the source its
  * weights pick isn't computed (polar or screen UVs without their keyword and switch)
@@ -127,138 +146,11 @@ export const SLOT_NO_BASE = 128;
 export const slotDisturb = (share: number): number => Math.round(Math.max(share, 0) * 1024) * 256;
 
 /**
- * slots of a VFXBaseV2 look: the main texture, then `_SampleTex0`…; the sixth sample texture shares
- * {@link OFFSET_SLOT} with the vertex offset's, so a material can't have both
- */
-const BASE_SLOTS = [
-	'_MainTex',
-	'_SampleTex0',
-	'_SampleTex1',
-	'_SampleTex2',
-	'_SampleTex3',
-	'_SampleTex4',
-	'_SampleTex5',
-];
-
-/**
- * the VFXBaseV2 slot of `_OffsetTex`, which the vertex stage samples; its UV and scroll rows hold the
- * texture's `_ST` and `_OffsetSpeed`
+ * the texture stack's slot of the vertex offset's texture, which the vertex stage samples; its UV and scroll
+ * rows hold the texture's `_ST` and scroll. VFXBaseV2's sixth sample texture shares it, so a material can't
+ * have both
  */
 export const OFFSET_SLOT = 6;
-
-/** the material property of the vertex offset's texture */
-const OFFSET_TEXTURE = '_OffsetTex';
-
-/** a slot the material leaves unset, where the shader's white default stands in (texture −1 binds white) */
-const UNSET_WHITE: TextureSlot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
-
-/**
- * @returns the vertex offset's texture: the bound slot, or {@link UNSET_WHITE} when the material binds none
- *   and the shader defaults to white; `null` for another default
- */
-const offsetSlotOf = (entry: ReadyMaterial, shader: ShaderEntry): TextureSlot | null =>
-	entry.slots[OFFSET_TEXTURE] ?? (shader.textures[OFFSET_TEXTURE] === 'white' ? UNSET_WHITE : null);
-
-/** the property whose `_ST` a VFXBaseV2 sample texture uses, by role */
-const ROLE_TEXTURES = ['_DisturbTex1', '_DisturbTex2', '_WeightTex', '_MaskTex', '_BlendTex', '_DissolveTex'];
-
-/**
- * slots of a VFXDecal look: each texture's role, the keyword that enables it, and the properties of its UV
- * scroll, rotation (degrees), distortion switch and UV source switch (0 the box, 1 the screen, 2 polar),
- * where it has them. the shader runs through the slots in order, so the disturb textures come before the
- * weight and the textures they distort
- */
-const DECAL_SLOTS = [
-	{
-		name: '_MainTex',
-		role: EffectRole.Main,
-		keyword: null,
-		speed: '_MainTexUVSpeed',
-		rotate: '_MainTexUVRotate',
-		disturbed: '_MainTexUseDisturb',
-		source: '_MainSwitchUV',
-	},
-	{
-		name: '_DisturbTex1',
-		role: EffectRole.Disturb1,
-		keyword: '_USE_DISTURB',
-		speed: '_DisturbUVSpeed1',
-		rotate: null,
-		disturbed: null,
-		source: '_DisturbSwitchUV',
-	},
-	{
-		name: '_DisturbTex2',
-		role: EffectRole.Disturb2,
-		keyword: '_USE_DISTURB_TEX2',
-		speed: '_DisturbUVSpeed2',
-		rotate: null,
-		disturbed: null,
-		source: '_DisturbSwitchUV',
-	},
-	{
-		name: '_WeightTex',
-		role: EffectRole.Weight,
-		keyword: '_USE_WEIGHT',
-		speed: null,
-		rotate: null,
-		disturbed: null,
-		source: '_WeightSwitchUV',
-	},
-	{
-		name: '_MaskTex',
-		role: EffectRole.Mask,
-		keyword: '_USE_MASK',
-		speed: '_MaskTexUVSpeed',
-		rotate: '_MaskTexUVRotate',
-		disturbed: '_MaskTexUseDisturb',
-		source: '_MaskSwitchUV',
-	},
-	{
-		name: '_BlendTex',
-		role: EffectRole.Blend,
-		keyword: '_USE_BLEND',
-		speed: '_BlendTexUVSpeed',
-		rotate: '_BlendTexUVRotate',
-		disturbed: '_BlendTexUseDisturb',
-		source: '_BlendSwitchUV',
-	},
-	{
-		name: '_DissolveTex',
-		role: EffectRole.Dissolve,
-		keyword: '_USE_DISSOLVE',
-		speed: '_DissolveUVSpeed',
-		rotate: '_DissolveUVRotate',
-		disturbed: '_DissolveTexUseDisturb',
-		source: '_DissolveSwitchUV',
-	},
-] as const;
-
-/** keywords VFXBaseV2 and VFXDecal can have and still be drawn */
-const BASE_KEYWORDS = new Set([
-	'_USE_LIGHTING',
-	'_SAMPLE_TEX0',
-	'_SAMPLE_TEX1',
-	'_SAMPLE_TEX2',
-	'_SAMPLE_TEX3',
-	'_SAMPLE_TEX4',
-	'_USE_FOG',
-	'_USE_SOFTBLEND',
-	'_USE_FRESNEL',
-	'_USE_POLARUV',
-]);
-const DECAL_KEYWORDS = new Set([
-	'_USE_MASK',
-	'_USE_BLEND',
-	'_USE_DISSOLVE',
-	'_USE_DISTURB',
-	'_USE_DISTURB_TEX2',
-	'_USE_WEIGHT',
-	'_USE_NORMALBLEND',
-	'_USE_FOG',
-	'_USE_POLARUV',
-	'_USE_SCREENUV',
-]);
 
 /** what an effect look puts in `MaterialLook` besides its parameters */
 export interface EffectLook {
@@ -271,27 +163,23 @@ export interface EffectLook {
 	params: Float32Array;
 }
 
-/** a material's float and colour (or vector) properties: its own value, else the shader's default */
-const readers = (entry: ReadyMaterial, shader: ShaderEntry) => ({
-	float: (name: string, fallback: number): number => entry.floats[name] ?? shader.floats[name] ?? fallback,
-	color: (name: string): [number, number, number, number] | undefined =>
-		entry.colors[name] ?? shader.colors[name] ?? entry.vectors[name] ?? shader.vectors[name],
-});
-
 /** fills a slot's texture, UV transform, scroll and rotation, and role bits */
-const setSlot = (
-	look: EffectLook,
-	i: number,
-	slot: { texture: number; scale: number[]; offset: number[] },
-	anim: { speed: number[]; cos: number; sin: number },
-	bits: number,
-): void => {
-	look.textures[i] = slot.texture;
-	look.uvScales[i] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
-	look.params.set([slot.scale[0], slot.scale[1], slot.offset[0], slot.offset[1]], EffectRow.uv + i * 4);
-	look.params.set([anim.speed[0], anim.speed[1], anim.cos, anim.sin], EffectRow.anim + i * 4);
+const setSlot = (look: EffectLook, i: number, texture: EffectTexture, bits: number): void => {
+	look.textures[i] = texture.texture;
+	look.uvScales[i] = Math.max(Math.abs(texture.scale[0]), Math.abs(texture.scale[1]), 1e-3);
+	look.params.set([...texture.scale, ...texture.offset], EffectRow.uv + i * 4);
+	look.params.set([...texture.scroll, ...texture.rotation], EffectRow.anim + i * 4);
 	look.params[EffectRow.slotBits + i] = bits;
 };
+
+/** a still texture without its own transform */
+const still = (texture: number): EffectTexture => ({
+	texture,
+	scale: [1, 1],
+	offset: [0, 0],
+	scroll: [0, 0],
+	rotation: [1, 0],
+});
 
 /** an effect look with no textures */
 const emptyEffect = (slots: number): EffectLook => {
@@ -310,429 +198,104 @@ const emptyEffect = (slots: number): EffectLook => {
 	};
 };
 
-/**
- * the rows of the blend layer, the distortion, the dissolve, the near camera fade and `_IgnorePostExposure`,
- * which every texture-stack look reads alike (VFXWater overwrites some of them)
- */
-const setShared = (look: EffectLook, entry: ReadyMaterial, shader: ShaderEntry, intensity: number): void => {
-	const { float, color } = readers(entry, shader);
+/** the near camera fade's rows */
+const setNear = (look: EffectLook, near: EffectNearFade): void => {
+	look.params.set(near.range, EffectRow.near);
+	look.params[EffectRow.misc] = near.on ? 1 : 0;
+};
+
+// #region the texture stack
+
+/** a stack layer's {@link EffectRow.slotBits} */
+const layerBits = (layer: StackLayer): number =>
+	ROLES[layer.role] +
+	(layer.redAlpha ? 16 : 0) +
+	(layer.source === null ? SLOT_NO_BASE : SOURCES[layer.source] * 32) +
+	slotDisturb(layer.disturbShare);
+
+/** the vertex offset's slot and rows */
+const setVertexOffset = (look: EffectLook, offset: EffectVertexOffset): void => {
 	const params = look.params;
-	params.set(color('_BlendTint') ?? [1, 1, 1, 0], EffectRow.blendTint);
-	params.set(
-		[
-			float('_DisturbUIntensity1', 0),
-			float('_DisturbVIntensity1', 0),
-			float('_DisturbUIntensity2', 0),
-			float('_DisturbVIntensity2', 0),
-		],
-		EffectRow.disturb,
-	);
-	// the dissolve threshold sweeps from below 0 to past 1 as the schedule goes from 0 to 1
-	params.set(
-		[
-			float('_DissolveScheduleOffset', 0) * 2.02 - 1.01,
-			float('_DissolveEdgeSharp', 1),
-			float('_DissolveEmissiveEdge', 0),
-		],
-		EffectRow.dissolve,
-	);
-	const edge = color('_DissolveEmissiveColor') ?? [0, 0, 0, 0];
-	params.set([edge[0] * intensity, edge[1] * intensity, edge[2] * intensity], EffectRow.dissolveColor);
-	params.set(
-		[
-			float('_NearCameraFadeDistanceStart', 0),
-			float('_NearCameraFadeDistanceEnd', 1),
-			float('_NearCameraFadeDistanceStart2', 1e5),
-			float('_NearCameraFadeDistanceEnd2', 2e5),
-		],
-		EffectRow.near,
-	);
-	params[EffectRow.misc] = float('_UseNearCameraFade', 0) !== 0 ? 1 : 0;
-	params[EffectRow.soft + 2] = float('_IgnorePostExposure', 1);
+	setSlot(look, OFFSET_SLOT, offset.texture, ROLE_NONE);
+	params.set([...offset.direction, offset.space], EffectRow.offsetDir);
+	params.set([offset.intensity, offset.bias, offset.vertexAlphaWeight, offset.cameraPull], EffectRow.offset);
+	params.set([1, offset.uv1 ? 1 : 0], EffectRow.offsetMode);
 };
 
 /**
- * fills the vertex offset's slot and rows: along `_OffsetDir` (or the normal) by `_OffsetIntensity` times the
- * offset texture's red, remapped by `_Bi_Offset`. VFXBaseV2 and VFXDitherAlpha share this form; the vertex
- * alpha's weight and the pull towards the camera are VFXBaseV2's own and are left at 0
+ * the texture stack of VFXBaseV2, VFXDecal and VFXDitherAlpha's effect variants ({@link EffectStackSurface})
+ *
+ * @param stack the stack
+ * @returns its look
  */
-const setVertexOffset = (
-	look: EffectLook,
-	entry: ReadyMaterial,
-	shader: ShaderEntry,
-	slot: TextureSlot,
-): void => {
-	const { float, color } = readers(entry, shader);
-	const params = look.params;
-	const speed = color('_OffsetSpeed') ?? [0, 0, 0, 0];
-	// the vertex stage reads the scroll after the `_ST`, unscaled and unrotated
-	setSlot(look, OFFSET_SLOT, slot, { speed: [speed[0], speed[1]], cos: 1, sin: 0 }, ROLE_NONE);
-	const dir = color('_OffsetDir') ?? [0, 0, 0, 0];
-	params.set([dir[0], dir[1], dir[2], float('_OffsetSwitchDir', 0)], EffectRow.offsetDir);
-	params.set([float('_OffsetIntensity', 0), float('_Bi_Offset', 0), 0, 0], EffectRow.offset);
-	params.set([1, float('_OffsetUVSet', 0) !== 0 ? 1 : 0], EffectRow.offsetMode);
-};
-
-/** whether a VFXBaseV2 material moves its vertices by the offset texture in {@link OFFSET_SLOT} */
-const vertexOffsetDrawn = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
-	entry.keywords.includes('_USE_VERTOFFSET') &&
-	readers(entry, shader).float('_InParticle', 1) === 0 &&
-	offsetSlotOf(entry, shader) !== null;
-
-/** a `_WaterHeight` at or below this lies under every level, so water blending leaves the effect unchanged */
-const WATER_BLEND_UNSET = -1000;
-
-/** whether a VFXBaseV2 keyword outside {@link BASE_KEYWORDS} is drawn, or changes nothing in the viewer */
-const baseKeywordDrawn = (keyword: string, entry: ReadyMaterial, shader: ShaderEntry): boolean => {
-	const { float, color } = readers(entry, shader);
-	switch (keyword) {
-		case '_USE_VERTOFFSET': {
-			// the game scales the offset by `1 − _InParticle`, so meshes left in particle mode don't move
-			const slot = offsetSlotOf(entry, shader);
-			return float('_InParticle', 1) !== 0 || (slot !== null && slot.uv <= 1);
-		}
-		case '_USE_BRIGHT': {
-			// the radial glow and distortion around the player (no `_BrightCenter`) reach `_OuterRadius` metres,
-			// and the viewer has no player
-			return float('_BrightType', 0) === 0 && (color('_BrightCenter')?.[3] ?? 0) === 0;
-		}
-		case '_USE_SCREENUV': {
-			// screen UVs relative to the object's pivot aren't drawn
-			return float('_LocalPivortSpace', 0) === 0;
-		}
-		case '_SAMPLE_TEX5': {
-			// the sixth sample texture takes the vertex offset's slot
-			return !vertexOffsetDrawn(entry, shader);
-		}
-		case '_USE_WATER_BLEND': {
-			// the blend absorbs and scatters only below `_WaterHeight`, which the game sets from a water surface the
-			// effect meets; the authored height lies below the world, where the blend changes nothing
-			return float('_WaterHeight', 0) <= WATER_BLEND_UNSET;
-		}
-		default: {
-			return false;
-		}
-	}
-};
-
-/**
- * @param entry a material of `HGRP/Effect/VFXBaseV2`
- * @param shader its shader
- * @returns its effect look, or `null` when it uses features that aren't drawn
- */
-export const vfxBaseLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	const { float, color } = readers(entry, shader);
-	// the shader writes its alpha times `1 − _BlendMode`: 1 adds the premultiplied colour over what's behind, and
-	// 2 writes `lerp(1, colour, alpha)` for a blend state that multiplies what's behind by it
-	const blendMode = float('_BlendMode', 0);
-	const blendDrawn = blendMode === 2 ? multipliesBehind(entry) : entry.blend === 'premultiplied';
-	if (
-		!blendDrawn ||
-		(blendMode !== 0 && blendMode !== 1 && blendMode !== 2) ||
-		entry.keywords.some((keyword) => !BASE_KEYWORDS.has(keyword) && !baseKeywordDrawn(keyword, entry, shader))
-	) {
-		return null;
-	}
+export const stackLook = (stack: EffectStackSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const intensity = float('_TintColorIntensity', 1);
-	const tint = linearRgb(color('_TintColor') ?? [1, 1, 1, 1]);
+	stack.layers.forEach((layer, i) => {
+		if (layer !== null) {
+			setSlot(look, i, layer, layerBits(layer));
+		}
+	});
+	params.set(stack.tint, EffectRow.tint);
+	params.set(stack.blendTint, EffectRow.blendTint);
+	params.set(stack.disturb, EffectRow.disturb);
 	params.set(
-		[
-			tint[0] * intensity,
-			tint[1] * intensity,
-			tint[2] * intensity,
-			(color('_TintColor')?.[3] ?? 1) * float('_TintColorAlpha', 1),
-		],
-		EffectRow.tint,
-	);
-	const animOf = (prefix: string) => {
-		const speed = color(`${prefix}UVSpeed`) ?? [0, 0, 0, 0];
-		// the shaders' UV rotations are pure rotations: (a, b) of the matrix's first column is (cos, sin)
-		const rotation = color(`${prefix}UVRotateMat`) ?? [1, 0, 0, 1];
-		return { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] };
-	};
-	// polar and screen UVs are computed only with their keyword and switch, and are zero otherwise
-	const computed = [
-		true,
-		true,
-		entry.keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
-		entry.keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
-	];
-	// a slot's UVs are its weights times UV0, UV1, polar and screen UVs; materials set one weight
-	const source = (prefix: string): number => {
-		const weights = color(`${prefix}UVWeights`) ?? [1, 0, 0, 0];
-		const largest = weights.indexOf(Math.max(...weights));
-		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
-	};
-	for (const [i, name] of BASE_SLOTS.entries()) {
-		// the main texture is always sampled, a sample texture only with its keyword
-		if (i > 0 && !entry.keywords.includes(`_SAMPLE_TEX${i - 1}`)) {
-			continue;
-		}
-		let slot = entry.slots[name];
-		// a sample texture samples the shader's default when the material binds none; an unset slot binds white.
-		// the white talosite's shards take their mask from such a slot
-		if (slot === undefined && i > 0 && shader.textures[name] === 'white') {
-			slot = UNSET_WHITE;
-		}
-		if (slot === undefined) {
-			continue;
-		}
-		// the geometry carries UV sets 0 and 1 only
-		if (slot.uv > 1) {
-			return null;
-		}
-		if (i === 0) {
-			const bits =
-				EffectRole.Main +
-				slotDisturb(float('_MainTexUseDisturb', 0)) +
-				(float('_UseMainTexAsAlpha', 0) !== 0 ? 16 : 0) +
-				source('_MainTex');
-			setSlot(look, i, slot, animOf('_MainTex'), bits);
-			continue;
-		}
-		const n = i - 1;
-		const role = ROLE_TEXTURES.findIndex((_, k) => float(`_SampleTex${n}UseWeight${k}`, 0) !== 0);
-		if (role < 0) {
-			continue;
-		}
-		// the shader transforms a sample texture's UVs by the `_ST` of its role's texture property
-		const transform = entry.slots[ROLE_TEXTURES[role]] ?? slot;
-		const anim = animOf(`_SampleTex${n}`);
-		let bits =
-			role +
-			slotDisturb(float(`_SampleTex${n}UseDisturb`, 0)) +
-			(float(`_UseSampleTex${n}AsAlpha`, 0) !== 0 ? 16 : 0);
-		if (n === 5) {
-			// the shader computes the sixth's UVs in its vertex stage, from the mesh's UV sets alone, and scrolls them
-			// by the first's speed
-			const weights = color('_SampleTex5UVWeights') ?? [1, 0, 0, 0];
-			bits += weights[1] > weights[0] ? 32 : 0;
-			anim.speed = animOf('_SampleTex0').speed;
-		} else {
-			bits += source(`_SampleTex${n}`);
-		}
-		setSlot(look, i, { ...transform, texture: slot.texture }, anim, bits);
-	}
-	// without a main texture the shader samples its default; slot 0 is always sampled, and an unset slot binds
-	// white
-	if (look.textures[0] < 0 && shader.textures['_MainTex'] !== 'white') {
-		return null;
-	}
-	setShared(look, entry, shader, intensity);
-	params[EffectRow.dissolve + 3] = float('_UseDissolve', 0) !== 0 ? 1 : 0;
-	// as in the game, a mask or weight switched on without a texture in that role leaves nothing
-	params[EffectRow.dissolveColor + 3] = float('_UseMask', 0) !== 0 ? 1 : 0;
-	params.set(
-		[
-			float('_Bi_Disturb', 0),
-			float('_WeightTexIntensity', 1) * float('_DisturbUseWeight', 0),
-			float('_WeightTexIntensity', 1) * float('_DissolveUseWeight', 0),
-			float('_UseWeightTex', 0) !== 0 ? 1 : 0,
-		],
+		[stack.disturbBias, stack.weight.disturb, stack.weight.dissolve, stack.weight.used ? 1 : 0],
 		EffectRow.weight,
 	);
-	if (entry.keywords.includes('_USE_FRESNEL')) {
-		params.set(
-			[
-				float('_FresnelPower', 1),
-				float('_FresnelBias', 0),
-				float('_FresnelFlip', 0),
-				float('_FresnelAffectOpacity', 0),
-			],
-			EffectRow.fresnel,
-		);
+	const { dissolve } = stack;
+	params.set(
+		[dissolve.threshold, dissolve.sharpness, dissolve.edgeWidth, dissolve.on ? 1 : 0],
+		EffectRow.dissolve,
+	);
+	params.set([...dissolve.edgeColor, stack.masked ? 1 : 0], EffectRow.dissolveColor);
+	if (stack.fresnel !== null) {
+		const { fresnel } = stack;
+		params.set([fresnel.power, fresnel.bias, fresnel.flip, fresnel.opacity], EffectRow.fresnel);
 	}
-	if (entry.keywords.includes('_USE_SOFTBLEND')) {
-		params[EffectRow.soft] = Math.max(float('_SoftDistance', 1), 1e-3);
-		params[EffectRow.soft + 1] = float('_SoftBias', 0);
+	params.set(
+		[stack.soft?.distance ?? 0, stack.soft?.bias ?? 0, stack.ignorePostExposure, stack.vertexColor ? 1 : 0],
+		EffectRow.soft,
+	);
+	setNear(look, stack.near);
+	params.set(
+		[stack.brighten.threshold, stack.brighten.intensity, stack.distorted ? 1 : 0],
+		EffectRow.misc + 1,
+	);
+	if (stack.decalFade !== null) {
+		const fade = stack.decalFade;
+		params.set([...fade.edge, fade.width, fade.height], EffectRow.decalFade);
+		params.set([fade.heightOffset, fade.angle], EffectRow.decal);
 	}
-	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
-	params[EffectRow.unfogged] = entry.keywords.includes('_USE_FOG') ? 0 : 1;
-	params[EffectRow.unfogged + 2] = blendMode;
-	params[EffectRow.unfogged + 3] =
-		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
-	params[EffectRow.misc + 1] = float('_ExpThreshold', 1);
-	params[EffectRow.misc + 2] = float('_ExpIntensity', 0);
-	params[EffectRow.misc + 3] = float('_UseDisturb', 0) !== 0 ? 1 : 0;
-	const offsetSlot = offsetSlotOf(entry, shader);
-	if (entry.keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0 && offsetSlot !== null) {
-		setVertexOffset(look, entry, shader, offsetSlot);
-		params[EffectRow.offset + 2] = float('_UseVertexColorAlphaAsVertOffsetWeight', 0);
-		params[EffectRow.offset + 3] = float('_VertCameraOffset', 0);
+	params[EffectRow.decal + 3] = stack.alphaPower;
+	if (stack.offset !== null) {
+		setVertexOffset(look, stack.offset);
 	}
-	if (entry.keywords.includes('_USE_LIGHTING')) {
-		params[EffectRow.offsetMode + 2] = 1;
-		params[EffectRow.offsetMode + 3] = float('_RotateNormalToWorldUp', 0) !== 0 ? 1 : 0;
+	if (stack.lighting !== null) {
+		params.set([1, stack.lighting.worldUp ? 1 : 0], EffectRow.offsetMode + 2);
 	}
+	params.set(
+		[
+			stack.unfogged ? 1 : 0,
+			EffectKind.Stack,
+			stack.blendMode,
+			(stack.screenUv.byDepth ? 1 : 0) + (stack.screenUv.heightAsV ? 2 : 0),
+		],
+		EffectRow.unfogged,
+	);
 	return look;
 };
 
-/** Unity `BlendMode` values */
-const BLEND_ZERO = 0;
-const BLEND_DST_COLOR = 2;
-
 /**
- * @param entry a material
- * @returns whether its blend state multiplies what lies behind by its colour (Unity's `Blend DstColor Zero`)
- */
-const multipliesBehind = (entry: ReadyMaterial): boolean =>
-	entry.blend === 'custom' &&
-	entry.blendFactors?.[0] === BLEND_DST_COLOR &&
-	entry.blendFactors[1] === BLEND_ZERO;
-
-/**
- * @param look a look from {@link vfxBaseLook}
+ * @param look a look from {@link stackLook}
  * @returns whether it multiplies what lies behind (`_BlendMode` 2), which the transparent pass's targets
  *   can't hold, so it draws over the composited scene instead
  */
 export const multipliesScene = (look: EffectLook): boolean => look.params[EffectRow.unfogged + 2] === 2;
 
-/** keywords of `HGRP/Effect/VFXDitherAlpha` that {@link vfxDitherEffectLook} draws */
-const DITHER_EFFECT_KEYWORDS = new Set([
-	'_USE_DISSOLVE',
-	'_USE_DISTURB',
-	'_USE_MASK',
-	'_USE_POLARUV',
-	'_USE_SCREENUV',
-]);
+// #endregion
 
-/**
- * keywords of `HGRP/Effect/VFXDitherAlpha` that {@link vfxDitherEffectLook} also draws, alongside one of the
- * above
- */
-const DITHER_EFFECT_EXTRA_KEYWORDS = new Set(['_USE_VERTOFFSET']);
-
-/**
- * an unlit `HGRP/Effect/VFXDitherAlpha` material with a distortion, a dissolve, a mask or polar or screen
- * UVs, and optionally a vertex offset, drawn by the texture stack. the game writes such a surface to the
- * G-buffer where its alpha beats a per-pixel noise; the viewer blends it over by that alpha instead, which
- * its temporal antialiasing would average the dither to anyway
- *
- * @param entry a material of `HGRP/Effect/VFXDitherAlpha`
- * @param shader its shader
- * @returns its effect look, or `null` when it has none of those keywords or uses features that aren't drawn
- */
-export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	const { float, color } = readers(entry, shader);
-	const keywords = entry.keywords;
-	if (
-		!keywords.some((keyword) => DITHER_EFFECT_KEYWORDS.has(keyword)) ||
-		keywords.some(
-			(keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword) && !DITHER_EFFECT_EXTRA_KEYWORDS.has(keyword),
-		) ||
-		float('_UseLighting', 0) !== 0 ||
-		float('_DitherAlphaMode', 0) !== 0 ||
-		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0) ||
-		// the mask feeds only the tested alpha; the stack's mask also tints, which matches only when it's the red
-		(keywords.includes('_USE_MASK') && float('_UseMaskTexAsAlpha', 1) === 0)
-	) {
-		return null;
-	}
-	const computed = [
-		true,
-		true,
-		keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0,
-		keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0,
-	];
-	const source = (weightsName: string): number => {
-		const weights = color(weightsName) ?? [1, 0, 0, 0];
-		const largest = weights.indexOf(Math.max(...weights));
-		return weights[largest] > 0 && computed[largest] ? largest * 32 : SLOT_NO_BASE;
-	};
-	const animOf = (speedName: string, rotationName: string) => {
-		const speed = color(speedName) ?? [0, 0, 0, 0];
-		const rotation = color(rotationName) ?? [1, 0, 0, 1];
-		return { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] };
-	};
-	const look = emptyEffect(7);
-	const params = look.params;
-	// the shader's slots and their properties; the distortion comes first, so it can shift the others
-	const slots = [
-		{
-			name: '_MainTex',
-			keyword: null,
-			bits: EffectRole.Main + (float('_UseMainTexAsAlpha', 1) !== 0 ? 16 : 0),
-			disturbed: '_MainTexUseDisturb',
-			speed: '_MainTexUVSpeed',
-			rotation: '_MainTexUVRotateMat',
-			weights: '_MainTexUVWeights',
-		},
-		{
-			name: '_DisturbTex1',
-			keyword: '_USE_DISTURB',
-			bits: EffectRole.Disturb1,
-			disturbed: null,
-			speed: '_DisturbUVSpeed1',
-			rotation: '_DisturbUVRotateMat1',
-			weights: '_DisturbUVWeights1',
-		},
-		{
-			name: '_DissolveTex',
-			keyword: '_USE_DISSOLVE',
-			bits: EffectRole.Dissolve,
-			disturbed: '_DissolveTexUseDisturb',
-			speed: '_DissolveUVSpeed',
-			rotation: '_DissolveUVRotateMat',
-			weights: '_DissolveUVWeights',
-		},
-		{
-			name: '_MaskTex',
-			keyword: '_USE_MASK',
-			bits: EffectRole.Mask + 16,
-			disturbed: '_MaskTexUseDisturb',
-			speed: '_MaskTexUVSpeed',
-			rotation: '_MaskTexUVRotateMat',
-			weights: '_MaskTexUVWeights',
-		},
-	];
-	for (const [i, slot] of slots.entries()) {
-		if (slot.keyword !== null && !keywords.includes(slot.keyword)) {
-			continue;
-		}
-		// an unset slot binds white, the shader's default for each of these
-		const bound = entry.slots[slot.name] ?? UNSET_WHITE;
-		if (bound.uv > 1) {
-			return null;
-		}
-		const disturbed = slot.disturbed === null ? 0 : slotDisturb(float(slot.disturbed, 1));
-		setSlot(look, i, bound, animOf(slot.speed, slot.rotation), slot.bits + disturbed + source(slot.weights));
-	}
-	// the colour pass emits `tint · intensity · vertex colour · main`; the depth pass tests the tint's alpha times
-	// `_TintColorAlpha`, the vertex alpha, the main texture's alpha (its red), the mask's red, the dissolve and the
-	// near fade
-	const intensity = float('_TintColorIntensity', 1);
-	const tint = linearRgb(color('_TintColor') ?? [1, 1, 1, 1]);
-	params.set(
-		[
-			tint[0] * intensity,
-			tint[1] * intensity,
-			tint[2] * intensity,
-			(color('_TintColor')?.[3] ?? 1) * float('_TintColorAlpha', 1),
-		],
-		EffectRow.tint,
-	);
-	setShared(look, entry, shader, intensity);
-	params[EffectRow.dissolve + 3] = keywords.includes('_USE_DISSOLVE') ? 1 : 0;
-	params[EffectRow.dissolveColor + 3] = keywords.includes('_USE_MASK') ? 1 : 0;
-	params[EffectRow.weight] = float('_Bi_Disturb', 0);
-	params[EffectRow.misc + 1] = 1;
-	params[EffectRow.misc + 3] = keywords.includes('_USE_DISTURB') ? 1 : 0;
-	// the depth pass tests the saturated alpha raised to this power, which sets the share of pixels that survive
-	params[EffectRow.decal + 3] = float('_DitherAlphaExp', 1);
-	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
-	// a G-buffer surface, so the deferred fog covers it
-	params[EffectRow.unfogged] = 0;
-	params[EffectRow.unfogged + 3] =
-		(float('_ScreenUVUseDepth', 1) !== 0 ? 1 : 0) + (float('_UsePosYAsScreenV', 0) !== 0 ? 2 : 0);
-	// the game scales the offset by `1 − _InParticle`
-	const offsetSlot = offsetSlotOf(entry, shader);
-	if (keywords.includes('_USE_VERTOFFSET') && float('_InParticle', 1) === 0 && offsetSlot !== null) {
-		setVertexOffset(look, entry, shader, offsetSlot);
-	}
-	return look;
-};
+// #region refraction
 
 /**
  * float offsets of a VFXRefract look's parameters. the UV, scroll, slot bit, near fade and last rows are
@@ -759,216 +322,39 @@ export const RefractRow = {
 	rbSecond: 88,
 } as const;
 
-/** keywords of `HGRP/Effect/VFXRefract` that {@link vfxRefractLook} draws */
-const REFRACT_KEYWORDS = new Set([
-	'_USE_MASK',
-	'_USE_POLARUV',
-	'_USE_RBOFFSET',
-	'_USE_RGBOFFSET',
-	'_USE_SOFTBLEND',
-]);
+/** a refraction slot's source bits: polar UVs about the centre, or UV set 0 */
+const polarBits = (polar: boolean): number => (polar ? SlotSource.Polar : SlotSource.Uv0) * 32;
 
 /**
- * `HGRP/Effect/VFXRefract`: the scene behind, seen at an offset that a texture sets, masked
- * (`docs/game-data/effects.md#refraction`). it samples the finished scene, so it draws over the composited
+ * a VFXRefract layer ({@link RefractSurface}). it samples the finished scene, so it draws over the composited
  * scene rather than in the transparent pass
- *
- * @param entry a material of `HGRP/Effect/VFXRefract`
- * @param shader its shader
- * @returns its effect look, or `null` when it uses features that aren't drawn
  */
-export const vfxRefractLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	const { float, color } = readers(entry, shader);
-	const keywords = entry.keywords;
-	if (entry.blend !== 'alphaBlend' || keywords.some((keyword) => !REFRACT_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const polar = keywords.includes('_USE_POLARUV');
-	const masked = keywords.includes('_USE_MASK');
+export const refractLook = (refract: RefractSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const slots = [
-		{
-			name: '_RefractTex',
-			on: true,
-			rotate: '_RefractTexUVRotate',
-			speed: '_RefractUVSpeed',
-			switch: '_RefractSwitchUV',
-		},
-		{
-			name: '_MaskTex',
-			on: masked,
-			rotate: '_MaskTexUVRotate',
-			speed: '_MaskTexUVSpeed',
-			switch: '_MaskSwitchUV',
-		},
-	];
-	for (const [i, slot] of slots.entries()) {
-		if (!slot.on) {
-			continue;
-		}
-		// the shader reads UV0, or polar UVs about its centre with either switch value
-		const switched = float(slot.switch, 0) !== 0;
-		if (switched && !polar) {
-			return null;
-		}
-		const bound = entry.slots[slot.name] ?? UNSET_WHITE;
-		if (bound.uv !== 0) {
-			return null;
-		}
-		// the rotation in degrees, as the matrix with columns (cos, −sin) and (sin, cos)
-		const angle = (float(slot.rotate, 0) * Math.PI) / 180;
-		const speed = color(slot.speed) ?? [0, 0, 0, 0];
-		const redAlpha = i === 1 && float('_UseMaskTexAsAlpha', 1) !== 0 ? 16 : 0;
-		setSlot(
-			look,
-			i,
-			bound,
-			{ speed: [speed[0], speed[1]], cos: Math.cos(angle), sin: -Math.sin(angle) },
-			(switched ? SlotSource.Polar * 32 : SlotSource.Uv0 * 32) + redAlpha,
-		);
+	setSlot(look, 0, refract.refraction, polarBits(refract.refractionPolar));
+	if (refract.mask !== null) {
+		setSlot(look, 1, refract.mask.texture, polarBits(refract.mask.polar) + (refract.mask.redAlpha ? 16 : 0));
 	}
-	const dir = color('_RefractDir') ?? [1, 1, 0, 0];
+	params.set([...refract.direction, refract.strength, refract.bias], RefractRow.refract);
 	params.set(
-		[dir[0], dir[1], float('_Intensity', 1) * float('_TintColorAlpha', 1), float('_Bi_Refract', 0)],
-		RefractRow.refract,
-	);
-	params.set(
-		[float('_RefractIsNormal', 1) !== 0 ? 1 : 0, float('_MaskTexUseRefract', 0), masked ? 1 : 0, 0],
+		[refract.isNormal ? 1 : 0, refract.maskUsesRefraction, refract.mask === null ? 0 : 1, 0],
 		RefractRow.refract2,
 	);
-	// `_USE_RGBOFFSET` only adds a second further sample to `_USE_RBOFFSET`'s, with a mask per sample
-	if (keywords.includes('_USE_RBOFFSET')) {
-		const offset = color('_RBOffset') ?? [0, 0, 0, 0];
-		const scale = 0.01 * float('_Intensity', 1);
-		const second = keywords.includes('_USE_RGBOFFSET');
-		const main = linearRgb(color('_RBMainColorMask') ?? [1, 0, 0, 1]);
-		const first = linearRgb(color(second ? '_RBOffset1ColorMask' : '_RBOffsetColorMask') ?? [0, 1, 1, 1]);
-		const last = linearRgb(color('_RBOffset2ColorMask') ?? [0, 0, 1, 1]);
-		params.set(
-			[offset[0] * scale, offset[1] * scale, float('_GOffset', -1), float('_RBIntensity', 1)],
-			RefractRow.rb,
-		);
-		params.set([main[0], main[1], main[2], 1], RefractRow.rbMain);
-		params.set([first[0], first[1], first[2], float('_UseMainTexAsMask', 0)], RefractRow.rbFirst);
-		params.set([last[0], last[1], last[2], second ? 1 : 0], RefractRow.rbSecond);
+	const offsets = refract.colorOffsets;
+	if (offsets !== null) {
+		params.set([...offsets.offset, offsets.secondShare, offsets.intensity], RefractRow.rb);
+		params.set([...offsets.main, 1], RefractRow.rbMain);
+		params.set([...offsets.first, offsets.mainAsMask], RefractRow.rbFirst);
+		params.set([...(offsets.second ?? [0, 0, 1]), offsets.second === null ? 0 : 1], RefractRow.rbSecond);
 	}
-	// soft blend: the cover fades out over `_SoftDistance` in front of what lies behind
-	if (keywords.includes('_USE_SOFTBLEND')) {
-		params[EffectRow.soft] = Math.max(float('_SoftDistance', 1), 1e-3);
-	}
-	params.set(
-		[
-			float('_NearCameraFadeDistanceStart', 0),
-			float('_NearCameraFadeDistanceEnd', 1),
-			float('_NearCameraFadeDistanceStart2', 1e5),
-			float('_NearCameraFadeDistanceEnd2', 2e5),
-		],
-		EffectRow.near,
-	);
-	params[EffectRow.misc] = float('_UseNearCameraFade', 0) !== 0 ? 1 : 0;
+	params[EffectRow.soft] = refract.softDistance;
+	setNear(look, refract.near);
 	params.set([1, EffectKind.Refract, 0, 0], EffectRow.unfogged);
 	return look;
 };
 
-/**
- * @param entry a material of `HGRP/Effect/VFXDecal`
- * @param shader its shader
- * @returns its effect look, or `null` when it uses features that aren't drawn
- */
-export const vfxDecalLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	if (entry.blend !== 'premultiplied' || entry.keywords.some((keyword) => !DECAL_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
-	const look = emptyEffect(7);
-	const params = look.params;
-	const base = color('_DecalBaseColor') ?? [1, 1, 1, 1];
-	params.set([base[0], base[1], base[2], base[3] * float('_TintColorAlpha', 1)], EffectRow.tint);
-	// a texture's UV switch picks polar or screen UVs only where they're computed; the box's otherwise
-	const sources = new Map<number, SlotSource>();
-	if (entry.keywords.includes('_USE_SCREENUV') && float('_UseScreenUV', 0) !== 0) {
-		sources.set(1, SlotSource.Screen);
-	}
-	if (entry.keywords.includes('_USE_POLARUV') && float('_UsePolarUV', 0) !== 0) {
-		sources.set(2, SlotSource.Polar);
-	}
-	const used = (keyword: string | null): boolean => keyword === null || entry.keywords.includes(keyword);
-	// the geometry carries UV sets 0 and 1 only
-	if (DECAL_SLOTS.some(({ name, keyword }) => used(keyword) && (entry.slots[name]?.uv ?? 0) > 1)) {
-		return null;
-	}
-	DECAL_SLOTS.forEach(({ name, role, keyword, speed: speedName, rotate, disturbed, source }, i) => {
-		const slot = entry.slots[name];
-		if (slot === undefined || !used(keyword)) {
-			return;
-		}
-		const speed = (speedName !== null && color(speedName)) || [0, 0, 0, 0];
-		// a rotation in degrees about the texture's centre
-		const angle = rotate === null ? 0 : (float(rotate, 0) * Math.PI) / 180;
-		const useDisturb = disturbed === null ? 0 : float(disturbed, 0);
-		const asAlpha =
-			(role === EffectRole.Main && float('_UseMainTexAsAlpha', 0) !== 0) ||
-			(role === EffectRole.Mask && float('_UseMaskTexAsAlpha', 0) !== 0);
-		// the shader applies the blend texture's `_ST` twice
-		const transform =
-			role === EffectRole.Blend
-				? {
-						...slot,
-						scale: [slot.scale[0] * slot.scale[0], slot.scale[1] * slot.scale[1]],
-						offset: [slot.offset[0] * (slot.scale[0] + 1), slot.offset[1] * (slot.scale[1] + 1)],
-					}
-				: slot;
-		setSlot(
-			look,
-			i,
-			transform,
-			{ speed: [speed[0], speed[1]], cos: Math.cos(angle), sin: -Math.sin(angle) },
-			role +
-				slotDisturb(useDisturb) +
-				(asAlpha ? 16 : 0) +
-				(sources.get(float(source, 0)) ?? SlotSource.Uv0) * 32,
-		);
-	});
-	if (look.textures[0] < 0) {
-		return null;
-	}
-	setShared(look, entry, shader, base[0]);
-	params[EffectRow.dissolve + 3] = entry.keywords.includes('_USE_DISSOLVE') ? 1 : 0;
-	params[EffectRow.dissolveColor + 3] = entry.keywords.includes('_USE_MASK') ? 1 : 0;
-	params[EffectRow.weight] = float('_Bi_Disturb', 0);
-	if (entry.keywords.includes('_USE_WEIGHT')) {
-		const intensity = float('_WeightTexIntensity', 1);
-		params.set(
-			[
-				intensity * float('_DisturbUseWeight', 1),
-				intensity * float('_DissolveUseWeight', 0),
-				// the distortion and dissolve then scale by `1 − intensity + red · intensity`
-				1,
-			],
-			EffectRow.weight + 1,
-		);
-	}
-	params[EffectRow.misc + 3] = entry.keywords.includes('_USE_DISTURB') ? 1 : 0;
-	params[EffectRow.unfogged] = entry.keywords.includes('_USE_FOG') ? 0 : 1;
-	params.set(
-		[
-			float('_EdgeFadeX', 0),
-			float('_EdgeFadeZ', 0),
-			float('_EdgeFadeIntensity', 0),
-			Math.max(float('_HeightFade', 0), 1e-3),
-		],
-		EffectRow.decalFade,
-	);
-	params.set(
-		[
-			float('_HeightFadeOffset', 0),
-			entry.keywords.includes('_USE_NORMALBLEND') ? float('_AngleBlendFallOff', 1) : 0,
-		],
-		EffectRow.decal,
-	);
-	return look;
-};
+// #endregion
 
 // #region lit decals
 
@@ -1020,153 +406,56 @@ export const DecalLitRow = {
  */
 export const DECAL_PBR_SLOT = 1;
 
-/** lit decal keywords that are drawn; the others change the surface in ways the viewer doesn't */
-const DECAL_LIT_KEYWORDS = new Set([
-	'_COMPLETE_PBR',
-	'_NORMAL_ANGLE_BLEND',
-	'_BLEND_WATER_FLOW',
-	'_BLEND_EMISSIVE',
-]);
-
-/** Unity's `ColorWriteMask` bits */
-const WRITE_RED = 8;
-const WRITE_GREEN = 4;
-const WRITE_BLUE = 2;
-
-/** a lit decal's effect look, and how it's drawn */
-export interface LitDecalLook extends EffectLook {
-	/**
-	 * `true` when it writes no albedo, only the normal or roughness of the surface beneath: the decal relight
-	 * pass then adds the change in that surface's light to the main pass's radiance. `false` when it's laid
-	 * over the surface in the transparent pass
-	 */
-	relight: boolean;
-}
-
 /**
- * `HGRP/DecalLit`, the projected decals of the scenery (`docs/game-data/materials.md#decals`): the base
- * colour map tinted by the placement's colour, with the PBR map's roughness and normal (or with
- * `_BLEND_WATER_FLOW` a scrolling water normal map's), written over the surface through the colour masks the
- * material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2` normal and roughness, `_ColorMask3`
- * albedo).
- *
- * @param entry a material of `HGRP/DecalLit`, a placement's copy with its colour and UV transform
- * @param shader its shader
- * @returns its look, `'invisible'` when it changes nothing the viewer draws (it writes neither albedo, normal
- *   nor roughness, or only the PBR map's, without one), or `null` when it uses features that aren't drawn or
- *   lacks a placement or base colour map
+ * a lit decal ({@link LitDecalSurface}): its base colour map tinted by the placement's colour, with the PBR
+ * map's roughness and normal (or a scrolling water normal map's), on the game's VFXDecal cube
  */
-export const decalLitLook = (
-	entry: ReadyMaterial,
-	shader: ShaderEntry,
-): LitDecalLook | 'invisible' | null => {
-	if (entry.keywords.some((keyword) => !DECAL_LIT_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
-	const placementColor = entry.colors[DECAL_COLOR_PROPERTY];
-	const placementUv = entry.vectors[DECAL_UV_PROPERTY];
-	if (placementColor === undefined || placementUv === undefined) {
-		return null;
-	}
-	const waterFlow = entry.keywords.includes('_BLEND_WATER_FLOW');
-	// the emission target's mask is fixed, so emissive decals always write it
-	const emissive = !waterFlow && entry.keywords.includes('_BLEND_EMISSIVE');
-	const relight = (float('_ColorMask3', 0) & WRITE_RED) === 0;
-	const surfaceMask = float('_ColorMask2', 0);
-	if (relight && !emissive && (surfaceMask & (WRITE_RED | WRITE_GREEN | WRITE_BLUE)) === 0) {
-		return 'invisible';
-	}
+export const litDecalLook = (decal: LitDecalSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const pbrBase = !waterFlow && float('_BaseTexChannel', 0) !== 0;
-	const base = entry.slots['_BaseColorMap'];
-	if (base === undefined) {
-		return null;
+	const [scaleU, scaleV, offsetU, offsetV] = decal.placementUv;
+	const placement = {
+		scale: [scaleU, scaleV] as [number, number],
+		offset: [offsetU, offsetV] as [number, number],
+	};
+	setSlot(look, 0, { ...still(decal.base), ...placement }, ROLE_NONE);
+	if (decal.pbr !== null) {
+		const own = decal.pbr.ownTransform;
+		const transform =
+			own === null
+				? placement
+				: { scale: [own[0], own[1]] as [number, number], offset: [own[2], own[3]] as [number, number] };
+		setSlot(look, DECAL_PBR_SLOT, { ...still(decal.pbr.texture), ...transform }, ROLE_NONE);
 	}
-	const placement = { scale: [placementUv[0], placementUv[1]], offset: [placementUv[2], placementUv[3]] };
-	const still = { speed: [0, 0], cos: 1, sin: 0 };
-	setSlot(look, 0, { texture: base.texture, ...placement }, still, ROLE_NONE);
-	let pbr: TextureSlot | undefined;
-	if (waterFlow) {
-		// the water's normal map projects at world positions; its `_ST` scale is per metre
-		pbr = entry.slots['_WaterNormalTex'];
-		if (pbr !== undefined) {
-			setSlot(
-				look,
-				DECAL_PBR_SLOT,
-				{ texture: pbr.texture, scale: pbr.scale, offset: [0, 0] },
-				still,
-				ROLE_NONE,
-			);
-		}
-	} else {
-		pbr = pbrBase ? base : entry.slots['_SampleTex1'];
-		if (pbr !== undefined) {
-			// its own `_ST` applies to the box's UVs only with `_SampleTex1UVSet`
-			const transform =
-				!pbrBase && float('_SampleTex1UVSet', 0) !== 0 ? { scale: pbr.scale, offset: pbr.offset } : placement;
-			setSlot(look, DECAL_PBR_SLOT, { texture: pbr.texture, ...transform }, still, ROLE_NONE);
-		}
-	}
+	params.set(decal.color, EffectRow.tint);
+	params.set([...decal.roughness, decal.normalScale, decal.angleFade], DecalLitRow.surface);
 	params.set(
-		[placementColor[0], placementColor[1], placementColor[2], placementColor[3] * float('_DecalOpacity', 1)],
-		EffectRow.tint,
-	);
-	params.set(
-		[
-			float('_RoughnessMin', 0),
-			float('_RoughnessMax', 1),
-			float('_NormalScale', 1),
-			entry.keywords.includes('_NORMAL_ANGLE_BLEND') ? Math.max(float('_AngleBlendFallOff', 1), 1e-3) : 0,
-		],
-		DecalLitRow.surface,
-	);
-	const pbrMask = float('_ColorMask1', 0);
-	const hasPbr = pbr !== undefined;
-	// a relit decal changes the surface only through the PBR map and its emission
-	if (relight && !hasPbr && !emissive) {
-		return 'invisible';
-	}
-	params.set(
-		[
-			hasPbr && (surfaceMask & (WRITE_RED | WRITE_GREEN)) !== 0 ? 1 : 0,
-			hasPbr && (surfaceMask & WRITE_BLUE) !== 0 ? 1 : 0,
-			float('_BlendSceneNormal', 0),
-		],
+		[decal.writesNormal ? 1 : 0, decal.writesRoughness ? 1 : 0, decal.blendSceneNormal],
 		DecalLitRow.writes,
 	);
 	params.set(
-		[
-			(pbrMask & WRITE_RED) !== 0 ? 1 : 0,
-			(pbrMask & WRITE_GREEN) !== 0 ? 1 : 0,
-			float('_Metallic', 0),
-			float('_OcclusionStrength', 1),
-		],
+		[decal.writesMetallic ? 1 : 0, decal.writesOcclusion ? 1 : 0, decal.metallic, decal.occlusionStrength],
 		DecalLitRow.pbr,
 	);
 	params.set(
-		[pbrBase ? 1 : 0, float('_MetallicChannel', 0), float('_OcclusionChannel', 0), float('_AffectNormal', 0)],
+		[decal.pbrBase ? 1 : 0, decal.metallicChannel, decal.occlusionChannel, decal.affectNormal],
 		DecalLitRow.channels,
 	);
-	if (waterFlow) {
-		params.set(
-			[1, float('_WaterNormalScale', 1), float('_WaterRoughness', 0), float('_NormalFactor', 0)],
-			DecalLitRow.water,
-		);
-		params.set(color('_UVMovement') ?? [0, 0, 1, 1], DecalLitRow.flow);
-		params[DecalLitRow.flowFade] = Math.max(float('_AngleBlendFallOff2', 1), 1e-3);
+	const { waterFlow, emission } = decal;
+	if (waterFlow !== null) {
+		params.set([1, waterFlow.normalScale, waterFlow.roughness, waterFlow.normalFactor], DecalLitRow.water);
+		params.set(waterFlow.movement, DecalLitRow.flow);
+		params[DecalLitRow.flowFade] = waterFlow.levelFade;
 	}
-	if (emissive) {
-		const emission = color('_EmissiveColor') ?? [0, 0, 0, 1];
-		params.set([emission[0], emission[1], emission[2], 1], DecalLitRow.emissive);
+	if (emission !== null) {
+		params.set([...emission.color, 1], DecalLitRow.emissive);
 		params.set(
-			[float('_EmissiveChannel', 0), float('_AlbedoAffectEmissive', 1), float('_IgnorePostExposure', 1)],
+			[emission.channel, emission.albedoAffect, emission.ignorePostExposure],
 			DecalLitRow.emissiveMask,
 		);
 	}
 	params.set([0, EffectKind.LitDecal], EffectRow.unfogged);
-	return { ...look, relight };
+	return look;
 };
 
 // #endregion
@@ -1237,228 +526,75 @@ export const WaterSheetFlags = {
 	VertexColor: 1 << 12,
 } as const;
 
-/** the slots of a VFXWater look, in order; slot 6 holds whichever normals the material uses */
-const WATER_SLOTS = [
-	'_MainTex',
-	'_DisturbTex1',
-	'_MaskTex',
-	'_DissolveTex',
-	'_SequenceBaseColorMap',
-	'_SequenceMotionVectorMap',
-] as const;
-
 /**
- * the prefix of each {@link WATER_SLOTS} texture's UV scroll and rotation properties, `null` for the
- * flipbook's
+ * a VFXWater sheet ({@link WaterSheetSurface}): main, disturb, mask, dissolve, flipbook and its motion
+ * vectors in slots 0–5, and slot 6 whichever normals it uses
  */
-const WATER_SLOT_ANIM = ['_MainTex', '_Disturb', '_MaskTex', '_Dissolve', null, null] as const;
-
-/**
- * VFXWater keywords that are drawn. `VFX_WATER_SIMPLE_LIGHT`, the game's cheaper lighting from a per-draw
- * ambient probe and the far shadow, is lit the full way
- */
-const WATER_KEYWORDS = new Set([
-	'_SUBSURFACE',
-	'_USE_DISTURB',
-	'_USE_MASK',
-	'_USE_DISSOLVE',
-	'_USE_SOFTBLEND',
-	'_NORMAL_MAP',
-	'_USE_SEQUENCE_FRAME',
-	'_USE_SEQUENCE_FRAME_MV',
-	'_USE_SEQUENCE_FRAME_NORMAL',
-	'VFX_WATER_SIMPLE_LIGHT',
-]);
-
-/**
- * `HGRP/Effect/VFXWater`, the sheets of falling water (`docs/game-data/effects.md#waterfalls`).
- *
- * @param entry a material of `HGRP/Effect/VFXWater`
- * @param shader its shader
- * @returns its look, or `null` when it uses features that aren't drawn (refraction, vertex animation)
- */
-export const vfxWaterLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	if (entry.blend !== 'premultiplied' || entry.keywords.some((keyword) => !WATER_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const has = (keyword: string): boolean => entry.keywords.includes(keyword);
-	const sequence = has('_USE_SEQUENCE_FRAME');
-	if (sequence && entry.slots['_SequenceBaseColorMap'] === undefined) {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
+export const waterSheetLook = (sheet: WaterSheetSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const intensity = float('_TintColorIntensity', 1);
-	// VFXWater's `_TintColor` and `_DissolveEmissiveColor` are [HDR]: authored linear, used as stored
-	const tint = color('_TintColor') ?? [1, 1, 1, 1];
-	params.set(
-		[tint[0] * intensity, tint[1] * intensity, tint[2] * intensity, tint[3] * float('_TintColorAlpha', 1)],
-		EffectRow.tint,
-	);
-	// first, since the rows below reuse some of the stack's
-	setShared(look, entry, shader, intensity);
-	let flags = 0;
-	const used = [
-		true,
-		has('_USE_DISTURB'),
-		has('_USE_MASK'),
-		has('_USE_DISSOLVE'),
-		sequence,
-		sequence && has('_USE_SEQUENCE_FRAME_MV'),
+	const { textures } = sheet;
+	const slots = [
+		textures.main,
+		textures.disturb,
+		textures.mask,
+		textures.dissolve,
+		textures.sequence,
+		textures.sequenceMotion,
 	];
-	// the sheets are drawn from UV set 0 alone
-	if (WATER_SLOTS.some((name, i) => used[i] && (entry.slots[name]?.uv ?? 0) > 0)) {
-		return null;
-	}
-	WATER_SLOTS.forEach((name, i) => {
-		const slot = entry.slots[name];
-		if (!used[i] || slot === undefined) {
-			return;
+	slots.forEach((texture, i) => {
+		if (texture !== null) {
+			setSlot(look, i, texture, EffectRole.Main);
 		}
-		const prefix = WATER_SLOT_ANIM[i];
-		let anim = { speed: [0, 0], cos: 1, sin: 0 };
-		if (prefix !== null) {
-			const speed = color(`${prefix}UVSpeed${i === 1 ? '1' : ''}`) ?? [0, 0, 0, 0];
-			const rotation = color(`${prefix}UVRotateMat${i === 1 ? '1' : ''}`) ?? [1, 0, 0, 1];
-			anim = { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] };
-		}
-		// the flipbook samples its frames' UVs as they are
-		const transform = prefix === null ? { ...slot, scale: [1, 1], offset: [0, 0] } : slot;
-		setSlot(look, i, transform, anim, EffectRole.Main);
 	});
-	if (look.textures[0] < 0 && shader.textures['_MainTex'] !== 'white') {
-		return null;
+	let flags = 0;
+	if (textures.disturb !== null) {
+		flags |= WaterSheetFlags.Disturb | (sheet.disturbNormal ? WaterSheetFlags.DisturbNormal : 0);
 	}
-	if (look.textures[1] >= 0) {
-		flags |= WaterSheetFlags.Disturb;
-		if (float('_DisturbTex1Normal', 0) !== 0) {
-			flags |= WaterSheetFlags.DisturbNormal;
-		}
-	}
-	if (look.textures[2] >= 0) {
+	if (textures.mask !== null) {
 		flags |= WaterSheetFlags.Mask;
 	}
-	if (look.textures[3] >= 0) {
+	if (textures.dissolve !== null) {
 		flags |= WaterSheetFlags.Dissolve;
 	}
-	if (sequence) {
-		flags |= WaterSheetFlags.Sequence;
-		if (look.textures[5] >= 0) {
-			flags |= WaterSheetFlags.SequenceMotion;
-		}
+	if (textures.sequence !== null) {
+		flags |=
+			WaterSheetFlags.Sequence | (textures.sequenceMotion === null ? 0 : WaterSheetFlags.SequenceMotion);
 	}
-	// slot 6: the flipbook's normals, or a normal map
-	let normalScale = 1;
-	{
-		const flipbook = sequence && has('_USE_SEQUENCE_FRAME_NORMAL');
-		const name = flipbook ? '_SequenceNormalMap' : has('_NORMAL_MAP') ? '_NormalMap' : null;
-		const slot = name === null ? undefined : entry.slots[name];
-		if (slot !== undefined && slot.uv === 0) {
-			const speed = color('_NormalMapUVSpeed') ?? [0, 0, 0, 0];
-			const rotation = color('_NormalMapUVRotateMat') ?? [1, 0, 0, 1];
-			setSlot(
-				look,
-				6,
-				flipbook ? { ...slot, scale: [1, 1], offset: [0, 0] } : slot,
-				flipbook
-					? { speed: [0, 0], cos: 1, sin: 0 }
-					: { speed: [speed[0], speed[1]], cos: rotation[0], sin: rotation[1] },
-				EffectRole.Main,
-			);
-			flags |= flipbook ? WaterSheetFlags.SequenceNormal : WaterSheetFlags.NormalMap;
-			normalScale = flipbook ? float('_FrameNormalScale', 1) : float('_NormalScale', 1);
-		}
+	if (textures.normals !== null) {
+		setSlot(look, 6, textures.normals.texture, EffectRole.Main);
+		flags |= textures.normals.flipbook ? WaterSheetFlags.SequenceNormal : WaterSheetFlags.NormalMap;
 	}
-	if (float('_UseMainTexAsAlpha', 1) !== 0) {
-		flags |= WaterSheetFlags.MainAsAlpha;
-	}
-	if (float('_UseMaskTexAsAlpha', 1) !== 0) {
-		flags |= WaterSheetFlags.MaskAsAlpha;
-	}
-	if (float('_UseVertexColorAsOpacity', 0) !== 0) {
-		flags |= WaterSheetFlags.VertexOpacity;
-	}
-	if (float('_UseFresnelAsOpacity', 0) !== 0) {
-		flags |= WaterSheetFlags.FresnelOpacity;
-	}
-	if (float('_DisableVertColor', 0) === 0) {
-		flags |= WaterSheetFlags.VertexColor;
-	}
+	flags |=
+		(sheet.mainAsAlpha ? WaterSheetFlags.MainAsAlpha : 0) |
+		(sheet.maskAsAlpha ? WaterSheetFlags.MaskAsAlpha : 0) |
+		(sheet.vertexOpacity ? WaterSheetFlags.VertexOpacity : 0) |
+		(sheet.fresnelOpacity ? WaterSheetFlags.FresnelOpacity : 0) |
+		(sheet.vertexColor ? WaterSheetFlags.VertexColor : 0);
+	params.set(sheet.tint, EffectRow.tint);
+	params.set([flags, sheet.blendMode, sheet.useLighting, sheet.randomUv], WaterSheetRow.flags);
+	params.set([sheet.disturbBias, ...sheet.disturb, 0], WaterSheetRow.disturb);
+	params.set(sheet.disturbUse, WaterSheetRow.disturbUse);
+	const { dissolve, sequence } = sheet;
+	params.set([dissolve.threshold, dissolve.sharpness, dissolve.edgeWidth, 0], WaterSheetRow.dissolve);
+	params.set([...dissolve.edgeColor, 0], WaterSheetRow.dissolveColor);
 	params.set(
-		[flags, float('_BlendMode', 0), float('_UseLighting', 1), float('_WaterRandomUV', 0)],
-		WaterSheetRow.flags,
-	);
-	params.set(
-		[float('_Bi_Disturb', 0), float('_DisturbUIntensity1', 0), float('_DisturbVIntensity1', 0), 0],
-		WaterSheetRow.disturb,
-	);
-	params.set(
-		[
-			float('_MainTexUseDisturb', 0),
-			float('_MaskTexUseDisturb', 0),
-			float('_NormalMapUseDisturb', 0),
-			float('_DissolveTexUseDisturb', 0),
-		],
-		WaterSheetRow.disturbUse,
-	);
-	// the dissolve threshold sweeps from below 0 to past 1 as the schedule goes from 0 to 1
-	params.set(
-		[
-			float('_DissolveScheduleOffset', 0) * 2.02 - 1.01,
-			float('_DissolveEdgeSharp', 1),
-			float('_DissolveEmissiveEdge', 0),
-			0,
-		],
-		WaterSheetRow.dissolve,
-	);
-	const edge = color('_DissolveEmissiveColor') ?? [0, 0, 0, 0];
-	params.set([edge[0] * intensity, edge[1] * intensity, edge[2] * intensity, 0], WaterSheetRow.dissolveColor);
-	const frames = color('_SequenceFrameSize') ?? [1, 1, 0, 0];
-	params.set(
-		[
-			Math.max(frames[0], 1),
-			Math.max(frames[1], 1),
-			float('_PlaybackSpeed', 0),
-			float('_RandomStartByPos', 0),
-		],
+		[sequence.columns, sequence.rows, sequence.framesPerSecond, sequence.randomStartByPosition],
 		WaterSheetRow.sequence,
 	);
 	params.set(
-		[
-			float('_MotionVectorDistortionStrength', 0),
-			float('_SequenceOpacityScale', 1),
-			float('_SequenceOpacitySdf', 0),
-			float('_SequenceBaseColorSdf', 0),
-		],
+		[sequence.motionStrength, sequence.opacityScale, sequence.opacityThreshold, sequence.colorThreshold],
 		WaterSheetRow.sequenceShape,
 	);
-	const sequenceTint = linearRgb(color('_SequenceBaseColorMapTint') ?? [1, 1, 1, 1]);
-	params.set([...sequenceTint, normalScale], WaterSheetRow.sequenceTint);
+	params.set([...sequence.tint, textures.normals?.scale ?? 1], WaterSheetRow.sequenceTint);
+	params.set([sheet.roughness, sheet.specular, sheet.directSpecular, sheet.fresnel], WaterSheetRow.surface);
+	params.set(sheet.subsurface, WaterSheetRow.subsurface);
+	params.set([0, sheet.indirectSaturation, 0, 0], WaterSheetRow.misc);
 	params.set(
-		[
-			float('_Roughness', 1),
-			float('_Specular', 1),
-			float('_DirSpecularStrength', 1),
-			float('_FresnelStrength', 0),
-		],
-		WaterSheetRow.surface,
+		[sheet.soft?.distance ?? 0, sheet.soft?.bias ?? 0, sheet.ignorePostExposure, sheet.vertexColor ? 1 : 0],
+		EffectRow.soft,
 	);
-	params.set(
-		[
-			float('_SubsurfaceHue', 1),
-			float('_SubsurfaceSaturation', 1),
-			has('_SUBSURFACE') ? float('_SubsurfaceValue', 1) : 0,
-			float('_SubsurfaceIndirect', 1),
-		],
-		WaterSheetRow.subsurface,
-	);
-	params.set([0, float('_IndirectSaturation', 1), 0, 0], WaterSheetRow.misc);
-	if (has('_USE_SOFTBLEND')) {
-		params[EffectRow.soft] = Math.max(float('_SoftDistance', 1), 1e-3);
-		params[EffectRow.soft + 1] = float('_SoftBias', 0);
-	}
-	params[EffectRow.soft + 3] = (flags & WaterSheetFlags.VertexColor) !== 0 ? 1 : 0;
+	setNear(look, sheet.near);
 	params.set([0, EffectKind.WaterSheet, 0, 0], EffectRow.unfogged);
 	return look;
 };
@@ -1468,8 +604,8 @@ export const vfxWaterLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectL
 // #region mist
 
 /**
- * float offsets of a mist look's parameters (`fogSimpleLook`, `fakeVolumeFogLook`), in place of
- * {@link EffectRow} for the mist entry points of `effect.wgsl`. the UV rows are shared
+ * float offsets of a mist look's parameters (`mistCardLook`, `mistVolumeLook`), in place of {@link EffectRow}
+ * for the mist entry points of `effect.wgsl`. the UV rows are shared
  */
 export const MistRow = {
 	/** colour rgb (linear, HDR), alpha */
@@ -1510,14 +646,22 @@ export const MistRow = {
 /** the slot index of a card's noise texture; its main texture is slot 0 */
 export const MIST_NOISE_SLOT = 1;
 
-const STILL = { speed: [0, 0], cos: 1, sin: 0 };
-
 /** a mist card ({@link MistCardSurface}): its main texture in slot 0, its noise in {@link MIST_NOISE_SLOT} */
 export const mistCardLook = (card: MistCardSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	setSlot(look, 0, card.main, STILL, ROLE_NONE);
-	setSlot(look, MIST_NOISE_SLOT, card.noise, STILL, ROLE_NONE);
+	setSlot(
+		look,
+		0,
+		{ ...still(card.main.texture), scale: card.main.scale, offset: card.main.offset },
+		ROLE_NONE,
+	);
+	setSlot(
+		look,
+		MIST_NOISE_SLOT,
+		{ ...still(card.noise.texture), scale: card.noise.scale, offset: card.noise.offset },
+		ROLE_NONE,
+	);
 	const { wind } = card;
 	params.set(card.color, MistRow.color);
 	params.set([card.baseAlphaIntensity, card.noiseIntensity, card.useWind, wind.noiseIntensity], MistRow.card);
@@ -1559,7 +703,7 @@ export const mistVolumeLook = (volume: MistVolumeSurface): EffectLook => {
 // #region light beams
 
 /**
- * float offsets of a light beam's parameters (`volumetricBeamLook`), in place of {@link EffectRow}'s rows 0–9.
+ * float offsets of a light beam's parameters (`lightBeamLook`), in place of {@link EffectRow}'s rows 0–9.
  * lengths are in the beam's own units, before its transform's scale. row 31 is shared
  */
 export const BeamRow = {

@@ -1,12 +1,7 @@
-import type {
-	MaterialCull,
-	MaterialTable,
-	ReadyMaterial,
-	ShaderEntry,
-	TextureSlot,
-} from '@endfield-noclip/package-format/materials';
+import type { MaterialCull, MaterialTable, TextureSlot } from '@endfield-noclip/package-format/materials';
 import type {
 	DitheredSurface,
+	EffectStencil,
 	ErosionSurface,
 	GrassInputs,
 	LayerCoverage,
@@ -16,21 +11,20 @@ import type {
 	LitSurface,
 	MattePaintingSurface,
 	ParallaxGlow,
+	StencilMaskSurface,
 	TiledTexture,
 } from '@endfield-noclip/package-format/surfaces';
 
 import {
-	decalLitLook,
 	type EffectLook,
 	lightBeamLook,
+	litDecalLook,
 	mistCardLook,
 	mistVolumeLook,
 	multipliesScene,
-	vfxBaseLook,
-	vfxDecalLook,
-	vfxDitherEffectLook,
-	vfxRefractLook,
-	vfxWaterLook,
+	refractLook,
+	stackLook,
+	waterSheetLook,
 } from './effect-looks.ts';
 
 /** {@link unsupportedLook}'s colour, linear magenta */
@@ -323,19 +317,6 @@ export const unsupportedLook = (): MaterialLook => {
 	return look;
 };
 
-/** Unity's `CompareFunction` values, `Disabled` (0) to `Always` (8), as WebGPU names them */
-const COMPARE_FUNCTIONS: readonly GPUCompareFunction[] = [
-	'always',
-	'never',
-	'less',
-	'equal',
-	'less-equal',
-	'greater',
-	'not-equal',
-	'greater-equal',
-	'always',
-];
-
 /** a depth comparison under the viewer's reversed-Z */
 const reversedDepthCompare = (compare: GPUCompareFunction): GPUCompareFunction => {
 	switch (compare) {
@@ -357,61 +338,21 @@ const reversedDepthCompare = (compare: GPUCompareFunction): GPUCompareFunction =
 	}
 };
 
-/** Unity's `StencilOp` values the viewer draws */
-const StencilOp = {
-	Keep: 0,
-	Replace: 2,
-} as const;
+/** an effect's stencil state as the viewer draws it: the depth test under reversed-Z */
+const lookStencilOf = (stencil: EffectStencil, maskOnly: boolean): LookStencil => ({
+	...stencil,
+	depthCompare: reversedDepthCompare(stencil.depthCompare),
+	maskOnly,
+});
 
-/**
- * @returns the stencil state of a VFXBaseV2 material, whose one pass takes its stencil and depth test from
- *   these properties; `null` when it leaves the stencil alone, `'unsupported'` for stencil operations other
- *   than keep and replace
- */
-const vfxBaseStencilOf = (entry: ReadyMaterial, shader: ShaderEntry): LookStencil | 'unsupported' | null => {
-	const compare = COMPARE_FUNCTIONS[floatOf(entry, shader, '_StencilComp', 8)] ?? 'always';
-	const op = floatOf(entry, shader, '_StencilOp', StencilOp.Keep);
-	if (compare === 'always' && op === StencilOp.Keep) {
-		return null;
-	}
-	if (op !== StencilOp.Keep && op !== StencilOp.Replace) {
-		return 'unsupported';
-	}
-	return {
-		compare,
-		replace: op === StencilOp.Replace,
-		reference: floatOf(entry, shader, '_StencilRef', 0) & 0xff,
-		readMask: floatOf(entry, shader, '_StencilReadMask', 255) & 0xff,
-		writeMask: floatOf(entry, shader, '_StencilWriteMask', 255) & 0xff,
-		depthCompare: reversedDepthCompare(
-			COMPARE_FUNCTIONS[floatOf(entry, shader, '_ZTest', 4)] ?? 'less-equal',
-		),
-		maskOnly: false,
-	};
-};
-
-/**
- * @returns the stencil-only look of an opaque VFXBaseV2 material that writes the stencil (a portal's mask),
- *   else `null`
- */
-const portalMaskLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook | null => {
-	if (shader.name !== 'HGRP/Effect/VFXBaseV2' || entry.blend !== 'opaque') {
-		return null;
-	}
-	const stencil = vfxBaseStencilOf(entry, shader);
-	if (stencil === null || stencil === 'unsupported' || !stencil.replace) {
-		return null;
-	}
+/** the stencil-only look of a portal's mask ({@link StencilMaskSurface}) */
+const stencilMaskLook = (mask: StencilMaskSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
-	look.cull = entry.cull;
+	look.cull = cull;
 	look.castsShadows = false;
-	look.stencil = { ...stencil, maskOnly: true };
+	look.stencil = lookStencilOf(mask.stencil, true);
 	return look;
 };
-
-/** a material's value of a float property: its override, else the shader's default */
-const floatOf = (entry: ReadyMaterial, shader: ShaderEntry, name: string, fallback: number): number =>
-	entry.floats[name] ?? shader.floats[name] ?? fallback;
 
 /**
  * @param materials the package's material table
@@ -472,87 +413,47 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				});
 				break;
 			}
-			case 'legacy': {
-				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
+			case 'effectStack': {
+				const effect = stackLook(surface);
+				looks[entry.id] = effectMaterialLook(effect, {
+					flags: LookFlags.Effect | (surface.variant === 'decal' ? LookFlags.EffectDecal : 0),
+					cull: entry.cull,
+					stencil: surface.stencil === null ? null : lookStencilOf(surface.stencil, false),
+					// drawn over the composited scene
+					screen: multipliesScene(effect) ? 'multiply' : null,
+				});
+				break;
+			}
+			case 'stencilMask': {
+				looks[entry.id] = stencilMaskLook(surface, entry.cull);
+				break;
+			}
+			case 'waterSheet': {
+				looks[entry.id] = effectMaterialLook(waterSheetLook(surface), {
+					flags: LookFlags.Effect,
+					cull: entry.cull,
+				});
+				break;
+			}
+			case 'litDecal': {
+				looks[entry.id] = effectMaterialLook(litDecalLook(surface), {
+					flags: LookFlags.Effect | LookFlags.EffectDecal,
+					cull: entry.cull,
+					relight: surface.relight,
+				});
+				break;
+			}
+			case 'refract': {
+				looks[entry.id] = effectMaterialLook(refractLook(surface), {
+					flags: LookFlags.Effect,
+					cull: entry.cull,
+					screen: 'refract',
+				});
 				break;
 			}
 		}
 	}
 	return looks;
-};
-
-/**
- * the look of an effect material the extractor doesn't describe yet, from its raw properties; effect meshes
- * without a look need opacity, distortion and animation passes of their own
- */
-const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook =>
-	effectLookOf(entry, shader) ?? portalMaskLook(entry, shader) ?? unsupportedLook();
-
-/**
- * @returns the look of a scene effect the viewer draws (effect-looks.ts), a look that isn't drawn for lit
- *   decals that change nothing, else `null`. effects are alpha-blended and cast no shadows; decal boxes draw
- *   their back faces, so they still show with the camera inside them
- */
-const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook | null => {
-	let effect: EffectLook | null = null;
-	let flags = LookFlags.Effect;
-	let stencil: LookStencil | null = null;
-	let relight = false;
-	let screen: ScreenEffect | null = null;
-	switch (shader.name) {
-		case 'HGRP/Effect/VFXBaseV2': {
-			const state = vfxBaseStencilOf(entry, shader);
-			if (state === 'unsupported') {
-				return null;
-			}
-			stencil = state;
-			effect = vfxBaseLook(entry, shader);
-			if (effect !== null && multipliesScene(effect)) {
-				// drawn over the composited scene, which has no stencil
-				if (stencil !== null) {
-					return null;
-				}
-				screen = 'multiply';
-			}
-			break;
-		}
-		case 'HGRP/Effect/VFXDitherAlpha': {
-			// the other variants draw through the opaque path (`ditherAlphaLook`)
-			effect = vfxDitherEffectLook(entry, shader);
-			break;
-		}
-		case 'HGRP/Effect/VFXRefract': {
-			effect = vfxRefractLook(entry, shader);
-			screen = 'refract';
-			break;
-		}
-		case 'HGRP/Effect/VFXDecal': {
-			effect = vfxDecalLook(entry, shader);
-			flags |= LookFlags.EffectDecal;
-			break;
-		}
-		case 'HGRP/DecalLit': {
-			const decal = decalLitLook(entry, shader);
-			if (decal === 'invisible') {
-				return emptyLook({ drawn: false });
-			}
-			effect = decal;
-			relight = decal?.relight ?? false;
-			flags |= LookFlags.EffectDecal;
-			break;
-		}
-		case 'HGRP/Effect/VFXWater': {
-			effect = vfxWaterLook(entry, shader);
-			break;
-		}
-		default: {
-			return null;
-		}
-	}
-	if (effect === null) {
-		return null;
-	}
-	return effectMaterialLook(effect, { flags, cull: entry.cull, stencil, relight, screen });
 };
 
 /**

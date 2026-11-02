@@ -21,7 +21,7 @@ import {
 	UV1_SHIFT,
 } from './materials.ts';
 
-test('effect geometry without an effect look and unsupported surfaces show as unsupported rather than shaded as Lit', () => {
+test('unsupported surfaces show as an unlit, shadowless, two-sided magenta checker', () => {
 	const shaders: ShaderEntry[] = [
 		{
 			name: 'HGRP/Effect/VFXBaseV2',
@@ -54,7 +54,7 @@ test('effect geometry without an effect look and unsupported surfaces show as un
 	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
 		id,
 		status: 'ready',
-		surface: id === 2 ? { kind: 'unsupported', reason: 'no look' } : { kind: 'legacy' },
+		surface: { kind: 'unsupported', reason: 'no look' },
 		shader: id,
 		keywords: [],
 		renderQueue: 2000,
@@ -275,90 +275,6 @@ test('dithered effects shade as opaque shadowless surfaces, or unlit, and dither
 		Math.fround(0.1),
 		1,
 	]);
-});
-
-test('portal effects: an opaque mask writes only the stencil, its effects test it, other stencil operations are unsupported', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Effect/VFXBaseV2',
-			family: 'vfxBase',
-			floats: {
-				_StencilComp: 8,
-				_StencilOp: 0,
-				_StencilRef: 0,
-				_StencilReadMask: 255,
-				_StencilWriteMask: 255,
-				_ZTest: 4,
-			},
-			colors: {},
-			vectors: {},
-			textures: { _MainTex: 'white' },
-			normalMaps: [],
-		},
-	];
-	const material = (id: number, overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: [],
-		renderQueue: 3000,
-		blend: 'premultiplied',
-		blendFactors: [1, 10],
-		alphaClipThreshold: null,
-		cull: 'none',
-		zWrite: false,
-		baseTextureMapCount: null,
-		slots: {},
-		floats: {},
-		colors: {},
-		vectors: {},
-		...overrides,
-	});
-	const [mask, chasm, plain, inverting] = materialLooks({
-		shaders,
-		entries: [
-			material(0, {
-				renderQueue: 2000,
-				blend: 'opaque',
-				blendFactors: null,
-				cull: 'back',
-				zWrite: true,
-				floats: { _StencilOp: 2, _StencilRef: 7, _StencilWriteMask: 7 },
-			}),
-			material(1, {
-				floats: { _StencilComp: 3, _StencilRef: 7, _StencilReadMask: 7, _StencilWriteMask: 7, _ZTest: 8 },
-			}),
-			material(2, {}),
-			material(3, { floats: { _StencilOp: 5 } }),
-		],
-	});
-	assert.equal(mask.drawn, true);
-	assert.equal(mask.transparent, false);
-	assert.equal(mask.castsShadows, false);
-	assert.equal(mask.cull, 'back');
-	assert.deepEqual(mask.stencil, {
-		compare: 'always',
-		replace: true,
-		reference: 7,
-		readMask: 255,
-		writeMask: 7,
-		depthCompare: 'greater-equal',
-		maskOnly: true,
-	});
-	assert.equal(chasm.transparent, true);
-	assert.deepEqual(chasm.stencil, {
-		compare: 'equal',
-		replace: false,
-		reference: 7,
-		readMask: 7,
-		writeMask: 7,
-		depthCompare: 'always',
-		maskOnly: false,
-	});
-	assert.equal(plain.drawn, true);
-	assert.equal(plain.stencil, null);
-	assert.equal(inverting.unsupported, true);
 });
 
 test('pulsing emission takes the free parallax rows; a surface with a glow keeps its emission still', () => {
