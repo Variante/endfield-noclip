@@ -11,6 +11,7 @@ import {
 } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
+import { ruleText } from '@endfield-noclip/package-format/conditions';
 import { streamAreaControl } from '@endfield-noclip/package-format/stream-areas';
 
 import { mapDefined } from '@mary-ext/array-fns';
@@ -33,7 +34,7 @@ import {
 	resolveLevelEnvironment,
 	resolveLevelPost,
 } from '../game/environment.ts';
-import { describeCondition, GameState } from '../game/game-state.ts';
+import { GameState } from '../game/game-state.ts';
 import {
 	boxDistance,
 	describeAlternatives,
@@ -741,7 +742,7 @@ const showEnvironment = async (context: Context, target: string): Promise<void> 
 	for (const { index, name, condition } of states) {
 		console.log(
 			`  ${enabled.has(index) ? 'on ' : 'off'} ${sceneStateControl(index).padEnd(14)} ${name}: ${
-				condition === null ? 'no condition: only set by name' : describeCondition(condition)
+				condition === null ? 'no condition: only set by name' : ruleText(game.describe(condition))
 			}`,
 		);
 	}

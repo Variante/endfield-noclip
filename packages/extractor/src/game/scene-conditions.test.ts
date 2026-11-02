@@ -35,7 +35,7 @@ test('scene states follow the quests their conditions read; states without a con
 			['sceneState:2', 'liino', 0, null],
 		],
 	);
-	assert.equal(controls[1].rule, 'quest e1m8_q#3 ≠ completed');
+	assert.deepEqual(controls[1].rule, [{ control: 'quest:e1m8_q#3', text: 'quest e1m8_q#3' }, ' ≠ completed']);
 	const info = {
 		controls: [...game.controls(), ...controls],
 		conditionalSets,

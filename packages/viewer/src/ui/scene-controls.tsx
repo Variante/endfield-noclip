@@ -1,6 +1,8 @@
+import { ruleText } from '@endfield-noclip/package-format/conditions';
 import type {
 	ControlDriver,
 	MissionInfo,
+	RuleText,
 	SceneControl,
 	SceneControlKind,
 } from '@endfield-noclip/package-format/states';
@@ -189,8 +191,8 @@ const ControlRow = ({
 }: {
 	viewer: Viewer;
 	control: SceneControl;
-	/** rewrites a rule's quest and mission ids as their names */
-	describe: (rule: string) => string;
+	/** a rule in words, its references named */
+	describe: (rule: RuleText) => string;
 }) => {
 	const value = viewer.sceneValues[control.id] ?? control.default;
 	const picked = control.id in viewer.scenePicks;
@@ -351,7 +353,7 @@ const StoryControls = ({
 	missions: ReadonlyMap<string, MissionInfo>;
 	/** the main story's mission ids in story order */
 	mainLine: readonly string[];
-	describe: (rule: string) => string;
+	describe: (rule: RuleText) => string;
 	/** a level id's display name */
 	levelName: (id: string) => string;
 }) => {
@@ -449,10 +451,11 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 		}
 		return `${mission.name}: ${control.name}`;
 	};
-	const describe = (rule: string): string =>
-		rule.replaceAll(/\b(quest|mission) (\S+)/g, (whole, kind: string, id: string) => {
-			const control = byId.get(`${kind}:${id}`);
-			return control?.story ? `“${storyName(control)}”` : whole;
+	// a reference to a quest or mission reads as its story name; others as their own text
+	const describe = (rule: RuleText): string =>
+		ruleText(rule, (reference) => {
+			const control = byId.get(reference.control);
+			return control?.story ? `“${storyName(control)}”` : reference.text;
 		});
 	// a control is listed for the levels whose content it gates
 	const controls = manifest.states.controls.filter(

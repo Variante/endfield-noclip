@@ -6,6 +6,7 @@ import type {
 } from '@endfield-noclip/formats/endfield/map-config';
 import { conditionVisible } from '@endfield-noclip/package-format/conditions';
 import type {
+	RuleText,
 	SceneControl,
 	SceneControlValue,
 	SceneRequirement,
@@ -122,31 +123,6 @@ const OPERATORS = ['=', '≠', '>', '≥', '<', '≤'];
 
 /** `QuestState` / `MissionState` names by value; quests have no "available" */
 const STATE_NAMES = ['none', 'available', 'processing', 'completed', 'failed', 'disabled'];
-
-/**
- * @param condition a game condition
- * @returns it in words
- */
-export const describeCondition = (condition: GameCondition): string => {
-	switch (condition.kind) {
-		case 'quest':
-		case 'mission': {
-			return `${condition.kind} ${condition.id} ${OPERATORS[condition.compare]} ${STATE_NAMES[condition.target] ?? condition.target}`;
-		}
-		case 'mapVar':
-		case 'globalVar': {
-			const scope = condition.kind === 'mapVar' ? `map ${condition.mapId} variable` : 'global variable';
-			return `${scope} ${condition.name} ${OPERATORS[condition.compare]} ${condition.target}`;
-		}
-		case 'all':
-		case 'any': {
-			const joined = condition.conditions
-				.map(describeCondition)
-				.join(condition.kind === 'all' ? ' and ' : ' or ');
-			return condition.reverse ? `not (${joined})` : `(${joined})`;
-		}
-	}
-};
 
 const compare = (value: number, op: CompareOperator, target: number): boolean => {
 	switch (op) {
@@ -339,6 +315,47 @@ export class GameState {
 	 */
 	requirements(condition: GameCondition): Alternatives {
 		return this.#expand(condition, false);
+	}
+
+	/**
+	 * @param condition a game condition
+	 * @returns it in words, referring to the controls it reads: a quest's or mission's, a variable's, or the
+	 *   progression a linked mission stands for
+	 */
+	describe(condition: GameCondition): RuleText {
+		switch (condition.kind) {
+			case 'quest':
+			case 'mission': {
+				const link = condition.kind === 'mission' ? this.#links.get(condition.id) : undefined;
+				return [
+					{
+						control: link?.control ?? `${condition.kind}:${condition.id}`,
+						text: `${condition.kind} ${condition.id}`,
+					},
+					` ${OPERATORS[condition.compare]} ${STATE_NAMES[condition.target] ?? condition.target}`,
+				];
+			}
+			case 'mapVar':
+			case 'globalVar': {
+				const scope = condition.kind === 'mapVar' ? `map ${condition.mapId} variable` : 'global variable';
+				return [
+					{ control: this.#variable(condition).id, text: `${scope} ${condition.name}` },
+					` ${OPERATORS[condition.compare]} ${condition.target}`,
+				];
+			}
+			case 'all':
+			case 'any': {
+				const parts: RuleText = [condition.reverse ? 'not (' : '('];
+				for (const [i, child] of condition.conditions.entries()) {
+					if (i > 0) {
+						parts.push(condition.kind === 'all' ? ' and ' : ' or ');
+					}
+					parts.push(...this.describe(child));
+				}
+				parts.push(')');
+				return parts;
+			}
+		}
 	}
 
 	/**

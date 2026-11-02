@@ -144,7 +144,7 @@ export interface SceneControl {
 	id: string;
 	name: string;
 	/** for derived controls, the game's condition in words; `null` otherwise */
-	rule: string | null;
+	rule: RuleText | null;
 	/** what the default assumes, e.g. "story finished" */
 	assumption: string;
 	/** for a quest or mission control of a known mission, where it sits in the story; `null` otherwise */
@@ -197,6 +197,20 @@ export type ControlDriver =
  * raising a custom event or being entered)
  */
 export type ScriptEventKind = 'combat' | 'dialog' | 'variable' | 'entity';
+
+/**
+ * a rule in words: text runs and references to the game state it reads, which a viewer may name as it names
+ * those controls (see `ruleText`)
+ */
+export type RuleText = (string | RuleReference)[];
+
+/** a reference in a {@link RuleText} */
+export interface RuleReference {
+	/** the control holding that state; it needn't be among the package's controls */
+	control: string;
+	/** how the reference reads on its own, e.g. `quest e1m8_q#3` */
+	text: string;
+}
 
 /** a quest or mission named by a driver, labelled like quest controls */
 export interface QuestRef {

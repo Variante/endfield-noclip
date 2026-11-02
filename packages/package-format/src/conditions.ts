@@ -1,4 +1,14 @@
-import type { ConditionalSetInfo, StatesInfo } from './states.ts';
+import type { ConditionalSetInfo, RuleReference, RuleText, StatesInfo } from './states.ts';
+
+/**
+ * @param rule a control's rule
+ * @param name names a reference; defaults to its own text
+ * @returns the rule as one string
+ */
+export const ruleText = (
+	rule: RuleText,
+	name: (reference: RuleReference) => string = (reference) => reference.text,
+): string => rule.map((part) => (typeof part === 'string' ? part : name(part))).join('');
 
 /**
  * @param states exported scene controls

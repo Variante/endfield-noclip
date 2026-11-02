@@ -701,10 +701,12 @@ progressions, facilities, doodad groups, cabins, doors and bridges, stream areas
 harvest controls, then scene states.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
-  `conditionalSets[derived]` holds, and its `rule` gives that condition in words. derived controls
-  require only controls listed before them, so `resolveSceneValues` turns the user's picks into
-  every control's value in one pass (picks, then defaults, then derived controls from their
-  formulas), and a derived control's stored `default` is its value under no picks.
+  `conditionalSets[derived]` holds, and its `rule` gives that condition in words (`RuleText`: text
+  runs and references to the controls it reads, so a viewer names them without parsing; `ruleText`
+  joins them). derived controls require only controls listed before them, so `resolveSceneValues`
+  turns the user's picks into every control's value in one pass (picks, then defaults, then derived
+  controls from their formulas), and a derived control's stored `default` is its value under no
+  picks.
 - **story**: quest and mission controls of a known mission carry a `story` place (mission id,
   main-flow step), and `StatesInfo.missions` names those missions (`MissionInfo`: name, quest log
   category, chapter, episode, where it takes place), so a viewer can group them; the names are the

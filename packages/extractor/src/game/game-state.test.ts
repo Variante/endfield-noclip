@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { DynamicGate } from '@endfield-noclip/formats/endfield/dynamic-scene';
-import { conditionVisible } from '@endfield-noclip/package-format/conditions';
+import { conditionVisible, ruleText } from '@endfield-noclip/package-format/conditions';
 
-import { allOf, describeCondition, GameState, gateCondition, type GameCondition } from './game-state.ts';
+import { allOf, GameState, gateCondition, type GameCondition } from './game-state.ts';
 
 const quest = (compare: 0 | 1, target: number): GameCondition => ({
 	kind: 'quest',
@@ -46,10 +46,9 @@ test('a reversed combination negates through its children', () => {
 		],
 	};
 	const condition = gateCondition(landslide);
-	assert.equal(
-		describeCondition(condition),
-		'not (quest showLandslide = completed and quest finishDigWork ≠ completed)',
-	);
+	const rule = game.describe(condition);
+	assert.equal(ruleText(rule), 'not (quest showLandslide = completed and quest finishDigWork ≠ completed)');
+	assert.deepEqual(rule[1], { control: 'quest:showLandslide', text: 'quest showLandslide' });
 	assert.deepEqual(game.requirements(condition), [
 		[{ control: 'quest:showLandslide', mask: 0b110101 }],
 		[{ control: 'quest:finishDigWork', mask: 1 << 3 }],

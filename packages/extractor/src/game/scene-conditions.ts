@@ -3,7 +3,6 @@ import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-
 import { mapDefined } from '@mary-ext/array-fns';
 
 import {
-	describeCondition,
 	mapConfigCondition,
 	mapVariables,
 	type GameCondition,
@@ -89,7 +88,7 @@ export const sceneStateControls = (
 		kind: 'sceneState',
 		id: sceneStateControl(index),
 		name,
-		rule: condition === null ? null : describeCondition(condition),
+		rule: condition === null ? null : game.describe(condition),
 		assumption:
 			condition === null
 				? 'no condition: only set by name (dungeons, scripts), so off'

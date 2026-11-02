@@ -101,7 +101,7 @@ import { RENDER_PIPELINE_QUAD_PATH } from '../game/builtin-resources.ts';
 import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
-import { describeCondition, GameState } from '../game/game-state.ts';
+import { GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
@@ -1261,7 +1261,7 @@ const collectEntities = async (
 			if (!control || !condition) {
 				continue;
 			}
-			control.rule = describeCondition(condition);
+			control.rule = scene.game.describe(condition);
 			control.assumption = 'set by its level scripts’ quest checks when they run';
 			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
 			counts.scriptGroupsDerived++;
@@ -1326,7 +1326,7 @@ const collectEntities = async (
 		for (const { control } of facilities.doors) {
 			const cabin = linked.get(control.id);
 			if (cabin !== undefined) {
-				control.rule = 'open while its cabin slot is built';
+				control.rule = ['open while ', { control: cabin, text: 'its cabin slot' }, ' is built'];
 				control.assumption = 'follows its Dijiang cabin slot';
 				control.derived = collected.condition({ alternatives: [[{ control: cabin, mask: 2 }]] });
 			}
