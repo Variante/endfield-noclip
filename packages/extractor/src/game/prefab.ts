@@ -79,6 +79,20 @@ export interface PrefabRenderer {
 	materialValues: (MaterialValues | null)[];
 	/** where the effect LOD tables above the renderer show it by camera distance; `null` when nothing does */
 	distances: DistanceBands | null;
+	/**
+	 * where an enabled LODGroup shows the renderer, ascending by LOD; `null` outside any. the heights are
+	 * measured on the LODGroup's own size in the game
+	 */
+	sizes: readonly SizeRange[] | null;
+}
+
+/** a span of screen-relative heights (Unity's LODGroup metric) a LODGroup shows a renderer at */
+export interface SizeRange {
+	/** the first LOD of the span */
+	lod: number;
+	/** shown while `min < height <= max`; `max` is infinite on LOD 0 */
+	min: number;
+	max: number;
 }
 
 /** the camera distances an effect's distance LOD shows something at */
@@ -145,8 +159,9 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
 ];
 
 /**
- * walks a prefab's hierarchy and resolves the active renderers' dependencies through their exact PPtrs. only
- * the first authored LOD is emitted; other LOD renderers are excluded by identity, never by name
+ * walks a prefab's hierarchy and resolves the active renderers' dependencies through their exact PPtrs. an
+ * enabled LODGroup's renderers carry the screen-relative heights it shows them at, matched by identity, never
+ * by name
  *
  * @param resolver bundle reader
  * @param root prefab GameObject
@@ -177,8 +192,8 @@ export const readPrefabRenderers = async (
 		posedMaterials: readonly ClipMaterialValue[];
 		distances: DistanceBands | null;
 	}[] = [];
-	const excluded = new Set<string>();
-	const firstLod = new Set<string>();
+	// by renderer, the screen-relative heights an enabled LODGroup shows it at
+	const lodSizes = new Map<string, SizeRange[]>();
 	const seen = new Set<string>();
 	const transforms = new Map<string, Float32Array>();
 	// GameObjects a view-state controller switches on to play an effect, found before their subtrees are visited
@@ -399,19 +414,30 @@ export const readPrefabRenderers = async (
 			if (component.ref.info.classId !== 205 || !booleanField(component.data, 'm_Enabled')) {
 				continue;
 			}
+			// LOD i shows while the screen-relative height is in (its threshold, the previous LOD's]
+			let upper = Infinity;
 			for (const [lod, value] of arrayField(component.data, 'm_LODs').entries()) {
 				if (!isObject(value)) {
 					throw new FormatError('invalid prefab LOD');
 				}
+				const threshold = numberField(value, 'screenRelativeHeight');
 				for (const renderer of arrayField(value, 'renderers')) {
 					if (!isObject(renderer)) {
 						throw new FormatError('invalid prefab LOD renderer');
 					}
 					const ref = await resolver.resolve(component.ref, pptrField(renderer, 'renderer'));
 					if (ref !== null) {
-						(lod === 0 ? firstLod : excluded).add(objectKey(ref));
+						const ranges = lodSizes.getOrInsertComputed(objectKey(ref), () => []);
+						// a renderer in consecutive LODs shows across all of them
+						const last = ranges.at(-1);
+						if (last !== undefined && last.min === upper) {
+							last.min = threshold;
+						} else {
+							ranges.push({ lod, min: threshold, max: upper });
+						}
 					}
 				}
+				upper = threshold;
 			}
 		}
 		for (const component of components) {
@@ -572,9 +598,6 @@ export const readPrefabRenderers = async (
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
-		if (excluded.has(key) && !firstLod.has(key)) {
-			continue;
-		}
 		const materials: (ObjectRef | null)[] = [];
 		for (const pointer of arrayField(candidate.data, 'm_Materials')) {
 			// oxlint-disable-next-line no-await-in-loop -- preserve renderer slot order
@@ -627,6 +650,7 @@ export const readPrefabRenderers = async (
 			materials,
 			materialValues,
 			distances: candidate.distances,
+			sizes: lodSizes.get(key)?.map(({ lod, min, max }) => ({ lod, min, max })) ?? null,
 			submeshes: arrayField(mesh, 'm_SubMeshes').length,
 			// Unity's ShadowCastingMode: 3 ShadowsOnly, 4 ShadowsOnlyTwoSided
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,

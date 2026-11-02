@@ -1463,12 +1463,14 @@ const collectEntities = async (
 			} else if (renderer.shadowOnly) {
 				role = DrawRole.ShadowOnly;
 			}
-			// an effect's LOD table shows the renderer at some camera distances from the effect's origin: one draw
-			// per span
-			const spans = (renderer.distances?.ranges ?? [{ near: 0, far: Infinity }]).map(({ near, far }) => ({
-				minSquared: near > 0 ? near * near : -1,
-				maxSquared: Number.isFinite(far) ? far * far : 3.4028234663852886e38,
-			}));
+			// an effect's LOD table shows the renderer at some camera distances from the effect's origin, or a
+			// LODGroup at some screen-relative heights: one draw per span. distance bands win where both apply
+			const spans =
+				renderer.distances === null && renderer.sizes !== null
+					? renderer.sizes.map(({ lod, min, max }) => squaredSpan(lod, min, max))
+					: (renderer.distances?.ranges ?? [{ near: 0, far: Infinity }]).map(({ near, far }) =>
+							squaredSpan(0, near, far),
+						);
 			const draws = mapDefined(renderer.materials, (material, index): ChainDraw[] | undefined => {
 				if (material === null) {
 					return undefined;
@@ -1483,15 +1485,16 @@ const collectEntities = async (
 					pack.materialOverrides.set(id, { saved, colors: {}, vectors: {} });
 				}
 				const particles = renderer.particles === null ? null : pack.particles.intern(renderer.particles);
-				return spans.map(({ minSquared, maxSquared }) => ({
+				// a prefab renderer has no game flag word; its role says whether it only casts shadows
+				return spans.map(({ lod, minSquared, maxSquared }) => ({
 					geometry,
 					material: id,
 					submesh: Math.min(index, renderer.submeshes - 1),
-					lod: 0,
+					lod,
 					role,
 					minSquared,
 					maxSquared,
-					sourceFlags: renderer.shadowOnly ? DrawFlags.ShadowOnly : 0,
+					sourceFlags: 0,
 					particles,
 				}));
 			}).flat();
@@ -2225,6 +2228,17 @@ const treeGrid = (surface: TerrainSurfacesData | undefined): TreeGrid => {
 		shardLevel: Math.max(0, leafLevel - 3),
 	};
 };
+
+/** a threshold span as squared bounds: an empty lower bound never culls, an infinite upper is `FLT_MAX` */
+const squaredSpan = (
+	lod: number,
+	min: number,
+	max: number,
+): { lod: number; minSquared: number; maxSquared: number } => ({
+	lod,
+	minSquared: min > 0 ? min * min : -1,
+	maxSquared: Number.isFinite(max) ? max * max : 3.4028234663852886e38,
+});
 
 /**
  * @param matrix an instance's transform

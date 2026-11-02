@@ -229,7 +229,10 @@ test('prefab selection follows active hierarchy and LOD references, preserving m
 	add(2n, UnityClass.Transform, transform(1n, 999, [11n, 21n, 31n, 41n]));
 	add(3n, 205, {
 		m_Enabled: true,
-		m_LODs: [{ renderers: [{ renderer: pointer(13n) }] }, { renderers: [{ renderer: pointer(23n) }] }],
+		m_LODs: [
+			{ screenRelativeHeight: 0.5, renderers: [{ renderer: pointer(13n) }] },
+			{ screenRelativeHeight: 0.1, renderers: [{ renderer: pointer(23n) }] },
+		],
 	});
 	for (const id of [10n, 20n, 30n]) {
 		add(id, UnityClass.GameObject, {
@@ -284,18 +287,23 @@ test('prefab selection follows active hierarchy and LOD references, preserving m
 		null,
 		null,
 	);
-	assert.equal(rows.length, 3);
-	assert.equal(rows[2].pose?.[0][12], 10);
-	assert.equal(rows[2].matrix[12], 0);
-	assert.deepEqual(rows[2].bounds.center, [10, 0, 0]);
+	assert.equal(rows.length, 4);
+	assert.equal(rows[3].pose?.[0][12], 10);
+	assert.equal(rows[3].matrix[12], 0);
+	assert.deepEqual(rows[3].bounds.center, [10, 0, 0]);
 	assert.equal(rows[0].matrix[12], 10);
 	assert.equal(rows[0].unsupported, null);
 	assert.equal(rows[0].shadowOnly, true);
 	assert.equal(rows[0].materials[0], null);
 	assert.equal(rows[0].materials[1]?.info.pathId, 60n);
+	// each LOD's renderer, picked by identity, shows over its own span of screen heights
+	assert.deepEqual(rows[0].sizes, [{ lod: 0, min: 0.5, max: Infinity }]);
+	assert.equal(rows[1].matrix[12], 20);
+	assert.deepEqual(rows[1].sizes, [{ lod: 1, min: 0.1, max: 0.5 }]);
+	assert.equal(rows[3].sizes, null);
 	// the switched-off GameObject stands in rather than vanishing
-	assert.equal(rows[1].matrix[12], 30);
-	assert.notEqual(rows[1].unsupported, null);
+	assert.equal(rows[2].matrix[12], 30);
+	assert.notEqual(rows[2].unsupported, null);
 });
 
 test('skinned prefab meshes resolve bones under inactive GameObjects, whose renderers stand in', async () => {

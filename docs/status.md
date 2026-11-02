@@ -371,8 +371,8 @@ packs or renders correctly.
   compressing duplicate textures
 - the entities pass (~7 s on map02) re-reads every chunk file on a warm pack; it could be remembered
   like terrain and irradiance
-- prefab renderers keep only LOD 0, with unbounded thresholds, so prefab content never switches LOD
-  or culls by size
+- prefab LODGroups switch on each renderer's own bounds rather than the LODGroup's size and
+  reference point, and without its fade or the game's LOD bias
 - a mesh or material reached both by path hash (static entities) and by object (prefabs) gets two
   table entries and converts twice
 - a level's base environment is found by matching phase names; `LevelInfo` could name its volume
