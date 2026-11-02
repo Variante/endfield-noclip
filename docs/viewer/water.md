@@ -30,6 +30,10 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
 
 - **pass**: drawn in the post chain after compositing, over a copy of the HDR scene, and only in the
   `lit` debug view. both faces are drawn so water reads from below.
+- **effects over it**: the composite has already added the transparent pass's glow (additive effects
+  such as the mist) to the copy. the game draws effects after its water, so the water takes the glow
+  back out of what it refracts and adds the glow over its own colour. the glow has no depth, so
+  additive effects below the surface also show over it, unattenuated.
 - **lighting**: the pass binds the main pass's frame group, so water is lit like the rest of the
   scene: the sun through its shadow maps, the irradiance volume, and the level's sky reflection.
 - **reflection**: the game reflects water through its screen-space reflection pass, with water

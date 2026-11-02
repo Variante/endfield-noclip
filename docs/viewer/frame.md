@@ -49,8 +49,9 @@ what each post pass computes is in [post-processing](post-processing.md) and
 - **transparent pass.** alpha-blended meshes draw after the main pass, testing its depth without
   writing it (the stencil stays writable), into a weighted sum and a revealage that the composite
   resolves ([glass](materials.md#glass)). a third target, the glow, sums additively blended light,
-  which the other two can't hold; the composite adds it after the fog, unfogged, and its alpha holds
-  the weight of the layers kept out of the fog ([blending](effects.md#blending)).
+  which the other two can't hold; the composite adds it after the fog, unfogged (and the water pass
+  again over water, [water](water.md#shading)), and its alpha holds the weight of the layers kept
+  out of the fog ([blending](effects.md#blending)).
 - **antialiasing** is temporal with upsampling, as in the game, which has no MSAA. the main pass's
   projection is offset by a Halton (2, 3) subpixel jitter each frame (8 positions per cycle, more
   when upsampling), and the post passes that reconstruct view rays undo it. `taa` reconstructs each

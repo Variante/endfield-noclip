@@ -148,6 +148,7 @@ export class WaterRenderer {
 				{ binding: 6, visibility: fragment, sampler: { type: 'filtering' } },
 				{ binding: 7, visibility: fragment, buffer: { type: 'uniform' } },
 				texture(8, 'float'),
+				texture(9, 'unfilterable-float'),
 			],
 		});
 		this.#pipeline = device.createRenderPipeline({
@@ -325,6 +326,7 @@ export class WaterRenderer {
 				{ binding: 7, resource: { buffer: this.#params } },
 				// the flow map's placeholder stands in; the shader skips caustics without the map
 				{ binding: 8, resource: this.#caustics?.view ?? this.#noFlow },
+				{ binding: 9, resource: context.scene.glow },
 			],
 		});
 		this.#groupKey = key;

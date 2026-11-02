@@ -134,11 +134,12 @@ packs or renders correctly.
   flow and foam come from the global map), each sector's `rippleLayerBuffer`, the LOD surfaces'
   displaced wave grid, the rain map (packed but unread), rain and character ripples and ground
   wetness around water; `FlowmapOption` 1's coverage is read as plain amplitude, the sun highlight
-  isn't aimed at the nearest point of the sun's disc and has no multiple scattering, and water
-  entities' render-object column 7 isn't read. `HGRP/WaterDecal` foam at the foot of waterfalls
-  shows as [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the
-  water's own foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer`
-  values aren't packed); other fluid types are unverified
+  isn't aimed at the nearest point of the sun's disc and has no multiple scattering, additive
+  effects below the surface show over it ([viewer](viewer/water.md#shading)), and water entities'
+  render-object column 7 isn't read. `HGRP/WaterDecal` foam at the foot of waterfalls shows as
+  [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the water's own
+  foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer` values aren't
+  packed); other fluid types are unverified
 - waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
   beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
   of it, and the steep river surface running down the lip draws as clear water. what the game draws

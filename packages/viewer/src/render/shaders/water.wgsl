@@ -61,6 +61,13 @@ struct Config {
 // pre-exposed), w unused
 @group(2) @binding(7) var<uniform> water: array<vec4f, 3>;
 @group(2) @binding(8) var caustic_map: texture_2d<f32>;
+// the transparent pass's additive light, which the composite added to the background. the game draws its
+// effects after the water, so the water takes it back out of what it refracts and adds it over itself
+@group(2) @binding(9) var glow_texture: texture_2d<f32>;
+
+fn glow_at(px: vec2i) -> vec3f {
+	return max(textureLoad(glow_texture, px, 0).rgb, vec3f(0.0));
+}
 
 // the in-water Mie lobe: Henyey–Greenstein with the game's anisotropy
 fn water_mie_phase(cos_theta: f32) -> f32 {
@@ -259,7 +266,8 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 
 	let froxels = froxels_at(uv_straight, surface_distance * dot(-v, post.forward.xyz));
 	let fog = fog_over(-v, surface_distance, froxels);
-	let behind_raw = textureLoad(background, vec2i(uv * size), 0).rgb;
+	let behind_px = vec2i(uv * size);
+	let behind_raw = max(textureLoad(background, behind_px, 0).rgb - glow_at(behind_px), vec3f(0.0));
 	let behind = behind_raw * (vec3f(1.0) + caustics * fog.transmittance);
 
 	// the sun through the shadow, looked up where the waves bend it, and the irradiance volume
@@ -345,5 +353,5 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 	color += c.foam.rgb * c.foam_shape.w * foam_albedo;
 	// the shore: shallow water fades into what's under it, more so at a distance seen from the side
 	let edge = thickness * mix(1.0, abs(dot(v, n)), clamp(surface_distance * 0.05, 0.0, 1.0));
-	return vec4f(mix(behind, color, clamp(edge * c.optics.z, 0.0, 1.0)), 1.0);
+	return vec4f(mix(behind, color, clamp(edge * c.optics.z, 0.0, 1.0)) + glow_at(vec2i(in.position.xy)), 1.0);
 }
