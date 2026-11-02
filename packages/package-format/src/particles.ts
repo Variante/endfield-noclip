@@ -12,7 +12,7 @@ export interface ParticlesTable {
 	systems: ParticleSystemInfo[];
 }
 
-/** Unity's gravity, m/s² down the world's y, which {@link ParticleSystemInfo.gravityModifier} multiplies */
+/** Unity's gravity, m/s² down the world's y, which {@link ParticleFreeMotionInfo.gravityModifier} multiplies */
 export const GRAVITY = 9.81;
 
 /** {@link MinMaxCurveInfo.mode} values, Unity's `ParticleSystemCurveMode` */
@@ -204,31 +204,17 @@ export interface ParticleSystemInfo {
 	startColor: MinMaxGradientInfo;
 	/** a multiplier of the start colour, read at each particle's age over its lifetime; `null` without */
 	colorOverLifetime: MinMaxGradientInfo | null;
-	/** m/s along the shape's start direction */
-	startSpeed: MinMaxCurveInfo;
 	/** x, y and z scale of the mesh, m */
 	startSize: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
 	/** Euler angles about x, y and z, radians */
 	startRotation: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
-	/** times {@link GRAVITY} */
-	gravityModifier: MinMaxCurveInfo;
 	/** particles per second; a constant or two */
 	rate: MinMaxCurveInfo;
 	bursts: ParticleBurstInfo[];
 	/** `null` emits every particle at the emitter's origin, along +z */
 	shape: ParticleShapeInfo | null;
-	/** extra velocity over each particle's lifetime (Unity's `VelocityModule`); `null` without */
-	velocity: ParticleVelocityInfo | null;
-	/**
-	 * drag slowing each particle's start velocity and its fall (Unity's `ClampVelocityModule` without a speed
-	 * limit); `null` without
-	 */
-	drag: ParticleDragInfo | null;
-	/**
-	 * a speed limit each particle's speed is pulled down to (Unity's `ClampVelocityModule` with a `dampen`);
-	 * `null` without. it comes with no {@link drag}
-	 */
-	speedLimit: ParticleSpeedLimitInfo | null;
+	/** how the particles move from where the shape starts them */
+	motion: ParticleMotionInfo;
 	/** a multiplier of the start size over each particle's lifetime, per axis; `null` without */
 	sizeOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
 	/** angular velocity about x, y and z, radians per second; `null` without */
@@ -251,12 +237,30 @@ export interface ParticleSystemInfo {
 	ringBuffer: ParticleRingBufferInfo | null;
 	/** a flipbook the particles step through (Unity's `TextureSheetAnimationModule`); `null` without */
 	textureSheet: ParticleTextureSheetInfo | null;
-	/**
-	 * a path the particles follow instead of moving by their speed, velocity and gravity; `null` for an
-	 * ordinary system
-	 */
-	spline: ParticleSplineInfo | null;
 }
+
+/** how a {@link ParticleSystemInfo}'s particles move: freely, or along a path */
+export type ParticleMotionInfo = ParticleFreeMotionInfo | ParticleSplineInfo;
+
+/** an ordinary system's motion: launched along the shape's direction, then moved by its modules */
+export interface ParticleFreeMotionInfo {
+	kind: 'free';
+	/** m/s along the shape's start direction */
+	startSpeed: MinMaxCurveInfo;
+	/** times {@link GRAVITY} */
+	gravityModifier: MinMaxCurveInfo;
+	/** extra velocity over each particle's lifetime (Unity's `VelocityModule`); `null` without */
+	velocity: ParticleVelocityInfo | null;
+	/** what Unity's `ClampVelocityModule` does to the particles' speed; `null` without */
+	clamp: ParticleClampInfo | null;
+}
+
+/**
+ * Unity's `ClampVelocityModule`: drag slowing each particle's start velocity and its fall, or (with a
+ * `dampen`) a speed limit each particle's speed is pulled down to. the packer turns a system using both into
+ * a stand-in
+ */
+export type ParticleClampInfo = ParticleDragInfo | ParticleSpeedLimitInfo;
 
 /** one cubic Bézier segment of a {@link ParticleSplineInfo}, in the emitter's frame */
 export interface SplineSegmentInfo {
@@ -273,6 +277,7 @@ export interface SplineSegmentInfo {
  * segment's end, even within its lifetime
  */
 export interface ParticleSplineInfo {
+	kind: 'spline';
 	segments: SplineSegmentInfo[];
 	/** m/s along the path, read at the particle's age over its lifetime; the distance is its integral */
 	speed: MinMaxCurveInfo;
@@ -323,6 +328,7 @@ export interface ParticleTextureSheetInfo {
 
 /** how strongly the air slows a particle: its deceleration is {@link amount} times the factors chosen */
 export interface ParticleDragInfo {
+	kind: 'drag';
 	/** a constant or two */
 	amount: MinMaxCurveInfo;
 	/** times the particle's cross-section, π (size / 2)² */
@@ -338,6 +344,7 @@ export interface ParticleDragInfo {
  * s)(1 − (1 − dampen)^(30 t))` along the same direction
  */
 export interface ParticleSpeedLimitInfo {
+	kind: 'limit';
 	/** m/s, read at the particle's age over its lifetime */
 	limit: MinMaxCurveInfo;
 	/** the fraction of the excess removed per 1/30 s, above 0 */

@@ -21,6 +21,7 @@ import {
 	type MinMaxGradientInfo,
 	ParticleAlignment,
 	type ParticleBurstInfo,
+	type ParticleClampInfo,
 	type ParticleDragInfo,
 	type ParticleSpeedLimitInfo,
 	ParticleRenderMode,
@@ -283,7 +284,11 @@ const readSpeedLimit = (clamp: TypeTreeObject): ParticleSpeedLimitInfo | null | 
 	if (booleanField(clamp, 'separateAxis')) {
 		return 'per-axis velocity limit';
 	}
-	return { limit: readMinMaxCurve(objectField(clamp, 'magnitude')), dampen: Math.min(dampen, 1) };
+	return {
+		kind: 'limit',
+		limit: readMinMaxCurve(objectField(clamp, 'magnitude')),
+		dampen: Math.min(dampen, 1),
+	};
 };
 
 const readDrag = (clamp: TypeTreeObject): ParticleDragInfo | null | string => {
@@ -295,6 +300,7 @@ const readDrag = (clamp: TypeTreeObject): ParticleDragInfo | null | string => {
 		return null;
 	}
 	return {
+		kind: 'drag',
 		amount,
 		bySize: booleanField(clamp, 'multiplyDragByParticleSize'),
 		byVelocity: booleanField(clamp, 'multiplyDragByParticleVelocity'),
@@ -505,24 +511,22 @@ export const readParticleSystem = (
 		}
 		velocity = read;
 	}
-	let drag: ParticleDragInfo | null = null;
-	let speedLimit: ParticleSpeedLimitInfo | null = null;
+	let clamp: ParticleClampInfo | null = null;
 	if (enabled(system, 'ClampVelocityModule')) {
-		const clamp = objectField(system, 'ClampVelocityModule');
-		const readLimit = readSpeedLimit(clamp);
-		const read = readDrag(clamp);
-		if (typeof readLimit === 'string') {
-			return { reason: readLimit };
+		const module = objectField(system, 'ClampVelocityModule');
+		const limit = readSpeedLimit(module);
+		const drag = readDrag(module);
+		if (typeof limit === 'string') {
+			return { reason: limit };
 		}
-		if (typeof read === 'string') {
-			return { reason: read };
+		if (typeof drag === 'string') {
+			return { reason: drag };
 		}
-		drag = read;
-		speedLimit = readLimit;
 		// where the game applies drag relative to the limit isn't known
-		if (speedLimit !== null && drag !== null) {
+		if (limit !== null && drag !== null) {
 			return { reason: 'velocity limit with drag' };
 		}
+		clamp = limit ?? drag;
 	}
 
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));
@@ -595,16 +599,18 @@ export const readParticleSystem = (
 			colorOverLifetime: enabled(system, 'ColorModule')
 				? readMinMaxGradient(objectField(objectField(system, 'ColorModule'), 'gradient'))
 				: null,
-			startSpeed: curve(initial, 'startSpeed'),
 			startSize,
 			startRotation,
-			gravityModifier: curve(initial, 'gravityModifier'),
 			rate,
 			bursts,
 			shape,
-			velocity,
-			drag,
-			speedLimit,
+			motion: {
+				kind: 'free',
+				startSpeed: curve(initial, 'startSpeed'),
+				gravityModifier: curve(initial, 'gravityModifier'),
+				velocity,
+				clamp,
+			},
 			sizeOverLifetime,
 			rotationOverLifetime,
 			alignment,
@@ -613,7 +619,6 @@ export const readParticleSystem = (
 			mesh: 0,
 			ringBuffer,
 			textureSheet,
-			spline: null,
 		},
 		meshes,
 	};
@@ -689,10 +694,11 @@ export const constantMidpoint = (curve: MinMaxCurveInfo): number | null => {
  * @returns the box
  */
 export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aabb => {
-	if (info.spline !== null) {
+	const motion = info.motion;
+	if (motion.kind === 'spline') {
 		// a Bézier segment stays inside its control points' hull
 		let farthest = 0;
-		for (const segment of info.spline.segments) {
+		for (const segment of motion.segments) {
 			for (const point of segment.points) {
 				farthest = Math.max(farthest, Math.hypot(...point));
 			}
@@ -707,13 +713,14 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 		return { center: [0, 0, 0], extents: [half, half, half] };
 	}
 	const life = curveReach(info.startLifetime);
-	const speedScale = info.velocity === null ? 1 : curveReach(info.velocity.speedModifier);
-	let speed = curveReach(info.startSpeed);
+	const { velocity } = motion;
+	const speedScale = velocity === null ? 1 : curveReach(velocity.speedModifier);
+	let speed = curveReach(motion.startSpeed);
 	let offset = 0;
-	if (info.velocity !== null) {
-		const [x, y, z] = info.velocity.linear.map(curveReach);
-		speed += Math.hypot(x, y, z) + curveReach(info.velocity.radial);
-		offset = Math.hypot(...info.velocity.orbitalOffset);
+	if (velocity !== null) {
+		const [x, y, z] = velocity.linear.map(curveReach);
+		speed += Math.hypot(x, y, z) + curveReach(velocity.radial);
+		offset = Math.hypot(...velocity.orbitalOffset);
 	}
 	let shape = 0;
 	if (info.shape !== null) {
@@ -725,7 +732,7 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 			Math.max(...s.scale.map(Math.abs)) * Math.hypot(spread, along) +
 			s.randomPosition * Math.sqrt(3);
 	}
-	const gravity = 0.5 * GRAVITY * curveReach(info.gravityModifier) * life * life;
+	const gravity = 0.5 * GRAVITY * curveReach(motion.gravityModifier) * life * life;
 	let size =
 		meshRadius *
 		Math.max(...info.startSize.map(curveReach)) *
@@ -733,7 +740,7 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 		Math.max(1, Math.hypot(...info.pivot));
 	if (info.stretch !== null) {
 		// a stretched quad lengthens by its length scale and its speed
-		const fastest = speed * speedScale + GRAVITY * curveReach(info.gravityModifier) * life;
+		const fastest = speed * speedScale + GRAVITY * curveReach(motion.gravityModifier) * life;
 		size =
 			size * Math.max(1, Math.abs(info.stretch.lengthScale)) + Math.abs(info.stretch.velocityScale) * fastest;
 	}

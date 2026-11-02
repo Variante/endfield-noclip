@@ -58,7 +58,7 @@ describe('readSplineMover', () => {
 		assert.equal(info.simulationSpeed, 1.4);
 		assert.equal(info.maxParticles, 13);
 		assert.equal(info.shape?.kind, ParticleShapeKind.Box);
-		assert.equal(info.spline?.segments.length, 2);
+		assert.equal(info.motion.kind === 'spline' && info.motion.segments.length, 2);
 		assert.equal(info.startRotation[0].scalar, Math.PI);
 		assert.deepEqual(read.groups, [{ fileId: 3, pathId: 1316586920986994794n }]);
 	});

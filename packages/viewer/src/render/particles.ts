@@ -7,6 +7,7 @@ import {
 	type MinMaxGradientInfo,
 	ParticleAlignment,
 	type ParticleDragInfo,
+	type ParticleVelocityInfo,
 	ParticleRenderMode,
 	ParticleShapeKind,
 	type ParticleSpeedLimitInfo,
@@ -241,8 +242,8 @@ export const draggedFall = (
 	return [(sign * g * (age - (1 - decay) / k)) / k, (sign * g * (1 - decay)) / k];
 };
 
-/** what a particle's path starts from, in the emitter's frame */
-interface ParticleMotion {
+/** what a freely moving particle's path starts from, in the emitter's frame */
+interface PathStart {
 	id: number;
 	start: Vec3;
 	direction: Vec3;
@@ -647,8 +648,8 @@ export class ParticleSimulation {
 	 *   `undefined` without a path, `null` once it has run off the end
 	 */
 	#splineAt(id: number, age: number, life: number): { position: Vec3; moving: Vec3 } | null | undefined {
-		const spline = this.info.spline;
-		if (spline === null) {
+		const spline = this.info.motion;
+		if (spline.kind !== 'spline') {
 			return undefined;
 		}
 		const r = random(this.#seed, id, Channel.SplineSpeed);
@@ -900,21 +901,23 @@ export class ParticleSimulation {
 	}
 
 	/** where an unlimited particle is at an age and how it moves then, in closed form */
-	#freePath(motion: ParticleMotion & { startSize: number[] }): { position: Vec3; moving: Vec3 } {
-		const info = this.info;
+	#freePath(
+		drag: ParticleDragInfo | null,
+		velocity: ParticleVelocityInfo | null,
+		motion: PathStart & { startSize: number[] },
+	): { position: Vec3; moving: Vec3 } {
 		const seed = this.#seed;
-		const velocity = info.velocity;
 		const { id, start, direction, speed, modifier, gravity, startSize, age, life, down, worldToLocal } =
 			motion;
 		const lived = life > 0 ? age / life : 0;
 		const [launch, launchSpeed] =
-			info.drag === null
+			drag === null
 				? [speed * age, speed]
-				: dragged(info.drag, speed, Math.max(...startSize), age, random(seed, id, Channel.Drag));
+				: dragged(drag, speed, Math.max(...startSize), age, random(seed, id, Channel.Drag));
 		const [fall, fallSpeed] =
-			info.drag === null
+			drag === null
 				? [0.5 * gravity * age * age, gravity * age]
-				: draggedFall(info.drag, gravity, Math.max(...startSize), age, random(seed, id, Channel.Drag));
+				: draggedFall(drag, gravity, Math.max(...startSize), age, random(seed, id, Channel.Drag));
 		let position: Vec3 = [
 			start[0] + direction[0] * launch + down[0] * fall,
 			start[1] + direction[1] * launch + down[1] * fall,
@@ -975,9 +978,12 @@ export class ParticleSimulation {
 	 * orbit moves the particle along its circle's tangent at its current place. the packer leaves such systems
 	 * without drag
 	 */
-	#limitedPath(limit: ParticleSpeedLimitInfo, motion: ParticleMotion): { position: Vec3; moving: Vec3 } {
+	#limitedPath(
+		limit: ParticleSpeedLimitInfo,
+		velocity: ParticleVelocityInfo | null,
+		motion: PathStart,
+	): { position: Vec3; moving: Vec3 } {
 		const seed = this.#seed;
-		const velocity = this.info.velocity;
 		const { id, start, direction, speed, modifier, gravity, age, life, down, worldToLocal } = motion;
 		const linearChannels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
 		const linearRandoms = linearChannels.map((channel) => random(seed, id, channel));
@@ -1044,42 +1050,42 @@ export class ParticleSimulation {
 		const u = this.#loopFraction(born);
 		const life = evaluateMinMax(info.startLifetime, u, random(seed, id, Channel.Lifetime));
 		const { position: start, direction } = this.#start(id);
-		const velocity = info.velocity;
-		const modifier =
-			velocity === null
-				? 1
-				: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
-		const speed = evaluateMinMax(info.startSpeed, u, random(seed, id, Channel.Speed)) * modifier;
 		const lived = life > 0 ? age / life : 0;
 		const sizeRandom = random(seed, id, Channel.Size);
 		const growth = random(seed, id, Channel.SizeOverLifetime);
 		const startSize = info.startSize.map((curve) => evaluateMinMax(curve, u, sizeRandom));
-		// gravity, which Unity always pulls down the world's y
-		const gravity = GRAVITY * evaluateMinMax(info.gravityModifier, u, random(seed, id, Channel.Gravity));
-		const motion: ParticleMotion = {
-			id,
-			start,
-			direction,
-			speed,
-			modifier,
-			gravity,
-			age,
-			life,
-			down,
-			worldToLocal,
-		};
 		let path: { position: Vec3; moving: Vec3 };
-		const along = this.#splineAt(id, age, life);
-		if (along) {
+		const motion = info.motion;
+		if (motion.kind === 'spline') {
 			// a path's particles start at their place in the shape, offset from it
+			const along = this.#splineAt(id, age, life) ?? { position: [0, 0, 0], moving: [0, 0, 0] };
 			path = {
 				position: [start[0] + along.position[0], start[1] + along.position[1], start[2] + along.position[2]],
 				moving: along.moving,
 			};
-		} else if (info.speedLimit === null) {
-			path = this.#freePath({ ...motion, startSize });
 		} else {
-			path = this.#limitedPath(info.speedLimit, motion);
+			const { velocity, clamp } = motion;
+			const modifier =
+				velocity === null
+					? 1
+					: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
+			const begin: PathStart = {
+				id,
+				start,
+				direction,
+				speed: evaluateMinMax(motion.startSpeed, u, random(seed, id, Channel.Speed)) * modifier,
+				modifier,
+				// gravity, which Unity always pulls down the world's y
+				gravity: GRAVITY * evaluateMinMax(motion.gravityModifier, u, random(seed, id, Channel.Gravity)),
+				age,
+				life,
+				down,
+				worldToLocal,
+			};
+			path =
+				clamp?.kind === 'limit'
+					? this.#limitedPath(clamp, velocity, begin)
+					: this.#freePath(clamp, velocity, { ...begin, startSize });
 		}
 		let position = path.position;
 		const moving = path.moving;

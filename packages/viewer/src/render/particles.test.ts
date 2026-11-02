@@ -9,6 +9,8 @@ import {
 	ParticleAlignment,
 	ParticleRenderMode,
 	ParticleShapeKind,
+	type ParticleFreeMotionInfo,
+	type ParticleSplineInfo,
 	type ParticleSystemInfo,
 	type ParticleTextureSheetInfo,
 	SheetRow,
@@ -78,7 +80,9 @@ const line = (from: number, to: number): MinMaxCurveInfo => ({
 	minCurve: null,
 });
 
-const fields = (overrides: Partial<ParticleSystemInfo>): Omit<ParticleSystemInfo, 'emissionBound'> => ({
+const fields = (
+	overrides: Partial<ParticleSystemInfo>,
+): Omit<ParticleSystemInfo, 'emissionBound' | 'motion'> => ({
 	renderMode: ParticleRenderMode.Mesh,
 	stretch: null,
 	sizedByScale: true,
@@ -96,10 +100,8 @@ const fields = (overrides: Partial<ParticleSystemInfo>): Omit<ParticleSystemInfo
 		minGradient: null,
 	},
 	colorOverLifetime: null,
-	startSpeed: constant(0),
 	startSize: [constant(4), constant(4), constant(4)],
 	startRotation: [constant(0), constant(0), between(0, Math.PI * 2)],
-	gravityModifier: constant(-0.01),
 	rate: constant(1),
 	bursts: [],
 	shape: {
@@ -116,9 +118,6 @@ const fields = (overrides: Partial<ParticleSystemInfo>): Omit<ParticleSystemInfo
 		sphericalDirection: 0,
 		randomPosition: 0,
 	},
-	velocity: null,
-	drag: null,
-	speedLimit: null,
 	sizeOverLifetime: null,
 	rotationOverLifetime: null,
 	alignment: ParticleAlignment.View,
@@ -127,13 +126,31 @@ const fields = (overrides: Partial<ParticleSystemInfo>): Omit<ParticleSystemInfo
 	mesh: 0,
 	ringBuffer: null,
 	textureSheet: null,
-	spline: null,
 	...overrides,
 });
 
-/** a system, its emission bound worked out from its constant rate, bursts and lifetime as the packer does */
-const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo => {
-	const info = fields(overrides);
+/** an ordinary system's motion, of which a test may set any part */
+type FreeMotion = Omit<ParticleFreeMotionInfo, 'kind'>;
+
+/**
+ * a system, its emission bound worked out from its constant rate, bursts and lifetime as the packer does.
+ * free motion fields set its motion's, and a spline makes it a spline mover
+ */
+const system = ({
+	startSpeed = constant(0),
+	gravityModifier = constant(-0.01),
+	velocity = null,
+	clamp = null,
+	spline,
+	...overrides
+}: Partial<ParticleSystemInfo & FreeMotion> & { spline?: ParticleSplineInfo } = {}): ParticleSystemInfo => {
+	const info = {
+		...fields(overrides),
+		motion:
+			overrides.motion ??
+			spline ??
+			({ kind: 'free', startSpeed, gravityModifier, velocity, clamp } satisfies ParticleFreeMotionInfo),
+	};
 	const life = info.startLifetime.scalar;
 	const perLoop = info.bursts.reduce((sum, burst) => sum + burst.count.scalar * burst.cycles, 0);
 	const bound = Math.ceil(info.rate.scalar * life + perLoop * Math.ceil(life / info.duration - 1e-6));
@@ -168,7 +185,8 @@ const run = (info: ParticleSystemInfo, time: number, seed = 7) => {
 
 describe('spline paths', () => {
 	// Dijiang's central shaft lifts its cargo 70 m up a straight segment whose handles sit on its ends
-	const lift = {
+	const lift: ParticleSplineInfo = {
+		kind: 'spline',
 		segments: [
 			{
 				points: [
@@ -244,7 +262,7 @@ describe('motion', () => {
 		assert.equal(travelled(constant(3), 2, 10, 0), 6);
 	});
 	it('slows a launch and caps a fall at the terminal speed under quadratic drag', () => {
-		const drag = { amount: constant(1), bySize: false, byVelocity: true };
+		const drag = { kind: 'drag', amount: constant(1), bySize: false, byVelocity: true } as const;
 		const [distance, speed] = dragged(drag, 4, 1, 1, 0);
 		assert.ok(Math.abs(distance - Math.log1p(4)) < 1e-9);
 		assert.ok(Math.abs(speed - 4 / 5) < 1e-9);
@@ -255,7 +273,7 @@ describe('motion', () => {
 	// the challenge start point's rising stones: 1 m/s up from velocity over lifetime, limited to 0.1 m/s with
 	// a dampen of 0.1
 	const stones = {
-		limit: { limit: constant(0.1), dampen: 0.1 },
+		limit: { kind: 'limit' as const, limit: constant(0.1), dampen: 0.1 },
 		r: 0,
 		start: [0, 0, 0] as Vec3,
 		acceleration: [0, 0, 0] as Vec3,

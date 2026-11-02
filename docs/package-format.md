@@ -489,8 +489,9 @@ that its render mode turns to the camera, stretches along the particle's velocit
 emitter is an ordinary instance row: its transform is the system's frame and its bounds cover
 everywhere a particle reaches, so the row culls like any other. a ring-buffered system's particles
 outlive their lifetime until replaced, held at their end or looping part of it; a texture sheet
-names the flipbook tile each particle's mesh UVs are remapped into. a system with a `spline` moves
-its particles along that path at its speed instead of by their start speed, velocity and gravity.
+names the flipbook tile each particle's mesh UVs are remapped into. a system's `motion` is `free`
+(start speed, gravity, the velocity module and the Limit Velocity module's drag or speed limit) or a
+`spline` its particles follow at its speed instead.
 
 a [spline mover](game-data/assets.md#spline-movers) packs as such a system
 ([spline-movers.ts](../packages/extractor/src/game/spline-movers.ts)): one entry per renderer of
@@ -538,12 +539,11 @@ unless the mode is Shape. the entry keeps:
   angle, length, arc, placement and random-direction and -position amounts)
 - the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as
   constants), and size and rotation over lifetime
-- the drag of a Limit Velocity module whose `dampen` is 0: its amount and whether it scales with the
-  particle's size and its speed squared
-- the speed limit of one whose `dampen` is above 0 (`ParticleSpeedLimitInfo`: the `magnitude` curve
-  and the dampen), when it limits the whole speed rather than each axis and the system has no drag.
-  the viewer steps such particles at 30 Hz from their birth, applying the limit as
-  [the game does](game-data/assets.md#particle-systems)
+- the Limit Velocity module as the free motion's `clamp`: its drag when its `dampen` is 0 (the
+  amount and whether it scales with the particle's size and its speed squared), or its speed limit
+  when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
+  rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz from
+  their birth, applying the limit as [the game does](game-data/assets.md#particle-systems)
 - the render alignment (Facing is kept as View) and pivot
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,

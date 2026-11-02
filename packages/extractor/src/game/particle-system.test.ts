@@ -138,14 +138,15 @@ test('a looping mesh particle system keeps its emission, shape, gravity, orbit a
 	assert.equal(info.rate.scalar, 1.1);
 	assert.equal(info.shape?.kind, ParticleShapeKind.Cone);
 	assert.equal(info.shape?.radius, 65);
-	assert.deepEqual(info.gravityModifier, {
+	assert.equal(info.motion.kind, 'free');
+	assert.deepEqual(info.motion.gravityModifier, {
 		mode: CurveMode.TwoConstants,
 		scalar: -0.012,
 		min: -0.003,
 		curve: null,
 		minCurve: null,
 	});
-	assert.equal(info.velocity?.orbital[2].min, -0.05);
+	assert.equal(info.motion.velocity?.orbital[2].min, -0.05);
 	// without 3D rotation only the rotation about z is read
 	assert.equal(info.startRotation[0].scalar, 0);
 	assert.equal(info.startRotation[2].scalar, 6.28);
@@ -379,7 +380,10 @@ test('linear velocities can be curves', () => {
 		renderer(),
 	);
 	assert.ok(read !== null && 'info' in read);
-	assert.equal(read.info.velocity?.linear[1].mode, CurveMode.Curve);
+	assert.equal(
+		read.info.motion.kind === 'free' && read.info.motion.velocity?.linear[1].mode,
+		CurveMode.Curve,
+	);
 });
 
 test('the reach covers the cone, the rise under gravity and the largest mesh', () => {

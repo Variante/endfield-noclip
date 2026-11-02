@@ -316,14 +316,12 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 				minGradient: null,
 			},
 			colorOverLifetime: null,
-			startSpeed: zero,
 			startSize: [size, size, size],
 			startRotation: [
 				turned ? scaled(curve('startRotationX'), radians) : zero,
 				turned ? scaled(curve('startRotationY'), radians) : zero,
 				scaled(curve('startRotationZ'), radians),
 			],
-			gravityModifier: zero,
 			rate: rateCurve,
 			bursts: [],
 			// objects start anywhere in the box, offset from the spline
@@ -341,9 +339,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 				sphericalDirection: 0,
 				randomPosition: 0,
 			},
-			velocity: null,
-			drag: null,
-			speedLimit: null,
+			motion: { kind: 'spline', segments, speed },
 			sizeOverLifetime: [growth, growth, growth],
 			rotationOverLifetime: null,
 			alignment: ParticleAlignment.Local,
@@ -352,7 +348,6 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 			mesh: 0,
 			ringBuffer: null,
 			textureSheet: null,
-			spline: { segments, speed },
 		},
 		groups,
 	};
