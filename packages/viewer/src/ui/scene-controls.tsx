@@ -1,4 +1,5 @@
 import { ruleText } from '@endfield-noclip/package-format/conditions';
+import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type {
 	ControlDriver,
 	MissionInfo,
@@ -16,7 +17,7 @@ import {
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
 
-import { volumeCondition, volumeLevelTag, volumeReaches } from '../render/environment-blend.ts';
+import { volumeCondition, volumeLevelTag } from '../render/environment-blend.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { useViewerState } from './use-viewer.ts';
@@ -474,7 +475,9 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	const volumes = mapDefined(manifest.environmentVolumes, (volume, id) => {
 		const owner = volumeLevelTag(manifest, volume);
 		const listed =
-			(owner === 0 || owner === level?.tag || (level !== undefined && volumeReaches(volume, level.rect))) &&
+			(owner === 0 ||
+				owner === level?.tag ||
+				(level !== undefined && volumeReaches(volume.shape, level.rect))) &&
 			matches(volume.name);
 		if (!listed) {
 			return undefined;

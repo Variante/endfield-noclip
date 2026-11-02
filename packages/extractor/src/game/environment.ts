@@ -1,12 +1,9 @@
 import {
 	EnvironmentVolumeType,
 	type EnvironmentVolume,
-	polygonArea,
-	polygonContains,
 	type PostVolume,
 	readEnvironmentVolume,
 	readPostVolume,
-	yawRotation,
 } from '@endfield-noclip/formats/endfield/environment-volume';
 import { levelTagOf, type PartitionLevel } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
@@ -25,6 +22,8 @@ import {
 import { type PlainObject, toPlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { arrayField, asPPtr, stringField } from '@endfield-noclip/formats/unity/values';
+import type { EnvironmentVolumeShape } from '@endfield-noclip/package-format/environment';
+import { compareVolumes, volumeFootprintContains } from '@endfield-noclip/package-format/environment-volumes';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
 
 import { mapDefined } from '@mary-ext/array-fns';
@@ -195,8 +194,10 @@ export const resolveLevelEnvironment = (
 		loaded.find(({ tag, volume }) => tag === 0 && volume.volumeType === EnvironmentVolumeType.Global)
 			?.volume ?? null;
 	const candidates = mapDefined(loaded, ({ tag, volume }) => {
-		const shape = tag === level.tag ? footprint(volume) : null;
-		return shape === null ? undefined : { volume, shape, share: { volume, covered: 0, wins: 0 } };
+		const shape = tag === level.tag ? environmentVolumeShape(volume) : null;
+		return shape === null || typeof shape === 'string'
+			? undefined
+			: { volume, stacking: { priority: volume.priority, shape }, share: { volume, covered: 0, wins: 0 } };
 	});
 
 	let samples = 0;
@@ -208,16 +209,12 @@ export const resolveLevelEnvironment = (
 				samples++;
 				let best: (typeof candidates)[number] | null = null;
 				for (const candidate of candidates) {
-					if (!candidate.shape.contains(x, z)) {
+					if (!volumeFootprintContains(candidate.stacking.shape, x, z)) {
 						continue;
 					}
 					candidate.share.covered++;
-					const { priority } = candidate.volume;
-					if (
-						best === null ||
-						priority > best.volume.priority ||
-						(priority === best.volume.priority && candidate.shape.area < best.shape.area)
-					) {
+					// the volume stacked on top is shown; on a full tie the later one, as in the viewer's blend
+					if (best === null || compareVolumes(candidate.stacking, best.stacking) >= 0) {
 						best = candidate;
 					}
 				}
@@ -263,45 +260,32 @@ export const resolveLevelPost = (
 	return pick(level.tag) ?? pick(0) ?? null;
 };
 
-interface Footprint {
-	/** m² on the x, z plane; infinite for global volumes */
-	area: number;
-	contains(x: number, z: number): boolean;
-}
-
-/** a volume's x, z footprint, or `null` for shapes not understood */
-const footprint = (volume: EnvironmentVolume): Footprint | null => {
+/**
+ * @param volume an environment volume
+ * @returns where it applies, or why its shape isn't understood
+ */
+export const environmentVolumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | string => {
 	switch (volume.volumeType) {
 		case EnvironmentVolumeType.Global: {
-			return { area: Infinity, contains: () => true };
-		}
-		case EnvironmentVolumeType.PolyArea: {
-			const points = volume.shape?.points;
-			if (points === undefined || points.length < 3) {
-				return null;
-			}
-			return { area: polygonArea(points), contains: (x, z) => polygonContains(points, x, z) };
+			return { kind: 'global' };
 		}
 		case EnvironmentVolumeType.Box: {
-			// a unit cube scaled by the transform; only rotation about y matters on the ground plane
+			// a unit cube under the transform
 			const transform = volume.transform;
-			if (transform === null) {
-				return null;
+			return transform === null
+				? 'box volume without a transform'
+				: { kind: 'box', position: transform.position, rotation: transform.rotation, scale: transform.scale };
+		}
+		case EnvironmentVolumeType.PolyArea: {
+			const shape = volume.shape;
+			if (shape === null || shape.points.length < 3) {
+				return `polygon volume with ${shape?.points.length ?? 0} points`;
 			}
-			const [cx, , cz] = transform.position;
-			const halfX = Math.abs(transform.scale[0]) / 2;
-			const halfZ = Math.abs(transform.scale[2]) / 2;
-			const inverse = yawRotation(-transform.rotation[1]);
-			return {
-				area: 4 * halfX * halfZ,
-				contains: (x, z) => {
-					const [lx, lz] = inverse(x - cx, z - cz);
-					return Math.abs(lx) <= halfX && Math.abs(lz) <= halfZ;
-				},
-			};
+			const bottom = shape.position[1] + shape.baseHeightOffset;
+			return { kind: 'prism', points: shape.points, bottom, top: bottom + shape.height };
 		}
 		default: {
-			return null;
+			return `volume type ${volume.volumeType} isn't supported`;
 		}
 	}
 };

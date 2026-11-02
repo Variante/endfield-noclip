@@ -1,7 +1,4 @@
-import {
-	type EnvironmentVolume,
-	EnvironmentVolumeType,
-} from '@endfield-noclip/formats/endfield/environment-volume';
+import type { EnvironmentVolume } from '@endfield-noclip/formats/endfield/environment-volume';
 import type { PartitionLevel } from '@endfield-noclip/formats/endfield/level-partition';
 import {
 	ENVIRONMENT_SECTIONS,
@@ -18,7 +15,6 @@ import type {
 	EnvironmentProfile,
 	EnvironmentSections,
 	EnvironmentVolumeInfo,
-	EnvironmentVolumeShape,
 	PostProfile,
 } from '@endfield-noclip/package-format/environment';
 import type { ConditionalSetInfo } from '@endfield-noclip/package-format/states';
@@ -27,6 +23,7 @@ import type { Context } from '../context.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/asset-decode.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
 import {
+	environmentVolumeShape,
 	type LevelEnvironmentChoice,
 	type LevelPhases,
 	type LoadedPhase,
@@ -320,7 +317,7 @@ export const planEnvironments = async (
 	const phaseIndex = new Map<string, number>();
 	for (const [i, { tag, sceneStates, condition, volume }] of volumes.environment.entries()) {
 		const name = volume.name.replace(/#.*$/, '');
-		const shape = volumeShape(volume);
+		const shape = environmentVolumeShape(volume);
 		if (typeof shape === 'string') {
 			report({ kind: 'volume', volume: name, reason: shape });
 			continue;
@@ -393,32 +390,6 @@ const checkRayPlanet = (phase: string, celestial: CelestialConfig, report: Repor
 			path,
 			reason: `the ray-traced planet's material has no ${missing.join(', ')}, so it isn't drawn`,
 		});
-	}
-};
-
-/** @returns where a volume applies, or why its shape isn't understood */
-const volumeShape = (volume: EnvironmentVolume): EnvironmentVolumeShape | string => {
-	switch (volume.volumeType) {
-		case EnvironmentVolumeType.Global: {
-			return { kind: 'global' };
-		}
-		case EnvironmentVolumeType.Box: {
-			const transform = volume.transform;
-			return transform === null
-				? 'box volume without a transform'
-				: { kind: 'box', position: transform.position, rotation: transform.rotation, scale: transform.scale };
-		}
-		case EnvironmentVolumeType.PolyArea: {
-			const shape = volume.shape;
-			if (shape === null || shape.points.length < 3) {
-				return `polygon volume with ${shape?.points.length ?? 0} points`;
-			}
-			const bottom = shape.position[1] + shape.baseHeightOffset;
-			return { kind: 'prism', points: shape.points, bottom, top: bottom + shape.height };
-		}
-		default: {
-			return `volume type ${volume.volumeType} isn't supported`;
-		}
 	}
 };
 

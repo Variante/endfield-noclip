@@ -11,7 +11,7 @@ import type { PackageManifest } from '@endfield-noclip/package-format/manifest';
 
 import type { Vec3 } from '../scene/camera.ts';
 
-import { blendEnvironment, EnvironmentFades, eyeInLevelVolume, volumeReaches } from './environment-blend.ts';
+import { blendEnvironment, EnvironmentFades, eyeInLevelVolume } from './environment-blend.ts';
 
 // only the fields the blend reads; sections are opaque records to it
 const profile = (density: number): EnvironmentProfile =>
@@ -120,20 +120,6 @@ describe('environment blend', () => {
 			density(blendEnvironment(m, profile(0), at, { ...options, loaded: [false], enabled: { 0: true } })),
 			5,
 		);
-	});
-
-	it('reaches a level by footprint, whichever level owns the volume', () => {
-		const rect = { minX: 50, minZ: 50, maxX: 200, maxZ: 200 };
-		assert.equal(volumeReaches(volume({ shape: square }), rect), true);
-		assert.equal(volumeReaches(volume({ shape: square }), { ...rect, minX: 150 }), false);
-		assert.equal(volumeReaches(volume({}), rect), true);
-		const box: EnvironmentVolumeShape = {
-			kind: 'box',
-			position: [300, 0, 100],
-			rotation: [0, 0, 0],
-			scale: [10, 10, 10],
-		};
-		assert.equal(volumeReaches(volume({ shape: box }), rect), false);
 	});
 
 	it('pins one phase instead of the volumes', () => {

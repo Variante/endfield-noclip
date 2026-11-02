@@ -26,7 +26,11 @@ the post profile, not a Unity `VolumeProfile`.
 
 - start from the shown level's base profile.
 - visit volumes in ascending priority, then shape kind (global, box, prism). the game's order among
-  equal priorities isn't known, so this tie-break is an assumption.
+  equal priorities isn't known, so this tie-break is an assumption. the order and the shape tests
+  are
+  [`package-format/environment-volumes.ts`](../../packages/package-format/src/environment-volumes.ts),
+  which the extractor's [base-environment vote](../extraction.md#the-levels-base-environment)
+  shares.
 - time-mode factors are kept per camera in `EnvironmentFades`.
 - manual volumes stay off unless ticked in the scene-conditions panel, which previews them at full
   strength, since the scripts that drive them aren't recovered.

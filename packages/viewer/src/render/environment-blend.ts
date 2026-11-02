@@ -3,10 +3,9 @@ import type {
 	EnvironmentProfile,
 	EnvironmentSections,
 	EnvironmentVolumeInfo,
-	EnvironmentVolumeShape,
 } from '@endfield-noclip/package-format/environment';
+import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
 import type { PackageManifest } from '@endfield-noclip/package-format/manifest';
-import type { Rect } from '@endfield-noclip/package-format/values';
 
 import type { Vec3 } from '../scene/camera.ts';
 
@@ -41,23 +40,14 @@ export interface BlendOptions {
 	loaded?: readonly boolean[];
 }
 
-/**
- * shape order among equal priorities, by volume type (prism is `PolyArea`, 3). the game's order among equal
- * priorities isn't known; this is an assumption
- */
-const SHAPE_ORDER: Record<EnvironmentVolumeShape['kind'], number> = { global: 0, box: 1, prism: 3 };
-
-/** volumes with their manifest index, sorted as the game applies them, per manifest */
+/** volumes with their manifest index, in the order they stack, per manifest */
 const sortedVolumes = new WeakMap<PackageManifest, { id: number; volume: EnvironmentVolumeInfo }[]>();
 
 const volumesOf = (manifest: PackageManifest): { id: number; volume: EnvironmentVolumeInfo }[] => {
 	return sortedVolumes.getOrInsertComputed(manifest, () =>
 		manifest.environmentVolumes
 			.map((volume, id) => ({ id, volume }))
-			.toSorted(
-				({ volume: a }, { volume: b }) =>
-					a.priority - b.priority || SHAPE_ORDER[a.shape.kind] - SHAPE_ORDER[b.shape.kind],
-			),
+			.toSorted(({ volume: a }, { volume: b }) => compareVolumes(a, b)),
 	);
 };
 
@@ -210,7 +200,7 @@ export const blendEnvironment = (
 			if (!volumeApplies(manifest, volume, id, options)) {
 				continue;
 			}
-			const distance = distanceInside(volume.shape, eye);
+			const distance = distanceInsideVolume(volume.shape, eye);
 			const inside = distance > 0;
 			let factor: number;
 			switch (volume.blendMode) {
@@ -314,109 +304,14 @@ export const eyeInLevelVolume = (
 			target[2] + (eye[2] - target[2]) * t,
 		];
 		if (
-			distanceInside(own.shape, point) >= margin &&
-			others.every((volume) => distanceInside(volume.shape, point) <= 0) &&
+			distanceInsideVolume(own.shape, point) >= margin &&
+			others.every((volume) => distanceInsideVolume(volume.shape, point) <= 0) &&
 			(options.clear?.(point) ?? true)
 		) {
 			return point;
 		}
 	}
 	return null;
-};
-
-// #endregion
-
-// #region shapes
-
-/**
- * @param volume an environment volume
- * @param rect a world x, z rectangle
- * @returns whether the volume's footprint may reach into the rectangle (boxes are bounded by their rotated
- *   extents' circle, so this can be true just outside a box's corners)
- */
-export const volumeReaches = (volume: EnvironmentVolumeInfo, rect: Rect): boolean => {
-	const { shape } = volume;
-	switch (shape.kind) {
-		case 'global': {
-			return true;
-		}
-		case 'box': {
-			const radius = Math.hypot(shape.scale[0], shape.scale[1], shape.scale[2]) / 2;
-			const [x, , z] = shape.position;
-			return (
-				x + radius >= rect.minX &&
-				x - radius <= rect.maxX &&
-				z + radius >= rect.minZ &&
-				z - radius <= rect.maxZ
-			);
-		}
-		case 'prism': {
-			const xs = shape.points.map(([x]) => x);
-			const zs = shape.points.map(([, z]) => z);
-			return (
-				Math.max(...xs) >= rect.minX &&
-				Math.min(...xs) <= rect.maxX &&
-				Math.max(...zs) >= rect.minZ &&
-				Math.min(...zs) <= rect.maxZ
-			);
-		}
-	}
-};
-
-/** @returns how far inside the shape the point is (m), or ≤ 0 outside */
-const distanceInside = (shape: EnvironmentVolumeShape, [x, y, z]: Vec3): number => {
-	switch (shape.kind) {
-		case 'global': {
-			return Infinity;
-		}
-		case 'box': {
-			const local = toBoxFrame(shape, [x - shape.position[0], y - shape.position[1], z - shape.position[2]]);
-			let inside = Infinity;
-			for (let axis = 0; axis < 3; axis++) {
-				const half = Math.abs(shape.scale[axis]) / 2;
-				inside = Math.min(inside, half - Math.abs(local[axis]));
-			}
-			return inside;
-		}
-		case 'prism': {
-			if (y < shape.bottom || y > shape.top) {
-				return 0;
-			}
-			const edge = distanceInPolygon(shape.points, x, z);
-			return Math.min(edge, y - shape.bottom, shape.top - y);
-		}
-	}
-};
-
-/** undoes a Unity Euler rotation (applied z, then x, then y) */
-const toBoxFrame = (shape: Extract<EnvironmentVolumeShape, { kind: 'box' }>, v: Vec3): Vec3 => {
-	const [rx, ry, rz] = shape.rotation.map((degrees) => (degrees * Math.PI) / 180);
-	let [x, y, z] = v;
-	// inverse yaw
-	[x, z] = [x * Math.cos(ry) - z * Math.sin(ry), x * Math.sin(ry) + z * Math.cos(ry)];
-	// inverse pitch
-	[y, z] = [y * Math.cos(rx) + z * Math.sin(rx), -y * Math.sin(rx) + z * Math.cos(rx)];
-	// inverse roll
-	[x, y] = [x * Math.cos(rz) + y * Math.sin(rz), -x * Math.sin(rz) + y * Math.cos(rz)];
-	return [x, y, z];
-};
-
-/** @returns the distance from (x, z) to the polygon's nearest edge inside it, or 0 outside */
-const distanceInPolygon = (points: readonly (readonly [number, number])[], x: number, z: number): number => {
-	let inside = false;
-	let nearest = Infinity;
-	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-		const [xi, zi] = points[i];
-		const [xj, zj] = points[j];
-		if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
-			inside = !inside;
-		}
-		const ex = xi - xj;
-		const ez = zi - zj;
-		const t = Math.max(0, Math.min(1, ((x - xj) * ex + (z - zj) * ez) / (ex * ex + ez * ez || 1)));
-		nearest = Math.min(nearest, Math.hypot(x - (xj + t * ex), z - (zj + t * ez)));
-	}
-	return inside ? nearest : 0;
 };
 
 // #endregion

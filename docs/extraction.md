@@ -632,9 +632,10 @@ profile the viewer blends over. the game has no per-level environment setting, s
 environment is something the extractor derives. it samples a 32 m grid (4 × 4 per 128 m level cell)
 over the level's `levelGrids`, among volumes the level owns that load with the default scene states:
 
-1. at each sample, the volume shown is the highest-priority one containing it; on equal priority the
-   smaller footprint wins. that tie rule is an assumption; the viewer's blend orders equal
-   priorities by shape kind instead.
+1. at each sample, the volume shown is the one stacked on top among those whose footprint holds it
+   (a box at its centre's height), in the order the viewer's blend stacks them: `compareVolumes` in
+   [`package-format/environment-volumes.ts`](../packages/package-format/src/environment-volumes.ts),
+   whose tie rule among equal priorities is an assumption.
 2. the base is the volume covering the most samples among those shown at least once, the lower
    priority on a tie. a volume always beaten everywhere can't be the level's look.
 3. without one, the scene's global volume stands in.
