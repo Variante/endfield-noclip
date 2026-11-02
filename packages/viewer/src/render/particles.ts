@@ -1332,9 +1332,27 @@ export class ParticleField {
 			m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
 			m[8] * v[0] + m[9] * v[1] + m[10] * v[2],
 		];
-		// the frame quads turn in, by render mode: the camera's, its heading's, or lying flat facing up
+		// the frame quads turn in, by render mode: the camera's, its heading's, or lying flat facing up. billboards
+		// take their render alignment: the camera's (View), the world's axes or the emitter's
 		let frame: Vec3[] = [view.right, view.up, view.forward];
 		switch (info.renderMode) {
+			case ParticleRenderMode.Billboard: {
+				switch (info.alignment) {
+					case ParticleAlignment.World: {
+						frame = [
+							[1, 0, 0],
+							[0, 1, 0],
+							[0, 0, 1],
+						];
+						break;
+					}
+					case ParticleAlignment.Local: {
+						frame = columns.map(normalize);
+						break;
+					}
+				}
+				break;
+			}
 			case ParticleRenderMode.Vertical: {
 				const forward = normalize([view.forward[0], 0, view.forward[2]]);
 				frame = [[forward[2], 0, -forward[0]], [0, 1, 0], forward];

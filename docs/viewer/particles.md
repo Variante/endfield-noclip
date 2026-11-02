@@ -86,11 +86,12 @@ system and its index, so any moment can be evaluated on its own:
   that distance passes the path's end. `splinePoint` finds the point as the game does.
 - colour is the start colour (read at the emission's place in its loop) times the colour over
   lifetime, blended in the authored colour space, then made linear into the row's colour word.
-- quads turn by the render mode: billboards with the camera (their rotation rolls them), vertical
-  ones with its heading, horizontal ones lie flat facing up, and stretched ones lie in the view
-  plane along the velocity as the camera sees it, their length the size times the length scale plus
-  the speed times the velocity scale, centred on the particle. the transform's scale doesn't size
-  the particles under the `Shape` scaling mode.
+- quads turn by the render mode: billboards by their render alignment, like meshes (with the camera,
+  where their rotation rolls them, or along the world's or the emitter's axes), vertical ones with
+  its heading, horizontal ones lie flat facing up, and stretched ones lie in the view plane along
+  the velocity as the camera sees it, their length the size times the length scale plus the speed
+  times the velocity scale, centred on the particle. the transform's scale doesn't size the
+  particles under the `Shape` scaling mode.
 
 modules not listed above (forces, noise, collision, sub-emitters, trails, lights, custom data and
 the by-speed modules) are ignored, so systems that enable them play without their effect rather than

@@ -79,7 +79,10 @@ export interface MinMaxGradientInfo {
 
 /** {@link ParticleSystemInfo.renderMode} values, Unity's `ParticleSystemRenderMode` */
 export const ParticleRenderMode = {
-	/** a quad facing the camera */
+	/**
+	 * a quad turned by {@link ParticleSystemInfo.alignment}: facing the camera, or along the world's or
+	 * emitter's axes
+	 */
 	Billboard: 0,
 	/** a quad facing the camera, stretched along the particle's velocity ({@link ParticleSystemInfo.stretch}) */
 	Stretched: 1,
@@ -154,13 +157,17 @@ export interface ParticleBurstInfo {
 	probability: number;
 }
 
-/** {@link ParticleSystemInfo.alignment} values, Unity's `ParticleSystemRenderSpace` (those a viewer orients by) */
+/**
+ * {@link ParticleSystemInfo.alignment} values, Unity's `ParticleSystemRenderSpace` (those a viewer orients
+ * by): the frame a mesh or {@link ParticleRenderMode.Billboard} quad's rotation applies in. other quads ignore
+ * it
+ */
 export const ParticleAlignment = {
-	/** the mesh turns with the camera: its rotation applies in view space */
+	/** the camera's, so the particle turns with it */
 	View: 0,
-	/** its rotation applies in world space */
+	/** the world's */
 	World: 1,
-	/** its rotation applies in the emitter's space */
+	/** the emitter's */
 	Local: 2,
 } as const;
 
