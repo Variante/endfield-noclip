@@ -491,6 +491,24 @@ const resolveSection = async (
 	return { textures, materials, flares };
 };
 
+/**
+ * light config fields the game derives from others (docs/game-data/lighting.md#sun), left out of the package:
+ * some phases carry them stale, and the effect quaternions can't be blended as fields
+ */
+const DERIVED_LIGHT_FIELDS = [
+	'preExposure',
+	'directIntensity',
+	'directIntensityDividePi',
+	'forwardDirect',
+	'localToWorld',
+	'rotationAtmosphere',
+	'rotationLightShaft',
+	'rotationSunDisc',
+	'rotationLensFlare',
+	'rotationCloudShadow',
+	'rotationHeightFogDirectionalInscattering',
+];
+
 const buildPhase = (
 	phase: EnvironmentPhase,
 	textureRefs: SectionTextures,
@@ -503,6 +521,11 @@ const buildPhase = (
 	for (const name of ENVIRONMENT_SECTIONS) {
 		const section = phase.sections[name];
 		const value = structuredClone(section.value);
+		if (name === 'lightConfig') {
+			for (const field of DERIVED_LIGHT_FIELDS) {
+				delete value[field];
+			}
+		}
 		fillTextureSlots(value, section, textureRefs.get(name), slots, textures, textureIndex);
 		sections[SECTION_KEYS[name]] = value;
 		if (section.active) {

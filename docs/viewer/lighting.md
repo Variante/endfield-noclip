@@ -16,11 +16,11 @@ default look.
 
 ## sun
 
-the sun's pre-exposed illuminance is `light.directLux · preExposure`, computed rather than read from
-the config's `directIntensity`, which some phases carry stale. every effect's direction comes from
-its pitch, yaw and mode (`effectPitchYaw` in `render/environment.ts`), never from the shading sun
-alone or from the `rotation*` quaternions, so the [blend](environment.md#blending-at-the-camera) can
-lerp directions as angles ([sun](../game-data/lighting.md#sun)).
+the sun's pre-exposed illuminance is `light.directLux · preExposure`. every effect's direction comes
+from its pitch, yaw and mode (`effectPitchYaw` in `render/environment.ts`), never from the shading
+sun alone, so the [blend](environment.md#blending-at-the-camera) can lerp directions as angles. the
+package leaves out the light fields the game derives from these, which some phases carry stale
+([sun](../game-data/lighting.md#sun)).
 
 direct sun lighting is GGX with height-correlated Smith visibility and Lambert diffuse in
 [`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl), with the sun's colour

@@ -585,6 +585,10 @@ the extractor reads these sections of an
 | `rainConfig`          | `rain`          |
 | `lensFlareConfig`     | `lensFlare`     |
 
+the light section leaves out the fields the game derives from the others (`DERIVED_LIGHT_FIELDS`:
+the precomputed intensities, `forwardDirect`, `localToWorld` and the effects' `rotation*`
+quaternions), which some phases carry stale ([sun](game-data/lighting.md#sun)).
+
 to extract another section (`snowConfig`, `volumetricCloudConfig`, …), extend `ENVIRONMENT_SECTIONS`
 and `mapSections`, the `SECTION_KEYS` map in
 [pack/environments.ts](../packages/extractor/src/pack/environments.ts), and the matching interface

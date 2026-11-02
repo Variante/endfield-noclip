@@ -1,6 +1,6 @@
 import type { AnimationCurve, Gradient } from './curves.ts';
 import type { TextureRef } from './textures.ts';
-import type { Color, Vec2, Vec3, Vec4, Quat } from './values.ts';
+import type { Color, Vec2, Vec3, Vec4 } from './values.ts';
 
 /**
  * one environment in effect: every section of an `HGEnvironmentPhase` (`EnvParse/Env_*.asset`) plus the
@@ -85,12 +85,11 @@ export interface EnvironmentVolumeInfo {
 }
 
 /**
- * `HGLightConfig`: the sun. physical units: `directLux` is illuminance and `directEV100` the exposure, with
- * `preExposure = 1 / (1.2 · 2^directEV100)` and `directIntensity = directLux · preExposure` (both precomputed
- * by the game, but stale in some phases). every effect that draws the sun has its own direction:
- * `<effect>PitchYawMode` 0 follows `directPitchYaw`, 1 uses `<effect>PitchYaw`; the `rotation*` quaternions
- * are the resolved results, and `forwardDirect` and `localToWorld` are stale in some phases. read directions
- * from the pitch, yaw and mode: those lerp as angles between phases
+ * `HGLightConfig`: the sun. physical units: `directLux` is illuminance and `directEV100` the exposure, so
+ * `preExposure = 1 / (1.2 · 2^directEV100)`. every effect that draws the sun has its own direction:
+ * `<effect>PitchYawMode` 0 follows `directPitchYaw`, 1 uses `<effect>PitchYaw`. the fields the game derives
+ * from these (the precomputed intensities, the sun's frame and the effects' rotation quaternions) are left
+ * out, since some phases carry them stale
  */
 export interface LightConfig {
 	/** the colour in effect: `directCustomColor` or the temperature's, per `directColorMode` */
@@ -123,19 +122,6 @@ export interface LightConfig {
 	cloudShadowPitchYaw: Vec2;
 	heightFogDirectionalInscatteringPitchYawMode: number;
 	heightFogDirectionalInscatteringPitchYaw: Vec2;
-	preExposure: number;
-	directIntensity: number;
-	directIntensityDividePi: number;
-	/** the direction the sunlight travels, Unity world frame */
-	forwardDirect: Vec3;
-	/** the light's frame, 16 numbers row-major (`e00 e01 e02 e03 e10 …`) */
-	localToWorld: number[];
-	rotationAtmosphere: Quat;
-	rotationLightShaft: Quat;
-	rotationSunDisc: Quat;
-	rotationLensFlare: Quat;
-	rotationCloudShadow: Quat;
-	rotationHeightFogDirectionalInscattering: Quat;
 	bakedIndirectMultiplier: number;
 	giBakedIndirectMultiplier: number;
 }
