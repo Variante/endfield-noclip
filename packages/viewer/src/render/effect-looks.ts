@@ -698,10 +698,27 @@ export const RefractRow = {
 	 * 0
 	 */
 	refract2: 72,
+	/**
+	 * the colour offsets (`_USE_RBOFFSET`): the further samples' offset in screen UVs (`_RBOffset · 0.01 ·
+	 * _Intensity`), the second sample's share of it (`_GOffset`), `_RBIntensity`
+	 */
+	rb: 76,
+	/** `_RBMainColorMask` rgb, 1 with colour offsets */
+	rbMain: 80,
+	/** the first further sample's colour mask rgb, `_UseMainTexAsMask` */
+	rbFirst: 84,
+	/** the second further sample's colour mask rgb, 1 when it's taken (`_USE_RGBOFFSET`) */
+	rbSecond: 88,
 } as const;
 
 /** keywords of `HGRP/Effect/VFXRefract` that {@link vfxRefractLook} draws */
-const REFRACT_KEYWORDS = new Set(['_USE_MASK', '_USE_POLARUV']);
+const REFRACT_KEYWORDS = new Set([
+	'_USE_MASK',
+	'_USE_POLARUV',
+	'_USE_RBOFFSET',
+	'_USE_RGBOFFSET',
+	'_USE_SOFTBLEND',
+]);
 
 /**
  * `HGRP/Effect/VFXRefract`: the scene behind, seen at an offset that a texture sets, masked
@@ -772,6 +789,26 @@ export const vfxRefractLook = (entry: ReadyMaterial, shader: ShaderEntry): Effec
 		[float('_RefractIsNormal', 1) !== 0 ? 1 : 0, float('_MaskTexUseRefract', 0), masked ? 1 : 0, 0],
 		RefractRow.refract2,
 	);
+	// `_USE_RGBOFFSET` only adds a second further sample to `_USE_RBOFFSET`'s, with a mask per sample
+	if (keywords.includes('_USE_RBOFFSET')) {
+		const offset = color('_RBOffset') ?? [0, 0, 0, 0];
+		const scale = 0.01 * float('_Intensity', 1);
+		const second = keywords.includes('_USE_RGBOFFSET');
+		const main = linearRgb(color('_RBMainColorMask') ?? [1, 0, 0, 1]);
+		const first = linearRgb(color(second ? '_RBOffset1ColorMask' : '_RBOffsetColorMask') ?? [0, 1, 1, 1]);
+		const last = linearRgb(color('_RBOffset2ColorMask') ?? [0, 0, 1, 1]);
+		params.set(
+			[offset[0] * scale, offset[1] * scale, float('_GOffset', -1), float('_RBIntensity', 1)],
+			RefractRow.rb,
+		);
+		params.set([main[0], main[1], main[2], 1], RefractRow.rbMain);
+		params.set([first[0], first[1], first[2], float('_UseMainTexAsMask', 0)], RefractRow.rbFirst);
+		params.set([last[0], last[1], last[2], second ? 1 : 0], RefractRow.rbSecond);
+	}
+	// soft blend: the cover fades out over `_SoftDistance` in front of what lies behind
+	if (keywords.includes('_USE_SOFTBLEND')) {
+		params[EffectRow.soft] = Math.max(float('_SoftDistance', 1), 1e-3);
+	}
 	params.set(
 		[
 			float('_NearCameraFadeDistanceStart', 0),

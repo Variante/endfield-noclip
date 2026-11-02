@@ -156,6 +156,19 @@ near camera fade. the vertex alpha scales only the offset, so a mesh whose parti
 distorting but still covers. both textures scroll by their `*UVSpeed`, rotate by `*UVRotate` degrees
 and take UV0, or polar UVs with `_USE_POLARUV` and their `*SwitchUV` set.
 
+`_USE_RBOFFSET` splits colours: the copy is sampled again at a further offset,
+`_RBOffset.xy · 0.01 · _Intensity · vertex alpha` (times r, or the normal offset's length, under
+`_UseMainTexAsMask`), and each channel keeps the brightest of the refracted sample times
+`_RBMainColorMask` and the further one times `_RBOffsetColorMask`. `_USE_RGBOFFSET` does nothing
+alone; with `_USE_RBOFFSET` it adds a third sample at `_GOffset` times the further offset, and the
+two further samples take `_RBOffset1ColorMask` and `_RBOffset2ColorMask` instead. `_RBIntensity`
+blends from the refracted sample to the split. `_USE_SOFTBLEND` fades the alpha over `_SoftDistance`
+metres of view depth in front of the opaque scene.
+
+Deep Dale Street (dung02_rdg008) uses a split for the heat haze of its fog walls
+(`p_fxmap_map02_lv008_fogwall_01`, child `refract`): particle sheets whose red and blue are pushed
+apart vertically.
+
 ### the Very Large Rift's ripples
 
 in Wuling Very Large Rift (dung02_dg005), waves ripple out from the rift at unity 297, 100, 2: two

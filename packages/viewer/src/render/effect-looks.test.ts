@@ -539,7 +539,7 @@ test('a VFXRefract samples the scene behind at an offset by its texture and is m
 		floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1 },
 		vectors: { _RefractDir: [1, 1, 0, 0] },
 	};
-	const [ground, rbOffset] = materialLooks({
+	const [ground, dissolve] = materialLooks({
 		shaders: [refract],
 		entries: [
 			material({
@@ -552,7 +552,7 @@ test('a VFXRefract samples the scene behind at an offset by its texture and is m
 				floats: { _Intensity: 0.5, _TintColorAlpha: 2, _RefractIsNormal: 0, _MaskTexUVRotate: 180 },
 				vectors: { _RefractUVSpeed: [0, 0.1, 0, 1] },
 			}),
-			material({ id: 1, blend: 'alphaBlend', keywords: ['_USE_RBOFFSET'], slots: { _RefractTex: slot(2) } }),
+			material({ id: 1, blend: 'alphaBlend', keywords: ['_USE_DISSOLVE'], slots: { _RefractTex: slot(2) } }),
 		],
 	});
 	assert.equal(ground.screen, 'refract');
@@ -569,7 +569,57 @@ test('a VFXRefract samples the scene behind at an offset by its texture and is m
 	// half a turn: cos −1
 	assert.equal(ground.params[EffectRow.anim + 4 + 2], -1);
 	assert.equal(ground.params[EffectRow.unfogged + 1], EffectKind.Refract);
-	assert.equal(rbOffset.unsupported, true);
+	assert.equal(dissolve.unsupported, true);
+	// no soft blend or colour offsets
+	assert.equal(ground.params[EffectRow.soft], 0);
+	assert.equal(ground.params[RefractRow.rbMain + 3], 0);
+});
+
+test('a VFXRefract splits colours along its offset and fades in front of the scene', () => {
+	// the Deep Dale Street fog walls' heat haze (`M_fxmap_map02_lv008_fogwall_01_09`)
+	const refract: ShaderEntry = {
+		...shader('HGRP/Effect/VFXRefract'),
+		family: 'vfxRefract',
+		floats: { _RefractIsNormal: 1, _UseMaskTexAsAlpha: 1, _Intensity: 1, _RBIntensity: 1, _GOffset: -1 },
+		colors: {
+			_RBMainColorMask: [1, 0, 0, 1],
+			_RBOffsetColorMask: [0, 1, 1, 1],
+			_RBOffset1ColorMask: [0, 1, 0, 1],
+			_RBOffset2ColorMask: [0, 0, 1, 1],
+		},
+		vectors: { _RefractDir: [1, 1, 0, 0], _RBOffset: [0, 0, 0, 0] },
+	};
+	const keywords = ['_USE_MASK', '_USE_RBOFFSET', '_USE_RGBOFFSET', '_USE_SOFTBLEND'];
+	const [haze, twoSamples] = materialLooks({
+		shaders: [refract],
+		entries: [0, 1].map((id) =>
+			material({
+				id,
+				blend: 'alphaBlend',
+				blendFactors: [5, 10],
+				cull: 'none',
+				keywords: id === 0 ? keywords : ['_USE_RBOFFSET'],
+				slots: { _MaskTex: slot(1), _RefractTex: slot(2) },
+				floats: { _GOffset: -0.89, _Intensity: 0.109, _TintColorAlpha: 0.39, _SoftDistance: 2.42 },
+				vectors: { _RBOffset: [0, 9.31, 0, 0] },
+			}),
+		),
+	});
+	assert.equal(haze.unsupported, false);
+	assert.equal(haze.screen, 'refract');
+	const rb = [...haze.params.subarray(RefractRow.rb, RefractRow.rb + 4)];
+	assert.equal(rb[0], 0);
+	assert.ok(Math.abs(rb[1] - 9.31 * 0.01 * 0.109) < 1e-6);
+	assert.ok(Math.abs(rb[2] + 0.89) < 1e-6);
+	assert.equal(rb[3], 1);
+	assert.deepEqual([...haze.params.subarray(RefractRow.rbMain, RefractRow.rbMain + 4)], [1, 0, 0, 1]);
+	assert.deepEqual([...haze.params.subarray(RefractRow.rbFirst, RefractRow.rbFirst + 4)], [0, 1, 0, 0]);
+	assert.deepEqual([...haze.params.subarray(RefractRow.rbSecond, RefractRow.rbSecond + 4)], [0, 0, 1, 1]);
+	assert.ok(Math.abs(haze.params[EffectRow.soft] - 2.42) < 1e-6);
+	// one further sample: its own mask, no second
+	assert.deepEqual([...twoSamples.params.subarray(RefractRow.rbFirst, RefractRow.rbFirst + 3)], [0, 1, 1]);
+	assert.equal(twoSamples.params[RefractRow.rbSecond + 3], 0);
+	assert.equal(twoSamples.params[EffectRow.soft], 0);
 });
 
 test('a VFXBaseV2 without a main texture draws with its shader default only when that is white', () => {

@@ -496,10 +496,16 @@ const FX_KIND_REFRACT = 4.0;
 // rows of a VFXRefract look (`RefractRow` in effect-looks.ts, in vec4s)
 const RF_REFRACT = 17u;
 const RF_REFRACT2 = 18u;
+const RF_RB = 19u;
+const RF_RB_MAIN = 20u;
+const RF_RB_FIRST = 21u;
+const RF_RB_SECOND = 22u;
 
 // VFXRefract: the composited scene seen at an offset along `_RefractDir`, by the refraction texture's remapped
-// red (or its normal's xy) times the strength and the vertex alpha, in screen UVs. the mask's colour tints it
-// and its alpha (or red) covers what lies behind; blended over by that alpha
+// red (or its normal's xy) times the strength and the vertex alpha, in screen UVs. colour offsets take one or
+// two more samples further along `_RBOffset` and keep, per channel, the brightest of the masked samples. the
+// mask's colour tints it and its alpha (or red) covers what lies behind, faded in front of the scene by the
+// soft blend; blended over by that alpha
 @fragment
 fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 	let id = in.draw;
@@ -508,6 +514,8 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 	let row = fx_row(id, RF_REFRACT);
 	let row2 = fx_row(id, RF_REFRACT2);
 	var offset = vec2f(0.0);
+	// what scales the colour offsets when `_UseMainTexAsMask` is set: the remapped red, or the normal's offset
+	var amount = 0.0;
 	{
 		let bits = fx_slot_bits(id, 0u);
 		let base = fx_slot_base(bases, bits);
@@ -519,7 +527,9 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 		);
 		let centred = t.r * (1.0 + row.w) - row.w;
 		let strength = row.z * in.color.a;
-		offset = select(row.xy * centred, (vec2f(t.a * centred, t.g) * 2.0 - 1.0) * row.xy, row2.x != 0.0) * strength;
+		let normal = (vec2f(t.a * centred, t.g) * 2.0 - 1.0) * row.xy * strength;
+		offset = select(row.xy * centred * strength, normal, row2.x != 0.0);
+		amount = select(centred, length(normal), row2.x != 0.0);
 	}
 	var mask = vec4f(1.0);
 	if (row2.z != 0.0) {
@@ -536,9 +546,32 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 		}
 	}
 	let uv = in.position.xy / frame.render_size.xy + offset;
-	let behind = textureSampleLevel(fx_background, fx_background_samp, uv, 0.0).rgb;
+	var behind = textureSampleLevel(fx_background, fx_background_samp, uv, 0.0).rgb;
+	let main = fx_row(id, RF_RB_MAIN);
+	if (main.w != 0.0) {
+		let rb = fx_row(id, RF_RB);
+		let first = fx_row(id, RF_RB_FIRST);
+		let second = fx_row(id, RF_RB_SECOND);
+		let shift = rb.xy * in.color.a * mix(1.0, amount, first.w);
+		var split = max(
+			behind * main.rgb,
+			textureSampleLevel(fx_background, fx_background_samp, uv + shift, 0.0).rgb * first.rgb,
+		);
+		if (second.w != 0.0) {
+			split = max(
+				split,
+				textureSampleLevel(fx_background, fx_background_samp, uv + shift * rb.z, 0.0).rgb * second.rgb,
+			);
+		}
+		behind = max(mix(behind, split, rb.w), vec3f(0.0));
+	}
 	let depth = dot(in.rel, frame.view_forward.xyz);
-	let alpha = saturate(mask.a * fx_near_fade(id, depth));
+	let soft = fx_row(id, FX_SOFT);
+	var soft_fade = 1.0;
+	if (soft.x > 0.0) {
+		soft_fade = saturate((fx_scene_depth(vec2i(in.position.xy)) - depth) / soft.x);
+	}
+	let alpha = saturate(mask.a * soft_fade * fx_near_fade(id, depth));
 	return vec4f(clamp(behind * mask.rgb, vec3f(0.0), vec3f(1000.0)), alpha);
 }
 

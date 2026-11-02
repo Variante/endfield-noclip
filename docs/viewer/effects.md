@@ -33,7 +33,9 @@ the water), into the composited scene with the main pass's depth attached read-o
 - `_BlendMode` 2 VFXBaseV2 layers multiply the scene (`fs_effect_multiply`).
 - [VFXRefract](../game-data/effects.md#refraction) layers then sample a copy of the scene, taken
   after the multiplies into the main pass's radiance target, and blend over it (`fs_refract`). the
-  copy holds the fog, the transparent layers and the water, which the game's copy may not.
+  copy holds the fog, the transparent layers and the water, which the game's copy may not. colour
+  offsets take their further samples from the same copy, and the soft blend reads the main pass's
+  depth.
 
 unlit VFXDitherAlpha materials with a distortion, a dissolve, a mask or polar or screen UVs draw
 through VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game
