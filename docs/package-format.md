@@ -352,11 +352,14 @@ each stream is its own vertex buffer. attributes use Unity's channel numbering (
 | 3 color    | `unorm8x4`, `float16x4` when values leave [0, 1]                                                                                                          |                                                                                                                                                                                                                                                                                                                                       |
 | 4–11 UV0–7 | `unorm16x2` dequantized when the span is ≤ 16, else `float32x2`; 8-bit sources keep `snorm8x4`/`unorm8x4`; sets with more than two components `float32x4` | half floats step 1/128 at 12, too coarse for tiling UVs; dequantized unorm16 at span ≤ 16 errs below 2^-13                                                                                                                                                                                                                            |
 
-tangents are computed in the game's left-handed frame, so `bitangent = cross(n, t) · sign` holds
-there. the mesh shader multiplies the bitangent sign by the object-to-world determinant's sign to
-handle mirrored instances. vertices whose corners disagree on the tangent frame (mirrored UV seams)
-are split. against `mikktspace` 1.1.1 on 200 meshes (864k corners), meshoptimizer's tangents agree
-to a mean dot product of 0.99978, 99.975 % within 2.5°, with matching bitangent signs in 99.998 %.
+a material is normal-mapped when a bound slot is one its shader flags `[Normal]` or, as a fallback
+for shaders that don't flag theirs, one whose name contains `normal` or `bump`; the name match is a
+heuristic. tangents are computed in the game's left-handed frame, so
+`bitangent = cross(n, t) · sign` holds there. the mesh shader multiplies the bitangent sign by the
+object-to-world determinant's sign to handle mirrored instances. vertices whose corners disagree on
+the tangent frame (mirrored UV seams) are split. against `mikktspace` 1.1.1 on 200 meshes (864k
+corners), meshoptimizer's tangents agree to a mean dot product of 0.99978, 99.975 % within 2.5°,
+with matching bitangent signs in 99.998 %.
 
 **submeshes own their vertices**: each submesh's triangles are compacted to their own vertex range
 and optimized there (vertex cache, then fetch order), indices stay local, and a submesh is one

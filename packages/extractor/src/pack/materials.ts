@@ -74,7 +74,10 @@ export class ShaderTable {
 	}
 }
 
-/** slot names treated as normal maps when the shader doesn't flag them `[Normal]` */
+/**
+ * slot names treated as normal maps when the shader doesn't flag them `[Normal]`, a heuristic
+ * (docs/package-format.md, geometry); a normal-mapped material's meshes get tangents
+ */
 const NORMAL_SLOT = /normal|bump/i;
 
 /**
