@@ -6,6 +6,7 @@
 import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 import type {
 	EffectCompare,
+	EffectNearFade,
 	EffectRole,
 	EffectStackSurface,
 	EffectStencil,
@@ -109,7 +110,7 @@ export const describeMistCard = (reader: MaterialReader): MistCardSurface | Unsu
 		distanceFade: fadeRange(float('_DistanceFadeStart', 0), float('_DistanceFadeEnd', 0)),
 		nearFade: fadeRange(float('_NearCameraFadeDistanceStart', 0), float('_NearCameraFadeDistanceEnd', 0)),
 		topFade: { contrast: float('_TopFadeContract', 1), offset: float('_TopFadeOffset', 0) },
-		softDistance: has('_USE_SOFTBLEND') ? Math.max(float('_SoftDistance', 1), 1e-3) : 0,
+		softDistance: softBlendOf(reader)?.distance ?? 0,
 	};
 };
 
@@ -247,18 +248,27 @@ const sharedOf = (reader: MaterialReader, intensity: number) => {
 			edgeWidth: float('_DissolveEmissiveEdge', 0),
 			edgeColor: scaleRgb(edge, intensity),
 		},
-		near: {
-			on: float('_UseNearCameraFade', 0) !== 0,
-			range: [
-				float('_NearCameraFadeDistanceStart', 0),
-				float('_NearCameraFadeDistanceEnd', 1),
-				float('_NearCameraFadeDistanceStart2', 1e5),
-				float('_NearCameraFadeDistanceEnd2', 2e5),
-			] satisfies [number, number, number, number],
-		},
+		near: nearFadeOf(reader),
 		ignorePostExposure: float('_IgnorePostExposure', 1),
 	};
 };
+
+/** the near camera fade every effect shader shares */
+const nearFadeOf = ({ float }: MaterialReader): EffectNearFade => ({
+	on: float('_UseNearCameraFade', 0) !== 0,
+	range: [
+		float('_NearCameraFadeDistanceStart', 0),
+		float('_NearCameraFadeDistanceEnd', 1),
+		float('_NearCameraFadeDistanceStart2', 1e5),
+		float('_NearCameraFadeDistanceEnd2', 2e5),
+	],
+});
+
+/** `_USE_SOFTBLEND`'s fade in front of what lies behind: its distance and bias, `null` without it */
+const softBlendOf = ({ float, has }: MaterialReader): { distance: number; bias: number } | null =>
+	has('_USE_SOFTBLEND')
+		? { distance: Math.max(float('_SoftDistance', 1), 1e-3), bias: float('_SoftBias', 0) }
+		: null;
 
 /** the tint of the stack shaders: the LDR `_TintColor` linearized, times its intensity, and its alpha */
 const stackTintOf = (reader: MaterialReader): { tint: Rgba; intensity: number } => {
@@ -520,9 +530,7 @@ export const describeVfxBase = (
 					opacity: float('_FresnelAffectOpacity', 0),
 				}
 			: null,
-		soft: has('_USE_SOFTBLEND')
-			? { distance: Math.max(float('_SoftDistance', 1), 1e-3), bias: float('_SoftBias', 0) }
-			: null,
+		soft: softBlendOf(reader),
 		ignorePostExposure: shared.ignorePostExposure,
 		vertexColor: float('_DisableVertColor', 0) === 0,
 		near: shared.near,
@@ -1053,9 +1061,7 @@ export const describeWaterSheet = (reader: MaterialReader): WaterSheetSurface | 
 			float('_SubsurfaceIndirect', 1),
 		],
 		indirectSaturation: float('_IndirectSaturation', 1),
-		soft: has('_USE_SOFTBLEND')
-			? { distance: Math.max(float('_SoftDistance', 1), 1e-3), bias: float('_SoftBias', 0) }
-			: null,
+		soft: softBlendOf(reader),
 		ignorePostExposure: shared.ignorePostExposure,
 		near: shared.near,
 	};
@@ -1276,16 +1282,8 @@ export const describeRefract = (reader: MaterialReader): RefractSurface | Unsupp
 		maskUsesRefraction: float('_MaskTexUseRefract', 0),
 		colorOffsets,
 		// soft blend: the cover fades out over `_SoftDistance` in front of what lies behind
-		softDistance: has('_USE_SOFTBLEND') ? Math.max(float('_SoftDistance', 1), 1e-3) : 0,
-		near: {
-			on: float('_UseNearCameraFade', 0) !== 0,
-			range: [
-				float('_NearCameraFadeDistanceStart', 0),
-				float('_NearCameraFadeDistanceEnd', 1),
-				float('_NearCameraFadeDistanceStart2', 1e5),
-				float('_NearCameraFadeDistanceEnd2', 2e5),
-			],
-		},
+		softDistance: softBlendOf(reader)?.distance ?? 0,
+		near: nearFadeOf(reader),
 	};
 };
 
