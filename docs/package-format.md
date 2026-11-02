@@ -252,14 +252,14 @@ half-extent of the instance's world bounds over its distance, relative to the sc
 size the game's thresholds were authored against is unverified, and rotated objects' bounds
 overstate it. roles: `Lit`, `ShadowOnly` (shadow proxies, from the game's flag bit 10 or a prefab
 renderer's shadow casting mode) and `Unsupported` (a [stand-in](#stand-ins) for content the viewer
-can't draw, drawn with its unsupported look); an HLOD cluster's draws are `Lit`, the tree ref holding
-them (`Hlod`) says what they are. `sourceFlags` keeps a static draw's renderer flag word, for bits
-not yet understood, and is 0 on prefab draws. `particles` indexes the [particles table](#particles)
-when the draw is a particle system's mesh, else it's `0xffffffff`. prefab renderers under an enabled
-`LODGroup` get one draw per span of its `screenRelativeHeight` thresholds they show at, measured on
-the row's own bounds rather than the LODGroup's size. the chain flags say whether its instances are
-billboards (`BillboardFacing`, `BillboardUpright`):
-their transform's rotation is then relative to the camera's, and their bounds hold every orientation
+can't draw, drawn with its unsupported look); an HLOD cluster's draws are `Lit`, the tree ref
+holding them (`Hlod`) says what they are. `sourceFlags` keeps a static draw's renderer flag word,
+for bits not yet understood, and is 0 on prefab draws. `particles` indexes the
+[particles table](#particles) when the draw is a particle system's mesh, else it's `0xffffffff`.
+prefab renderers under an enabled `LODGroup` get one draw per span of its `screenRelativeHeight`
+thresholds they show at, measured on the row's own bounds rather than the LODGroup's size. the chain
+flags say whether its instances are billboards (`BillboardFacing`, `BillboardUpright`): their
+transform's rotation is then relative to the camera's, and their bounds hold every orientation
 ([billboards](game-data/assets.md#billboards)). `CameraDistance` makes the chain's thresholds
 squared camera distances, in m², instead of screen-relative sizes, measured from the chain's
 distance origin: a point in the instance's frame, which the instance's transform takes to the world.

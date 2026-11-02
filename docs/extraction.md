@@ -462,10 +462,11 @@ the packer preserves the game's [LOD and HLOD](game-data/world.md#lod-and-hlod):
 GameObject hierarchy through exact PPtrs and returns its drawable renderers relative to the prefab
 root; the caller supplies the root's placement. the hierarchy rules it follows are in
 [prefabs](game-data/assets.md#prefabs). it walks inactive subtrees for their Transforms. for an
-enabled `LODGroup`, each LOD's renderers, matched by object identity, never by name, carry the span of
-screen-relative heights it shows them at (a renderer in consecutive LODs, one span), and the packer
-makes those the chain's thresholds; distance bands win on a renderer that has both. a skinned renderer's bounds are the union of the mesh bounds under every
-bone so weighted vertices stay inside.
+enabled `LODGroup`, each LOD's renderers, matched by object identity, never by name, carry the span
+of screen-relative heights it shows them at (a renderer in consecutive LODs, one span), and the
+packer makes those the chain's thresholds; distance bands win on a renderer that has both. a skinned
+renderer's bounds are the union of the mesh bounds under every bone so weighted vertices stay
+inside.
 
 the packer resolves a prefab from its StringPathHash key, which must name exactly one manifest path.
 a prefab's environment volumes are read separately

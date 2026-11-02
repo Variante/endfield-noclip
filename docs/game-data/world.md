@@ -126,8 +126,9 @@ the suffixes are the game's `GridIdentifier` fields (`pos`, `sceneStateId`, `are
 calls the 128 m cell a grid.
 
 - `<x>_<z>` is the cell. most entity pivots fall inside their file's cell; large objects are filed
-  by bounds and repeat in each cell they touch. the `Global` file has no cell and is always
-  resident.
+  by bounds and repeat in each cell they touch. the `Global` file has no cell; that its content is
+  always resident is unchecked, since it also holds the HLOD clusters the game streams by distance
+  ([LOD and HLOD](#lod-and-hlod)).
 - `<sceneState>` is 0 for always-loaded content and `n` for content shown only while MapConfig scene
   state `n − 1` is active (see [scene-states.md](scene-states.md)).
 - `<area>` is a stream-area id from `FBStreamArea` (below); 0 is the default area.
@@ -368,7 +369,12 @@ atlases.
 
 the game streams HLOD as the streaming layers `HLOD0`–`HLOD2`, each with its own load radius
 (`hlod0LayerLoadRadius`, …, set in its streaming settings), and calls a tier an HLOD level. the
-switch distances themselves are unknown.
+switch distances themselves are unknown. the other layers are `Default`, `Persistent`, `Collider`,
+`Tiny`, `Water`, `Lighting`, `Audio` and `RendererWithCollider`; every one but `Persistent` has a
+load radius setting, and the game's grid identifiers carry a layer next to the scene state, area and
+cell, while the chunk file names carry none. so an entity likely streams by its layer's radius
+wherever its file puts it, Global included, and detail would then drop out where the HLOD layer
+shows; where an entity's layer is stored isn't found (the InitChunkData schema is native).
 
 ## open
 
