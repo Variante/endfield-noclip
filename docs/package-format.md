@@ -525,10 +525,10 @@ unless the mode is Shape. the entry keeps:
   scale sizes the particles (`sizedByScale`, false in the `Shape` scaling mode), so a viewer reads
   no scaling mode
 - the duration, looping, start delay (a constant or two; a curve makes the system a stand-in),
-  particle cap and simulation speed. a system that stores a cap of 0
-  ([particle systems](game-data/assets.md#particle-systems)) gets the most one longest lifetime of
-  emission holds: the top rate times the lifetime, plus each loop's top burst counts times the loops
-  that lifetime spans
+  particle cap and simulation speed, and the emission bound: the most one longest lifetime of
+  emission holds, the top rate times the lifetime plus each loop's top burst counts times the loops
+  that lifetime spans. a system that stores a cap of 0
+  ([particle systems](game-data/assets.md#particle-systems)) gets the bound as its cap
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
   `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s.
   their curves and gradients are the `AnimationCurve` and `Gradient` of

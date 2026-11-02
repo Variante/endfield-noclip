@@ -191,6 +191,11 @@ export interface ParticleSystemInfo {
 	startDelay: MinMaxCurveInfo;
 	/** the most particles alive at once */
 	maxParticles: number;
+	/**
+	 * the most particles one longest lifetime of emission holds, ignoring {@link maxParticles}. above the cap,
+	 * which particles live depends on the emissions the cap turned away before
+	 */
+	emissionBound: number;
 	/** the system's time scale */
 	simulationSpeed: number;
 	/** seconds; read at the emission time over the duration */

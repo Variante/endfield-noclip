@@ -56,7 +56,7 @@ describe('readSplineMover', () => {
 		assert.equal(info.startLifetime.mode, CurveMode.Constant);
 		assert.ok(Math.abs(info.startLifetime.scalar - 60.001) < 1e-9);
 		assert.equal(info.simulationSpeed, 1.4);
-		assert.equal(info.maxParticles, 14);
+		assert.equal(info.maxParticles, 13);
 		assert.equal(info.shape?.kind, ParticleShapeKind.Box);
 		assert.equal(info.spline?.segments.length, 2);
 		assert.equal(info.startRotation[0].scalar, Math.PI);

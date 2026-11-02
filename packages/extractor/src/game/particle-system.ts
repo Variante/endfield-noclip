@@ -560,13 +560,12 @@ export const readParticleSystem = (
 
 	const duration = Math.max(numberField(system, 'lengthInSec'), 1e-3);
 	const startLifetime = curve(initial, 'startLifetime');
+	const bound = emissionBound(rate, bursts, startLifetime, duration);
 	let maxParticles = numberField(initial, 'maxNumParticles');
 	if (maxParticles === 0) {
 		// some effects store a cap of 0 yet show in game (the tilted torch flames), so the game must size them
 		// itself. take the most one lifetime's emission can hold, which also keeps a ring buffer from piling up
-		const life = curveReach(startLifetime);
-		const burstsPerLoop = bursts.reduce((sum, burst) => sum + curveReach(burst.count) * burst.cycles, 0);
-		maxParticles = Math.ceil(curveReach(rate) * life + burstsPerLoop * Math.ceil(life / duration - 1e-6));
+		maxParticles = bound;
 	}
 	const delay = curve(system, 'startDelay');
 	// Unity's inspector offers a constant or two for the delay; a curve would need a time to read it at
@@ -589,6 +588,7 @@ export const readParticleSystem = (
 			looping: booleanField(system, 'looping'),
 			startDelay: delay,
 			maxParticles,
+			emissionBound: bound,
 			simulationSpeed: numberField(system, 'simulationSpeed'),
 			startLifetime,
 			startColor: readMinMaxGradient(objectField(initial, 'startColor')),
@@ -617,6 +617,25 @@ export const readParticleSystem = (
 		},
 		meshes,
 	};
+};
+
+/**
+ * @param rate particles per second, a constant or two
+ * @param bursts each loop's bursts
+ * @param startLifetime the particles' lifetime
+ * @param duration seconds per loop
+ * @returns the most particles one longest lifetime of emission holds, whatever the cap: the top rate times
+ *   the lifetime, plus each loop's top burst counts times the loops that lifetime spans
+ */
+export const emissionBound = (
+	rate: MinMaxCurveInfo,
+	bursts: readonly ParticleBurstInfo[],
+	startLifetime: MinMaxCurveInfo,
+	duration: number,
+): number => {
+	const life = Math.max(curveReach(startLifetime), 0);
+	const perLoop = bursts.reduce((sum, burst) => sum + curveReach(burst.count) * burst.cycles, 0);
+	return Math.ceil(curveReach(rate) * life + perLoop * Math.ceil(life / duration - 1e-6));
 };
 
 /**

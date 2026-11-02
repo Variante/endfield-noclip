@@ -78,7 +78,7 @@ const line = (from: number, to: number): MinMaxCurveInfo => ({
 	minCurve: null,
 });
 
-const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo => ({
+const fields = (overrides: Partial<ParticleSystemInfo>): Omit<ParticleSystemInfo, 'emissionBound'> => ({
 	renderMode: ParticleRenderMode.Mesh,
 	stretch: null,
 	sizedByScale: true,
@@ -130,6 +130,15 @@ const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo
 	spline: null,
 	...overrides,
 });
+
+/** a system, its emission bound worked out from its constant rate, bursts and lifetime as the packer does */
+const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo => {
+	const info = fields(overrides);
+	const life = info.startLifetime.scalar;
+	const perLoop = info.bursts.reduce((sum, burst) => sum + burst.count.scalar * burst.cycles, 0);
+	const bound = Math.ceil(info.rate.scalar * life + perLoop * Math.ceil(life / info.duration - 1e-6));
+	return { ...info, emissionBound: overrides.emissionBound ?? bound };
+};
 
 const sheet = (overrides: Partial<ParticleTextureSheetInfo> = {}): ParticleTextureSheetInfo => ({
 	tiles: [8, 8],

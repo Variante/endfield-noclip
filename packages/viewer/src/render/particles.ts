@@ -578,7 +578,7 @@ export class ParticleSimulation {
 				this.#lookback = Math.max(this.#longest, kept / perSecond + info.duration);
 			}
 		}
-		this.#capped = info.ringBuffer === null && this.#uncappedBound() > info.maxParticles;
+		this.#capped = info.ringBuffer === null && info.emissionBound > info.maxParticles;
 		this.#meshTotal = info.meshWeights.reduce((sum, weight) => sum + weight, 0);
 		const rotation = info.shape?.rotation ?? [0, 0, 0];
 		this.#shapeRotation = eulerQuaternion(
@@ -599,19 +599,7 @@ export class ParticleSimulation {
 		if (ringBuffer !== null) {
 			return maxParticles;
 		}
-		return Math.min(maxParticles, this.#uncappedBound());
-	}
-
-	/** the most particles one lifetime of emission can hold, ignoring the cap */
-	#uncappedBound(): number {
-		const { bursts, duration } = this.info;
-		const loops = Math.ceil(this.#longest / duration) + 1;
-		const burstCount = bursts.reduce(
-			(sum, burst) => sum + Math.max(upperBound(burst.count), 0) * burst.cycles,
-			0,
-		);
-		const rate = Math.max(upperBound(this.info.rate), 0);
-		return Math.ceil(rate * this.#longest + burstCount * loops) + 1;
+		return Math.min(maxParticles, this.info.emissionBound);
 	}
 
 	/**

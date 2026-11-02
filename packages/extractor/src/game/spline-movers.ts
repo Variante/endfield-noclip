@@ -25,7 +25,7 @@ import {
 } from '@endfield-noclip/package-format/particles';
 
 import type { AssetResolver, ObjectRef } from './assets.ts';
-import { readAnimationCurve } from './particle-system.ts';
+import { emissionBound, readAnimationCurve } from './particle-system.ts';
 
 /** the most LOD groups a mover picks from that the viewer's mesh weights hold */
 const MAX_GROUPS = 4;
@@ -280,6 +280,15 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 		min: clamp01(startLifetime.min) * traverse,
 	};
 	const rate = numberField(desc, 'emissionRateOverTime');
+	const rateCurve: MinMaxCurveInfo = {
+		mode: CurveMode.Constant,
+		scalar: rate,
+		min: rate,
+		curve: null,
+		minCurve: null,
+	};
+	// a mover has no cap of its own; it holds what one lifetime of its stream emits
+	const bound = emissionBound(rateCurve, [], lifetime, 1);
 	const box = aabbField(desc, 'aabb');
 	const size = curve('startSize');
 	const growth = curve('sizeOverLifeTime');
@@ -295,7 +304,8 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 			duration: 1,
 			looping: true,
 			startDelay: zero,
-			maxParticles: Math.ceil(Math.max(rate, 0) * Math.max(lifetime.scalar, lifetime.min)) + 1,
+			maxParticles: bound,
+			emissionBound: bound,
 			simulationSpeed: numberField(desc, 'simulateSpeed'),
 			startLifetime: lifetime,
 			startColor: {
@@ -314,7 +324,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 				scaled(curve('startRotationZ'), radians),
 			],
 			gravityModifier: zero,
-			rate: { mode: CurveMode.Constant, scalar: rate, min: rate, curve: null, minCurve: null },
+			rate: rateCurve,
 			bursts: [],
 			// objects start anywhere in the box, offset from the spline
 			shape: {

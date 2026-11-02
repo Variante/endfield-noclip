@@ -29,8 +29,8 @@ and rewrites them once per frame the emitter is selected. so every mesh shader d
 unchanged, and shadow and effect passes need nothing of their own. a system whose start colour isn't
 white writes it into its rows (`ROW_COLORED` in
 [`render/instance-rows.ts`](../../packages/viewer/src/render/instance-rows.ts)), where it multiplies
-the mesh's vertex colours in the mesh and effect shaders. emitters take as many rows as one lifetime
-of emission can hold, up to the cap. systems the packer froze into a single particle
+the mesh's vertex colours in the mesh and effect shaders. emitters take as many rows as the
+package's emission bound, up to the cap. systems the packer froze into a single particle
 ([particle systems](../game-data/assets.md#particle-systems)) aren't emitters: they arrive as plain
 mesh instances.
 
