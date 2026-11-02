@@ -108,8 +108,9 @@ path can't blend, shaders without a family (`HGRP/CharacterNPR`, `Hidden/HGRP/Li
 `HGRP/Effect/VFXSmoke_SixWay` and the like, which `pack` lists per shader), and materials that
 didn't convert. stand-ins (`DrawRole.Unsupported`) take the same look whatever their material.
 
-the pack's `debug/assets.json` lists per material whether its shader has no look (`unsupported`),
-the surface keywords the viewer doesn't draw (`keywordsNotDrawn`, from
+the pack's `debug/assets.json` lists per material why it's unsupported (`unsupported`, from its
+[surface](../package-format.md#materials)), the surface keywords the viewer doesn't draw
+(`keywordsNotDrawn`, from
 [game/material-support.ts](../../packages/extractor/src/game/material-support.ts), which mirrors
 what `render/materials.ts` reads) and the texture slots whose reference couldn't be followed
 (`slotErrors`). effect materials rejected for a keyword or texture combination aren't listed there;

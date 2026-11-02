@@ -15,7 +15,7 @@ import {
 	UV1_SHIFT,
 } from './materials.ts';
 
-test('effect geometry without an effect look and shaders without a family show as unsupported rather than shaded as Lit', () => {
+test('effect geometry without an effect look and unsupported surfaces show as unsupported rather than shaded as Lit', () => {
 	const shaders: ShaderEntry[] = [
 		{
 			name: 'HGRP/Effect/VFXBaseV2',
@@ -48,6 +48,7 @@ test('effect geometry without an effect look and shaders without a family show a
 	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
 		id,
 		status: 'ready',
+		surface: id === 2 ? { kind: 'unsupported', reason: 'no look' } : { kind: 'legacy' },
 		shader: id,
 		keywords: [],
 		renderQueue: 2000,
@@ -80,23 +81,24 @@ test('effect geometry without an effect look and shaders without a family show a
 	assert.equal(unsupported.params[LookRow.surface + 2], 0.5);
 });
 
-test('water proxies and reflection-only effects are not drawn, and additive non-effects show as unsupported', () => {
-	const shader = (name: string, family: ShaderEntry['family']): ShaderEntry => ({
-		name,
-		family,
+test('undrawn surfaces are not drawn, and unsupported ones show the checker', () => {
+	const shader: ShaderEntry = {
+		name: 'HGRP/Lit',
+		family: 'lit',
 		floats: {},
 		colors: {},
 		vectors: {},
 		textures: {},
 		normalMaps: [],
-	});
-	const entry = (id: number, blend: ReadyMaterial['blend']): ReadyMaterial => ({
+	};
+	const entry = (id: number, surface: ReadyMaterial['surface']): ReadyMaterial => ({
 		id,
 		status: 'ready',
-		shader: id,
+		surface,
+		shader: 0,
 		keywords: [],
 		renderQueue: 2000,
-		blend,
+		blend: 'opaque',
 		blendFactors: null,
 		alphaClipThreshold: null,
 		cull: 'back',
@@ -107,17 +109,15 @@ test('water proxies and reflection-only effects are not drawn, and additive non-
 		colors: {},
 		vectors: {},
 	});
-	const [proxy, additive, reflection] = materialLooks({
-		shaders: [
-			shader('HGRP/WaterProxy', 'waterProxy'),
-			shader('HGRP/Lit', 'lit'),
-			shader('HGRP/Effect/VFXReflectionPass', 'unknown'),
+	const [undrawn, unsupported] = materialLooks({
+		shaders: [shader],
+		entries: [
+			entry(0, { kind: 'undrawn', reason: 'a water proxy' }),
+			entry(1, { kind: 'unsupported', reason: 'additive' }),
 		],
-		entries: [entry(0, 'opaque'), entry(1, 'additive'), entry(2, 'opaque')],
 	});
-	assert.equal(proxy.drawn, false);
-	assert.equal(additive.unsupported, true);
-	assert.deepEqual([reflection.drawn, reflection.unsupported], [false, false]);
+	assert.deepEqual([undrawn.drawn, undrawn.unsupported], [false, false]);
+	assert.deepEqual([unsupported.drawn, unsupported.unsupported], [true, true]);
 });
 
 test('unconverted materials show as unsupported, and premultiplied glass is transparent with its flag set', () => {
@@ -133,6 +133,7 @@ test('unconverted materials show as unsupported, and premultiplied glass is tran
 	const entry = (id: number, blend: ReadyMaterial['blend']): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: [],
 		renderQueue: 3000,
@@ -171,6 +172,7 @@ test('matte paintings are unlit, cast no shadows and test the texture alpha agai
 	const entry: ReadyMaterial = {
 		id: 0,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: ['_ALPHATEST_ON'],
 		renderQueue: 2000,
@@ -208,6 +210,7 @@ test('dither-alpha effects shade as opaque two-sided surfaces from the tinted ma
 	const material = (id: number, overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: ['_NORMAL_MAP', '_USE_MAIN2'],
 		renderQueue: 2450,
@@ -275,6 +278,7 @@ test('dither-alpha effects without a second texture dither by the scaled alpha o
 	const material = (id: number, floats: Record<string, number>): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: [],
 		renderQueue: 2450,
@@ -338,6 +342,7 @@ test('portal effects: an opaque mask writes only the stencil, its effects test i
 	const material = (id: number, overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: [],
 		renderQueue: 3000,
@@ -414,6 +419,7 @@ test('glass is transparent, casts no shadow and takes its opacity from the tint 
 	const entry: ReadyMaterial = {
 		id: 0,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: ['_TWO_BASEMAP'],
 		renderQueue: 3000,
@@ -455,6 +461,7 @@ test('pulsing tower lamps: _EMISSIVE_ANIM puts its pulse in the free parallax ro
 	const lamp = (id: number, keywords: string[], floats: Record<string, number>): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords,
 		renderQueue: 2000,
@@ -518,6 +525,7 @@ test('erosion rock: its maps tile by their own properties on UV set 0, the ramp 
 	const entry: ReadyMaterial = {
 		id: 0,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords: [],
 		renderQueue: 2000,
@@ -583,6 +591,7 @@ test('originium crystals: UV set 1 base colour, tri-channel tint, detail and par
 	const entry = (keywords: string[]): ReadyMaterial => ({
 		id: 0,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords,
 		renderQueue: 2000,
@@ -665,6 +674,7 @@ test('moss rock: the top layer takes the parallax slots and rows, its own tiling
 			{
 				id: 0,
 				status: 'ready',
+				surface: { kind: 'legacy' },
 				shader: 0,
 				keywords: ['_LAYERBLEND_TOP', '_TERRAIN_BLEND', '_TWO_BASEMAP'],
 				renderQueue: 2000,
@@ -728,6 +738,7 @@ test('moss mounds: the mask layer takes its mask map into the emissive slot, on 
 	): ReadyMaterial => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: 0,
 		keywords,
 		renderQueue: 2450,
@@ -815,6 +826,7 @@ test("surfaces whose shader writes a _StencilRef with the lit decals' bit keep t
 	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
 		id,
 		status: 'ready',
+		surface: { kind: 'legacy' },
 		shader: id,
 		keywords: [],
 		renderQueue: 2000,

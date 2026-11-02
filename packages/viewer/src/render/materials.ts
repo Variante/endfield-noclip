@@ -22,18 +22,6 @@ import {
 } from './effect-looks.ts';
 
 /**
- * shader families with no pass the game draws in the main view: the water pipeline's proxy meshes, which the
- * water pass stands in for
- */
-const UNDRAWN_FAMILIES = new Set(['waterProxy']);
-
-/**
- * shaders the game never shades into the image: VFXReflectionPass only writes screen-space reflections'
- * normal and roughness (`docs/game-data/effects.md#reflection-only-effects`)
- */
-const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
-
-/**
  * shader families drawn only through looks of their own (fog volumes, light beams, effects, projected
  * decals); materials of theirs without one get {@link unsupportedLook}, since the opaque path would shade them
  * as solid surfaces (a decal as its projection box)
@@ -453,51 +441,57 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			looks[entry.id] = unsupportedLook();
 			continue;
 		}
-		const shader = materials.shaders[entry.shader];
-		if (UNDRAWN_FAMILIES.has(shader.family) || UNDRAWN_SHADERS.has(shader.name)) {
-			looks[entry.id] = emptyLook({ drawn: false });
-			continue;
-		}
-		const effect = effectLookOf(entry, shader) ?? portalMaskLook(entry, shader);
-		if (effect !== null) {
-			looks[entry.id] = effect;
-			continue;
-		}
-		const dither = shader.family === 'vfxDitherAlpha' ? ditherAlphaLook(entry, shader) : null;
-		if (dither !== null) {
-			looks[entry.id] = dither;
-			continue;
-		}
-		// other effect meshes need their own opacity, distortion and animation passes, and the opaque path has
-		// no additive blending
-		// shaders without a family of their own have no look: drawing them as Lit would hide that they're wrong
-		if (
-			EFFECT_FAMILIES.has(shader.family) ||
-			shader.family === 'unknown' ||
-			shader.name.startsWith('HGRP/Effect/') ||
-			entry.blend === 'additive'
-		) {
-			looks[entry.id] = unsupportedLook();
-			continue;
-		}
-		switch (shader.family) {
-			case 'mattePainting': {
-				looks[entry.id] = mattePaintingLook(entry, shader);
+		const surface = entry.surface;
+		switch (surface.kind) {
+			case 'undrawn': {
+				looks[entry.id] = emptyLook({ drawn: false });
 				break;
 			}
-			case 'erosion': {
-				looks[entry.id] = erosionLook(entry, shader);
+			case 'unsupported': {
+				looks[entry.id] = unsupportedLook();
 				break;
 			}
-			default: {
-				looks[entry.id] = lookOf(entry, shader);
+			case 'legacy': {
+				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
+				break;
 			}
-		}
-		if (keepsLitDecalsOff(entry, shader)) {
-			looks[entry.id].params[LookRow.detail2 + 3] = 1;
 		}
 	}
 	return looks;
+};
+
+/** the look of a material whose family the extractor doesn't describe yet, from its raw properties */
+const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
+	const effect = effectLookOf(entry, shader) ?? portalMaskLook(entry, shader);
+	if (effect !== null) {
+		return effect;
+	}
+	const dither = shader.family === 'vfxDitherAlpha' ? ditherAlphaLook(entry, shader) : null;
+	if (dither !== null) {
+		return dither;
+	}
+	// other effect meshes need their own opacity, distortion and animation passes
+	if (EFFECT_FAMILIES.has(shader.family) || shader.name.startsWith('HGRP/Effect/')) {
+		return unsupportedLook();
+	}
+	let look: MaterialLook;
+	switch (shader.family) {
+		case 'mattePainting': {
+			look = mattePaintingLook(entry, shader);
+			break;
+		}
+		case 'erosion': {
+			look = erosionLook(entry, shader);
+			break;
+		}
+		default: {
+			look = lookOf(entry, shader);
+		}
+	}
+	if (keepsLitDecalsOff(entry, shader)) {
+		look.params[LookRow.detail2 + 3] = 1;
+	}
+	return look;
 };
 
 /** shaders whose G-buffer pass writes the material's `_StencilRef` into the stencil */

@@ -1,0 +1,58 @@
+/**
+ * interprets a converted material into the surface description the viewer draws
+ * (`package-format/surfaces.ts`): which model, with the shader's properties, keywords and formulas applied. a
+ * material whose keywords or texture combinations the viewer doesn't draw becomes `unsupported` with the
+ * reason, which the pack lists in `debug/assets.json`. stays out of the conversion worker's imports.
+ */
+
+import type { ReadyMaterial, ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
+import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
+
+/** a converted material's values: its overrides of its shader's defaults, slots and render state */
+export type MaterialValues = Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;
+
+/**
+ * shader families drawn only through effect looks of their own (fog volumes, light beams, effects, projected
+ * decals)
+ */
+const EFFECT_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
+	'decal',
+	'fogSimple',
+	'volumetricBeam',
+	'vfxFakeVolumeFog',
+	'vfxBase',
+	'vfxAdvance',
+	'vfxRefract',
+	'vfxDitherAlpha',
+	'waterDecal',
+	'water',
+]);
+
+/**
+ * shaders the game never shades into the image: VFXReflectionPass only writes screen-space reflections'
+ * normal and roughness (`docs/game-data/effects.md#reflection-only-effects`)
+ */
+const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
+
+/**
+ * @param material a converted material
+ * @param shader its shader's entry
+ * @returns its surface description
+ */
+export const describeMaterial = (material: MaterialValues, shader: ShaderEntry): MaterialSurface => {
+	// the water pipeline's proxy meshes, which the water pass stands in for
+	if (shader.family === 'waterProxy') {
+		return { kind: 'undrawn', reason: 'a water proxy, which feeds the water pass' };
+	}
+	if (UNDRAWN_SHADERS.has(shader.name)) {
+		return { kind: 'undrawn', reason: 'writes only the reflections’ inputs' };
+	}
+	if (shader.family === 'unknown') {
+		return { kind: 'unsupported', reason: 'the viewer has no look for this shader' };
+	}
+	// the opaque path has no additive blending
+	if (material.blend === 'additive' && !EFFECT_FAMILIES.has(shader.family)) {
+		return { kind: 'unsupported', reason: 'additive blending outside the effect shaders' };
+	}
+	return { kind: 'legacy' };
+};

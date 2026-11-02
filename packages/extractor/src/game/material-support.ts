@@ -1,11 +1,9 @@
 /**
  * what the viewer draws of a material, for the pack's debug index: the keywords of the surface shaders it
- * reads, so a material's other keywords can be listed as not drawn, and the shaders it has no look for. the
- * lists mirror what `viewer/src/render/materials.ts` reads; effect shaders check their keywords there and
- * fall back to the unsupported look on any they don't draw.
+ * reads, so a material's other keywords can be listed as not drawn. the lists mirror what
+ * `viewer/src/render/materials.ts` reads; effect shaders check their keywords there and fall back to the
+ * unsupported look on any they don't draw.
  */
-
-import type { ShaderFamily } from '@endfield-noclip/package-format/materials';
 
 /** keywords every surface look reads: the alpha test and both emission sources */
 const SURFACE_KEYWORDS = ['_ALPHATEST_ON', '_EMISSIVE_MAP', '_EMISSIVE_MASK'];
@@ -53,22 +51,4 @@ const DRAWN_KEYWORDS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
 export const keywordsNotDrawn = (shader: string, keywords: readonly string[]): string[] => {
 	const drawn = DRAWN_KEYWORDS.get(shader);
 	return drawn === undefined ? [] : keywords.filter((keyword) => !drawn.has(keyword));
-};
-
-/**
- * shaders of the `unknown` family the viewer leaves undrawn on purpose, as the game draws nothing visible
- * with them (`UNDRAWN_SHADERS` in the viewer's materials.ts)
- */
-const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
-
-/**
- * @param family a material's shader family
- * @param shader its shader name
- * @returns why the viewer has no look for the material, or `null` when it has one or leaves it undrawn on
- *   purpose
- */
-export const unsupportedShader = (family: ShaderFamily, shader: string): string | null => {
-	return family === 'unknown' && !UNDRAWN_SHADERS.has(shader)
-		? 'the viewer has no look for this shader'
-		: null;
 };

@@ -1,4 +1,5 @@
 import type { UnconvertedEntry } from './entries.ts';
+import type { MaterialSurface } from './surfaces.ts';
 
 /** `tables/materials.json`; entry `i` has id `i` */
 export interface MaterialTable {
@@ -98,6 +99,8 @@ export interface ReadyMaterial {
 	colors: Record<string, [r: number, g: number, b: number, a: number]>;
 	/** overrides of {@link ShaderEntry.vectors} */
 	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
+	/** what the material draws, interpreted by the extractor */
+	surface: MaterialSurface;
 }
 
 /**

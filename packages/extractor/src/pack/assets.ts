@@ -17,8 +17,9 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
+import { describeMaterial } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
-import { keywordsNotDrawn, unsupportedShader } from '../game/material-support.ts';
+import { keywordsNotDrawn } from '../game/material-support.ts';
 import type { MaterialValues } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
@@ -223,7 +224,7 @@ export interface AssetDebug {
 /** a material's debug-index row */
 export interface MaterialDebug extends AssetDebug {
 	shader: string | null;
-	/** why the viewer has no look for the material's shader, or `null` */
+	/** why the viewer can't draw the material (its surface is `unsupported`), or `null` */
 	unsupported: string | null;
 	/** keywords of the material's surface shader that the viewer doesn't draw */
 	keywordsNotDrawn: string[];
@@ -279,8 +280,8 @@ export interface AssetConversion {
 		failures: Record<string, number>;
 		/** texture objects with a setting WebGPU can't express, by approximation */
 		textureApproximations: Record<string, number>;
-		/** materials whose shader has no look in the viewer, by shader */
-		unsupportedShaders: Record<string, number>;
+		/** materials the viewer can't draw, by `<shader>: <reason>` */
+		unsupportedMaterials: Record<string, number>;
 		/** materials with a surface keyword the viewer doesn't draw, by `<shader> <keyword>` */
 		keywordsNotDrawn: Record<string, number>;
 	};
@@ -336,7 +337,6 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 	const shaders = new ShaderTable();
 	const materialEntries: MaterialEntry[] = [];
 	const materialDebug: MaterialDebug[] = [];
-	const unsupportedShaders: Record<string, number> = {};
 	const keywordsNotDrawnCounts: Record<string, number> = {};
 	const normalMapUv: (number | null)[] = [];
 	/** texture objects in first-use order, with a provisional id each */
@@ -400,10 +400,6 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 					return useTexture(resolved.ref, place);
 				},
 			);
-			const unsupported = unsupportedShader(loaded.classification.family, loaded.shader.name);
-			if (unsupported !== null) {
-				unsupportedShaders[loaded.shader.name] = (unsupportedShaders[loaded.shader.name] ?? 0) + 1;
-			}
 			const notDrawn = keywordsNotDrawn(loaded.shader.name, converted.material.keywords);
 			for (const keyword of notDrawn) {
 				const key = `${loaded.shader.name} ${keyword}`;
@@ -417,13 +413,14 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 							colors: { ...converted.material.colors, ...overrides.colors },
 							vectors: { ...converted.material.vectors, ...overrides.vectors },
 						};
-			materialEntries.push({ id, status: 'ready', ...material });
+			// described once its textures have their final ids
+			materialEntries.push({ id, status: 'ready', ...material, surface: { kind: 'legacy' } });
 			materialDebug.push({
 				object: objectKey(ref),
 				name: loaded.record.name,
 				shader: loaded.shader.name,
 				error: null,
-				unsupported,
+				unsupported: null,
 				keywordsNotDrawn: notDrawn,
 				slotErrors,
 			});
@@ -579,6 +576,22 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 	timer.end('textures');
 	// #endregion
 
+	// #region surfaces
+	const unsupportedMaterials: Record<string, number> = {};
+	for (const entry of materialEntries) {
+		if (entry.status !== 'ready') {
+			continue;
+		}
+		const shader = shaders.shaders[entry.shader];
+		entry.surface = describeMaterial(entry, shader);
+		if (entry.surface.kind === 'unsupported') {
+			const key = `${shader.name}: ${entry.surface.reason}`;
+			unsupportedMaterials[key] = (unsupportedMaterials[key] ?? 0) + 1;
+			materialDebug[entry.id].unsupported = entry.surface.reason;
+		}
+	}
+	// #endregion
+
 	return {
 		geometries: geometryEntries,
 		materials: { shaders: shaders.shaders, entries: materialEntries },
@@ -598,7 +611,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 			textureDuplicates,
 			failures,
 			textureApproximations,
-			unsupportedShaders,
+			unsupportedMaterials,
 			keywordsNotDrawn: keywordsNotDrawnCounts,
 		},
 	};

@@ -46,6 +46,7 @@ const slot = (texture: number, scale: [number, number] = [1, 1]): TextureSlot =>
 const material = (overrides: Partial<ReadyMaterial>): ReadyMaterial => ({
 	id: 0,
 	status: 'ready',
+	surface: { kind: 'legacy' },
 	shader: 0,
 	keywords: [],
 	renderQueue: 3000,

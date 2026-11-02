@@ -105,7 +105,7 @@ const LIT_UV_SET_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
 
 /** a material converted for the table */
 export interface ConvertedMaterial {
-	material: Omit<ReadyMaterial, 'id' | 'status'>;
+	material: Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;
 	/** the lowest UV set a bound normal map samples, or `null` without one; meshes drawn with it get tangents */
 	normalMapUv: number | null;
 }

@@ -427,6 +427,13 @@ look. materials store overrides only because lit materials declare ~190 floats e
 (stale) properties Unity keeps from earlier shaders are dropped
 ([materials.ts](../packages/extractor/src/pack/materials.ts)).
 
+each material also carries its `surface`, the extractor's interpretation of it
+([surfaces.ts](../packages/package-format/src/surfaces.ts),
+[game/material-describe.ts](../packages/extractor/src/game/material-describe.ts)): a description of
+what it draws, `undrawn` for materials the game draws nothing visible with, or `unsupported` with
+the reason the viewer can't draw it. families still marked `legacy` are drawn from the raw
+properties while their descriptions are written.
+
 **decal copies**: the packer gives each rect decal placement a copy of its material carrying the
 placement's colour and UV transform (`DECAL_COLOR_PROPERTY` and `DECAL_UV_PROPERTY` in the package's
 materials), and the box it draws is the game's VFXDecal cube
