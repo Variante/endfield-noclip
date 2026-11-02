@@ -1252,6 +1252,7 @@ export const describeLitDecal = (
 
 /** keywords of `HGRP/Effect/VFXRefract` that are drawn */
 const REFRACT_KEYWORDS = new Set([
+	'_USE_DISSOLVE',
 	'_USE_MASK',
 	'_USE_POLARUV',
 	'_USE_RBOFFSET',
@@ -1310,6 +1311,24 @@ export const describeRefract = (reader: MaterialReader): RefractSurface | Unsupp
 		}
 		mask = { ...masked, redAlpha: float('_UseMaskTexAsAlpha', 1) !== 0 };
 	}
+	let dissolve: RefractSurface['dissolve'] = null;
+	if (has('_USE_DISSOLVE')) {
+		// the dissolve texture always reads UV0, without a polar switch
+		const bound = reader.slot('_DissolveTex') ?? UNSET_WHITE;
+		if (bound.uv !== 0) {
+			return unsupported(`_DissolveTex on UV set ${bound.uv}`);
+		}
+		const angle = (float('_DissolveUVRotate', 0) * Math.PI) / 180;
+		dissolve = {
+			texture: effectTexture(bound, color('_DissolveUVSpeed') ?? [0, 0, 0, 0], [
+				Math.cos(angle),
+				-Math.sin(angle),
+			]),
+			threshold: float('_DissolveScheduleOffset', 0) * 2.02 - 1.01,
+			sharpness: float('_DissolveEdgeSharp', 1),
+			affectsAlpha: float('_DissolveAffectBlend', 0),
+		};
+	}
 	const dir = color('_RefractDir') ?? [1, 1, 0, 0];
 	let colorOffsets: RefractSurface['colorOffsets'] = null;
 	// `_USE_RGBOFFSET` only adds a second further sample to `_USE_RBOFFSET`'s, with a mask per sample
@@ -1338,6 +1357,7 @@ export const describeRefract = (reader: MaterialReader): RefractSurface | Unsupp
 		isNormal: float('_RefractIsNormal', 1) !== 0,
 		maskUsesRefraction: float('_MaskTexUseRefract', 0),
 		colorOffsets,
+		dissolve,
 		// soft blend: the cover fades out over `_SoftDistance` in front of what lies behind
 		softDistance: softBlendOf(reader)?.distance ?? 0,
 		near: nearFadeOf(reader),

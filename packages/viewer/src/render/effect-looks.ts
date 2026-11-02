@@ -360,6 +360,8 @@ export const RefractRow = {
 	rbFirst: 84,
 	/** the second further sample's colour mask rgb, 1 when it's taken (`_USE_RGBOFFSET`) */
 	rbSecond: 88,
+	/** the dissolve (slot 2): threshold, sharpness, how much it scales the alpha, 1 when dissolving */
+	dissolve: 104,
 } as const;
 
 /** a refraction slot's source bits: polar UVs about the centre, or UV set 0 */
@@ -387,6 +389,11 @@ export const refractLook = (refract: RefractSurface): EffectLook => {
 		params.set([...offsets.main, 1], RefractRow.rbMain);
 		params.set([...offsets.first, offsets.mainAsMask], RefractRow.rbFirst);
 		params.set([...(offsets.second ?? [0, 0, 1]), offsets.second === null ? 0 : 1], RefractRow.rbSecond);
+	}
+	const { dissolve } = refract;
+	if (dissolve !== null) {
+		setSlot(look, 2, dissolve.texture, polarBits(false));
+		params.set([dissolve.threshold, dissolve.sharpness, dissolve.affectsAlpha, 1], RefractRow.dissolve);
 	}
 	params[EffectRow.soft] = refract.softDistance;
 	setNear(look, refract.near);

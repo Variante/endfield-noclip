@@ -542,6 +542,7 @@ const RF_RB = 19u;
 const RF_RB_MAIN = 20u;
 const RF_RB_FIRST = 21u;
 const RF_RB_SECOND = 22u;
+const RF_DISSOLVE = 26u;
 
 // VFXRefract: the composited scene seen at an offset along `_RefractDir`, by the refraction texture's remapped
 // red (or its normal's xy) times the strength and the vertex alpha, in screen UVs. colour offsets take one or
@@ -572,6 +573,21 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 		let normal = (vec2f(t.a * centred, t.g) * 2.0 - 1.0) * row.xy * strength;
 		offset = select(row.xy * centred * strength, normal, row2.x != 0.0);
 		amount = select(centred, length(normal), row2.x != 0.0);
+	}
+	// the dissolve scales the offset (not the colour offsets' further shift), and the alpha by its share
+	let dissolve_row = fx_row(id, RF_DISSOLVE);
+	var dissolved = 1.0;
+	if (dissolve_row.w != 0.0) {
+		let bits = fx_slot_bits(id, 2u);
+		let base = fx_slot_base(bases, bits);
+		let t = fx_sample(
+			2u,
+			fx_slot_coords(id, 2u, base[0]),
+			fx_slot_gradient(id, 2u, base[1]) * bias,
+			fx_slot_gradient(id, 2u, base[2]) * bias,
+		);
+		dissolved = saturate((t.r - dissolve_row.x) * dissolve_row.y);
+		offset *= dissolved;
 	}
 	var mask = vec4f(1.0);
 	if (row2.z != 0.0) {
@@ -613,7 +629,7 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 	if (soft.x > 0.0) {
 		soft_fade = saturate((fx_scene_depth(vec2i(in.position.xy)) - depth) / soft.x);
 	}
-	let alpha = saturate(mask.a * soft_fade * fx_near_fade(id, depth));
+	let alpha = saturate(mask.a * soft_fade * fx_near_fade(id, depth) * mix(1.0, dissolved, dissolve_row.z));
 	return vec4f(clamp(behind * mask.rgb, vec3f(0.0), vec3f(1000.0)), alpha);
 }
 

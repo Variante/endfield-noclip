@@ -361,12 +361,20 @@ test('a refraction draws over the composited scene, its mask red as alpha, with 
 			mainAsMask: 0,
 			second: null,
 		},
+		dissolve: { texture: texture(3), threshold: -0.2, sharpness: 2, affectsAlpha: 0.5 },
 		softDistance: 2.42,
 		near: { on: false, range: [0, 1, 1e5, 2e5] },
 	};
 	const [look] = materialLooks({ entries: [described(0, refract, 'none')] });
 	assert.deepEqual([look.screen, look.transparent], ['refract', true]);
-	assert.deepEqual(look.textures, [2, 1, -1, -1, -1, -1, -1]);
+	assert.deepEqual(look.textures, [2, 1, 3, -1, -1, -1, -1]);
+	assert.equal(look.params[EffectRow.slotBits + 2], SlotSource.Uv0 * 32);
+	assert.deepEqual(
+		[...look.params.subarray(RefractRow.dissolve, RefractRow.dissolve + 4)].map(
+			(v) => Math.round(v * 100) / 100,
+		),
+		[-0.2, 2, 0.5, 1],
+	);
 	assert.deepEqual(
 		[...look.params.subarray(EffectRow.slotBits, EffectRow.slotBits + 2)],
 		[SlotSource.Uv0 * 32, SlotSource.Polar * 32 + 16],

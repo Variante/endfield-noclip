@@ -800,12 +800,41 @@ describe('VFXRefract', () => {
 		// half a turn: cos −1
 		assert.equal(ground.mask?.texture.rotation[0], -1);
 		assert.deepEqual([ground.direction, ground.strength, ground.isNormal], [[1, 1], 1, false]);
-		assert.deepEqual([ground.softDistance, ground.colorOffsets], [0, null]);
-		const dissolve = describeMaterial(
-			material({ blend: 'alphaBlend', keywords: ['_USE_DISSOLVE'], slots: { _RefractTex: slot(2) } }),
+		assert.deepEqual([ground.softDistance, ground.colorOffsets, ground.dissolve], [0, null, null]);
+	});
+
+	it('dissolves its offset by a rotated UV0 texture past the schedule threshold', () => {
+		// the balloon's glitch over its "connecting" sign (`M_fx_robotemoji_821`)
+		const glitch = ofKind(
+			describeMaterial(
+				material({
+					blend: 'alphaBlend',
+					blendFactors: [5, 10],
+					keywords: ['_USE_DISSOLVE', '_USE_MASK', '_USE_RBOFFSET'],
+					slots: { _DissolveTex: slot(3, [2, 1.2]), _MaskTex: slot(1), _RefractTex: slot(2, [1, 25]) },
+					floats: { _DissolveScheduleOffset: 0.399, _DissolveEdgeSharp: 1, _DissolveUVRotate: 90 },
+				}),
+				refract(),
+			),
+			'refract',
+		);
+		const { dissolve } = glitch;
+		assert.ok(dissolve !== null);
+		assert.deepEqual([dissolve.texture.texture, dissolve.texture.scale], [3, [2, 1.2]]);
+		// a quarter turn: cos 0, −sin −1
+		assert.ok(Math.abs(dissolve.texture.rotation[0]) < 1e-9);
+		assert.equal(dissolve.texture.rotation[1], -1);
+		assert.ok(Math.abs(dissolve.threshold - (0.399 * 2.02 - 1.01)) < 1e-9);
+		assert.deepEqual([dissolve.sharpness, dissolve.affectsAlpha], [1, 0]);
+		const uv1 = describeMaterial(
+			material({
+				blend: 'alphaBlend',
+				keywords: ['_USE_DISSOLVE'],
+				slots: { _DissolveTex: { ...slot(3), uv: 1 }, _RefractTex: slot(2) },
+			}),
 			refract(),
 		);
-		assert.equal(dissolve.kind, 'unsupported');
+		assert.equal(uv1.kind, 'unsupported');
 	});
 
 	it('splits colours along its offset and fades in front of the scene', () => {

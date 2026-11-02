@@ -827,6 +827,18 @@ export interface RefractSurface {
 		/** `_USE_RGBOFFSET`'s second further sample */
 		second: Rgb | null;
 	} | null;
+	/**
+	 * `_USE_DISSOLVE`, `null` without: the dissolve texture's red past the threshold, times the sharpness and
+	 * saturated, scales the offset, and the alpha by `affectsAlpha`
+	 */
+	dissolve: {
+		texture: EffectTexture;
+		/** sweeps from below 0 to past 1 as the schedule goes from 0 to 1 */
+		threshold: number;
+		sharpness: number;
+		/** `_DissolveAffectBlend` */
+		affectsAlpha: number;
+	} | null;
 	softDistance: number;
 	near: EffectNearFade;
 }

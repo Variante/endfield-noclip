@@ -47,7 +47,7 @@ the water), into the composited scene with the main pass's depth attached read-o
   after the multiplies into the main pass's radiance target, and blend over it (`fs_refract`). the
   copy holds the fog, the transparent layers and the water, which the game's copy may not. colour
   offsets take their further samples from the same copy, and the soft blend reads the main pass's
-  depth.
+  depth. a dissolve samples slot 2 and scales the offset and alpha as the game's does.
 
 unlit VFXDitherAlpha materials with a distortion, a dissolve, a mask or polar or screen UVs draw
 through VFXBaseV2's texture stack (`describeDitherEffect`, `stackLook`), fogged, blended by the

@@ -192,6 +192,16 @@ two further samples take `_RBOffset1ColorMask` and `_RBOffset2ColorMask` instead
 blends from the refracted sample to the split. `_USE_SOFTBLEND` fades the alpha over `_SoftDistance`
 metres of view depth in front of the opaque scene.
 
+`_USE_DISSOLVE` dissolves the offset:
+`d = saturate((r − (_DissolveScheduleOffset · 2.02 − 1.01)) · _DissolveEdgeSharp)`, with r the red
+of `_DissolveTex` (UV0 scrolled by `_DissolveUVSpeed`, rotated by `_DissolveUVRotate` degrees about
+the centre), scales the refraction offset, so the mask's UVs take the dissolved offset too, but not
+the colour split's further shift. `_DissolveAffectBlend` blends the alpha from 1 to `d`. a
+particle's custom data adds to the schedule offset; mesh renderers have none. the balloons
+(`int_balloon_postmodel`) glitch the scene behind their "connecting" sign this way (`distortion01`
+in `P_interactive_ballonconnecting`, `M_fx_robotemoji_821`), whose split tints the main sample
+magenta (`_RBMainColorMask`) against a cyan further one.
+
 Deep Dale Street (dung02_rdg008) uses a split for the heat haze of its fog walls
 (`p_fxmap_map02_lv008_fogwall_01`, child `refract`): particle sheets whose red and blue are pushed
 apart vertically.
