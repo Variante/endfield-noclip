@@ -557,6 +557,11 @@ interface Emission {
 	id: number;
 }
 
+interface AdmittedEmission extends Emission {
+	/** s */
+	life: number;
+}
+
 /**
  * a system's particles over time, for one emitter
  *
@@ -574,6 +579,12 @@ export class ParticleSimulation {
 	readonly #meshTotal: number;
 	readonly #shapeRotation: [number, number, number, number];
 	readonly #emissions: Emission[] = [];
+	/** whether the cap can turn emissions away, so that which particles live depends on what came before */
+	readonly #capped: boolean;
+	/** the emissions the cap let in that may still be alive, oldest first */
+	#admitted: AdmittedEmission[] = [];
+	/** the system time {@link #admitted} has been played to */
+	#admittedUntil = -Infinity;
 
 	/**
 	 * @param info the system
@@ -599,6 +610,7 @@ export class ParticleSimulation {
 				this.#lookback = Math.max(this.#longest, kept / perSecond + info.duration);
 			}
 		}
+		this.#capped = info.ringBuffer === null && this.#uncappedBound() > info.maxParticles;
 		this.#meshTotal = info.meshWeights.reduce((sum, weight) => sum + weight, 0);
 		const rotation = info.shape?.rotation ?? [0, 0, 0];
 		this.#shapeRotation = eulerQuaternion(
@@ -615,17 +627,23 @@ export class ParticleSimulation {
 
 	/** the most particles alive at once: the cap, or less when one lifetime of emission holds fewer */
 	get liveBound(): number {
-		const { maxParticles, ringBuffer, bursts, duration } = this.info;
+		const { maxParticles, ringBuffer } = this.info;
 		if (ringBuffer !== null) {
 			return maxParticles;
 		}
+		return Math.min(maxParticles, this.#uncappedBound());
+	}
+
+	/** the most particles one lifetime of emission can hold, ignoring the cap */
+	#uncappedBound(): number {
+		const { bursts, duration } = this.info;
 		const loops = Math.ceil(this.#longest / duration) + 1;
 		const burstCount = bursts.reduce(
 			(sum, burst) => sum + Math.max(upperBound(burst.count), 0) * burst.cycles,
 			0,
 		);
 		const rate = Math.max(upperBound(this.info.rate), 0);
-		return Math.min(maxParticles, Math.ceil(rate * this.#longest + burstCount * loops) + 1);
+		return Math.ceil(rate * this.#longest + burstCount * loops) + 1;
 	}
 
 	/**
@@ -639,21 +657,16 @@ export class ParticleSimulation {
 	 * @returns how many particles were written (at most `out.length / PARTICLE_FLOATS`)
 	 */
 	evaluate(time: number, down: Vec3, worldToLocal: (direction: Vec3) => Vec3, out: Float32Array): number {
-		const emissions = this.#emitted(time);
+		const emissions = this.#capped ? this.#admit(time) : this.#emitted(time - this.#lookback, time);
 		const capacity = Math.floor(out.length / PARTICLE_FLOATS);
 		const ringBuffer = this.info.ringBuffer;
 		let count = 0;
-		// the newest particles win when there are more than the system allows. without a ring buffer the game
-		// would skip the newest emissions instead, which the closed form can't tell apart
+		// with a ring buffer the newest particles win when there are more than the system allows
 		let alive = 0;
 		for (let i = emissions.length - 1; i >= 0 && alive < this.info.maxParticles && count < capacity; i--) {
 			const { time: born, id } = emissions[i];
 			let age = time - born;
-			const life = evaluateMinMax(
-				this.info.startLifetime,
-				this.#loopFraction(born),
-				random(this.#seed, id, Channel.Lifetime),
-			);
+			const life = this.#lifetime(emissions[i]);
 			if (age < 0 || (ringBuffer === null && age >= life)) {
 				continue;
 			}
@@ -692,12 +705,68 @@ export class ParticleSimulation {
 		return { position: point.position, moving: [t[0] * speed, t[1] * speed, t[2] * speed] };
 	}
 
-	/** the emissions whose particles could be alive at `time` */
-	#emitted(time: number): Emission[] {
+	/** @returns how long an emission's particle lives, s */
+	#lifetime({ time, id }: Emission): number {
+		return evaluateMinMax(
+			this.info.startLifetime,
+			this.#loopFraction(time),
+			random(this.#seed, id, Channel.Lifetime),
+		);
+	}
+
+	/**
+	 * plays the cap forward to `time`: an emission is let in only while fewer than the cap are alive, as the
+	 * game skips emissions once the system is full. the result depends on every earlier emission, so it's kept
+	 * between calls and played from where it stopped.
+	 *
+	 * @returns the admitted emissions that may still be alive, oldest first
+	 */
+	#admit(time: number): AdmittedEmission[] {
+		const { startDelay, maxParticles } = this.info;
+		// further back than a few lifetimes the history barely shows, so a long jump or a step back starts
+		// afresh from an empty system there
+		const horizon = 4 * this.#longest + this.info.duration;
+		let after = this.#admittedUntil;
+		if (time < after || time - after > horizon) {
+			this.#admitted = [];
+			after = Math.max(startDelay, time - horizon) - 1e-9;
+		}
+		// the stream's emissions per window are capped, so play in steps that hold them all
+		const step = Math.max(
+			this.#rate > 0 ? Math.min(this.#longest, MAX_PARTICLES / this.#rate) : this.#longest,
+			1e-3,
+		);
+		let admitted = this.#admitted;
+		while (after < time) {
+			const to = Math.min(time, after + step);
+			for (const emission of this.#emitted(after, to)) {
+				if (emission.time <= after) {
+					continue;
+				}
+				let alive = 0;
+				for (const other of admitted) {
+					if (other.time + other.life > emission.time) {
+						alive++;
+					}
+				}
+				if (alive < maxParticles) {
+					admitted.push({ ...emission, life: this.#lifetime(emission) });
+				}
+			}
+			admitted = admitted.filter((emission) => emission.time + emission.life > to);
+			after = to;
+		}
+		this.#admitted = admitted;
+		this.#admittedUntil = time;
+		return admitted;
+	}
+
+	/** the emissions in a window of system time whose particles could be alive at its end */
+	#emitted(start: number, time: number): Emission[] {
 		const emissions = this.#emissions;
 		emissions.length = 0;
 		const { duration, looping, startDelay, bursts } = this.info;
-		const from = Math.max(time - this.#lookback, startDelay);
+		const from = Math.max(start, startDelay);
 		const end = looping ? time : Math.min(time, startDelay + duration);
 		if (end < from) {
 			return emissions;

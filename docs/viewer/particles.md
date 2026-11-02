@@ -39,10 +39,16 @@ system and its index, so any moment can be evaluated on its own:
 
 - emissions are the rate's steady stream (one every `1 / rate` seconds, a random rate taking its
   mean) and each loop's bursts (count rounded, each fired with its probability), within the window
-  the longest lifetime reaches back; non-looping systems stop emitting after one duration. the
-  newest live ones that fit the rows are kept. with a ring buffer a particle stays until newer ones
-  replace it, so the window reaches back far enough for that many emissions; past its lifetime it
-  shows its end (or replays its loop range).
+  the longest lifetime reaches back; non-looping systems stop emitting after one duration. with a
+  ring buffer a particle stays until newer ones replace it, so the window reaches back far enough
+  for that many emissions; past its lifetime it shows its end (or replays its loop range), and the
+  newest live ones that fit the rows are kept.
+- without a ring buffer, a system whose emissions can outnumber its cap
+  ([assets](../game-data/assets.md#particle-systems)) skips the emissions that come while it's full,
+  so which particles live depends on every earlier emission: the emitter plays them forward from
+  where the last frame stopped, and starts afresh from an empty system four lifetimes back when the
+  time steps back or jumps further. the Very Large Rift's ripple rings (one particle, a burst every
+  0.1 s) thus spread for their 6 s instead of restarting every loop.
 - a texture sheet picks each particle's frame from its start frame plus its age (over its lifetime,
   or by frames per second), and its row at random, by mesh index or fixed, or plays the whole grid.
   the tile goes into the row's info word next to its kind (`rowInfo`), and `sheet_uv` in

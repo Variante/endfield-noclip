@@ -111,8 +111,14 @@ prefabs can also hold environment volumes ([environment.md](environment.md#prefa
 a `ParticleSystemRenderer`'s `m_RenderMode` is 4 for meshes, otherwise a quad: billboard 0,
 stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's effects set them:
 
-- **cap.** some systems store a cap (`maxNumParticles`) of 0 yet show in game, such as the tilted
-  torch flames (`P_fxmap_common_tiltedflame_2501`), so the game must size them itself.
+- **cap.** without a ring buffer, the cap (`maxNumParticles`) only limits emission: each emission,
+  by rate or burst, makes at most the cap minus the live particles, none when the system is full,
+  and the skipped ones aren't made up later. live particles are never cut short to make room. the
+  Very Large Rift's ripple rings (`wenli_02` and the others in
+  `p_fxmap_dung02_dg005_boss_semicircle_ripple_01`) rely on this: a burst every 0.1 s loop with a
+  cap of 1 lets in one ring per 6 s lifetime. some systems store a cap of 0 yet show in game, such
+  as the tilted torch flames (`P_fxmap_common_tiltedflame_2501`), though the engine reads 0 as no
+  particles; why isn't traced.
 - **scaling.** under `scalingMode` Shape the transform's scale moves particles but leaves their
   size.
 - **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its

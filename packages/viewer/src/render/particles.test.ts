@@ -418,6 +418,31 @@ describe('ParticleSimulation', () => {
 		assert.equal(run(system({ maxParticles: 20 }), 1000).length, 20);
 	});
 
+	it('skips emissions while the system is full, so a capped particle lives out its lifetime', () => {
+		// the Very Large Rift's ripple walls: a burst every 0.1 s loop, one particle allowed, living 6 s
+		const ripple = system({
+			duration: 0.1,
+			maxParticles: 1,
+			rate: constant(0),
+			startLifetime: constant(6),
+			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: null,
+			gravityModifier: constant(0),
+			sizeOverLifetime: [line(0, 1), line(0, 1), line(0, 1)],
+		});
+		const simulation = new ParticleSimulation(ripple, 7);
+		const out = new Float32Array(PARTICLE_FLOATS);
+		const sizes: number[] = [];
+		for (let time = 30; time < 48; time += 0.25) {
+			assert.equal(simulation.evaluate(time, DOWN, same, out), 1);
+			sizes.push(out[7]);
+		}
+		// one ring grows for its 6 s before the next starts (at the first loop after), so the size drops two or
+		// three times in 18 s, not every loop
+		const drops = sizes.filter((size, i) => i > 0 && size < sizes[i - 1]).length;
+		assert.ok(drops >= 2 && drops <= 3, `${drops} restarts`);
+	});
+
 	it('orbits particles about the emitter axis without changing their distance from it', () => {
 		const still = run(system({ gravityModifier: constant(0) }), 1000);
 		const orbiting = run(
