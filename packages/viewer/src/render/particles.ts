@@ -1295,8 +1295,8 @@ export class ParticleField {
 		const words = this.#rows;
 		const block = instances.blockSlot;
 		const sheet = info.textureSheet;
-		// Unity's shape scaling moves particles with the transform's scale but leaves their size
-		const sizing = info.shapeScaling ? [1, 1, 1] : scales;
+		// the transform's scale always moves the particles, and sizes them unless the system says otherwise
+		const sizing = info.sizedByScale ? scales : [1, 1, 1];
 		const toWorld = (v: ArrayLike<number>): Vec3 => [
 			m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
 			m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
@@ -1385,9 +1385,9 @@ export class ParticleField {
 				switch (info.alignment) {
 					case ParticleAlignment.Local: {
 						axes = axes.map(toWorld);
-						sizes = info.shapeScaling
-							? [s[0] / scales[0], s[1] / scales[1], s[2] / scales[2]]
-							: [s[0], s[1], s[2]];
+						sizes = info.sizedByScale
+							? [s[0], s[1], s[2]]
+							: [s[0] / scales[0], s[1] / scales[1], s[2] / scales[2]];
 						break;
 					}
 					case ParticleAlignment.View: {

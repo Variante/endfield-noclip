@@ -521,8 +521,9 @@ only its own scale, not its parents', when `scalingMode` is Local) and its bound
 everywhere a particle can reach. the matrix's scale moves the particles in every mode and sizes them
 unless the mode is Shape. the entry keeps:
 
-- the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
-  is `Shape`
+- the render mode, a stretched quad's length scale and velocity scale, and whether the matrix's
+  scale sizes the particles (`sizedByScale`, false in the `Shape` scaling mode), so a viewer reads
+  no scaling mode
 - the duration, looping, start delay (a constant or two; a curve makes the system a stand-in),
   particle cap and simulation speed. a system that stores a cap of 0
   ([particle systems](game-data/assets.md#particle-systems)) gets the most one longest lifetime of

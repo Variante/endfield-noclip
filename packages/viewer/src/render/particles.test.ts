@@ -81,7 +81,7 @@ const line = (from: number, to: number): MinMaxCurveInfo => ({
 const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo => ({
 	renderMode: ParticleRenderMode.Mesh,
 	stretch: null,
-	shapeScaling: false,
+	sizedByScale: true,
 	duration: 5,
 	looping: true,
 	startDelay: constant(0),

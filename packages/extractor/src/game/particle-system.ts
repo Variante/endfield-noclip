@@ -583,7 +583,8 @@ export const readParticleSystem = (
 							velocityScale: numberField(renderer, 'm_VelocityScale'),
 						}
 					: null,
-			shapeScaling: numberField(system, 'scalingMode') === ScalingMode.Shape,
+			// the packer folds the other modes' scale into the emitter's matrix (particleEmitterMatrix)
+			sizedByScale: numberField(system, 'scalingMode') !== ScalingMode.Shape,
 			duration,
 			looping: booleanField(system, 'looping'),
 			startDelay: delay,

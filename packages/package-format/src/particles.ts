@@ -180,10 +180,10 @@ export interface ParticleSystemInfo {
 	/** how {@link ParticleRenderMode.Stretched} quads lengthen; `null` for other modes */
 	stretch: ParticleStretchInfo | null;
 	/**
-	 * the transform's scale moves the particles but leaves their size (Unity's `Shape` scaling mode); otherwise
-	 * it scales both
+	 * whether the emitter matrix's scale sizes the particles as well as moving them; otherwise they keep their
+	 * own size (Unity's `Shape` scaling mode). the packer resolves the other modes into the matrix itself
 	 */
-	shapeScaling: boolean;
+	sizedByScale: boolean;
 	/** seconds per loop; emission stops after one when not {@link looping} */
 	duration: number;
 	looping: boolean;

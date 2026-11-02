@@ -91,8 +91,8 @@ system and its index, so any moment can be evaluated on its own:
   where their rotation rolls them, or along the world's or the emitter's axes), vertical ones with
   its heading, horizontal ones lie flat facing up, and stretched ones lie in the view plane along
   the velocity as the camera sees it, their length the size times the length scale plus the speed
-  times the velocity scale, centred on the particle. the transform's scale doesn't size the
-  particles under the `Shape` scaling mode.
+  times the velocity scale, centred on the particle. the transform's scale sizes the particles only
+  when the system is `sizedByScale`.
 
 modules not listed above (forces, noise, collision, sub-emitters, trails, lights, custom data and
 the by-speed modules) are ignored, so systems that enable them play without their effect rather than

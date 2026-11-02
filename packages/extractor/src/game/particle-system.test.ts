@@ -311,8 +311,8 @@ test('billboards draw one quad, stretched ones keep how they lengthen', () => {
 	);
 	assert.ok(stretched !== null && 'info' in stretched);
 	assert.deepEqual(stretched.info.stretch, { lengthScale: 1.5, velocityScale: 0.2 });
-	assert.equal(stretched.info.shapeScaling, true);
-	assert.equal(billboard.info.shapeScaling, false);
+	assert.equal(stretched.info.sizedByScale, false);
+	assert.equal(billboard.info.sizedByScale, true);
 });
 
 test('start colours and colour over lifetime keep their gradients and random ranges', () => {
