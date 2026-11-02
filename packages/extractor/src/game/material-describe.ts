@@ -8,7 +8,13 @@
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
-import { describeDithered, describeErosion, describeMattePainting } from './material-surfaces.ts';
+import {
+	describeDithered,
+	describeErosion,
+	describeLit,
+	describeMattePainting,
+	LIT_FAMILIES,
+} from './material-surfaces.ts';
 import { type MaterialValues, readerOf } from './material-values.ts';
 
 /**
@@ -70,7 +76,7 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 			return effect ? { kind: 'legacy' } : describeDithered(reader);
 		}
 		default: {
-			return { kind: 'legacy' };
+			return LIT_FAMILIES.has(shader.family) ? describeLit(reader) : { kind: 'legacy' };
 		}
 	}
 };

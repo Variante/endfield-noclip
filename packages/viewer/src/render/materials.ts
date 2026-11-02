@@ -8,12 +8,17 @@ import type {
 import type {
 	DitheredSurface,
 	ErosionSurface,
+	GrassInputs,
+	LayerCoverage,
+	LeafInputs,
+	LitEmission,
+	LitLayer,
+	LitSurface,
 	MattePaintingSurface,
+	ParallaxGlow,
 	TiledTexture,
 } from '@endfield-noclip/package-format/surfaces';
-import type { Color } from '@endfield-noclip/package-format/values';
 
-import { linearRgb } from './color.ts';
 import {
 	decalLitLook,
 	type EffectLook,
@@ -28,30 +33,11 @@ import {
 	volumetricBeamLook,
 } from './effect-looks.ts';
 
-/**
- * shader families drawn only through looks of their own (fog volumes, light beams, effects, projected
- * decals); materials of theirs without one get {@link unsupportedLook}, since the opaque path would shade them
- * as solid surfaces (a decal as its projection box)
- */
-const EFFECT_FAMILIES = new Set([
-	'decal',
-	'fogSimple',
-	'volumetricBeam',
-	'vfxFakeVolumeFog',
-	'vfxBase',
-	'vfxAdvance',
-	'vfxRefract',
-	'vfxDitherAlpha',
-	'waterDecal',
-]);
-
 /** {@link unsupportedLook}'s colour, linear magenta */
 const UNSUPPORTED_COLOR: [r: number, g: number, b: number] = [1, 0, 1];
 
 /** the side of {@link unsupportedLook}'s checker cells, in metres */
 const UNSUPPORTED_CELL = 0.5;
-
-const FOLIAGE_FAMILIES = new Set(['leaf', 'grass', 'cardMesh']);
 
 /**
  * the texture slots the mesh shader samples, in binding order. the frame group leaves seven sampled textures
@@ -427,12 +413,6 @@ const portalMaskLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook
 const floatOf = (entry: ReadyMaterial, shader: ShaderEntry, name: string, fallback: number): number =>
 	entry.floats[name] ?? shader.floats[name] ?? fallback;
 
-const colorOf = (entry: ReadyMaterial, shader: ShaderEntry, name: string): Color | undefined =>
-	entry.colors[name] ?? shader.colors[name];
-
-const vectorOf = (entry: ReadyMaterial, shader: ShaderEntry, name: string): number[] | undefined =>
-	entry.vectors[name] ?? shader.vectors[name];
-
 /**
  * @param materials the package's material table
  * @returns a look per material id
@@ -467,6 +447,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = ditheredLook(surface, entry.cull);
 				break;
 			}
+			case 'lit': {
+				looks[entry.id] = litLook(surface, entry.cull);
+				break;
+			}
 			case 'legacy': {
 				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
 				break;
@@ -476,43 +460,12 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 	return looks;
 };
 
-/** the look of a material whose family the extractor doesn't describe yet, from its raw properties */
-const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
-	const effect = effectLookOf(entry, shader) ?? portalMaskLook(entry, shader);
-	if (effect !== null) {
-		return effect;
-	}
-	// other effect meshes need their own opacity, distortion and animation passes
-	if (EFFECT_FAMILIES.has(shader.family) || shader.name.startsWith('HGRP/Effect/')) {
-		return unsupportedLook();
-	}
-	const look = lookOf(entry, shader);
-	if (keepsLitDecalsOff(entry, shader)) {
-		look.params[LookRow.detail2 + 3] = 1;
-	}
-	return look;
-};
-
-/** shaders whose G-buffer pass writes the material's `_StencilRef` into the stencil */
-const STENCIL_REF_SHADERS = new Set([
-	'HGRP/Lit',
-	'HGRP/Foliage/Leaf',
-	'HGRP/Foliage/Grass',
-	'HGRP/Foliage/Trunk',
-	'HGRP/Foliage/TreeFoliageCardMeshLod',
-	'HGRP/Foliage/Grass Cardmesh Lod',
-]);
-
-/** the stencil bit `HGRP/DecalLit` draws only where clear */
-const LIT_DECAL_STENCIL_BIT = 32;
-
 /**
- * @returns whether a material's surface keeps `HGRP/DecalLit` decals off: its shader writes `_StencilRef` and
- *   the value has the bit the decals test (docs/game-data/materials.md#decals). most foliage does
+ * the look of an effect material the extractor doesn't describe yet, from its raw properties; effect meshes
+ * without a look need opacity, distortion and animation passes of their own
  */
-const keepsLitDecalsOff = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
-	STENCIL_REF_SHADERS.has(shader.name) &&
-	(floatOf(entry, shader, '_StencilRef', 0) & LIT_DECAL_STENCIL_BIT) !== 0;
+const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook =>
+	effectLookOf(entry, shader) ?? portalMaskLook(entry, shader) ?? unsupportedLook();
 
 /**
  * @returns the look of a scene effect the viewer draws (effect-looks.ts), a look that isn't drawn for lit
@@ -609,202 +562,138 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 	};
 };
 
-const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
+/**
+ * the Lit model ({@link LitSurface}). slots are shared where materials rarely use both ({@link SLOTS}): the
+ * MRO layout's map takes the tri-channel mask's slot, which therefore isn't drawn there, and a mask layer's
+ * mask map the emissive map's, so mask layers on emissive-mapped materials aren't drawn. `_EMISSIVE_ANIM`'s
+ * pulse keeps its inputs in the parallax rows, so it stays still on surfaces with a parallax glow or a layer
+ */
+const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
-	look.cull = entry.cull;
-	const family = shader.family;
-	const foliage = FOLIAGE_FAMILIES.has(family);
+	look.cull = cull;
 	const params = look.params;
-
-	// the slots: HLOD normal maps aren't tangent-space maps the shader can read, and the optional maps are only
-	// sampled where the material's layout and keywords use them. the geometry carries UV sets 0 and 1
-	const keywords = entry.keywords;
-	// Lit's optional layers. LitEffect declares a subset of Lit's properties plus its dissolve and disturb
-	// effects, which aren't drawn; trunks and glass share only the texture layout
-	const lit = family === 'lit' || family === 'litEffect';
-	// the shaders with Lit's layout switch (`baseTextureMapCount`): the Lit families and trunks
-	const litLayout = entry.baseTextureMapCount !== null;
-	const emissiveMap = keywords.includes('_EMISSIVE_MAP');
-	const mro = entry.baseTextureMapCount === 0;
-	const triChannel = lit && keywords.includes('_TRI_CHANNEL_MASK') && !mro;
-	// a separate parallax mask texture (`_UseParallaxMask`) has no slot; such materials stay dark
-	const parallax =
-		lit && keywords.includes('_PARALLAX_MAP') && floatOf(entry, shader, '_UseParallaxMask', 0) === 0;
-	const layer = lit && !parallax ? layerSourceOf(entry, shader, emissiveMap) : null;
-	const names: (string | null)[] = [
-		'_BaseColorMap',
-		family === 'hlod' ? null : '_NormalMap',
-		maskSlotOf(entry, triChannel),
-		// a layer's mask map takes this slot in `layerBlendParams`
-		emissiveMap ? '_EmissiveMap' : null,
-		lit && keywords.includes('_DETAIL_MAP') ? '_DetailMap' : null,
-		parallax ? '_ParallaxMap' : layer !== null ? '_Layer1BaseMap' : null,
-		parallax ? '_ParallaxNoiseMap' : layer !== null ? '_Layer1BumpMap' : null,
-	];
-	names.forEach((name, i) => {
-		const slot = name === null ? undefined : entry.slots[name];
-		if (slot === undefined || slot.uv > 1) {
-			return;
-		}
-		look.textures[i] = slot.texture;
-		look.uvScales[i] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
-		look.flags |= SLOT_FLAGS[i] | (slot.uv << (UV1_SHIFT + i));
-		params.set([...slot.scale, ...slot.offset], LookRow.uv + i * 4);
-	});
-
-	if (mro) {
-		look.flags |= LookFlags.NormalRag;
-	} else if (litLayout || foliage) {
-		look.flags |= LookFlags.NormalRoughness;
+	const { textures, emission } = surface;
+	const triChannel = surface.layout === 'mro' ? null : surface.triChannel;
+	if (textures.base !== null) {
+		setTexture(look, 0, textures.base);
 	}
-	// the two-basemap layout's occlusion and metallic sources (docs/game-data/materials.md#texture-layouts)
-	if (entry.baseTextureMapCount !== null && !mro) {
-		look.flags |= LookFlags.NormalOcclusion;
-		if (entry.baseTextureMapCount < 1.5) {
-			look.flags |= LookFlags.MetallicBaseAlpha;
-		}
+	if (textures.normal !== null) {
+		setTexture(look, 1, textures.normal);
 	}
-	if (foliage) {
-		look.flags |= LookFlags.Foliage;
+	const mask = textures.mro ?? triChannel?.mask ?? null;
+	if (mask !== null) {
+		setTexture(look, 2, mask);
+	}
+	if (textures.emissive !== null) {
+		setTexture(look, 3, textures.emissive);
+	}
+	if (surface.detail !== null) {
+		setTexture(look, 4, surface.detail.texture);
 	}
 
-	// base colour: tinted and brightened, then covered by the tint. the HLOD shader ignores the tint
-	{
-		const tint = colorOf(entry, shader, '_BaseColor');
-		const cover = floatOf(entry, shader, '_BaseColorTintCover', 0);
-		const brighter = floatOf(entry, shader, '_BaseColorBrighterScale', 1);
-		const color = tint === undefined || family === 'hlod' ? [1, 1, 1] : linearRgb(tint);
-		params.set([...color, entry.alphaClipThreshold ?? -1], LookRow.tint);
-		// `_AlphaMaskChannel` picks the alpha the Lit family tests: 0 the base colour's, 1 the normal map's. in
-		// the `_BaseTextureMapCount` 1 layout the base colour's alpha is metallic, so testing it would cut holes in solid walls
-		if (litLayout && floatOf(entry, shader, '_AlphaMaskChannel', 0) === 1) {
-			look.flags |= LookFlags.AlphaNormal;
-		}
-		// alpha-blended (`HGRP/LitTransparent` glass): the opacity is the alpha the alpha test would read, times
-		// `_BaseColor.a`. glass casting a solid shadow would darken what lies behind it, so it casts none.
-		// premultiplied glass adds its radiance whole, the opacity only dimming what lies behind
-		if (entry.blend === 'alphaBlend' || entry.blend === 'premultiplied') {
-			look.transparent = true;
-			look.castsShadows = false;
-			params[LookRow.emissive2 + 3] = tint?.[3] ?? 1;
-			params[LookRow.detail2 + 2] = entry.blend === 'premultiplied' ? 1 : 0;
-		}
-		look.cutout =
-			!look.transparent &&
-			entry.alphaClipThreshold !== null &&
-			entry.alphaClipThreshold >= 0 &&
-			alphaTextureOf(look) >= 0;
-		params[LookRow.surface2 + 3] = brighter;
-		// untextured: the tint alone
-		params[LookRow.emissive + 3] = look.textures[0] < 0 ? 1 : cover;
-	}
-
-	// surface
-	{
-		const roughnessMin = floatOf(entry, shader, '_RoughnessMin', 0);
-		const roughnessMax = floatOf(entry, shader, '_RoughnessMax', 1);
-		const metallic = floatOf(entry, shader, '_Metallic', 0);
-		const normalScale = floatOf(entry, shader, '_NormalScale', 1);
-		params.set([roughnessMin, roughnessMax, metallic, normalScale], LookRow.surface);
-		const occlusion = floatOf(entry, shader, '_OcclusionStrength', 1);
-		const specular = floatOf(entry, shader, '_Specular', 0.5);
-		const transmission = foliage ? floatOf(entry, shader, '_Transmission', 0.2) : 0;
-		// the brighter scale in the row's last float is set above
-		params.set([occlusion, 0.08 * specular, transmission], LookRow.surface2);
-	}
-	switch (family) {
-		case 'leaf': {
-			leafParams(look, entry, shader);
+	switch (surface.layout) {
+		case 'mro': {
+			look.flags |= LookFlags.NormalRag;
 			break;
 		}
-		case 'grass': {
-			grassParams(look, entry, shader);
-			break;
-		}
-		case 'cardMesh': {
-			// the trees' card LOD shares the family; its inputs aren't decoded
-			if (shader.name === GRASS_CARD_SHADER) {
-				grassParams(look, entry, shader);
+		case 'twoBasemap': {
+			// the two-basemap layout's occlusion and metallic sources (docs/game-data/materials.md#texture-layouts)
+			look.flags |= LookFlags.NormalRoughness | LookFlags.NormalOcclusion;
+			if (surface.metallicFromBaseAlpha) {
+				look.flags |= LookFlags.MetallicBaseAlpha;
 			}
 			break;
 		}
+		case 'roughnessInB': {
+			look.flags |= LookFlags.NormalRoughness;
+			break;
+		}
+		case 'plain': {
+			break;
+		}
+	}
+	if (surface.foliage !== null) {
+		look.flags |= LookFlags.Foliage;
+	}
+	if (surface.alphaFromNormal) {
+		look.flags |= LookFlags.AlphaNormal;
 	}
 
-	// emission (docs/game-data/materials.md#emission): `_EMISSIVE_MAP`, or `_EMISSIVE_MASK` with a channel
-	// mesh.wgsl reads (0 turns it off). `_EMISSIVE_NOMAP` stays dark
-	let emits = false;
-	{
-		const emissive = colorOf(entry, shader, '_EmissiveColor');
-		const channel = floatOf(entry, shader, '_EmissiveMaskChannel', 0);
-		if (emissiveMap) {
-			emits = look.textures[3] >= 0;
-		} else if (entry.keywords.includes('_EMISSIVE_MASK') && channel > 0) {
+	// base colour: tinted and brightened, then covered by the tint
+	params.set([...surface.tint, surface.alphaClip ?? -1], LookRow.tint);
+	// glass: the opacity is the alpha the alpha test would read, times its own. glass casting a solid shadow
+	// would darken what lies behind it, so it casts none
+	if (surface.blend !== 'opaque') {
+		look.transparent = true;
+		look.castsShadows = false;
+		params[LookRow.emissive2 + 3] = surface.opacity;
+		params[LookRow.detail2 + 2] = surface.blend === 'premultiplied' ? 1 : 0;
+	}
+	look.cutout =
+		!look.transparent && surface.alphaClip !== null && surface.alphaClip >= 0 && alphaTextureOf(look) >= 0;
+	params[LookRow.emissive + 3] = surface.tintCover;
+	params.set(
+		[surface.roughness[0], surface.roughness[1], surface.metallic, surface.normalScale],
+		LookRow.surface,
+	);
+	params.set(
+		[surface.occlusionStrength, surface.f0, surface.transmission, surface.brighterScale],
+		LookRow.surface2,
+	);
+	switch (surface.foliage?.kind) {
+		case 'leaf': {
+			leafParams(look, surface.foliage);
+			break;
+		}
+		case 'grass': {
+			grassParams(look, surface.foliage);
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+
+	if (emission !== null) {
+		if (emission.source === 'mask') {
 			look.flags |= LookFlags.EmissiveMask;
-			emits = true;
 		}
-		if (emits && emissive !== undefined) {
-			// HDR, authored linear: as stored
-			params.set([emissive[0], emissive[1], emissive[2]], LookRow.emissive);
-			params.set(
-				[
-					floatOf(entry, shader, '_AlbedoAffectEmissive', 1),
-					channel,
-					floatOf(entry, shader, '_IgnorePostExposure', 1),
-				],
-				LookRow.emissive2,
-			);
-		}
+		params.set(emission.color, LookRow.emissive);
+		params.set([emission.albedoAffect, emission.maskChannel, emission.ignorePostExposure], LookRow.emissive2);
 	}
 
-	// tri-channel mask (docs/game-data/materials.md#lit-layers)
-	if (triChannel && look.textures[2] >= 0) {
+	if (triChannel !== null) {
 		look.flags |= LookFlags.TriChannelMask;
-		// the switch-texture variants take G and B from textures of their own, which have no slot: only R blends
-		const switched = keywords.some((keyword) => keyword.startsWith('_TRI_CHANNEL_MASK_SWITCH_TEXTURE'));
-		MASK_CHANNELS.forEach((channel, i) => {
-			const color = colorOf(entry, shader, channel.albedo) ?? [1, 1, 1, 0];
-			params.set([...linearRgb(color), switched && i > 0 ? 0 : color[3]], LookRow.maskAlbedo + i * 4);
-			params[LookRow.maskRoughness + i] = floatOf(entry, shader, channel.roughness, 1);
-			params[LookRow.maskMetallic + i] = floatOf(entry, shader, channel.metallic, 0);
-			params[LookRow.maskScale + i] = floatOf(entry, shader, channel.scale, 0);
-			params[LookRow.maskOffset + i] = floatOf(entry, shader, channel.offset, 0);
+		triChannel.channels.forEach((channel, i) => {
+			params.set([...channel.albedo, channel.strength], LookRow.maskAlbedo + i * 4);
+			params[LookRow.maskRoughness + i] = channel.roughness;
+			params[LookRow.maskMetallic + i] = channel.metallic;
+			params[LookRow.maskScale + i] = channel.scale;
+			params[LookRow.maskOffset + i] = channel.offset;
 		});
 	}
 
-	if (look.textures[4] >= 0) {
-		params.set(
-			[
-				floatOf(entry, shader, '_DetailMode', 1),
-				floatOf(entry, shader, '_DetailMaskMode', 0),
-				floatOf(entry, shader, '_DetailNormalIntensity', 1),
-				floatOf(entry, shader, '_DetailPBRIntensity', 0),
-			],
-			LookRow.detail,
-		);
-		params.set(
-			[
-				floatOf(entry, shader, '_DetailFalloffStart', 0),
-				floatOf(entry, shader, '_DetailFalloffEnd', 0),
-				floatOf(entry, shader, '_DetailBaseColorBrighterScale', 1),
-			],
-			LookRow.detail2,
-		);
-		const overlay = colorOf(entry, shader, '_DetailOverlayColor') ?? [0, 0, 0, 0];
-		params.set([...linearRgb(overlay), overlay[3]], LookRow.detailOverlay);
+	const { detail } = surface;
+	if (detail !== null) {
+		params.set([detail.mode, detail.maskMode, detail.normalIntensity, detail.pbrIntensity], LookRow.detail);
+		params.set([detail.fade[0], detail.fade[1], detail.brighterScale], LookRow.detail2);
+		params.set([...detail.overlay, detail.overlayCover], LookRow.detailOverlay);
 	}
 
-	if (look.textures[5] >= 0 && look.textures[6] >= 0) {
-		if (layer !== null) {
-			layerBlendParams(look, entry, shader, layer);
-		} else {
-			parallaxParams(look, entry, shader);
-		}
-	} else {
-		look.textures[5] = look.textures[6] = -1;
-		look.flags &= ~(LookFlags.ParallaxMap | LookFlags.ParallaxNoiseMap);
-		if (lit && emits && keywords.includes('_EMISSIVE_ANIM')) {
-			emissivePulseParams(look, entry, shader);
-		}
+	const { overlay } = surface;
+	const layerSource =
+		overlay?.kind === 'layer' && !(overlay.coverage.kind === 'maskMap' && textures.emissive !== null)
+			? LAYER_SOURCES[overlay.coverage.kind]
+			: null;
+	if (overlay?.kind === 'parallax') {
+		parallaxParams(look, overlay);
+	} else if (overlay?.kind === 'layer' && layerSource !== null) {
+		layerBlendParams(look, overlay, layerSource);
+	} else if (emission?.pulse != null) {
+		emissivePulseParams(look, emission.pulse);
+	}
+	if (surface.keepsLitDecalsOff) {
+		params[LookRow.detail2 + 3] = 1;
 	}
 	return look;
 };
@@ -820,214 +709,84 @@ export const EmissivePulseRow = {
 	strength: LookRow.parallax2,
 } as const;
 
-/**
- * `_EMISSIVE_ANIM`'s pulse (docs/game-data/materials.md#emission). `_EnableEmissiveAnimFlicker`'s noise isn't
- * drawn: those looks keep still
- */
-const emissivePulseParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
-	if (floatOf(entry, shader, '_EnableEmissiveAnimFlicker', 0) > 0.5) {
-		return;
-	}
-	const params = look.params;
-	// the phase is `_Time.x` (seconds / 20; docs/game-data/materials.md#clock) / 2π times the speed
-	params.set(
-		[
-			floatOf(entry, shader, '_EmissiveAnimSpeed', 0) / (40 * Math.PI),
-			floatOf(entry, shader, '_EmissiveAnimRandom', 0),
-			floatOf(entry, shader, '_EmissiveAnimInterval', 1),
-			floatOf(entry, shader, '_EmissiveMinBrightness', 0),
-		],
-		EmissivePulseRow.pulse,
-	);
-	params[EmissivePulseRow.strength] = colorOf(entry, shader, '_EmissiveColor')?.[3] ?? 1;
+/** `_EMISSIVE_ANIM`'s pulse (docs/game-data/materials.md#emission) */
+const emissivePulseParams = (look: MaterialLook, pulse: NonNullable<LitEmission['pulse']>): void => {
+	look.params.set([pulse.rate, pulse.phase, pulse.interval, pulse.minimum], EmissivePulseRow.pulse);
+	look.params[EmissivePulseRow.strength] = pulse.depth;
 };
 
-/**
- * `HGRP/Foliage/Leaf`'s inputs to the two-sided foliage lighting (`docs/game-data/materials.md#foliage`). the
- * reflectance is quantized to 3 bits, as the GBuffer stores it
- */
-const leafParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
+/** `HGRP/Foliage/Leaf`'s inputs to the two-sided foliage lighting (`docs/game-data/materials.md#foliage`) */
+const leafParams = (look: MaterialLook, leaf: LeafInputs): void => {
 	const params = look.params;
 	look.flags |= LookFlags.FoliageLeaf;
-	const reflectance = Math.round(Math.min(Math.max(floatOf(entry, shader, '_Reflectance', 0), 0), 1) * 7) / 7;
-	params[LookRow.surface2 + 1] = 0.08 * (0.5 + 0.75 * reflectance);
 	params.set(
-		[
-			floatOf(entry, shader, '_OcclusionShadow', 0),
-			floatOf(entry, shader, '_FakeDirectionalShadowStrength', 0),
-			floatOf(entry, shader, '_FakeDirectionalShadowPow', 1),
-			floatOf(entry, shader, '_DiffuseUseVertexNormal', 0),
-		],
+		[leaf.occlusionShadow, leaf.fakeShadow.strength, leaf.fakeShadow.power, leaf.diffuseUsesVertexNormal],
 		LookRow.foliage,
 	);
+	params.set([...leaf.aoTransmission, ...leaf.aoSubsurface], LookRow.foliageAo);
+	const canopy = leaf.canopy;
 	params.set(
 		[
-			floatOf(entry, shader, '_AoAffectTransmissionStart', 0),
-			floatOf(entry, shader, '_AoAffectTransmissionRange', 0.01),
-			floatOf(entry, shader, '_AoAffectSubsurfaceStart', 0),
-			floatOf(entry, shader, '_AoAffectSubsurfaceRange', 0.01),
-		],
-		LookRow.foliageAo,
-	);
-	const canopy = entry.keywords.includes('_CANOPY_COLOR_RAMP');
-	params.set(
-		[
-			floatOf(entry, shader, '_SubsurfaceIntensity', 0),
-			floatOf(entry, shader, '_TransmissionDistanceFade', 0),
-			canopy ? floatOf(entry, shader, '_CanopyRampIntensity', 0) : 0,
-			floatOf(entry, shader, '_CanopyRampStartAtTop', 0) > 0 ? 1 : 0,
+			leaf.subsurface,
+			leaf.transmissionDistanceFade,
+			canopy?.intensity ?? 0,
+			canopy?.startsAtTop === true ? 1 : 0,
 		],
 		LookRow.foliage2,
 	);
 	params.set(
-		[
-			floatOf(entry, shader, '_CanopyRampRange', 0),
-			floatOf(entry, shader, '_CanopyRampTransitionRange', 0),
-			floatOf(entry, shader, '_CanopyRampColorBrighterScale', 1),
-			floatOf(entry, shader, '_CanopyRampColorCover', 0),
-		],
+		[canopy?.range ?? 0, canopy?.transition ?? 0, canopy?.brighterScale ?? 1, canopy?.cover ?? 0],
 		LookRow.canopy,
 	);
-	params.set(linearRgb(colorOf(entry, shader, '_CanopyRampColor') ?? [1, 1, 1, 1]), LookRow.canopyColor);
+	params.set(canopy?.color ?? [1, 1, 1], LookRow.canopyColor);
 };
 
-const GRASS_CARD_SHADER = 'HGRP/Foliage/Grass Cardmesh Lod';
-
 /**
- * `HGRP/Foliage/Grass` and its card LOD ({@link GRASS_CARD_SHADER}): their inputs to the two-sided foliage
- * lighting, the bent normal and the lean away from the camera (`docs/game-data/materials.md#foliage`), in the
- * leaf rows. zeros leave a row neutral. the card LOD decodes its normal map its own way and masks by the
- * normal map's B, so it takes neither the bend nor the masks
+ * `HGRP/Foliage/Grass` and its card LOD: their inputs to the two-sided foliage lighting, the bent normal and
+ * the lean away from the camera (`docs/game-data/materials.md#foliage`), in the leaf rows. zeros leave a row
+ * neutral
  */
-const grassParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
+const grassParams = (look: MaterialLook, grass: GrassInputs): void => {
 	const params = look.params;
-	const float = (name: string, fallback: number): number => floatOf(entry, shader, name, fallback);
-	const card = shader.family === 'cardMesh';
-	// both shaders write a reflectance of 4/7 and half the transmission
-	params[LookRow.surface2 + 1] = 0.08 * (0.5 + 0.75 * (4 / 7));
-	params[LookRow.surface2 + 2] = 0.5 * float('_Transmission', 0.2);
-	const tilt = entry.keywords.includes('_USE_CAMERA_BASED_TILLING')
-		? float('_CameraBasedTillingIntensity', 0)
-		: 0;
 	params.set(
-		[
-			card ? 0 : float('_BendNormalUpward', 0),
-			tilt,
-			card ? 0 : float('_MaskOnDiffuse', 0),
-			card ? 0 : float('_MaskOnTransmission', 0),
-		],
+		[grass.bendNormalUpward, grass.cameraLean, grass.maskOnDiffuse, grass.maskOnTransmission],
 		LookRow.foliage,
 	);
-	// the ramps' floors are stored as strengths, so a missing vector stays neutral
-	const ao = vectorOf(entry, shader, '_AoParams') ?? [0, 0, 1, 0];
-	const dir = vectorOf(entry, shader, '_DirParams') ?? [0, 0, 1, 0];
-	params.set([ao[0], ao[1], 1 - ao[2], !card && float('_TwoSidedNormal', 0) > 0 ? 1 : 0], LookRow.foliageAo);
-	params.set([float('_SubsurfaceIntensity', 0), dir[0], dir[1], 1 - dir[2]], LookRow.foliage2);
+	params.set([...grass.ao, grass.twoSidedNormal ? 1 : 0], LookRow.foliageAo);
+	params.set([grass.subsurface, ...grass.sunMask], LookRow.foliage2);
 };
 
-/** the tri-channel mask's properties per channel, R, G, B */
-const MASK_CHANNELS = [
-	{
-		albedo: '_MaskAlbedoR',
-		roughness: '_MaskRoghnessR',
-		metallic: '_MaskMetallicR',
-		scale: '_MaskRScale',
-		offset: '_MaskROffset',
-	},
-	{
-		albedo: '_MaskAlbedoG',
-		roughness: '_MaskRoghnessG',
-		metallic: '_MaskMetallicG',
-		scale: '_MaskGScale',
-		offset: '_MaskGOffset',
-	},
-	{
-		albedo: '_MaskAlbedoB',
-		roughness: '_MaskRoghnessB',
-		metallic: '_MaskMetallicB',
-		scale: '_MaskBScale',
-		offset: '_MaskBOffset',
-	},
-] as const;
-
-/** @returns the texture in the mask slot: the MRO map in that layout, else the tri-channel mask if it's on */
-const maskSlotOf = (entry: ReadyMaterial, triChannel: boolean): string | null => {
-	if (entry.baseTextureMapCount === 0) {
-		return '_MROMap';
-	}
-	if (triChannel) {
-		return '_MaskMap';
-	}
-	return null;
+/** binds a texture to slot `i`, tiled by its own scale on UV set `uv` */
+const setTiledTexture = (
+	look: MaterialLook,
+	i: number,
+	texture: number,
+	tiling: number,
+	uv: number,
+): void => {
+	look.textures[i] = texture;
+	look.uvScales[i] = Math.max(Math.abs(tiling), 1e-3);
+	look.flags |= SLOT_FLAGS[i] | (uv << (UV1_SHIFT + i));
+	look.params.set([tiling, tiling, 0, 0], LookRow.uv + i * 4);
 };
 
-/**
- * `_PARALLAX_MAP`'s glow (`docs/game-data/materials.md#lit-layers`). both maps ignore their `_ST` and tile by
- * their own scale
- */
-const parallaxParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
+/** `_PARALLAX_MAP`'s glow (`docs/game-data/materials.md#lit-layers`), in the parallax slots and rows */
+const parallaxParams = (look: MaterialLook, glow: ParallaxGlow): void => {
 	const params = look.params;
-	const tiling = floatOf(entry, shader, '_ParallaxTilling', 1);
-	const noiseTiling = floatOf(entry, shader, '_ParallaxNoiseMapTilling', 1);
-	params.set([tiling, tiling, 0, 0], LookRow.uv + 5 * 4);
-	params.set([noiseTiling, noiseTiling, 0, 0], LookRow.uv + 6 * 4);
-	look.uvScales[5] = Math.max(Math.abs(tiling), 1e-3);
-	look.uvScales[6] = Math.max(Math.abs(noiseTiling), 1e-3);
 	// the noise follows the pattern's UV set
-	look.flags &= ~(1 << (UV1_SHIFT + 6));
-	if ((look.flags & (1 << (UV1_SHIFT + 5))) !== 0) {
-		look.flags |= 1 << (UV1_SHIFT + 6);
-	}
-
-	// the step count is an integer uniform: the float property truncates. the pulse runs between the minimum
-	// brightness and 1
-	const steps = Math.min(Math.max(Math.trunc(floatOf(entry, shader, '_ParallaxMarchNum', 3)), 1), 20);
-	const minimum = floatOf(entry, shader, '_ParallaxMinBrightness', 0);
+	setTiledTexture(look, 5, glow.pattern.texture, glow.patternTiling, glow.pattern.uv);
+	setTiledTexture(look, 6, glow.noise, glow.noiseTiling, glow.pattern.uv);
+	// the pulse runs between the minimum brightness and 1
+	const minimum = glow.pulseMinimum;
+	params.set([glow.depth, glow.steps, glow.fresnelPower, (1 - minimum) / 2], LookRow.parallax);
 	params.set(
-		[
-			floatOf(entry, shader, '_ParallaxStrength', 0),
-			steps,
-			Math.floor(floatOf(entry, shader, '_ParallaxFresnelStrength', 1)),
-			(1 - minimum) / 2,
-		],
-		LookRow.parallax,
-	);
-	// the pulse's phase advances 0.05 · speed per second (docs/game-data/materials.md#clock)
-	params.set(
-		[
-			0.05 * floatOf(entry, shader, '_ParallaxAnimSpeed', 0),
-			floatOf(entry, shader, '_ParallaxAnimRandom', 0),
-			floatOf(entry, shader, '_ParallaxIgnorePostExposure', 1),
-			(1 + minimum) / 2,
-		],
+		[glow.pulseRate, glow.pulsePhasePerMetre, glow.ignorePostExposure, (1 + minimum) / 2],
 		LookRow.parallax2,
 	);
-	// HDR colours, as stored (see the emission above)
-	const intensity = floatOf(entry, shader, '_ParallaxIntensity', 1);
-	const bright = colorOf(entry, shader, '_ParallaxColor') ?? [0, 0, 0, 1];
-	const dark = colorOf(entry, shader, '_ParallaxColorDark') ?? [0, 0, 0, 1];
-	params.set(
-		[
-			bright[0] * intensity,
-			bright[1] * intensity,
-			bright[2] * intensity,
-			floatOf(entry, shader, '_ParallaxMaskChannel', 0),
-		],
-		LookRow.parallaxColor,
-	);
-	params.set([dark[0] * intensity, dark[1] * intensity, dark[2] * intensity], LookRow.parallaxDark);
-	// added to the pulse: up to `_ParallaxBrightStrength` more within the radii of the player, whom the
-	// viewer places at the camera
-	params.set(
-		[
-			floatOf(entry, shader, '_ParallaxBrightOuterRadius', 20),
-			floatOf(entry, shader, '_ParallaxBrightInnerRadius', 10),
-			floatOf(entry, shader, '_ParallaxCharPos', 0) !== 0
-				? floatOf(entry, shader, '_ParallaxBrightStrength', 1)
-				: 0,
-		],
-		LookRow.parallaxBright,
-	);
+	params.set([...glow.bright, glow.maskChannel], LookRow.parallaxColor);
+	params.set(glow.dark, LookRow.parallaxDark);
+	// the brightening near the player, whom the viewer places at the camera
+	params.set([glow.near.outer, glow.near.inner, glow.near.strength], LookRow.parallaxBright);
 };
 
 /** what decides how much a layer covers ({@link LayerBlendRow.height}'s last float) */
@@ -1048,44 +807,14 @@ export const LayerSource = {
 
 type LayerSource = (typeof LayerSource)[keyof typeof LayerSource];
 
-const LAYER_MASK_MAP = '_LayerBlendMaskMap';
-
-/**
- * @returns the layer's coverage source, or `null` for a material without a layer the viewer draws: the mask's
- *   noise and parallax variants aren't ported, and a mask map can't share the slot with an emissive map
- */
-const layerSourceOf = (
-	entry: ReadyMaterial,
-	shader: ShaderEntry,
-	emissiveMap: boolean,
-): LayerSource | null => {
-	const keywords = entry.keywords;
-	if (keywords.includes('_LAYERBLEND_TOP')) {
-		return LayerSource.Top;
-	}
-	if (
-		!keywords.includes('_LAYERBLEND_MASK') ||
-		keywords.includes('_LAYERBLEND_NOISEBLEND') ||
-		keywords.includes('_LAYERBLEND_MASK_PARALLAX_PBR')
-	) {
-		return null;
-	}
-	// the game rounds the type to the nearest of 1 to 4; anything under 0.5 samples the mask map
-	const type = floatOf(entry, shader, '_LayerBlendMaskType', 0);
-	if (type < 0.5) {
-		if (entry.slots[LAYER_MASK_MAP] === undefined) {
-			// without a texture the shader's default stands in
-			return shader.textures[LAYER_MASK_MAP] === 'white' ? LayerSource.Full : null;
-		}
-		return emissiveMap ? null : LayerSource.MaskMap;
-	}
-	const sources = [
-		LayerSource.LayerBumpAlpha,
-		LayerSource.BaseAlpha,
-		LayerSource.NormalAlpha,
-		LayerSource.Full,
-	];
-	return sources[Math.min(Math.max(Math.round(type), 1), 4) - 1];
+/** each {@link LayerCoverage}'s {@link LayerSource} */
+const LAYER_SOURCES: Record<LayerCoverage['kind'], LayerSource> = {
+	top: LayerSource.Top,
+	maskMap: LayerSource.MaskMap,
+	layerBumpAlpha: LayerSource.LayerBumpAlpha,
+	baseAlpha: LayerSource.BaseAlpha,
+	normalAlpha: LayerSource.NormalAlpha,
+	full: LayerSource.Full,
 };
 
 /** float offsets of a layer's parameters ({@link layerBlendParams}), which reuse the parallax and leaf rows */
@@ -1120,89 +849,48 @@ export const LayerBlendRow = {
 
 /**
  * `_LAYERBLEND_TOP` and `_LAYERBLEND_MASK`, with `_LAYERBLEND_MOSS`'s fuzzy shading
- * (`docs/game-data/materials.md#lit-layers`). both maps sample one coordinate, tiled by `_Layer1Tilling` and
- * offset by `_Layer1Offset`, ignoring their `_ST`; the mask map samples untiled. UV set 2 isn't loaded and
- * reads as set 0, and `_BaseHeightMap` has no slot and reads as the shader's grey default (0.5)
+ * (`docs/game-data/materials.md#lit-layers`), in the parallax slots and rows. both maps sample one
+ * coordinate, tiled and offset by the layer's own values; the mask map samples untiled in the emissive slot.
+ * UV set 2 isn't loaded and reads as set 0, and `_BaseHeightMap` has no slot and reads as the shader's grey
+ * default (0.5)
  */
-const layerBlendParams = (
-	look: MaterialLook,
-	entry: ReadyMaterial,
-	shader: ShaderEntry,
-	source: LayerSource,
-): void => {
+const layerBlendParams = (look: MaterialLook, layer: LitLayer, source: LayerSource): void => {
 	const params = look.params;
-	const float = (name: string, fallback: number): number => floatOf(entry, shader, name, fallback);
 	look.flags |= LookFlags.LayerBlend;
-	const mask = entry.slots[LAYER_MASK_MAP];
-	if (source === LayerSource.MaskMap && mask !== undefined) {
-		const uv1 = float('_LayerBlendMaskUVType', 0) === 0;
-		look.textures[3] = mask.texture;
-		look.uvScales[3] = 1;
-		look.flags |= LookFlags.EmissiveMap;
-		look.flags = uv1 ? look.flags | (1 << (UV1_SHIFT + 3)) : look.flags & ~(1 << (UV1_SHIFT + 3));
-		params.set([1, 1, 0, 0], LookRow.uv + 3 * 4);
+	if (layer.coverage.kind === 'maskMap') {
+		setTiledTexture(look, 3, layer.coverage.texture, 1, layer.coverage.uv);
 	}
-	const tiling = float('_Layer1Tilling', 1);
-	const offset = vectorOf(entry, shader, '_Layer1Offset') ?? [0, 0, 0, 0];
-	for (const slot of [5, 6]) {
-		params.set([tiling, tiling, offset[0], offset[1]], LookRow.uv + slot * 4);
-		look.uvScales[slot] = Math.max(Math.abs(tiling), 1e-3);
-		look.flags &= ~(1 << (UV1_SHIFT + slot));
+	for (const [slot, texture] of [
+		[5, layer.base],
+		[6, layer.bump],
+	] as const) {
+		setTiledTexture(look, slot, texture, layer.tiling, 0);
+		params.set(layer.offset, LookRow.uv + slot * 4 + 2);
 	}
 	params.set(
-		[
-			float('_TopBlendWithBumpMap', 0),
-			float('_TopBlendThreshold', 0.5),
-			Math.max(float('_TopBlendSmoothness', 0.5), 1.175_494e-38),
-			float('_LayerBlendUVType', 0),
-		],
+		[layer.top.bumped, layer.top.threshold, layer.top.smoothness, layer.uvType],
 		LayerBlendRow.coverage,
 	);
 	params.set(
-		[float('_LayerBlendHeight', 0) !== 0 ? 1 : 0, float('_LayerBlendHeightTransition', 1), 0.5, source],
+		[layer.heightTransition === null ? 0 : 1, layer.heightTransition ?? 1, 0.5, source],
 		LayerBlendRow.height,
 	);
-	const tint = linearRgb(colorOf(entry, shader, '_Layer1TintColor') ?? [1, 1, 1, 1]);
-	const brighter = float('_Layer1ColorBrighterScale', 1);
+	params.set([...layer.tint, layer.saturation], LayerBlendRow.color);
 	params.set(
-		[...tint.map((c) => c * brighter), Math.min(Math.max(float('_Layer1Saturation', 0) + 1, 0), 1)],
-		LayerBlendRow.color,
-	);
-	params.set(
-		[
-			float('_Layer1BaseColorBlendMode', 0),
-			float('_Layer1BaseColorAdditiveIntensity', 1),
-			float('_LayerMetallicType', 0),
-			float('_Layer1Metallic', 0),
-		],
+		[layer.colorBlendMode, layer.additiveIntensity, layer.metallicType, layer.metallic],
 		LayerBlendRow.blend,
 	);
 	params.set(
-		[
-			float('_Layer1BumpScale', 1),
-			float('_Layer1BaseNormalIntensity', 0),
-			float('_Layer1AOStrength', 1),
-			float('_LayerAOType', 0),
-		],
+		[layer.bumpScale, layer.baseNormalIntensity, layer.aoStrength, layer.aoType],
 		LayerBlendRow.normal,
 	);
 	// neutral fuzz: no darkening, brightening or edge shadow, a unit range so the edge term stays finite
 	let fuzzy = [0, 0, 1, 0];
 	let fuzzy2 = [0, 1, 1, 0];
-	if (entry.keywords.includes('_LAYERBLEND_MOSS')) {
-		fuzzy = [
-			float('_Layer1FuzzyCoreDarkness', 0),
-			float('_Layer1FuzzyEdgeBrightness', 0),
-			float('_Layer1FuzzyEdgeShadowRange', 1),
-			float('_Layer1FuzzyEdgeShadowOffset', 0),
-		];
-		// the game floors both powers at 0.1
-		fuzzy2 = [
-			float('_Layer1FuzzyEdgeShadowIntensity', 0),
-			Math.max(float('_Layer1FuzzyDarkPower', 1), 0.1),
-			Math.max(float('_Layer1FuzzyBrightPower', 1), 0.1),
-			float('_Layer1FuzzyNormalStrength', 0),
-		];
+	const { moss } = layer;
+	if (moss !== null) {
+		fuzzy = [moss.coreDarkness, moss.edgeBrightness, moss.edgeShadowRange, moss.edgeShadowOffset];
+		fuzzy2 = [moss.edgeShadowIntensity, moss.darkPower, moss.brightPower, moss.normalStrength];
 	}
 	params.set(fuzzy, LayerBlendRow.fuzzy);
 	params.set(fuzzy2, LayerBlendRow.fuzzy2);

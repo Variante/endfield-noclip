@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { MaterialCull, ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format/materials';
+import type {
+	MaterialCull,
+	ReadyMaterial,
+	ShaderEntry,
+	TextureSlot,
+} from '@endfield-noclip/package-format/materials';
+import type { LitLayer, LitSurface, MaskChannel } from '@endfield-noclip/package-format/surfaces';
 
 import {
 	DitherRow,
@@ -120,41 +126,51 @@ test('undrawn surfaces are not drawn, and unsupported ones show the checker', ()
 	assert.deepEqual([unsupported.drawn, unsupported.unsupported], [true, true]);
 });
 
-test('unconverted materials show as unsupported, and premultiplied glass is transparent with its flag set', () => {
-	const glass: ShaderEntry = {
-		name: 'HGRP/LitTransparent',
-		family: 'litTransparent',
-		floats: {},
-		colors: {},
-		vectors: {},
-		textures: {},
-		normalMaps: [],
-	};
-	const entry = (id: number, blend: ReadyMaterial['blend']): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: [],
-		renderQueue: 3000,
-		blend,
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: false,
-		baseTextureMapCount: 2,
-		slots: {},
-		floats: {},
-		colors: {},
-		vectors: {},
-	});
+test('unconverted materials show as unsupported, and glass is transparent and shadowless with its blending flag', () => {
 	const [failed, blended, premultiplied] = materialLooks({
-		shaders: [glass],
-		entries: [{ id: 0, status: 'failed' }, entry(1, 'alphaBlend'), entry(2, 'premultiplied')],
+		shaders: ANY_SHADER,
+		entries: [
+			{ id: 0, status: 'failed' },
+			described(1, litSurface({ blend: 'alphaBlend', opacity: 0.5, alphaClip: 0.5, alphaFromNormal: true })),
+			described(2, litSurface({ blend: 'premultiplied' })),
+		],
 	});
 	assert.equal(failed.unsupported, true);
-	assert.deepEqual([blended.transparent, blended.params[LookRow.detail2 + 2]], [true, 0]);
+	assert.deepEqual(
+		[blended.transparent, blended.cutout, blended.castsShadows, blended.params[LookRow.detail2 + 2]],
+		[true, false, false, 0],
+	);
+	assert.equal(blended.params[LookRow.emissive2 + 3], 0.5);
+	assert.notEqual(blended.flags & LookFlags.AlphaNormal, 0);
 	assert.deepEqual([premultiplied.transparent, premultiplied.params[LookRow.detail2 + 2]], [true, 1]);
+});
+
+/** a two-basemap Lit surface with no optional parts */
+const litSurface = (overrides: Partial<LitSurface> = {}): LitSurface => ({
+	kind: 'lit',
+	layout: 'twoBasemap',
+	metallicFromBaseAlpha: false,
+	textures: { base: null, normal: null, mro: null, emissive: null },
+	alphaClip: null,
+	alphaFromNormal: false,
+	blend: 'opaque',
+	opacity: 1,
+	tint: [1, 1, 1],
+	tintCover: 0,
+	brighterScale: 1,
+	roughness: [0, 1],
+	metallic: 0,
+	normalScale: 1,
+	occlusionStrength: 1,
+	f0: 0.04,
+	transmission: 0,
+	emission: null,
+	triChannel: null,
+	detail: null,
+	overlay: null,
+	foliage: null,
+	keepsLitDecalsOff: false,
+	...overrides,
 });
 
 /** a ready material drawing `surface`, with no raw properties */
@@ -345,99 +361,59 @@ test('portal effects: an opaque mask writes only the stencil, its effects test i
 	assert.equal(inverting.unsupported, true);
 });
 
-test('glass is transparent, casts no shadow and takes its opacity from the tint alpha and the picked map alpha', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/LitTransparent',
-			family: 'litTransparent',
-			floats: { _AlphaMaskChannel: 0 },
-			colors: { _BaseColor: [1, 1, 1, 1] },
-			vectors: {},
-			textures: {},
-			normalMaps: ['_NormalMap'],
-		},
-	];
-	const entry: ReadyMaterial = {
-		id: 0,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: ['_TWO_BASEMAP'],
-		renderQueue: 3000,
-		blend: 'alphaBlend',
-		blendFactors: [5, 10],
-		alphaClipThreshold: 0.5,
-		cull: 'back',
-		zWrite: false,
-		baseTextureMapCount: 1,
-		slots: {
-			_BaseColorMap: { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] },
-			_NormalMap: { texture: 2, uv: 0, scale: [1, 1], offset: [0, 0] },
-		},
-		floats: { _AlphaMaskChannel: 1 },
-		colors: { _BaseColor: [0.8, 0.8, 0.8, 0.5] },
-		vectors: {},
+test('pulsing emission takes the free parallax rows; a surface with a glow keeps its emission still', () => {
+	const slot = (texture: number): TextureSlot => ({ texture, uv: 0, scale: [1, 1], offset: [0, 0] });
+	const emission = {
+		color: [23.97, 23.97, 23.97] as [number, number, number],
+		source: 'map' as const,
+		maskChannel: 0,
+		albedoAffect: 1,
+		ignorePostExposure: 1,
+		pulse: { rate: 1 / Math.PI, phase: 0, interval: 1, minimum: 0, depth: 1 },
 	};
-	const [look] = materialLooks({ shaders, entries: [entry] });
-	assert.equal(look.transparent, true);
-	assert.equal(look.cutout, false);
-	assert.equal(look.castsShadows, false);
-	assert.equal(look.params[LookRow.emissive2 + 3], 0.5);
-	assert.notEqual(look.flags & LookFlags.AlphaNormal, 0);
-});
-
-test('pulsing tower lamps: _EMISSIVE_ANIM puts its pulse in the free parallax rows; flicker and still emitters stay still', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Lit',
-			family: 'lit',
-			floats: { _EmissiveAnimInterval: 1, _EnableEmissiveAnimFlicker: 0 },
-			colors: { _EmissiveColor: [1, 1, 1, 1] },
-			vectors: {},
-			textures: {},
-			normalMaps: ['_NormalMap'],
-		},
-	];
-	// M_module_tylight+1_001_03, the white lamp cubes on Wuling's and Marker Stone's towers
-	const lamp = (id: number, keywords: string[], floats: Record<string, number>): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords,
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: [1, 0],
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: 1,
-		slots: {
-			_BaseColorMap: { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] },
-			_EmissiveMap: { texture: 2, uv: 0, scale: [1, 1], offset: [0, 0] },
-		},
-		floats: { _EmissiveAnimSpeed: 40, ...floats },
-		colors: { _EmissiveColor: [23.97, 23.97, 23.97, 1] },
-		vectors: {},
-	});
-	const anim = ['_EMISSIVE_ANIM', '_EMISSIVE_MAP', '_TWO_BASEMAP'];
-	const [pulsing, flicker, still] = materialLooks({
-		shaders,
+	const glow = {
+		kind: 'parallax' as const,
+		pattern: slot(6),
+		patternTiling: 2,
+		noise: 7,
+		noiseTiling: 3,
+		depth: 0.314,
+		steps: 3,
+		fresnelPower: 1,
+		pulseRate: 0,
+		pulsePhasePerMetre: 0,
+		pulseMinimum: 0.2,
+		bright: [2.8, 0.7, 0] as [number, number, number],
+		dark: [0, 0, 0] as [number, number, number],
+		maskChannel: 2,
+		ignorePostExposure: 1,
+		near: { outer: 25, inner: 3, strength: 20 },
+	};
+	const textures = { base: slot(1), normal: null, mro: null, emissive: slot(2) };
+	const [pulsing, glowing] = materialLooks({
+		shaders: ANY_SHADER,
 		entries: [
-			lamp(0, anim, {}),
-			lamp(1, anim, { _EnableEmissiveAnimFlicker: 1 }),
-			lamp(2, ['_EMISSIVE_MAP', '_TWO_BASEMAP'], {}),
+			described(0, litSurface({ textures, emission })),
+			described(1, litSurface({ textures, emission, overlay: glow })),
 		],
 	});
 	const pulse = Array.from(pulsing.params.subarray(EmissivePulseRow.pulse, EmissivePulseRow.pulse + 4));
-	// one cycle every 2π · 20 / 40 s
-	assert.ok(Math.abs(pulse[0] - 1 / Math.PI) < 1e-6);
-	assert.deepEqual(pulse.slice(1), [0, 1, 0]);
+	assert.deepEqual(pulse, [1 / Math.PI, 0, 1, 0].map(Math.fround));
 	assert.equal(pulsing.params[EmissivePulseRow.strength], 1);
+	assert.deepEqual(
+		Array.from(pulsing.params.subarray(LookRow.emissive, LookRow.emissive + 3)),
+		[23.97, 23.97, 23.97].map(Math.fround),
+	);
 	assert.equal(pulsing.flags & (LookFlags.ParallaxMap | LookFlags.LayerBlend), 0);
-	for (const look of [flicker, still]) {
-		assert.equal(look.params[EmissivePulseRow.pulse + 2], 0);
-	}
+	// the glow's rows: three steps, a pulse between 0.2 and 1, the HDR colour as stored
+	const row = (at: number) => Array.from(glowing.params.subarray(at, at + 4));
+	assert.deepEqual(glowing.textures.slice(5), [6, 7]);
+	assert.deepEqual(row(LookRow.uv + 5 * 4), [2, 2, 0, 0]);
+	assert.deepEqual(row(LookRow.uv + 6 * 4), [3, 3, 0, 0]);
+	assert.deepEqual(row(LookRow.parallax), [0.314, 3, 1, 0.4].map(Math.fround));
+	assert.equal(glowing.params[LookRow.parallax2 + 3], Math.fround(0.6));
+	assert.deepEqual(row(LookRow.parallaxColor), [2.8, 0.7, 0, 2].map(Math.fround));
+	assert.deepEqual(row(LookRow.parallaxBright).slice(0, 3), [25, 3, 20]);
 });
 
 test('erosion rock: its maps tile by their own scales on UV set 0, the ramp streams whole', () => {
@@ -498,132 +474,92 @@ test('erosion rock: its maps tile by their own scales on UV set 0, the ramp stre
 	assert.equal(look.params[ErosionRow.flow + 2], Math.fround(0.05));
 });
 
-test('originium crystals: UV set 1 base colour, tri-channel tint, detail and parallax glow', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Lit',
-			family: 'lit',
-			floats: { _BaseTextureMapCount: 2, _UseParallaxMask: 0, _ParallaxIntensity: 1 },
-			colors: { _MaskAlbedoG: [0, 1, 0, 1], _MaskAlbedoB: [0, 0, 1, 1] },
-			vectors: {},
-			textures: {},
-			normalMaps: ['_NormalMap'],
-		},
-	];
-	const slot = (texture: number, uv: number, scale = 1) => ({
+test('Lit slots: UV set 1 maps, the tri-channel mask in the mask slot except under an MRO map, detail', () => {
+	const slot = (texture: number, uv = 0, scale = 1): TextureSlot => ({
 		texture,
 		uv,
-		scale: [scale, scale] as [number, number],
-		offset: [0, 0] as [number, number],
+		scale: [scale, scale],
+		offset: [0, 0],
 	});
-	const entry = (keywords: string[]): ReadyMaterial => ({
-		id: 0,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords,
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: 2,
-		slots: {
-			_BaseColorMap: slot(1, 1, 5),
-			_NormalMap: slot(2, 0),
-			_MROMap: slot(3, 0),
-			_MaskMap: slot(4, 0),
-			_DetailMap: slot(5, 1, 5),
-			_ParallaxMap: slot(6, 0),
-			_ParallaxNoiseMap: slot(6, 0),
-		},
-		floats: {
-			_ParallaxStrength: 0.314,
-			_ParallaxMarchNum: 3.41,
-			_ParallaxTilling: 2,
-			_ParallaxNoiseMapTilling: 3,
-			_ParallaxMinBrightness: 0.2,
-			_ParallaxMaskChannel: 2,
-			_ParallaxCharPos: 1,
-			_ParallaxBrightOuterRadius: 25,
-			_ParallaxBrightInnerRadius: 3,
-			_ParallaxBrightStrength: 20,
-		},
-		colors: { _MaskAlbedoR: [1, 0.5, 0, 0.5], _ParallaxColor: [2.8, 0.7, 0, 1] },
-		vectors: {},
+	const channel = (strength: number): MaskChannel => ({
+		albedo: [1, 0.214, 0],
+		strength,
+		roughness: 1,
+		metallic: 0,
+		scale: 0,
+		offset: 0,
 	});
-	const keywords = ['_DETAIL_MAP', '_PARALLAX_MAP', '_TRI_CHANNEL_MASK', '_TWO_BASEMAP'];
-	const [look] = materialLooks({ shaders, entries: [entry(keywords)] });
-	assert.deepEqual(look.textures, [1, 2, 4, -1, 5, 6, 6]);
-	assert.equal(look.flags & LookFlags.TriChannelMask, LookFlags.TriChannelMask);
+	const triChannel: LitSurface['triChannel'] = {
+		mask: slot(4),
+		channels: [channel(0.5), channel(0), channel(0)],
+	};
+	const detail = {
+		texture: slot(5, 1, 5),
+		mode: 1,
+		maskMode: 0,
+		normalIntensity: 1,
+		pbrIntensity: 0,
+		fade: [0, 0] as [number, number],
+		brighterScale: 1,
+		overlay: [0, 0, 0] as [number, number, number],
+		overlayCover: 0,
+	};
+	const textures = { base: slot(1, 1, 5), normal: slot(2), mro: null, emissive: null };
+	const [crystal, mro] = materialLooks({
+		shaders: ANY_SHADER,
+		entries: [
+			described(0, litSurface({ textures, triChannel, detail })),
+			described(1, litSurface({ layout: 'mro', textures: { ...textures, mro: slot(3) }, triChannel })),
+		],
+	});
+	assert.deepEqual(crystal.textures, [1, 2, 4, -1, 5, -1, -1]);
+	assert.notEqual(crystal.flags & LookFlags.TriChannelMask, 0);
+	assert.notEqual(crystal.flags & LookFlags.NormalOcclusion, 0);
 	// base and detail sample UV set 1
-	assert.equal((look.flags >> UV1_SHIFT) & 0x7f, 0b10001);
-	const row = (at: number) => Array.from(look.params.subarray(at, at + 4));
-	assert.deepEqual(row(LookRow.maskAlbedo), [1, Math.fround(0.21404114), 0, 0.5].map(Math.fround));
-	assert.deepEqual(row(LookRow.uv + 5 * 4), [2, 2, 0, 0]);
-	assert.deepEqual(row(LookRow.uv + 6 * 4), [3, 3, 0, 0]);
-	// three steps, a pulse between 0.2 and 1, the HDR colour as stored
-	assert.deepEqual(row(LookRow.parallax), [0.314, 3, 1, 0.4].map(Math.fround));
-	assert.equal(look.params[LookRow.parallax2 + 3], Math.fround(0.6));
-	assert.deepEqual(row(LookRow.parallaxColor), [2.8, 0.7, 0, 2].map(Math.fround));
-	assert.deepEqual(row(LookRow.parallaxBright).slice(0, 3), [25, 3, 20]);
+	assert.equal((crystal.flags >> UV1_SHIFT) & 0x7f, 0b10001);
+	const row = (at: number) => Array.from(crystal.params.subarray(at, at + 4));
+	assert.deepEqual(row(LookRow.maskAlbedo), [1, 0.214, 0, 0.5].map(Math.fround));
+	assert.equal(crystal.params[LookRow.maskAlbedo + 4 + 3], 0);
+	// the MRO map takes the mask slot, so the tri-channel mask isn't drawn
+	assert.equal(mro.textures[2], 3);
+	assert.equal(mro.flags & LookFlags.TriChannelMask, 0);
+	assert.notEqual(mro.flags & LookFlags.NormalRag, 0);
+});
 
-	// switch-texture variants take G and B from textures without a slot: they don't blend
-	const [switched] = materialLooks({
-		shaders,
-		entries: [entry([...keywords, '_TRI_CHANNEL_MASK_SWITCH_TEXTURE'])],
-	});
-	assert.equal(switched.params[LookRow.maskAlbedo + 4 + 3], 0);
-	assert.equal(switched.params[LookRow.maskAlbedo + 8 + 3], 0);
+/** a top layer with no moss */
+const topLayer = (overrides: Partial<LitLayer> = {}): LitLayer => ({
+	kind: 'layer',
+	base: 2,
+	bump: 3,
+	tiling: 2,
+	offset: [0.25, 0.5],
+	uvType: 2,
+	coverage: { kind: 'top' },
+	top: { bumped: 0, threshold: -1, smoothness: 0.5 },
+	heightTransition: 0.056,
+	tint: [2, 0.42808229, 0],
+	saturation: 0.75,
+	colorBlendMode: 0,
+	additiveIntensity: 1,
+	metallicType: 0,
+	metallic: 0,
+	bumpScale: 1,
+	baseNormalIntensity: 0,
+	aoStrength: 1,
+	aoType: 0,
+	moss: null,
+	...overrides,
 });
 
 test('moss rock: the top layer takes the parallax slots and rows, its own tiling and the default grey height', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Lit',
-			family: 'lit',
-			floats: { _LayerBlendHeight: 1, _TopBlendSmoothness: 0.5 },
-			colors: {},
-			vectors: { _Layer1Offset: [0, 0, 0, 0] },
-			textures: {},
-			normalMaps: [],
-		},
-	];
-	const slot = (texture: number) => ({
-		texture,
-		uv: 0,
-		scale: [1, 1] as [number, number],
-		offset: [0, 0] as [number, number],
-	});
+	const normal: TextureSlot = { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] };
 	const [look] = materialLooks({
-		shaders,
+		shaders: ANY_SHADER,
 		entries: [
-			{
-				id: 0,
-				status: 'ready',
-				surface: { kind: 'legacy' },
-				shader: 0,
-				keywords: ['_LAYERBLEND_TOP', '_TERRAIN_BLEND', '_TWO_BASEMAP'],
-				renderQueue: 2000,
-				blend: 'opaque',
-				blendFactors: null,
-				alphaClipThreshold: null,
-				cull: 'back',
-				zWrite: true,
-				baseTextureMapCount: 2,
-				slots: { _NormalMap: slot(1), _Layer1BaseMap: slot(2), _Layer1BumpMap: slot(3) },
-				floats: {
-					_Layer1Tilling: 2,
-					_LayerBlendUVType: 2,
-					_TopBlendThreshold: -1,
-					_LayerBlendHeightTransition: 0.056,
-					_Layer1Saturation: -0.25,
-					_Layer1ColorBrighterScale: 2,
-				},
-				colors: { _Layer1TintColor: [1, 0.5, 0, 1] },
-				vectors: { _Layer1Offset: [0.25, 0.5, 0, 0] },
-			},
+			described(
+				0,
+				litSurface({ textures: { base: null, normal, mro: null, emissive: null }, overlay: topLayer() }),
+			),
 		],
 	});
 	assert.deepEqual(look.textures, [-1, 1, -1, -1, -1, 2, 3]);
@@ -640,59 +576,30 @@ test('moss rock: the top layer takes the parallax slots and rows, its own tiling
 	assert.deepEqual(row(LayerBlendRow.fuzzy2), [0, 1, 1, 0]);
 });
 
-test('moss mounds: the mask layer takes its mask map into the emissive slot, on the UV set its type picks, and shades as moss', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Lit',
-			family: 'lit',
-			floats: { _LayerBlendMaskUVType: 0, _Layer1FuzzyDarkPower: 1, _Layer1FuzzyBrightPower: 6 },
-			colors: {},
-			vectors: {},
-			textures: { _LayerBlendMaskMap: 'white' },
-			normalMaps: [],
-		},
-	];
-	const slot = (texture: number, uv = 0) => ({
-		texture,
-		uv,
-		scale: [3, 3] as [number, number],
-		offset: [0, 0] as [number, number],
-	});
-	const entry = (
-		id: number,
-		keywords: string[],
-		slots: ReadyMaterial['slots'],
-		floats: Record<string, number>,
-	): ReadyMaterial => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords,
-		renderQueue: 2450,
-		blend: 'alphaTest',
-		blendFactors: null,
-		alphaClipThreshold: 0.5,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: 2,
-		slots,
-		floats,
-		colors: {},
-		vectors: {},
-	});
-	const layerSlots = { _BaseColorMap: slot(0), _Layer1BaseMap: slot(2), _Layer1BumpMap: slot(3) };
-	const moss = ['_ALPHATEST_ON', '_LAYERBLEND_MASK', '_LAYERBLEND_MOSS', '_TWO_BASEMAP'];
-	const [mound] = materialLooks({
-		shaders,
+test('moss mounds: the mask layer takes its mask map into the emissive slot, untiled on its UV set, and shades as moss', () => {
+	const base: TextureSlot = { texture: 0, uv: 0, scale: [3, 3], offset: [0, 0] };
+	const emissive: TextureSlot = { texture: 5, uv: 0, scale: [3, 3], offset: [0, 0] };
+	const moss = {
+		coreDarkness: 0.2,
+		edgeBrightness: 0,
+		edgeShadowRange: 0.01,
+		edgeShadowOffset: 0,
+		edgeShadowIntensity: 0,
+		darkPower: 0.1,
+		brightPower: 6,
+		normalStrength: 0,
+	};
+	const maskLayer = topLayer({ coverage: { kind: 'maskMap', texture: 4, uv: 1 }, moss });
+	const [mound, channel, emissiveMapped] = materialLooks({
+		shaders: ANY_SHADER,
 		entries: [
-			entry(
+			described(
 				0,
-				moss,
-				// the slot's own UV set (2) and tiling don't matter: the type picks the set and the map isn't tiled
-				{ ...layerSlots, _LayerBlendMaskMap: slot(4, 2) },
-				{ _Layer1FuzzyCoreDarkness: 0.2, _Layer1FuzzyEdgeShadowRange: 0.01, _Layer1FuzzyDarkPower: 0.05 },
+				litSurface({ textures: { base, normal: null, mro: null, emissive: null }, overlay: maskLayer }),
 			),
+			described(1, litSurface({ overlay: topLayer({ coverage: { kind: 'baseAlpha' } }) })),
+			// an emissive map leaves no slot for the mask map
+			described(2, litSurface({ textures: { base, normal: null, mro: null, emissive }, overlay: maskLayer })),
 		],
 	});
 	assert.deepEqual(mound.textures, [0, -1, -1, 4, -1, 2, 3]);
@@ -703,74 +610,64 @@ test('moss mounds: the mask layer takes its mask map into the emissive slot, on 
 	assert.deepEqual(row(LookRow.uv + 3 * 4), [1, 1, 0, 0]);
 	assert.equal(row(LayerBlendRow.height)[3], LayerSource.MaskMap);
 	assert.deepEqual(row(LayerBlendRow.fuzzy), [0.2, 0, 0.01, 0].map(Math.fround));
-	// the dark power is floored at 0.1
 	assert.deepEqual(row(LayerBlendRow.fuzzy2), [0, 0.1, 6, 0].map(Math.fround));
+	assert.equal(channel.params[LayerBlendRow.height + 3], LayerSource.BaseAlpha);
+	assert.equal(channel.textures[3], -1);
+	assert.equal(emissiveMapped.flags & LookFlags.LayerBlend, 0);
+	assert.deepEqual(emissiveMapped.textures.slice(3), [5, -1, -1, -1]);
+});
 
-	// a mask type reads a map channel instead; an emissive map leaves no slot for the mask map, and the noise
-	// variant isn't ported
-	const [channel, emissive, noise] = materialLooks({
-		shaders,
+test('foliage: leaves and grass fill the foliage rows, and surfaces keeping lit decals off set their bit', () => {
+	const [leaf, grass] = materialLooks({
+		shaders: ANY_SHADER,
 		entries: [
-			entry(0, ['_LAYERBLEND_MASK', '_TWO_BASEMAP'], layerSlots, { _LayerBlendMaskType: 2 }),
-			entry(
-				1,
-				['_EMISSIVE_MAP', '_LAYERBLEND_MASK', '_TWO_BASEMAP'],
-				{ ...layerSlots, _EmissiveMap: slot(5), _LayerBlendMaskMap: slot(4) },
-				{},
+			described(
+				0,
+				litSurface({
+					layout: 'roughnessInB',
+					f0: 0.07,
+					transmission: 0.2,
+					foliage: {
+						kind: 'leaf',
+						occlusionShadow: 0.5,
+						fakeShadow: { strength: 0.25, power: 2 },
+						diffuseUsesVertexNormal: 1,
+						aoTransmission: [0, 0.01],
+						aoSubsurface: [0, 0.01],
+						subsurface: 0.3,
+						transmissionDistanceFade: 1,
+						canopy: null,
+					},
+					keepsLitDecalsOff: true,
+				}),
 			),
-			entry(
-				2,
-				['_LAYERBLEND_MASK', '_LAYERBLEND_NOISEBLEND', '_TWO_BASEMAP'],
-				{ ...layerSlots, _LayerBlendMaskMap: slot(4) },
-				{},
+			described(
+				1,
+				litSurface({
+					layout: 'roughnessInB',
+					foliage: {
+						kind: 'grass',
+						bendNormalUpward: 0.5,
+						cameraLean: 0.25,
+						maskOnDiffuse: 1,
+						maskOnTransmission: 0,
+						twoSidedNormal: true,
+						subsurface: 0.1,
+						ao: [1, 2, 0.5],
+						sunMask: [3, 4, 0.25],
+					},
+				}),
 			),
 		],
 	});
-	assert.equal(channel.params[LayerBlendRow.height + 3], LayerSource.BaseAlpha);
-	assert.equal(channel.textures[3], -1);
-	for (const look of [emissive, noise]) {
-		assert.equal(look.flags & LookFlags.LayerBlend, 0);
-		assert.deepEqual(look.textures.slice(5), [-1, -1]);
-	}
-});
-
-test("surfaces whose shader writes a _StencilRef with the lit decals' bit keep them off; HLODs, which write 0, don't", () => {
-	const shader = (name: string, family: ShaderEntry['family'], stencilRef: number): ShaderEntry => ({
-		name,
-		family,
-		floats: { _StencilRef: stencilRef },
-		colors: {},
-		vectors: {},
-		textures: {},
-		normalMaps: [],
-	});
-	const shaders = [
-		shader('HGRP/Foliage/Grass', 'grass', 33),
-		shader('HGRP/Foliage/Trunk', 'trunk', 32),
-		shader('HGRP/Foliage/Leaf', 'leaf', 1),
-		shader('HGRP/Lit', 'lit', 0),
-		shader('HGRP/LitHLOD', 'hlod', 32),
-	];
-	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
-		id,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: id,
-		keywords: [],
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: {},
-		floats: {},
-		colors: {},
-		vectors: {},
-	}));
-	assert.deepEqual(
-		materialLooks({ shaders, entries }).map((look) => look.params[LookRow.detail2 + 3]),
-		[1, 1, 0, 0, 0],
-	);
+	const row = (look: typeof leaf, at: number) => Array.from(look.params.subarray(at, at + 4));
+	assert.notEqual(leaf.flags & (LookFlags.Foliage | LookFlags.FoliageLeaf | LookFlags.NormalRoughness), 0);
+	assert.deepEqual(row(leaf, LookRow.foliage), [0.5, 0.25, 2, 1]);
+	assert.deepEqual(row(leaf, LookRow.surface2).slice(1, 3), [0.07, 0.2].map(Math.fround));
+	assert.equal(leaf.params[LookRow.detail2 + 3], 1);
+	assert.equal(grass.flags & LookFlags.FoliageLeaf, 0);
+	assert.deepEqual(row(grass, LookRow.foliage), [0.5, 0.25, 1, 0]);
+	assert.deepEqual(row(grass, LookRow.foliageAo), [1, 2, 0.5, 1]);
+	assert.deepEqual(row(grass, LookRow.foliage2), [0.1, 3, 4, 0.25].map(Math.fround));
+	assert.equal(grass.params[LookRow.detail2 + 3], 0);
 });

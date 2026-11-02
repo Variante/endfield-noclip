@@ -16,6 +16,7 @@ export type MaterialSurface =
 	| LegacySurface
 	| UndrawnSurface
 	| UnsupportedSurface
+	| LitSurface
 	| MattePaintingSurface
 	| ErosionSurface
 	| DitheredSurface;
@@ -48,6 +49,247 @@ export interface UnsupportedSurface {
 	/** what the viewer lacks, for the debug index */
 	reason: string;
 }
+
+// #region lit
+
+/**
+ * the HGRP Lit model and the shaders that share it: `HGRP/Lit`, `HGRP/LitEffect`, `HGRP/LitTransparent`
+ * glass, `HGRP/LitHLOD`, the trunks, leaves, grass and their card LODs (`docs/game-data/materials.md`).
+ * optional parts are `null` when the material's keywords or textures leave them off
+ */
+export interface LitSurface {
+	kind: 'lit';
+	/**
+	 * how the maps pack their channels (`docs/game-data/materials.md#texture-layouts`): `mro` an MRO map and an
+	 * `RAG` normal map; `twoBasemap` roughness in the normal map's B and occlusion in its A; `roughnessInB`
+	 * (foliage outside the layout switch) roughness in B alone; `plain` a plain normal map
+	 */
+	layout: 'mro' | 'twoBasemap' | 'roughnessInB' | 'plain';
+	/** `twoBasemap` with `_BaseTextureMapCount` 1: metallic is the base colour's alpha */
+	metallicFromBaseAlpha: boolean;
+	textures: {
+		base: TextureSlot | null;
+		normal: TextureSlot | null;
+		/** the `mro` layout's MRO map */
+		mro: TextureSlot | null;
+		/** `_EMISSIVE_MAP`'s map; its R scales the emission */
+		emissive: TextureSlot | null;
+	};
+	/** the alpha-test threshold, or `null` without alpha testing */
+	alphaClip: number | null;
+	/** the alpha tested (and, for glass, the opacity) is the normal map's rather than the base colour's */
+	alphaFromNormal: boolean;
+	/**
+	 * `opaque`, or glass blended over what lies behind: `alphaBlend` by its opacity, `premultiplied` adding its
+	 * radiance whole
+	 */
+	blend: 'opaque' | 'alphaBlend' | 'premultiplied';
+	/** glass: the opacity before the texture's alpha (`_BaseColor.a`) */
+	opacity: number;
+	/** the base colour's tint, linear (white for `HGRP/LitHLOD`, which ignores it) */
+	tint: Rgb;
+	/** how much the tint covers the base colour (1 untextured) */
+	tintCover: number;
+	/** the base colour's brightening, before the tint covers it */
+	brighterScale: number;
+	/** roughness read from a map is remapped between these */
+	roughness: [min: number, max: number];
+	metallic: number;
+	normalScale: number;
+	occlusionStrength: number;
+	/** Fresnel reflectance at normal incidence */
+	f0: number;
+	/** foliage transmission (0 elsewhere) */
+	transmission: number;
+	emission: LitEmission | null;
+	/** `_TRI_CHANNEL_MASK`'s channels R, G, B (`docs/game-data/materials.md#lit-layers`) */
+	triChannel: { mask: TextureSlot; channels: [MaskChannel, MaskChannel, MaskChannel] } | null;
+	detail: LitDetail | null;
+	/** the parallax glow or the second layer, which share their textures' slots */
+	overlay: ParallaxGlow | LitLayer | null;
+	foliage: LeafInputs | GrassInputs | CardInputs | null;
+	/** the surface keeps `HGRP/DecalLit` decals off (`docs/game-data/materials.md#decals`) */
+	keepsLitDecalsOff: boolean;
+}
+
+/** a Lit surface's emission (`docs/game-data/materials.md#emission`) */
+export interface LitEmission {
+	/** HDR, as stored */
+	color: Rgb;
+	/** `map`: the emissive map's R; `mask`: a channel of the material's own maps */
+	source: 'map' | 'mask';
+	/** `_EmissiveMaskChannel` */
+	maskChannel: number;
+	/** 1 when emission ignores the albedo (`_AlbedoAffectEmissive`) */
+	albedoAffect: number;
+	/** 1 when emission keeps its brightness whatever the exposure */
+	ignorePostExposure: number;
+	/** `_EMISSIVE_ANIM`'s pulse, `null` when still */
+	pulse: {
+		/** cycles per second */
+		rate: number;
+		/** `_EmissiveAnimRandom` */
+		phase: number;
+		/** the share of a cycle the pulse takes */
+		interval: number;
+		minimum: number;
+		/** how much it dims the emission (`_EmissiveColor.a`) */
+		depth: number;
+	} | null;
+}
+
+/** one tri-channel mask channel */
+export interface MaskChannel {
+	/** the albedo blended toward, linear */
+	albedo: Rgb;
+	/** how strongly it blends (0 for channels the viewer can't read) */
+	strength: number;
+	roughness: number;
+	metallic: number;
+	/** contrast */
+	scale: number;
+	offset: number;
+}
+
+/** `_DETAIL_MAP` */
+export interface LitDetail {
+	texture: TextureSlot;
+	/** 0 colour overlay, 1 PBR */
+	mode: number;
+	/** where the weight comes from (`_DetailMaskMode`) */
+	maskMode: number;
+	normalIntensity: number;
+	pbrIntensity: number;
+	/** view depths where it starts and finishes fading out */
+	fade: [start: number, end: number];
+	brighterScale: number;
+	/** colour mode's overlay, linear, and how much it covers */
+	overlay: Rgb;
+	overlayCover: number;
+}
+
+/** `_PARALLAX_MAP`'s glow; both maps ignore their `_ST` and tile by their own scale */
+export interface ParallaxGlow {
+	kind: 'parallax';
+	/** the pattern, on its own UV set; its G picks between the colours */
+	pattern: TextureSlot;
+	patternTiling: number;
+	/** the height field marched through, on the pattern's UV set */
+	noise: number;
+	noiseTiling: number;
+	depth: number;
+	/** march steps, 1–20 */
+	steps: number;
+	fresnelPower: number;
+	/** the pulse: phase per second, phase per metre of the object's position, then its range */
+	pulseRate: number;
+	pulsePhasePerMetre: number;
+	pulseMinimum: number;
+	/** HDR colours times the intensity */
+	bright: Rgb;
+	dark: Rgb;
+	/** numbered like the emission mask, minus one */
+	maskChannel: number;
+	ignorePostExposure: number;
+	/** the brightening near the player: radii and strength (0 for none) */
+	near: { outer: number; inner: number; strength: number };
+}
+
+/** what decides how much a Lit layer covers */
+export type LayerCoverage =
+	| { kind: 'top' }
+	/** `_LayerBlendMaskMap`'s R, untiled, on UV set 0 or 1 */
+	| { kind: 'maskMap'; texture: number; uv: number }
+	| { kind: 'layerBumpAlpha' }
+	| { kind: 'baseAlpha' }
+	| { kind: 'normalAlpha' }
+	| { kind: 'full' };
+
+/** `_LAYERBLEND_TOP` and `_LAYERBLEND_MASK`, with `_LAYERBLEND_MOSS` */
+export interface LitLayer {
+	kind: 'layer';
+	/** both sampled at one coordinate, tiled and offset by the layer's own values */
+	base: number;
+	bump: number;
+	tiling: number;
+	offset: [u: number, v: number];
+	/** 0 UV set 0, 1 world XZ, 2 UV set 2 */
+	uvType: number;
+	coverage: LayerCoverage;
+	/** how much the bumped normal decides top coverage, its threshold and smoothness */
+	top: { bumped: number; threshold: number; smoothness: number };
+	/** the height blend's transition, `null` without it */
+	heightTransition: number | null;
+	/** linear tint times its brightening, and how much colour it keeps (saturation) */
+	tint: Rgb;
+	saturation: number;
+	/** 0 replace, 1 add */
+	colorBlendMode: number;
+	additiveIntensity: number;
+	metallicType: number;
+	metallic: number;
+	bumpScale: number;
+	baseNormalIntensity: number;
+	aoStrength: number;
+	aoType: number;
+	/** `_LAYERBLEND_MOSS`'s fuzz */
+	moss: {
+		coreDarkness: number;
+		edgeBrightness: number;
+		edgeShadowRange: number;
+		edgeShadowOffset: number;
+		edgeShadowIntensity: number;
+		darkPower: number;
+		brightPower: number;
+		normalStrength: number;
+	} | null;
+}
+
+/** `HGRP/Foliage/Leaf`'s inputs to the foliage lighting (`docs/game-data/materials.md#foliage`) */
+export interface LeafInputs {
+	kind: 'leaf';
+	occlusionShadow: number;
+	fakeShadow: { strength: number; power: number };
+	diffuseUsesVertexNormal: number;
+	/** the vertex AO ranges that fade transmission and subsurface in */
+	aoTransmission: [start: number, range: number];
+	aoSubsurface: [start: number, range: number];
+	subsurface: number;
+	transmissionDistanceFade: number;
+	/** `_CANOPY_COLOR_RAMP`, `null` without it */
+	canopy: {
+		intensity: number;
+		startsAtTop: boolean;
+		range: number;
+		transition: number;
+		brighterScale: number;
+		cover: number;
+		color: Rgb;
+	} | null;
+}
+
+/** `HGRP/Foliage/Grass` and its card LOD's inputs (`docs/game-data/materials.md#foliage`) */
+export interface GrassInputs {
+	kind: 'grass';
+	/** the card LOD decodes its normal map its own way and takes neither the bend nor the masks */
+	bendNormalUpward: number;
+	/** the lean away from the camera's intensity (0 without `_USE_CAMERA_BASED_TILLING`) */
+	cameraLean: number;
+	maskOnDiffuse: number;
+	maskOnTransmission: number;
+	twoSidedNormal: boolean;
+	subsurface: number;
+	/** the occlusion and sun mask ramps: start height, rate, strength */
+	ao: [start: number, rate: number, strength: number];
+	sunMask: [start: number, rate: number, strength: number];
+}
+
+/** `HGRP/Foliage/TreeFoliageCardMeshLod`, whose own inputs aren't decoded: plain foliage */
+export interface CardInputs {
+	kind: 'card';
+}
+
+// #endregion
 
 /**
  * `HGRP/MattePainting`, an unlit painted backdrop (`docs/game-data/materials.md#matte-paintings`). it casts
