@@ -49,9 +49,11 @@ tangents.
 the [mist](../game-data/effects.md#mist) cards and boxes draw by their own entry points in
 `shaders/effect.wgsl` (`fs_mist_card`, `fs_mist_volume`). lit cards take the sun over π. boxes draw
 their back faces without a depth test, like the decals, and take the thickness from the nearer of
-the surface behind and the back face. additive cards and boxes draw into the transparent pass's
-glow, which the composite adds unfogged after the fog ([frame](frame.md)); premultiplied cards join
-the weighted blend. at Sword Vault Dale the cards make the haze that the fog alone left clear.
+the surface behind and the back face. a box's 3D noise is the look's `volumeTexture`, streamed whole and bound beside
+the slots (a zeroed placeholder leaves boxes without it unchanged); the box waits for it like an
+effect's other textures. additive cards and boxes draw into the transparent pass's glow, which the
+composite adds unfogged after the fog ([frame](frame.md)); premultiplied cards join the weighted
+blend. at Sword Vault Dale the cards make the haze that the fog alone left clear.
 
 ## blending
 

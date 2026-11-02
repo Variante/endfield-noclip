@@ -166,6 +166,8 @@ export interface MaterialLook {
 	textures: number[];
 	/** largest UV scale of each slot, for picking the mip level to stream */
 	uvScales: number[];
+	/** a 3D texture an effect samples besides its slots (the mist boxes' noise), or -1 */
+	volumeTexture: number;
 	/** {@link LookFlags}, with every slot that has a texture set */
 	flags: number;
 	/** {@link LOOK_FLOATS} draw parameters */
@@ -292,6 +294,7 @@ const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
 		castsShadows: true,
 		textures: SLOTS.map(() => -1),
 		uvScales: SLOTS.map(() => 1),
+		volumeTexture: -1,
 		flags: 0,
 		params,
 		stencil: null,
@@ -535,6 +538,7 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 		castsShadows: false,
 		textures: effect.textures,
 		uvScales: effect.uvScales,
+		volumeTexture: effect.volumeTexture,
 		flags,
 		params: effect.params,
 		stencil,

@@ -441,6 +441,15 @@ export class MeshSelector {
 					this.#streamTexture(look.textures[i], bucket.pixels * texturePixels, look.uvScales[i]);
 				}
 			}
+			if (look.volumeTexture >= 0) {
+				streamWholeTexture({
+					stream: this.#stream,
+					textures: this.#textures,
+					id: look.volumeTexture,
+					kind: '3d',
+					priority: bucket.pixels,
+				});
+			}
 		}
 		if (frame % BUCKET_LIFETIME === 0) {
 			this.#prune(frame);

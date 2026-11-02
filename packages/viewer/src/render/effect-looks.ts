@@ -238,6 +238,8 @@ export interface EffectLook {
 	textures: number[];
 	/** largest UV scale per slot, for streaming */
 	uvScales: number[];
+	/** a 3D texture sampled besides the slots, or -1 */
+	volumeTexture: number;
 	params: Float32Array;
 }
 
@@ -274,6 +276,7 @@ const emptyEffect = (slots: number): EffectLook => {
 	return {
 		textures: Array.from({ length: slots }, () => -1),
 		uvScales: Array.from({ length: slots }, () => 1),
+		volumeTexture: -1,
 		params,
 	};
 };
@@ -1107,6 +1110,15 @@ export const MistRow = {
 	volumeFade: 64,
 	/** `_IgnorePostExposure`, 0, 0, 0 */
 	misc: 68,
+	/** volumes: the 3D noise's tiling xyz, 1 to sample it at the world position (else the box's) */
+	volumeNoise: 72,
+	/** volumes: the 3D noise's scroll per second xyz (`_NoiseUVWDir1 · _NoiseUVWSpeed1`), 0 */
+	volumeNoiseFlow: 76,
+	/**
+	 * volumes: `_NoiseIntensity` (near), `_NoiseFarIntensity`, 0.1 / `_NoiseFar` (per metre towards far), 1
+	 * with the noise (`_USE_NOISE3D` and its texture)
+	 */
+	volumeNoiseMix: 80,
 } as const;
 
 /** the slot index of a card's noise texture; its main texture is slot 0 */
@@ -1239,6 +1251,24 @@ export const fakeVolumeFogLook = (entry: ReadyMaterial, shader: ShaderEntry): Ef
 		MistRow.volumeFade,
 	);
 	params[MistRow.misc] = float('_IgnorePostExposure', 1);
+	const noise = entry.slots['_NoiseTex3D'];
+	if (entry.keywords.includes('_USE_NOISE3D') && noise !== undefined) {
+		look.volumeTexture = noise.texture;
+		const tiling = color('_NoiseTexTilling1') ?? [1, 1, 1, 1];
+		params.set([tiling[0], tiling[1], tiling[2], float('_NoiseTexUseWorldUVW', 1)], MistRow.volumeNoise);
+		const dir = color('_NoiseUVWDir1') ?? [0, 0, 0, 0];
+		const speed = float('_NoiseUVWSpeed1', 0);
+		params.set([dir[0] * speed, dir[1] * speed, dir[2] * speed], MistRow.volumeNoiseFlow);
+		params.set(
+			[
+				float('_NoiseIntensity', 1),
+				float('_NoiseFarIntensity', 1),
+				0.1 / Math.max(float('_NoiseFar', 1), 1e-3),
+				1,
+			],
+			MistRow.volumeNoiseMix,
+		);
+	}
 	return look;
 };
 

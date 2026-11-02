@@ -174,10 +174,17 @@ the drifting mist banks are effects too: `HGRP/FogSimple` cards (841 on map02, `
   `_FogIntensityFadeDistance` from the point (or the box's centre), and with `_FogDepthStart` in
   from the camera up to that distance, starting at the `_FogDepthEnd` fraction of it. the colour is
   `_FogColor`.
+- **box noise.** with `_USE_NOISE3D`, `_NoiseTex3D`'s alpha `n` (a 64³ texture), sampled with
+  repeat at the world position (or the box's own with `_NoiseTexUseWorldUVW` off) ×
+  `_NoiseTexTilling1`, scrolling by `_NoiseUVWDir1 · _NoiseUVWSpeed1` per second, scales alpha by
+  `saturate(1 − n + i · n)`. the intensity `i` moves from `_NoiseIntensity` at the camera to
+  `_NoiseFarIntensity` by `10 · _NoiseFar` metres. most map02 boxes set 0 near and about −0.3 far,
+  so the noise only thins them, and more with distance: dense boxes read as broken drifting banks
+  rather than a solid wall.
 
 most cards and every box blend additively; the other cards are premultiplied. the cards' own fog
 (`_USE_FOG`) is faded by `_FogIntensity` and `_FogIntensityFadeOutDistance`, and the boxes also
-carry a 3D noise and a depth prepass. at Sword Vault Dale (map02_lv006) the cards make the haze over
+carry a depth prepass. at Sword Vault Dale (map02_lv006) the cards make the haze over
 the valley's middle distance.
 
 ## blending

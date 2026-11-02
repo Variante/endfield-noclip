@@ -155,7 +155,7 @@ packs or renders correctly.
   on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and
   the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword variants, and in its dither the
   vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog
-  (`_USE_FOG`), the mist boxes' 3D noise and depth prepass, and the game's global scene-effect
+  (`_USE_FOG`), the mist boxes' depth prepass and vertex colour, and the game's global scene-effect
   colour adjustment (the Jingyu blight reads less saturated than in game). stencil
   [portals](game-data/effects.md#portals) draw without their masks' own colour and depth, stencil
   operations other than keep and replace are unsupported, and none draw unless the GPU has

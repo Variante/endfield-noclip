@@ -40,6 +40,9 @@ struct EffectRow {
 @group(3) @binding(15) var fx_surface: texture_2d<u32>;
 // the main pass's diffuse ambient and material occlusion (`Shaded.ambient` in frame.wgsl)
 @group(3) @binding(16) var fx_ambient: texture_2d<f32>;
+// the look's 3D texture (`volumeTexture`: the mist boxes' noise), a zeroed placeholder without one
+@group(3) @binding(17) var fx_volume: texture_3d<f32>;
+@group(3) @binding(18) var fx_volume_samp: sampler;
 
 // rows of the look (`EffectRow` in effect-looks.ts, in vec4s)
 const FX_TINT = 0u;
@@ -966,6 +969,9 @@ const MIST_VOLUME = 14u;
 const MIST_VOLUME_HEIGHT = 15u;
 const MIST_VOLUME_FADE = 16u;
 const MIST_MISC = 17u;
+const MIST_VOLUME_NOISE = 18u;
+const MIST_VOLUME_NOISE_FLOW = 19u;
+const MIST_VOLUME_NOISE_MIX = 20u;
 
 // a mist layer into the transparent pass: additive ones into the glow, premultiplied ones like other layers
 fn mist_accumulate(id: u32, premultiplied: vec3f, alpha: f32, distance: f32) -> EffectAccumulated {
@@ -1060,6 +1066,17 @@ fn fs_mist_volume(in: EffectOut) -> EffectAccumulated {
 	alpha *= 1.0 - saturate((object_p.y - height.x) * height.y);
 	if (height.w > height.z) {
 		alpha *= 1.0 - smoothstep(height.z - 0.5, height.w - 0.5, object_p.y);
+	}
+	let noise_mix = fx_row(id, MIST_VOLUME_NOISE_MIX);
+	if (noise_mix.w != 0.0) {
+		// scrolling 3D noise thins the fog where it's high, by an intensity that moves from the near value to
+		// the far one over distance; negative intensities thin it further
+		let noise_at = fx_row(id, MIST_VOLUME_NOISE);
+		let at = select(object_p, frame.eye.xyz + rel, noise_at.w != 0.0);
+		let uvw = at * noise_at.xyz + fx_row(id, MIST_VOLUME_NOISE_FLOW).xyz * frame.eye.w;
+		let n = textureSampleLevel(fx_volume, fx_volume_samp, uvw, 0.0).r;
+		let intensity = mix(noise_mix.y, noise_mix.x, 1.0 - saturate(length(rel) * noise_mix.z));
+		alpha *= saturate(1.0 - n + intensity * n);
 	}
 	if (volume.w > 0.0) {
 		alpha *= saturate(thickness / volume.w);

@@ -496,6 +496,43 @@ test('mist: additive FogSimple cards and walk-in fog boxes draw; equal fade ends
 	assert.equal(looks[2].unsupported, true);
 });
 
+test('a fog box with _USE_NOISE3D samples its 3D noise with the far intensity and scroll it sets', () => {
+	const looks = materialLooks({
+		shaders: [shader('HGRP/Effect/VFXFakeVolumeFog')],
+		entries: [
+			material({
+				blend: 'additive',
+				keywords: ['_USE_NOISE3D'],
+				slots: { _NoiseTex3D: slot(3) },
+				floats: { _NoiseIntensity: 0, _NoiseFarIntensity: -0.3, _NoiseFar: 2, _NoiseUVWSpeed1: 0.5 },
+				vectors: { _NoiseTexTilling1: [0.02, 0.02, 0.02, 1], _NoiseUVWDir1: [1, 0, -1, 0] },
+			}),
+			material({ id: 1, blend: 'additive', slots: { _NoiseTex3D: slot(3) } }),
+		],
+	});
+	const [noisy, plain] = looks;
+	assert.equal(noisy.volumeTexture, 3);
+	assert.deepEqual(
+		Array.from(noisy.params.subarray(MistRow.volumeNoise, MistRow.volumeNoise + 4), (v) =>
+			Number(v.toFixed(4)),
+		),
+		[0.02, 0.02, 0.02, 1],
+	);
+	assert.deepEqual(
+		[...noisy.params.subarray(MistRow.volumeNoiseFlow, MistRow.volumeNoiseFlow + 3)],
+		[0.5, 0, -0.5],
+	);
+	assert.deepEqual(
+		Array.from(noisy.params.subarray(MistRow.volumeNoiseMix, MistRow.volumeNoiseMix + 4), (v) =>
+			Number(v.toFixed(4)),
+		),
+		[0, -0.3, 0.05, 1],
+	);
+	// without the keyword the noise texture isn't sampled
+	assert.equal(plain.volumeTexture, -1);
+	assert.equal(plain.params[MistRow.volumeNoiseMix + 3], 0);
+});
+
 test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals and keeps its own rows', () => {
 	const looks = materialLooks({
 		// without a main texture the sheet samples the shader's white default

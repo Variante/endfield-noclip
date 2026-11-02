@@ -24,7 +24,7 @@ import {
 import effectWgsl from './shaders/effect.wgsl?raw';
 import meshWgsl from './shaders/mesh.wgsl?raw';
 import { SHADOW_DEPTH_STATE } from './shadow-map.ts';
-import type { TextureBinding, TextureStore } from './texture-store.ts';
+import { placeholderView, type TextureBinding, type TextureStore } from './texture-store.ts';
 
 /** floats of `Draw` in mesh.wgsl: the position and UV dequantizations, then the material look */
 const DRAW_FLOATS = 16 + LOOK_FLOATS;
@@ -238,7 +238,7 @@ interface PreparedDraw {
 	cull: FaceCull;
 	uvFormat: UvFormat;
 	/** for scene effects: the material id and slot bindings their group is built from at encode */
-	effect: { material: number; slots: (TextureBinding | null)[] } | null;
+	effect: { material: number; slots: (TextureBinding | null)[]; volume: TextureBinding | null } | null;
 	/** the stencil state its pipeline variant uses, or `null` for the phase's own pipeline */
 	stencil: LookStencil | null;
 }
@@ -249,6 +249,8 @@ interface MaterialState {
 	version: number;
 	/** each slot's binding, `null` where it has no texture or it hasn't streamed in */
 	slots: (TextureBinding | null)[];
+	/** the look's 3D texture's binding, `null` where it has none or it hasn't streamed in */
+	volume: TextureBinding | null;
 	/** the look's flags without the flags of slots that aren't bound */
 	flags: number;
 	/** the material group; `null` for effects, whose group also binds the main pass's outputs */
@@ -336,6 +338,8 @@ export class MeshRenderer {
 	#zeros: GPUBuffer;
 	#zerosSize = 0;
 	#white: GPUTextureView;
+	/** bound where an effect has no 3D texture */
+	#noVolume: GPUTextureView;
 	#defaultSampler: GPUSampler;
 	/** material bind groups by material id */
 	#bindings = new Map<number, MaterialBinding>();
@@ -428,6 +432,11 @@ export class MeshRenderer {
 		});
 		device.queue.writeTexture({ texture: white }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1]);
 		this.#white = white.createView();
+		this.#noVolume = placeholderView(device, {
+			label: 'no effect volume',
+			dimension: '3d',
+			format: 'r8unorm',
+		});
 		this.#defaultSampler = device.createSampler({
 			label: 'material default',
 			addressModeU: 'repeat',
@@ -562,6 +571,8 @@ export class MeshRenderer {
 						visibility: GPUShaderStage.FRAGMENT,
 						texture: { sampleType: 'unfilterable-float' },
 					},
+					{ binding: 17, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '3d' } },
+					{ binding: 18, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
 				],
 			});
 			const layout = device.createPipelineLayout({
@@ -613,11 +624,14 @@ export class MeshRenderer {
 
 	/** an effect material's bind group over its slots' current bindings and this frame's main pass outputs */
 	#effectGroup(
-		material: number,
-		slots: readonly (TextureBinding | null)[],
+		{
+			material,
+			slots,
+			volume,
+		}: { material: number; slots: readonly (TextureBinding | null)[]; volume: TextureBinding | null },
 		inputs: EffectInputs,
 	): GPUBindGroup {
-		const versions = slots.map((slot) => slot?.version ?? -1);
+		const versions = [...slots, volume].map((slot) => slot?.version ?? -1);
 		const cached = this.#effectBindings.get(material);
 		if (
 			cached !== undefined &&
@@ -638,6 +652,8 @@ export class MeshRenderer {
 				{ binding: 14, resource: inputs.depth },
 				{ binding: 15, resource: inputs.reflectionSurface },
 				{ binding: 16, resource: inputs.ambient },
+				{ binding: 17, resource: volume?.view ?? this.#noVolume },
+				{ binding: 18, resource: volume?.sampler ?? this.#defaultSampler },
 			],
 		});
 		this.#effectBindings.set(material, { versions, inputs: inputs.version, group });
@@ -762,9 +778,12 @@ export class MeshRenderer {
 				complete &&= texture < 0;
 			}
 		}
+		const volume = look.volumeTexture < 0 ? null : textures.binding(look.volumeTexture);
+		complete &&= look.volumeTexture < 0 || volume !== null;
 		const state: MaterialState = {
 			version: textures.version,
 			slots,
+			volume,
 			flags,
 			group: (look.flags & LookFlags.Effect) !== 0 ? null : this.#materialGroup(material, slots),
 			alphaReady: slots[(look.flags & LookFlags.AlphaNormal) !== 0 ? 1 : 0] !== null,
@@ -982,7 +1001,9 @@ export class MeshRenderer {
 			// an effect's group also binds the main pass's outputs, so it's built when the transparent pass encodes
 			const isEffect = b >= effectFrom;
 			const material = isEffect ? null : state.group;
-			const effect = isEffect ? { material: bucket.material, slots: state.slots } : null;
+			const effect = isEffect
+				? { material: bucket.material, slots: state.slots, volume: state.volume }
+				: null;
 			const cull = faceCullOf(bucket);
 			const draw = this.#draws[d];
 			if (draw === undefined) {
@@ -1140,7 +1161,7 @@ export class MeshRenderer {
 		for (let i = from; i < to; i++) {
 			const draw = this.#draws[i];
 			if (draw.effect !== null) {
-				draw.material = this.#effectGroup(draw.effect.material, draw.effect.slots, inputs);
+				draw.material = this.#effectGroup(draw.effect, inputs);
 			}
 		}
 	}
