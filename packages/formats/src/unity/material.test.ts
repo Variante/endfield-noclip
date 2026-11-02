@@ -119,6 +119,29 @@ describe('classifyHgrpMaterial', () => {
 		assert.equal(premultiplied.renderQueue, 3000);
 		assert.equal(premultiplied.blend, 'premultiplied');
 	});
+
+	it('ignores properties the shader does not declare, and falls back to its defaults', () => {
+		const declares = (name: string, value: number) => ({
+			name,
+			type: 2,
+			flags: 0,
+			default: [value, 0, 0, 0] as [number, number, number, number],
+			defaultTexture: '',
+		});
+		// a Lit material still carrying LitTransparent's blend state
+		const stale = classifyHgrpMaterial(
+			material({ floats: { _SurfaceType: 1, _EnableAlphaBlend: 1, _SrcBlend: 5, _DstBlend: 10 } }),
+			{ ...shader('HGRP/Lit', 2000), properties: [declares('_CullMode', 2)] },
+		);
+		assert.equal(stale.blend, 'opaque');
+		assert.equal(stale.zWrite, true);
+
+		const defaulted = classifyHgrpMaterial(material({ floats: { _SurfaceType: 1 } }), {
+			...shader('HGRP/Effect/VFXBaseV2', 3000),
+			properties: [declares('_SurfaceType', 1), declares('_SrcBlend', 1), declares('_DstBlend', 10)],
+		});
+		assert.deepEqual(defaulted.blendFactors, [1, 10]);
+	});
 });
 
 describe('shader helpers', () => {

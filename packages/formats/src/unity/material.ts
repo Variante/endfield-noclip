@@ -376,9 +376,17 @@ export const classifyHgrpMaterial = (
 	shader: ShaderSummary,
 ): MaterialClassification => {
 	const { floats, keywords } = material;
+	// a material keeps the properties of shaders it used before (HGRP/Lit materials carry LitTransparent's
+	// `_SurfaceType` and blend factors), so only properties the shader declares count, falling back to the
+	// shader's default as Unity does. a shader without property info keeps every material value
+	const declared = new Map(shader.properties.map((property) => [property.name, property.default[0]]));
 	// property names are Unity's, underscores included
-	const float = (name: string): number | undefined =>
-		Object.hasOwn(floats, name) ? floats[name] : undefined;
+	const float = (name: string): number | undefined => {
+		if (declared.size > 0 && !declared.has(name)) {
+			return undefined;
+		}
+		return Object.hasOwn(floats, name) ? floats[name] : declared.get(name);
+	};
 	const family = shaderFamily(shader.name);
 	const renderQueue =
 		material.customRenderQueue >= 0 ? material.customRenderQueue : (shader.renderQueue ?? 2000);

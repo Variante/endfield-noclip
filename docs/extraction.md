@@ -242,9 +242,12 @@ with the Lit shader's UV-set floats where it declares them
 first-subshader tags and declared properties from `m_ParsedForm`. `classifyHgrpMaterial` derives the
 shader family (from the shader name), blend kind, queue, alpha-test threshold, cull mode and the Lit
 normal/MRO layout; Unity's queue boundaries (≥2450 alpha test, ≥3000 transparent) are refined by
-HGRP's own surface, blend, alpha-test and cull properties. a texture slot whose PPtr can't be
-followed is recorded with its error and left empty; the material still converts. the viewer maps
-families to shading in [render/materials.ts](../packages/viewer/src/render/materials.ts).
+HGRP's own surface, blend, alpha-test and cull properties. it reads only properties the shader
+declares, falling back to the shader's defaults: materials keep the properties of shaders they used
+before, and map02's Lit materials carrying LitTransparent's `_SurfaceType` and blend factors would
+otherwise classify as glass. a texture slot whose PPtr can't be followed is recorded with its error
+and left empty; the material still converts. the viewer maps families to shading in
+[render/materials.ts](../packages/viewer/src/render/materials.ts).
 
 **transform.** [transform.ts](../packages/formats/src/unity/transform.ts) builds column-major TRS
 matrices, applying Unity Euler angles in the game's order
