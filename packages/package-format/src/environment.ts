@@ -38,6 +38,21 @@ export interface EnvironmentProfile {
 export type EnvironmentSections = Omit<EnvironmentProfile, 'name' | 'post'>;
 
 /**
+ * how a field lerps between two phases below full strength: `lerp` linearly (every number of a colour, vector
+ * or SH), `round` linearly to the nearest whole number (integer counts and amounts), `switch` to the other
+ * side's value at ½ (enums, flags, strings, textures, materials and lens flares)
+ */
+export type FieldBlend = 'lerp' | 'round' | 'switch';
+
+/** per field of a section, how it blends; nested structs have their own. fields not listed switch */
+export interface BlendSchema {
+	[field: string]: FieldBlend | BlendSchema;
+}
+
+/** per phase section, how its fields blend, from the fields' types in the game's TypeTree */
+export type EnvironmentSchema = Record<keyof EnvironmentSections, BlendSchema>;
+
+/**
  * an `HGEnvironmentPhase` as the environment volumes apply it: its own sections, uncomposed. sections it
  * marks inactive leave what's under them unchanged
  */

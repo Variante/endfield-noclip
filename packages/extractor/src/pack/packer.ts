@@ -27,6 +27,7 @@ import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs
 import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type {
 	EnvironmentPhaseInfo,
+	EnvironmentSchema,
 	PostProfile,
 	EnvironmentVolumeInfo,
 } from '@endfield-noclip/package-format/environment';
@@ -2067,6 +2068,7 @@ const writePackage = async (
 	states: SceneStateInfo & {
 		environmentPosts: PostProfile[];
 		environmentPhases: EnvironmentPhaseInfo[];
+		environmentSchema: EnvironmentSchema;
 		environmentVolumes: EnvironmentVolumeInfo[];
 		heightFogFlowNoise: number | null;
 		water: WaterTable;
@@ -2146,6 +2148,7 @@ const writePackage = async (
 		levels: states.levels,
 		environmentPosts: states.environmentPosts,
 		environmentPhases: states.environmentPhases,
+		environmentSchema: states.environmentSchema,
 		environmentVolumes: states.environmentVolumes,
 		irradianceRegions: states.irradianceRegions,
 		heightFogFlowNoise: states.heightFogFlowNoise,

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type {
+	BlendSchema,
 	EnvironmentPhaseInfo,
+	FieldBlend,
 	EnvironmentProfile,
 	EnvironmentVolumeInfo,
 	EnvironmentVolumeShape,
@@ -57,6 +59,27 @@ const FAR: EnvironmentVolumeShape = {
 	scale: [1, 1, 1],
 };
 
+/** the fixtures' fields: numbers lerp unless listed (`…Mode` fields switch), everything else switches */
+const SCHEMA_OVERRIDES: Record<string, FieldBlend> = { rotation: 'round' };
+
+/** @returns a schema covering every field of the given sections, guessed from their values */
+const schemaOf = (value: Record<string, unknown>): BlendSchema =>
+	Object.fromEntries(
+		Object.entries(value).map(([field, v]): [string, FieldBlend | BlendSchema] => {
+			if (Object.hasOwn(SCHEMA_OVERRIDES, field) || field.endsWith('Mode')) {
+				return [field, SCHEMA_OVERRIDES[field] ?? 'switch'];
+			}
+			if (typeof v === 'number' || (Array.isArray(v) && v.every((n) => typeof n === 'number'))) {
+				return [field, 'lerp'];
+			}
+			if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- fixture records
+				return [field, schemaOf(v as Record<string, unknown>)];
+			}
+			return [field, 'switch'];
+		}),
+	);
+
 /**
  * @param base the base phase's sections, all inactive; the base volume is appended last, out of the camera's
  *   reach, so the blend starts from these sections
@@ -65,17 +88,29 @@ const manifest = (
 	phases: EnvironmentPhaseInfo[],
 	volumes: EnvironmentVolumeInfo[],
 	base: Record<string, unknown> = { heightFog: { heightFogDensity: 0, enable: true } },
-): PackageManifest =>
+): PackageManifest => {
+	const all = [...phases, sectionsPhase('base', base, [])];
+	const schema: Record<string, BlendSchema> = {};
+	for (const { sections } of all) {
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- fixture records
+		for (const [name, section] of Object.entries(
+			sections as unknown as Record<string, Record<string, unknown>>,
+		)) {
+			schema[name] = { ...schemaOf(section), ...schema[name] };
+		}
+	}
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the blend reads only these lists
-	({
-		environmentPhases: [...phases, sectionsPhase('base', base, [])],
+	return {
+		environmentPhases: all,
 		environmentVolumes: [
 			...volumes,
 			volume({ name: 'base', shape: FAR, blendMode: 0, priority: 0, phase: phases.length }),
 		],
 		environmentPosts: [],
+		environmentSchema: schema,
 		states: { groups },
-	}) as unknown as PackageManifest;
+	} as unknown as PackageManifest;
+};
 
 /** the fixture's base environment: its last volume */
 const baseOf = (m: PackageManifest): LevelEnvironment => ({

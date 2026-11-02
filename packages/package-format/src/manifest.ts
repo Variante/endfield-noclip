@@ -11,7 +11,12 @@
  * @module
  */
 
-import type { EnvironmentPhaseInfo, EnvironmentVolumeInfo, PostProfile } from './environment.ts';
+import type {
+	EnvironmentPhaseInfo,
+	EnvironmentSchema,
+	EnvironmentVolumeInfo,
+	PostProfile,
+} from './environment.ts';
 import type { IrradianceRegionInfo } from './irradiance.ts';
 import type { StatesInfo } from './states.ts';
 import type { TerrainInfo } from './terrain.ts';
@@ -27,7 +32,7 @@ export const PACKAGE_FORMAT = 'endfield-noclip.package';
  * bumped on any incompatible change to the manifest or a table. binary encodings carry their own versions in
  * their headers
  */
-export const PACKAGE_VERSION = 44;
+export const PACKAGE_VERSION = 45;
 
 /** the archive every package has; the viewer opens it first */
 export const CORE_ARCHIVE = 'core.czar';
@@ -74,6 +79,8 @@ export interface PackageManifest {
 	environmentPosts: PostProfile[];
 	/** every phase an environment volume applies; {@link EnvironmentVolumeInfo.phase} indexes this list */
 	environmentPhases: EnvironmentPhaseInfo[];
+	/** how the phases' fields blend */
+	environmentSchema: EnvironmentSchema;
 	/** the scene's environment volumes, for blending at the camera */
 	environmentVolumes: EnvironmentVolumeInfo[];
 	/** rooms' own irradiance bakes, each applying while its group shows */

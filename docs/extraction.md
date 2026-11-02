@@ -594,6 +594,16 @@ and `mapSections`, the `SECTION_KEYS` map in
 [pack/environments.ts](../packages/extractor/src/pack/environments.ts), and the matching interface
 in [package-format/src/environment.ts](../packages/package-format/src/environment.ts).
 
+#### blend schema
+
+the manifest's `environmentSchema` tells the viewer how each section field blends between phases.
+the extractor builds it from the fields' TypeTree types (`plainKinds` in
+[unity/plain-object.ts](../packages/formats/src/unity/plain-object.ts)), merged over every packed
+phase: floats, colours, vectors and SH lerp; booleans, strings and references (textures, materials,
+lens flares) switch at ½; integers round, except those named like an enum (`…Mode`, `…Type`), which
+switch. Unity serializes C# enums as plain integers without their type, so that name rule is an
+assumption.
+
 section values keep the game's field names. colours stay raw (no sRGB decode; HDR colours exceed 1),
 because the game feeds them to its shaders raw. `SphericalHarmonicsL2` is 27 numbers, channel-major.
 `m_*` editor fields and object references other than textures, materials and lens flare data are

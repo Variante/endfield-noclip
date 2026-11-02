@@ -1,8 +1,11 @@
 import type {
+	BlendSchema,
 	EnvironmentPhaseInfo,
 	EnvironmentProfile,
+	EnvironmentSchema,
 	EnvironmentSections,
 	EnvironmentVolumeInfo,
+	FieldBlend,
 } from '@endfield-noclip/package-format/environment';
 import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
@@ -218,7 +221,7 @@ export const blendEnvironment = (
 	const apply = (id: number, name: string, index: number, factor: number): void => {
 		const phase = manifest.environmentPhases[index];
 		if (phase !== undefined && factor > 1e-4) {
-			applyPhase(profile, phase, factor);
+			applyPhase(profile, phase, factor, manifest.environmentSchema);
 			applied.push({ id, name, phase: phase.name, factor });
 		}
 	};
@@ -350,28 +353,13 @@ export const eyeInLevelVolume = (
 
 type Sections = Record<keyof EnvironmentSections, Record<string, unknown>>;
 
-/** fields that hold texture-table ids or materials (or other references), which switch rather than lerp */
-const REFERENCE = /(texture|map|material|mat)$/i;
-/** integer settings that switch rather than lerp */
-const DISCRETE = /(mode|type)$/i;
-/**
- * the other integer fields of the phase sections (by their TypeTree type): counts, a filter size and the
- * cloud panorama's whole-degree rotation. they lerp and round, which keeps them whole; how the game blends
- * them isn't known
- */
-const INTEGER = new Set([
-	'numInscatteredSamplePoints',
-	'numOpticalDepthSamplePoints',
-	'screenDropMaxCountLim',
-	'rainSplashCount',
-	'sampleCount',
-	'contactShadowContract',
-	'filterSize',
-	'rotation',
-]);
-
 /** blends a phase's active sections into the profile, in place */
-const applyPhase = (profile: EnvironmentProfile, phase: EnvironmentPhaseInfo, t: number): void => {
+const applyPhase = (
+	profile: EnvironmentProfile,
+	phase: EnvironmentPhaseInfo,
+	t: number,
+	schema: EnvironmentSchema,
+): void => {
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- sections are plain JSON records
 	const target = profile as unknown as Sections;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- as above
@@ -382,54 +370,72 @@ const applyPhase = (profile: EnvironmentProfile, phase: EnvironmentPhaseInfo, t:
 		to: phase.active.includes('atmosphere') ? source.atmosphere : target.atmosphere,
 	};
 	for (const name of phase.active) {
+		const fields = schema[name] ?? {};
 		if (t >= 1 - 1e-4) {
 			target[name] = structuredClone(source[name]);
 		} else if (name === 'light') {
-			target[name] = lerpLight(target[name], source[name], t);
+			target[name] = lerpLight(target[name], source[name], t, fields);
 		} else if (name === 'fog') {
-			target[name] = lerpFog(target[name], source[name], atmospheres, t);
+			target[name] = lerpFog(target[name], source[name], atmospheres, t, fields);
 		} else if (name === 'cloud') {
-			target[name] = lerpCloud(target[name], source[name], t);
+			target[name] = lerpCloud(target[name], source[name], t, fields);
 		} else if (name === 'rain' && target[name] !== undefined) {
-			target[name] = lerpRain(target[name], source[name], t);
+			target[name] = lerpRain(target[name], source[name], t, fields);
 		} else if (name === 'heightFog' || name === 'volumetricFog') {
-			target[name] = lerpFlowNoise(target[name], source[name], t);
+			target[name] = lerpFlowNoise(target[name], source[name], t, fields);
 		} else if (name === 'lensFlare') {
 			target[name] = lerpLensFlare(target[name], source[name], t);
 		} else {
-			target[name] = lerpObject(target[name], source[name], t);
+			target[name] = lerpObject(target[name], source[name], t, fields);
 		}
 	}
 };
 
+/** lerps two objects field by field, as their schema says */
 const lerpObject = (
 	a: Record<string, unknown>,
 	b: Record<string, unknown>,
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
 	const out: Record<string, unknown> = {};
 	for (const key of Object.keys(b)) {
-		out[key] = lerpValue(key, a[key], b[key], t);
+		out[key] = lerpValue(schema[key], a[key], b[key], t);
 	}
 	return out;
 };
 
-const lerpValue = (key: string, a: unknown, b: unknown, t: number): unknown => {
-	if (REFERENCE.test(key)) {
-		return t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
+/** @returns `a` before ½, else `b` (or `b` when `a` is missing) */
+const switchValue = (a: unknown, b: unknown, t: number): unknown =>
+	t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
+
+const lerpValue = (
+	blend: FieldBlend | BlendSchema | undefined,
+	a: unknown,
+	b: unknown,
+	t: number,
+): unknown => {
+	if (typeof blend === 'object') {
+		return isRecord(a) && isRecord(b) ? lerpObject(a, b, t, blend) : switchValue(a, b, t);
 	}
-	if (typeof a === 'number' && typeof b === 'number' && !DISCRETE.test(key)) {
-		const value = a + (b - a) * t;
-		return INTEGER.has(key) ? Math.round(value) : value;
+	if (blend !== 'lerp' && blend !== 'round') {
+		return switchValue(a, b, t);
 	}
-	if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) {
-		return b.map((value, i) => lerpValue(key, a[i], value, t));
+	const lerp = (x: number, y: number): number => {
+		const value = x + (y - x) * t;
+		return blend === 'round' ? Math.round(value) : value;
+	};
+	if (typeof a === 'number' && typeof b === 'number') {
+		return lerp(a, b);
 	}
-	if (isRecord(a) && isRecord(b)) {
-		return lerpObject(a, b, t);
+	if (isNumbers(a) && isNumbers(b) && a.length === b.length) {
+		return b.map((value, i) => lerp(a[i], value));
 	}
-	return t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
+	return switchValue(a, b, t);
 };
+
+const isNumbers = (value: unknown): value is number[] =>
+	Array.isArray(value) && value.every((v) => typeof v === 'number');
 
 /** the effects whose sun direction the light config sets apart from the sun's (`<effect>PitchYaw`) */
 const SUN_EFFECTS = [
@@ -463,8 +469,9 @@ const lerpLight = (
 	a: Record<string, unknown>,
 	b: Record<string, unknown>,
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
-	const out = lerpObject(a, b, t);
+	const out = lerpObject(a, b, t, schema);
 	const sunA = a.directPitchYaw;
 	const sunB = b.directPitchYaw;
 	if (!isPitchYaw(sunA) || !isPitchYaw(sunB)) {
@@ -498,17 +505,19 @@ const lerpFog = (
 	b: Record<string, unknown>,
 	atmospheres: { from: Record<string, unknown>; to: Record<string, unknown> },
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
 	const key = 'rayleighScatteringScale';
 	const scaleA = number(a[key]);
 	const scaleB = number(b[key]);
 	if (scaleA < 0 === scaleB < 0) {
-		return lerpObject(a, b, t);
+		return lerpObject(a, b, t, schema);
 	}
 	return lerpObject(
 		scaleA < 0 ? { ...a, [key]: number(atmospheres.from[key]) } : a,
 		scaleB < 0 ? { ...b, [key]: number(atmospheres.to[key]) } : b,
 		t,
+		schema,
 	);
 };
 
@@ -517,8 +526,9 @@ const lerpCloud = (
 	a: Record<string, unknown>,
 	b: Record<string, unknown>,
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
-	const out = lerpObject(a, b, t);
+	const out = lerpObject(a, b, t, schema);
 	const aOn = a.enable === true && a.cloudTexture !== null;
 	const bOn = b.enable === true && b.cloudTexture !== null;
 	const fadeA = typeof a.cloudFadeAlpha === 'number' ? a.cloudFadeAlpha : 1;
@@ -551,8 +561,9 @@ const lerpRain = (
 	a: Record<string, unknown>,
 	b: Record<string, unknown>,
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
-	const out = lerpObject(a, b, t);
+	const out = lerpObject(a, b, t, schema);
 	const aOn = a.enableWetness === true;
 	const bOn = b.enableWetness === true;
 	if (aOn !== bOn) {
@@ -573,8 +584,9 @@ const lerpFlowNoise = (
 	a: Record<string, unknown>,
 	b: Record<string, unknown>,
 	t: number,
+	schema: BlendSchema,
 ): Record<string, unknown> => {
-	const out = lerpObject(a, b, t);
+	const out = lerpObject(a, b, t, schema);
 	const aOn = a.enableFlowNoise === true;
 	const bOn = b.enableFlowNoise === true;
 	const keep = (from: Record<string, unknown>): void => {

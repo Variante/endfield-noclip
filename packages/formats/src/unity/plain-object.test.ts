@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { toPlainObject } from './plain-object.ts';
+import { type PlainOptions, plainKinds, toPlainObject } from './plain-object.ts';
 import type { TypeTreeNode } from './serialized-file.ts';
 
 /** builds a flattened TypeTree from `[level, type, name]` rows */
@@ -31,6 +31,7 @@ test('converts a config section by its field types', () => {
 		[1, 'HGSkyConfig', 'skyConfig'],
 		[2, 'UInt8', 'enableSunDisc'],
 		[2, 'float', 'skyDistance'],
+		[2, 'int', 'skyMaterialType'],
 		[2, 'ColorRGBA', 'sunDiscColor'],
 		[3, 'float', 'r'],
 		[3, 'float', 'g'],
@@ -62,6 +63,7 @@ test('converts a config section by its field types', () => {
 		skyConfig: {
 			enableSunDisc: 1,
 			skyDistance: 3346,
+			skyMaterialType: 1,
 			sunDiscColor: { r: 8, g: 7, b: 6, a: 1 },
 			pitchYaw: { x: 45, y: 140 },
 			skyAmbientSH: Object.fromEntries(
@@ -77,15 +79,17 @@ test('converts a config section by its field types', () => {
 		},
 	};
 
-	const { value: plain, pptrs } = toPlainObject(nodes, value, {
+	const options: PlainOptions = {
 		keepPPtr: (type, name) => type === 'PPtr<$Cubemap>' && !name.endsWith('ForEdit'),
 		dropField: (name, type) => (name.startsWith('m_') && name !== 'm_Name') || type === 'HGColorCurve',
-	});
+	};
+	const { value: plain, pptrs } = toPlainObject(nodes, value, options);
 	assert.deepEqual(plain, {
 		m_Name: 'Env_test',
 		skyConfig: {
 			enableSunDisc: true,
 			skyDistance: 3346,
+			skyMaterialType: 1,
 			sunDiscColor: [8, 7, 6, 1],
 			pitchYaw: [45, 140],
 			skyAmbientSH: Array.from({ length: 27 }, (_, i) => i / 10),
@@ -100,4 +104,18 @@ test('converts a config section by its field types', () => {
 			pptr: { fileId: 3, pathId: -279554176723162511n },
 		},
 	]);
+	// the same fields, described from the types alone
+	assert.deepEqual(plainKinds(nodes, options), {
+		m_Name: 'string',
+		skyConfig: {
+			enableSunDisc: 'boolean',
+			skyDistance: 'float',
+			skyMaterialType: 'integer',
+			sunDiscColor: 'float',
+			pitchYaw: 'float',
+			skyAmbientSH: 'float',
+			reflectionMap: 'reference',
+			intensity: 'float',
+		},
+	});
 });

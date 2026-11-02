@@ -1,7 +1,14 @@
 import { mapDefined } from '@mary-ext/array-fns';
 
 import { FormatError } from '../binary/binary-reader.ts';
-import { type PlainObject, type PlainResult, toPlainObject } from '../unity/plain-object.ts';
+import {
+	type PlainKinds,
+	type PlainObject,
+	type PlainOptions,
+	type PlainResult,
+	plainKinds,
+	toPlainObject,
+} from '../unity/plain-object.ts';
 import type { TypeTreeNode } from '../unity/serialized-file.ts';
 import type { TypeTreeObject } from '../unity/type-tree.ts';
 import { isObject, stringField } from '../unity/values.ts';
@@ -42,6 +49,8 @@ export interface EnvironmentSection {
 	 * flare data, which are `null`
 	 */
 	value: PlainObject;
+	/** what each field of {@link value} holds, by its TypeTree type */
+	kinds: PlainKinds;
 	/** the texture references, by field path within {@link value} */
 	textures: PlainResult['pptrs'];
 	/** the material references (the celestial bodies' draw materials), by field path within {@link value} */
@@ -76,14 +85,16 @@ export const readEnvironmentPhase = (
 	nodes: readonly TypeTreeNode[],
 	object: TypeTreeObject,
 ): EnvironmentPhase => {
-	const { value, pptrs } = toPlainObject(nodes, object, {
+	const options: PlainOptions = {
 		// editor-only previews (`customIVCubemapMapForEdit`) aren't shipped textures the client samples
 		keepPPtr: (type, name) =>
 			(TEXTURE_PPTR.test(type) || MATERIAL_PPTR.test(type) || FLARE_PPTR.test(type)) &&
 			!name.endsWith('ForEdit'),
 		// `m_active` is read separately below; `m_backup*`/`m_prev*` are editor state
 		dropField: (name, type) => (name.startsWith('m_') && name !== 'm_Name') || DROPPED_TYPES.has(type),
-	});
+	};
+	const { value, pptrs } = toPlainObject(nodes, object, options);
+	const kinds = plainKinds(nodes, options);
 	const section = (name: EnvironmentSectionName): EnvironmentSection => {
 		const raw = object[name];
 		const converted = value[name];
@@ -99,9 +110,11 @@ export const readEnvironmentPhase = (
 		const own = mapDefined(pptrs, ({ path, type, pptr }) =>
 			path[0] === name ? { path: path.slice(1), type, pptr } : undefined,
 		);
+		const sectionKinds = kinds[name];
 		return {
 			active: raw.m_active === undefined ? true : raw.m_active !== 0 && raw.m_active !== false,
 			value: converted,
+			kinds: typeof sectionKinds === 'object' ? sectionKinds : {},
 			textures: own.filter(({ type }) => TEXTURE_PPTR.test(type)),
 			materials: own.filter(({ type }) => MATERIAL_PPTR.test(type)),
 			flares: own.filter(({ type }) => FLARE_PPTR.test(type)),

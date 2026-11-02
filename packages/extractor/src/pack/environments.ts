@@ -7,12 +7,14 @@ import {
 	type EnvironmentSectionName,
 } from '@endfield-noclip/formats/hg/environment-phase';
 import { type LensFlareDataSRP, readLensFlareData } from '@endfield-noclip/formats/unity/lens-flare-data';
-import type { PlainObject } from '@endfield-noclip/formats/unity/plain-object';
+import type { PlainKinds, PlainObject } from '@endfield-noclip/formats/unity/plain-object';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import type {
+	BlendSchema,
 	CelestialConfig,
 	EnvironmentPhaseInfo,
 	EnvironmentProfile,
+	EnvironmentSchema,
 	EnvironmentSections,
 	EnvironmentVolumeInfo,
 	PostProfile,
@@ -112,6 +114,8 @@ export interface EnvironmentPlan {
 	debug: LevelEnvironmentDebug[];
 	/** what was left out, deduplicated */
 	problems: EnvironmentProblem[];
+	/** how the phases' fields blend, merged over every phase's TypeTree */
+	schema: EnvironmentSchema;
 }
 
 /** a texture field to fill in once texture ids are known */
@@ -133,6 +137,7 @@ export interface FinishedEnvironments {
 	environmentPhases: EnvironmentPhaseInfo[];
 	environmentVolumes: EnvironmentVolumeInfo[];
 	heightFogFlowNoise: number | null;
+	environmentSchema: EnvironmentSchema;
 }
 
 /**
@@ -191,6 +196,7 @@ export const planEnvironments = async (
 		flowNoise: null,
 		debug: [],
 		problems: [],
+		schema: mapSchemaSections(),
 	};
 	if (levels.length === 0) {
 		return plan;
@@ -287,13 +293,14 @@ export const planEnvironments = async (
 		const index =
 			typeof loadedPhase === 'string'
 				? null
-				: phaseIndex.getOrInsertComputed(
-						loadedPhase.loaded.phase.name,
-						() =>
+				: phaseIndex.getOrInsertComputed(loadedPhase.loaded.phase.name, () => {
+						addBlendSchema(plan.schema, loadedPhase.loaded.phase);
+						return (
 							plan.phases.push(
 								buildPhase(loadedPhase.loaded.phase, loadedPhase.textures, plan.textures, textureIndex),
-							) - 1,
-					);
+							) - 1
+						);
+					});
 		if (index !== null) {
 			volumeIndex.set(volume, plan.volumes.length);
 		}
@@ -509,6 +516,75 @@ const DERIVED_LIGHT_FIELDS = [
 	'rotationHeightFogDirectionalInscattering',
 ];
 
+/** @returns an empty schema for every package section */
+const mapSchemaSections = (): EnvironmentSchema => {
+	const schema: Partial<EnvironmentSchema> = {};
+	for (const name of ENVIRONMENT_SECTIONS) {
+		schema[SECTION_KEYS[name]] = {};
+	}
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- every section was just filled in
+	return schema as EnvironmentSchema;
+};
+
+/**
+ * Unity serializes C# enums as plain integers, with no enum type in the TypeTree, so integer fields named
+ * like one (`…Mode`, `…Type`) are taken as enums and switch; other integers are counts and amounts, and
+ * round
+ */
+const ENUM_NAME = /(mode|type)$/i;
+
+/** @returns how fields of the given kinds blend */
+const blendSchemaOf = (kinds: PlainKinds): BlendSchema => {
+	const schema: BlendSchema = {};
+	for (const [field, kind] of Object.entries(kinds)) {
+		switch (kind) {
+			case 'float': {
+				schema[field] = 'lerp';
+				break;
+			}
+			case 'integer': {
+				schema[field] = ENUM_NAME.test(field) ? 'switch' : 'round';
+				break;
+			}
+			case 'boolean':
+			case 'string':
+			case 'reference': {
+				schema[field] = 'switch';
+				break;
+			}
+			default: {
+				schema[field] = blendSchemaOf(kind);
+			}
+		}
+	}
+	return schema;
+};
+
+/** adds what's missing from `into`; a field keeps the blend it first got */
+const mergeSchema = (into: BlendSchema, from: BlendSchema): void => {
+	for (const [field, blend] of Object.entries(from)) {
+		const existing = into[field];
+		if (existing === undefined) {
+			into[field] = blend;
+		} else if (typeof existing === 'object' && typeof blend === 'object') {
+			mergeSchema(existing, blend);
+		}
+	}
+};
+
+/** merges a phase's field blends into the package's schema, in place */
+const addBlendSchema = (schema: EnvironmentSchema, phase: EnvironmentPhase): void => {
+	for (const name of ENVIRONMENT_SECTIONS) {
+		const section = blendSchemaOf(phase.sections[name].kinds);
+		if (name === 'lightConfig') {
+			for (const field of DERIVED_LIGHT_FIELDS) {
+				delete section[field];
+			}
+		}
+		mergeSchema(schema[SECTION_KEYS[name]], section);
+	}
+};
+
 const buildPhase = (
 	phase: EnvironmentPhase,
 	textureRefs: SectionTextures,
@@ -637,6 +713,7 @@ export const finishEnvironments = (
 			return phase;
 		}),
 		environmentVolumes: plan.volumes,
+		environmentSchema: plan.schema,
 		heightFogFlowNoise: plan.flowNoise === null ? null : (textureIds[plan.flowNoise] ?? null),
 	};
 };

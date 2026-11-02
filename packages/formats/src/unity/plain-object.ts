@@ -147,6 +147,96 @@ const convertValue = (
 	return value;
 };
 
+/** what a converted field holds, by its TypeTree type */
+export type PlainFieldKind = 'float' | 'integer' | 'boolean' | 'string' | 'reference';
+
+/**
+ * per field of a converted object, what it holds: a kind for primitives, math structs (their numbers are all
+ * floats), matrices and SH, and pointers; nested kinds for nested objects
+ */
+export interface PlainKinds {
+	[field: string]: PlainFieldKind | PlainKinds;
+}
+
+const FLOAT_TYPES = new Set(['float', 'double']);
+const INTEGER_TYPES = new Set([
+	'int',
+	'unsigned int',
+	'SInt8',
+	'SInt16',
+	'UInt16',
+	'SInt32',
+	'UInt32',
+	'SInt64',
+	'UInt64',
+	'short',
+	'unsigned short',
+	'long long',
+	'unsigned long long',
+	'char',
+]);
+
+/**
+ * describes the fields {@link toPlainObject} would produce for objects of a TypeTree, from the types alone.
+ * fields it drops (arrays, rejected fields and pointers) are absent
+ *
+ * @param nodes the objects' flattened TypeTree
+ * @param options what to keep, as for {@link toPlainObject}
+ * @returns the kinds
+ * @throws {FormatError} if the tree is empty
+ */
+export const plainKinds = (nodes: readonly TypeTreeNode[], options: PlainOptions): PlainKinds =>
+	kindsOfClass(typeTreeHierarchy(nodes), options);
+
+const kindsOfClass = (tree: TreeNode, options: PlainOptions): PlainKinds => {
+	const out: PlainKinds = {};
+	for (const child of tree.children) {
+		const { name, type } = child.node;
+		if (options.dropField(name, type)) {
+			continue;
+		}
+		const kind = kindOf(child, options);
+		if (kind !== undefined) {
+			out[name] = kind;
+		}
+	}
+	return out;
+};
+
+const kindOf = (tree: TreeNode, options: PlainOptions): PlainFieldKind | PlainKinds | undefined => {
+	const { type, name } = tree.node;
+	if (type.startsWith('PPtr<')) {
+		return options.keepPPtr(type, name) ? 'reference' : undefined;
+	}
+	if (Object.hasOwn(STRUCTS, type) || type === 'Matrix4x4f' || type === 'SphericalHarmonicsL2') {
+		return 'float';
+	}
+	if (type.endsWith('Parameter')) {
+		const inner = tree.children.find((child) => child.node.name === 'm_Value');
+		if (inner !== undefined) {
+			return kindOf(inner, options);
+		}
+	}
+	if (type === 'UInt8' || type === 'bool') {
+		return 'boolean';
+	}
+	if (type === 'string') {
+		return 'string';
+	}
+	if (tree.children.length === 0) {
+		if (FLOAT_TYPES.has(type)) {
+			return 'float';
+		}
+		return INTEGER_TYPES.has(type) ? 'integer' : undefined;
+	}
+	if (isArray(tree) || (tree.children.length === 1 && isArray(tree.children[0]))) {
+		return undefined;
+	}
+	return kindsOfClass(tree, options);
+};
+
+const isArray = (tree: TreeNode): boolean => (tree.node.typeFlags & 1) !== 0 || tree.node.type === 'Array';
+
 const numberAt = (value: TypeTreeValue, field: string, path: string[]): number => {
 	if (!isObject(value)) {
 		throw new FormatError(`${path.join('.')} is not an object`);

@@ -144,6 +144,7 @@ const phase = (name: string, inactive: EnvironmentSectionName[]): EnvironmentPha
 		sections[section] = {
 			active: !inactive.includes(section),
 			value: { from: name },
+			kinds: { from: 'string' },
 			textures: [],
 			materials: [],
 			flares: [],
