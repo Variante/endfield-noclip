@@ -1,9 +1,4 @@
-import {
-	resourceGroupShown,
-	type DynamicController,
-	type DynamicEntity,
-	type DynamicResourceGroup,
-} from '@endfield-noclip/formats/endfield/dynamic-scene';
+import type { DynamicController, DynamicEntity } from '@endfield-noclip/formats/endfield/dynamic-scene';
 import { levelOfTag, type LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
 import type { StreamAreaTable } from '@endfield-noclip/formats/endfield/stream-area';
 import type { SceneControl, SceneControlKind } from '@endfield-noclip/package-format/states';
@@ -71,16 +66,11 @@ export interface SceneryVariants {
 	progressions: SceneProgression[];
 }
 
-/** a choice of variants to show */
-export interface VariantSelection {
-	/**
-	 * `all` shows every area (the whole world revealed); `root` what the client shows outside any trigger; a
-	 * list shows area 0 plus exactly those areas
-	 */
-	areas: 'all' | 'root' | number[];
-	/** progression level by {@link progressionId}; unset progressions use their default level */
-	levels: Record<string, number>;
-}
+/**
+ * stream areas to show: `all` every area (the whole world revealed); `root` what the client shows outside any
+ * trigger; a list area 0 plus exactly those areas
+ */
+export type AreaSelection = 'all' | 'root' | number[];
 
 // #endregion
 
@@ -205,7 +195,7 @@ const revealingAreas = (table: StreamAreaTable, area: number): number[] => {
 /**
  * @param kind progression kind
  * @param key its key within the kind
- * @returns the progression's id: `${kind}:${key}`, its key in {@link VariantSelection.levels}
+ * @returns the progression's id: `${kind}:${key}`, its scene control's id
  */
 export const progressionId = (kind: ProgressionKind, key: string): string => `${kind}:${key}`;
 
@@ -363,25 +353,25 @@ export const maskLevels = (mask: number): number[] => {
 /**
  * @param variants the scene's variants
  * @param table its stream-area table, for `root`
- * @param selection what to show
+ * @param selection the areas to show
  * @returns area ids to load, always including 0
  */
 export const selectedAreas = (
 	variants: SceneryVariants,
 	table: StreamAreaTable | undefined,
-	selection: VariantSelection,
+	selection: AreaSelection,
 ): Set<number> => {
 	const ids = new Set<number>([0]);
-	if (selection.areas === 'all') {
+	if (selection === 'all') {
 		for (const area of variants.areas) {
 			ids.add(area.id);
 		}
-	} else if (selection.areas === 'root') {
+	} else if (selection === 'root') {
 		for (const id of table?.rootVisible ?? []) {
 			ids.add(id);
 		}
 	} else {
-		for (const id of selection.areas) {
+		for (const id of selection) {
 			ids.add(id);
 		}
 	}
@@ -400,44 +390,6 @@ export const resolveChunkFiles = (
 	areas: ReadonlySet<number>,
 ): ChunkFile[] => {
 	return files.filter((file) => file.scene === scene && areas.has(file.area));
-};
-
-/**
- * @returns the logic state to evaluate the entity's resource groups with: the selected (else default) level
- *   of its first progression controller, or 0 for entities without one
- */
-const entityLogicState = (
-	entity: DynamicEntity,
-	variants: SceneryVariants,
-	selection: VariantSelection,
-): number => {
-	for (const controller of entity.controllers) {
-		const key = controllerKey(controller);
-		const chosen = selection.levels[progressionId(controller.kind, key)];
-		if (chosen !== undefined) {
-			return chosen;
-		}
-		const progression = variants.progressions.find((p) => p.kind === controller.kind && p.key === key);
-		if (progression) {
-			return progression.defaultLevel;
-		}
-	}
-	return 0;
-};
-
-/**
- * @param entity a DynamicStreaming entity
- * @param variants the scene's variants
- * @param selection chosen levels
- * @returns the entity's resource groups shown under the selection
- */
-export const shownResourceGroups = (
-	entity: DynamicEntity,
-	variants: SceneryVariants,
-	selection: VariantSelection,
-): DynamicResourceGroup[] => {
-	const state = entityLogicState(entity, variants, selection);
-	return entity.resourceGroups.filter((group) => resourceGroupShown(group, state));
 };
 
 // #endregion

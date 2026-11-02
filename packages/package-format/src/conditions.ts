@@ -7,7 +7,7 @@ import type { ConditionalSetInfo, StatesInfo } from './states.ts';
  *   controls evaluated in their stored order
  */
 export const resolveSceneValues = (
-	states: StatesInfo,
+	states: Pick<StatesInfo, 'controls' | 'conditionalSets'>,
 	picks: Readonly<Record<string, number>>,
 ): Record<string, number> => {
 	const values: Record<string, number> = {};

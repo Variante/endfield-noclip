@@ -5,7 +5,7 @@ import { FormatError } from '../binary/binary-reader.ts';
 import { FlatBuffer } from '../binary/flatbuffer.ts';
 
 import { dynamicResourceSlice, readDynamicResources } from './dynamic-resources.ts';
-import { DynamicData, readDynamicEntities, resourceGroupShown } from './dynamic-scene.ts';
+import { DynamicData, readDynamicEntities } from './dynamic-scene.ts';
 
 // #region synthetic FlatBuffer writer
 
@@ -234,15 +234,6 @@ test('reads mission and loading variable gates; level-only variables are not gat
 		{ kind: 'globalVar', key: 79, compare: 1, value: 3, mapId: null },
 	]);
 	assert.throws(() => readDynamicEntities(build({ gates: { compare: 6 } })), /globalVar control/);
-});
-
-test('a group is shown when its mask has the logic-state bit, or always when the mask is 0', () => {
-	const [settlement] = readDynamicEntities(build());
-	const shown = (level: number) =>
-		settlement.resourceGroups.filter((g) => resourceGroupShown(g, level)).map((g) => g.resources.index);
-	assert.deepEqual(shown(1), [0, 2]);
-	assert.deepEqual(shown(4), [1, 2]);
-	assert.deepEqual(shown(3), [2]);
 });
 
 test('rejects a ResourceComp whose Res slice is not a ResourceGroupWithStateDesc slice', () => {

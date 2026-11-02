@@ -24,7 +24,7 @@ import {
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import { encodeBlobTable } from '@endfield-noclip/package-format/blob-table';
 import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs';
-import { conditionVisible, resolveSceneValues } from '@endfield-noclip/package-format/conditions';
+import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type {
 	EnvironmentPhaseInfo,
 	EnvironmentProfile,
@@ -1536,7 +1536,7 @@ const collectEntities = async (
 	const placed = await loadPlacedVolumes(
 		resolver,
 		[...dynamic.models, ...facilities.models, ...cabins.models],
-		defaultValues(scene, collected),
+		defaultValues(scene, collected, await progressionControls(world, scene)),
 	);
 	counts.prefabEnvironmentVolumes = placed.volumes.length;
 	{
@@ -1573,35 +1573,59 @@ const collectEntities = async (
 };
 
 /**
- * every control's default as the entity pass knows it: quests, missions and variables, MapConfig scene
- * states, then script, logic, progression and facility controls, derived ones evaluated last. stream areas
- * aren't included, so content that needs one doesn't count as loaded
+ * every control's default as the entity pass knows it, resolved like the viewer resolves the package's:
+ * quests, missions and variables, MapConfig scene states (at their conditions' defaults, as their derived
+ * controls aren't built yet), progressions, and script, logic and facility controls. stream areas aren't
+ * included, so content that needs one doesn't count as loaded
  */
 const defaultValues = (
 	scene: Pick<SceneIndex, 'sceneStates' | 'game'>,
 	collected: Collector,
+	progressions: readonly SceneControl[],
 ): Record<string, number> => {
-	const values = scene.game.defaults();
 	const enabled = defaultSceneStates(scene.sceneStates, scene.game);
-	for (const index of collected.sceneStates) {
-		values[sceneStateControl(index)] = Number(enabled.has(index));
-	}
-	for (const { index } of scene.sceneStates) {
-		values[sceneStateControl(index)] = Number(enabled.has(index));
-	}
-	const controls = [...collected.controls, ...collected.facilities];
-	for (const control of controls) {
-		if (control.derived === null) {
-			values[control.id] = control.default;
-		}
-	}
-	for (const control of controls) {
-		if (control.derived !== null) {
-			const formula = collected.conditions[control.derived];
-			values[control.id] = Number(formula !== undefined && conditionVisible(formula, values));
-		}
-	}
-	return values;
+	const states = new Set([...collected.sceneStates, ...scene.sceneStates.map(({ index }) => index)]);
+	return resolveSceneValues(
+		{
+			controls: [
+				...scene.game.controls(),
+				...[...states].map((index) =>
+					Object.assign(unnamedSceneStateControl(index), { default: Number(enabled.has(index)) }),
+				),
+				...progressions,
+				...collected.controls,
+				...collected.facilities,
+			],
+			conditionalSets: collected.conditions,
+		},
+		{},
+	);
+};
+
+/**
+ * @returns one control per progression of the scene. an outpost whose level-up missions are read as its level
+ *   stands where the finished story's completed missions put it, so content gated on those missions agrees
+ *   with it; other progressions stand at their lowest authored level
+ */
+const progressionControls = async (
+	world: WorldIndex,
+	scene: Pick<SceneIndex, 'options' | 'game'>,
+): Promise<SceneControl[]> => {
+	const linked = scene.game.linkedDefaults();
+	return (await loadProgressions(world, scene.options.scene)).map((progression) => {
+		const id = progressionId(progression.kind, progression.key);
+		const level = linked.get(id);
+		return progressionControl(
+			progression.kind,
+			id,
+			progression.key,
+			progression.levels,
+			level ?? progression.defaultLevel,
+			level === undefined
+				? 'the lowest authored level'
+				: 'the level its completed upgrade missions raise it to',
+		);
+	});
 };
 
 /**
@@ -1902,23 +1926,7 @@ const sceneStates = async (
 	environments: readonly (number | null)[],
 ): Promise<SceneStateInfo> => {
 	const { partition } = scene;
-	// an outpost whose level-up missions are read as its level stands where the finished story's completed
-	// missions put it, so content gated on those missions agrees with it
-	const linked = scene.game.linkedDefaults();
-	const progressions = (await loadProgressions(world, scene.options.scene)).map((progression) => {
-		const id = progressionId(progression.kind, progression.key);
-		const level = linked.get(id);
-		return progressionControl(
-			progression.kind,
-			id,
-			progression.key,
-			progression.levels,
-			level ?? progression.defaultLevel,
-			level === undefined
-				? 'the lowest authored level'
-				: 'the level its completed upgrade missions raise it to',
-		);
-	});
+	const progressions = await progressionControls(world, scene);
 	const levels = (partition?.levels ?? []).map((level, i) =>
 		levelInfo(level, scene, collected, environments[i] ?? null),
 	);

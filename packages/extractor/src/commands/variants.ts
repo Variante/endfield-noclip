@@ -5,7 +5,7 @@ import {
 	loadSceneryVariants,
 	resolveChunkFiles,
 	selectedAreas,
-	type VariantSelection,
+	type AreaSelection,
 } from '../game/scenery-variants.ts';
 
 export const summary = 'inspect stream areas, progressions and selected chunk files';
@@ -34,8 +34,7 @@ export const run = async (args: string[]): Promise<void> => {
 		const variants = await loadSceneryVariants(world, scene);
 		let selection: { areas: number[]; files: string[] } | undefined;
 		if (values.areas !== undefined) {
-			const requested: VariantSelection = { areas: parseAreas(values.areas), levels: {} };
-			const ids = selectedAreas(variants, await world.streamAreas(scene), requested);
+			const ids = selectedAreas(variants, await world.streamAreas(scene), parseAreas(values.areas));
 			const files = resolveChunkFiles(await world.chunkFiles(), scene, ids);
 			selection = { areas: [...ids].toSorted((a, b) => a - b), files: files.map((file) => file.name) };
 		}
@@ -53,7 +52,7 @@ export const run = async (args: string[]): Promise<void> => {
 	});
 };
 
-const parseAreas = (value: string): VariantSelection['areas'] => {
+const parseAreas = (value: string): AreaSelection => {
 	if (value === 'all' || value === 'root') {
 		return value;
 	}

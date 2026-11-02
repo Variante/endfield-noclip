@@ -9,7 +9,6 @@ import {
 	maskLevels,
 	resolveChunkFiles,
 	selectedAreas,
-	shownResourceGroups,
 	summarizeProgressions,
 	type SceneryVariants,
 } from './scenery-variants.ts';
@@ -60,22 +59,6 @@ test('summarizes progressions with their levels and defaults to the lowest autho
 	assert.deepEqual(maskLevels(0b10100), [2, 4]);
 });
 
-test('selected levels pick resource groups; entities without a controller use logic state 0', () => {
-	const variants: SceneryVariants = {
-		scene: 'map02',
-		areas: [],
-		progressions: summarizeProgressions([outpost]).map((summary) =>
-			labelProgression(summary, 'map02_lv001', 'Jingyu Valley'),
-		),
-	};
-	const indices = (entity: DynamicEntity, levels: Record<string, number>) =>
-		shownResourceGroups(entity, variants, { areas: 'all', levels }).map((g) => g.resources.index);
-	assert.deepEqual(indices(outpost, {}), [0, 3]);
-	assert.deepEqual(indices(outpost, { 'settlement:stm_hongs_1': 1 }), [0, 3]);
-	assert.deepEqual(indices(outpost, { 'settlement:stm_hongs_1': 2 }), [1, 2, 3]);
-	assert.deepEqual(indices(tree, {}), [0]);
-});
-
 test('area selections resolve to chunk files of state 0 plus the chosen areas', () => {
 	const file = (area: number, scene = 'map02'): ChunkFile => ({
 		name: `Data/Streaming/PC/${scene}/Streaming/InitChunkData_0_0_0_${area}.bytes`,
@@ -106,9 +89,7 @@ test('area selections resolve to chunk files of state 0 plus the chosen areas', 
 		progressions: [],
 	};
 	const loaded = (areas: 'all' | 'root' | number[]) =>
-		resolveChunkFiles(files, 'map02', selectedAreas(variants, table, { areas, levels: {} })).map(
-			(f) => f.area,
-		);
+		resolveChunkFiles(files, 'map02', selectedAreas(variants, table, areas)).map((f) => f.area);
 	assert.deepEqual(loaded('all'), [0, 5, 6, 7]);
 	assert.deepEqual(loaded('root'), [0, 5]);
 	assert.deepEqual(loaded([7]), [0, 7]);
@@ -116,12 +97,9 @@ test('area selections resolve to chunk files of state 0 plus the chosen areas', 
 
 test('secondary progression entities do not choose their own later starting level', () => {
 	const secondary = { ...outpost, uid: 99n, resourceGroups: [group(5, 0b10000)] };
-	const variants: SceneryVariants = {
-		scene: 'map02',
-		areas: [],
-		progressions: summarizeProgressions([outpost, secondary]).map((summary) =>
-			labelProgression(summary, null, null),
-		),
-	};
-	assert.deepEqual(shownResourceGroups(secondary, variants, { areas: 'all', levels: {} }), []);
+	const [progression] = summarizeProgressions([outpost, secondary]).map((summary) =>
+		labelProgression(summary, null, null),
+	);
+	assert.equal(progression.defaultLevel, 0);
+	assert.equal(progression.entities, 2);
 });

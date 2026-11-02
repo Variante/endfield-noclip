@@ -432,15 +432,3 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 	}
 	return entities;
 };
-
-/**
- * @param group resource group
- * @param logicState the owning entity's logic state (a progression entity's level)
- * @returns whether the client shows the group in that state
- */
-export const resourceGroupShown = (group: DynamicResourceGroup, logicState: number): boolean => {
-	if (group.logicState === 0) {
-		return true;
-	}
-	return logicState >= 0 && logicState < 32 && ((group.logicState >>> logicState) & 1) === 1;
-};
