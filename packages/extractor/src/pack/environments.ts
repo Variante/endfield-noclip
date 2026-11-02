@@ -615,7 +615,13 @@ const fillTextureSlots = (
 			continue;
 		}
 		const elements = flare.data.elements.map((element, e) => {
-			const packed: Record<string, unknown> = { ...structuredClone(element), lensFlareTexture: null };
+			const { mode, ...gradient } = structuredClone(element.colorGradient);
+			const packed: Record<string, unknown> = {
+				...structuredClone(element),
+				lensFlareTexture: null,
+				// Unity's gradient mode 1 is Fixed, as particle gradients store it
+				colorGradient: { ...gradient, fixed: mode === 1 },
+			};
 			slotFor(packed, 'lensFlareTexture', flare.textures[e] ?? null);
 			return packed;
 		});

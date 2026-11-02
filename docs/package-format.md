@@ -529,8 +529,10 @@ unless the mode is Shape. the entry keeps:
   emission holds: the top rate times the lifetime, plus each loop's top burst counts times the loops
   that lifetime spans
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
-  `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s
-  (gradient key times are stored as 0–65535)
+  `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s.
+  their curves and gradients are the `AnimationCurve` and `Gradient` of
+  [`curves.ts`](../packages/package-format/src/curves.ts), which lens flares use too, with key times
+  over 0–1 (the game stores gradient key times as 0–65535)
 - the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
   angle, length, arc, placement and random-direction and -position amounts)
 - the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as

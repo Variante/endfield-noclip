@@ -12,11 +12,11 @@ import {
 	pptrField,
 	vector3Field,
 } from '@endfield-noclip/formats/unity/values';
-import type { AnimationCurve, CurveKey } from '@endfield-noclip/package-format/environment';
+import type { AnimationCurve, CurveKey, Gradient } from '@endfield-noclip/package-format/curves';
 import {
 	CurveMode,
-	type GradientInfo,
 	GradientMode,
+	GRAVITY,
 	type MinMaxCurveInfo,
 	type MinMaxGradientInfo,
 	ParticleAlignment,
@@ -49,9 +49,6 @@ const MESH_DISTRIBUTION_WEIGHTED = 1;
 
 /** `ParticleSystemRenderer.m_RenderAlignment` of Unity's `Facing`, which the viewer orients like `View` */
 const ALIGNMENT_FACING = 3;
-
-/** Unity's gravity, m/s² */
-const GRAVITY = 9.81;
 
 /** shapes the viewer emits from, by `ShapeModule.type` */
 const SHAPES = new Set<number>(Object.values(ParticleShapeKind));
@@ -169,7 +166,7 @@ const GRADIENT_KEYS = 8;
  * @returns its keys
  * @throws {FormatError} on a key count outside 1–8
  */
-export const readGradient = (value: TypeTreeObject): GradientInfo => {
+export const readGradient = (value: TypeTreeObject): Gradient => {
 	const colors = numberField(value, 'm_NumColorKeys');
 	const alphas = numberField(value, 'm_NumAlphaKeys');
 	if (colors < 1 || colors > GRADIENT_KEYS || alphas < 1 || alphas > GRADIENT_KEYS) {

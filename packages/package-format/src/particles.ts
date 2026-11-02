@@ -1,4 +1,4 @@
-import type { AnimationCurve } from './environment.ts';
+import type { AnimationCurve, Gradient } from './curves.ts';
 import type { Vec3 } from './values.ts';
 
 /**
@@ -11,6 +11,9 @@ import type { Vec3 } from './values.ts';
 export interface ParticlesTable {
 	systems: ParticleSystemInfo[];
 }
+
+/** Unity's gravity, m/s² down the world's y, which {@link ParticleSystemInfo.gravityModifier} multiplies */
+export const GRAVITY = 9.81;
 
 /** {@link MinMaxCurveInfo.mode} values, Unity's `ParticleSystemCurveMode` */
 export const CurveMode = {
@@ -51,16 +54,6 @@ export const GradientMode = {
 
 export type GradientMode = (typeof GradientMode)[keyof typeof GradientMode];
 
-/** a Unity `Gradient`: colour and alpha keys over 0–1 */
-export interface GradientInfo {
-	/** at least one key, in time order; colours as authored (sRGB) */
-	colorKeys: { time: number; color: [r: number, g: number, b: number] }[];
-	/** at least one key, in time order */
-	alphaKeys: { time: number; alpha: number }[];
-	/** each key's value holds until the key's time instead of blending towards it (Unity's `Fixed` mode) */
-	fixed: boolean;
-}
-
 /**
  * a Unity `MinMaxGradient`: a colour, a gradient, a random value between two of either, or a random point of
  * a gradient. gradients are read at a normalized time, as {@link MinMaxCurveInfo}'s curves are
@@ -72,9 +65,9 @@ export interface MinMaxGradientInfo {
 	/** the lower colour ({@link GradientMode.TwoColors}) */
 	min: [r: number, g: number, b: number, a: number];
 	/** the gradient, or the upper one; `null` for colours */
-	maxGradient: GradientInfo | null;
+	maxGradient: Gradient | null;
 	/** the lower gradient ({@link GradientMode.TwoGradients}); `null` otherwise */
-	minGradient: GradientInfo | null;
+	minGradient: Gradient | null;
 }
 
 /** {@link ParticleSystemInfo.renderMode} values, Unity's `ParticleSystemRenderMode` */
@@ -212,7 +205,7 @@ export interface ParticleSystemInfo {
 	startSize: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
 	/** Euler angles about x, y and z, radians */
 	startRotation: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
-	/** times Unity's gravity, 9.81 m/s² down the world's y */
+	/** times {@link GRAVITY} */
 	gravityModifier: MinMaxCurveInfo;
 	/** particles per second; a constant or two */
 	rate: MinMaxCurveInfo;

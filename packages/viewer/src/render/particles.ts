@@ -1,7 +1,8 @@
+import { evaluateCurve, evaluateGradient } from '@endfield-noclip/package-format/curves';
 import {
 	CurveMode,
-	type GradientInfo,
 	GradientMode,
+	GRAVITY,
 	type MinMaxCurveInfo,
 	type MinMaxGradientInfo,
 	ParticleAlignment,
@@ -22,10 +23,6 @@ import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { linearRgb } from './color.ts';
 import { ROW_COLORED, ROW_WORDS, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
-import { evaluateCurve } from './lens-flare-layout.ts';
-
-/** Unity's gravity, m/s² */
-const GRAVITY = 9.81;
 
 /**
  * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the
@@ -142,39 +139,6 @@ export const evaluateMinMax = (curve: MinMaxCurveInfo, time: number, r: number):
 			return curve.min + (curve.scalar - curve.min) * r;
 		}
 	}
-};
-
-/**
- * @param gradient a Unity gradient
- * @param time where it's read, 0–1
- * @returns its colour and alpha there, as authored
- */
-export const evaluateGradient = (gradient: GradientInfo, time: number): [number, number, number, number] => {
-	// the keys around `time` and how far between them it lies: the next key's value alone when fixed, or before
-	// the first or past the last key
-	const around = (keys: readonly { time: number }[]): [number, number, number] => {
-		const next = keys.findIndex((key) => key.time >= time);
-		if (next < 0) {
-			return [keys.length - 1, keys.length - 1, 0];
-		}
-		if (next === 0 || gradient.fixed) {
-			return [next, next, 0];
-		}
-		const from = keys[next - 1].time;
-		const span = keys[next].time - from;
-		return [next - 1, next, span > 0 ? (time - from) / span : 1];
-	};
-	const [c0, c1, ct] = around(gradient.colorKeys);
-	const a = gradient.colorKeys[c0].color;
-	const b = gradient.colorKeys[c1].color;
-	const [a0, a1, at] = around(gradient.alphaKeys);
-	const alpha0 = gradient.alphaKeys[a0].alpha;
-	return [
-		a[0] + (b[0] - a[0]) * ct,
-		a[1] + (b[1] - a[1]) * ct,
-		a[2] + (b[2] - a[2]) * ct,
-		alpha0 + (gradient.alphaKeys[a1].alpha - alpha0) * at,
-	];
 };
 
 /**

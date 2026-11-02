@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import type { Gradient } from '@endfield-noclip/package-format/curves';
 import {
 	CurveMode,
-	type GradientInfo,
 	GradientMode,
 	type MinMaxCurveInfo,
 	ParticleAlignment,
@@ -22,7 +22,6 @@ import {
 	ParticleSimulation,
 	dragged,
 	draggedFall,
-	evaluateGradient,
 	evaluateMinMax,
 	evaluateMinMaxGradient,
 	limitedPath,
@@ -203,8 +202,8 @@ describe('spline paths', () => {
 	});
 });
 
-describe('gradients', () => {
-	const fade: GradientInfo = {
+describe('min-max gradients', () => {
+	const fade: Gradient = {
 		colorKeys: [
 			{ time: 0, color: [1, 1, 1] },
 			{ time: 1, color: [0.5, 0.5, 0.5] },
@@ -215,13 +214,6 @@ describe('gradients', () => {
 		],
 		fixed: false,
 	};
-	it('blend between keys and hold past the ends', () => {
-		assert.deepEqual(evaluateGradient(fade, 0.2), [0.9, 0.9, 0.9, 0.5]);
-		assert.deepEqual(evaluateGradient(fade, 1), [0.5, 0.5, 0.5, 1]);
-	});
-	it('step to the next key when fixed', () => {
-		assert.deepEqual(evaluateGradient({ ...fade, fixed: true }, 0.2), [0.5, 0.5, 0.5, 1]);
-	});
 	it('pick between two colours or gradients by the random value', () => {
 		const two = {
 			mode: GradientMode.TwoColors,

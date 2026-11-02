@@ -1,20 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type {
-	AnimationCurve,
-	LensFlareConfig,
-	LensFlareElement,
-} from '@endfield-noclip/package-format/environment';
+import type { AnimationCurve } from '@endfield-noclip/package-format/curves';
+import type { LensFlareConfig, LensFlareElement } from '@endfield-noclip/package-format/environment';
 
-import {
-	type LensFlareInput,
-	UnityRandom,
-	evaluateCurve,
-	evaluateGradient,
-	flareQuads,
-	lensFlareLook,
-} from './lens-flare-layout.ts';
+import { type LensFlareInput, UnityRandom, flareQuads, lensFlareLook } from './lens-flare-layout.ts';
 
 const line = (from: number, to: number): AnimationCurve => ({
 	keys: [
@@ -65,7 +55,7 @@ const element = (patch: Partial<LensFlareElement>): LensFlareElement => ({
 	positionCurve: line(0, 1),
 	scaleCurve: line(1, 1),
 	seed: 0,
-	colorGradient: { mode: 0, colorKeys: [], alphaKeys: [] },
+	colorGradient: { colorKeys: [], alphaKeys: [], fixed: false },
 	intensityVariation: 0,
 	positionVariation: [0, 0],
 	scaleVariation: 0,
@@ -159,7 +149,7 @@ describe('flareQuads', () => {
 					count: 3,
 					lengthSpread: 0.5,
 					colorGradient: {
-						mode: 0,
+						fixed: false,
 						colorKeys: [
 							{ time: 0, color: [0, 0, 0] },
 							{ time: 1, color: [1, 1, 1] },
@@ -201,45 +191,7 @@ describe('flareQuads', () => {
 	});
 });
 
-describe('curves, gradients and randomness', () => {
-	it('evaluates a curve between and beyond its keys', () => {
-		assert.equal(evaluateCurve(line(0, 1), 0.5), 0.5);
-		assert.equal(evaluateCurve(line(0, 1), 2), 1);
-		assert.equal(evaluateCurve({ keys: [], preWrapMode: 2, postWrapMode: 2 }, 0.5), 0);
-	});
-
-	it('reads weighted segments as Bézier curves, and default weights as the Hermite one', () => {
-		const flat = (time: number, value: number, weightedMode: number, weight: number) => ({
-			time,
-			value,
-			inSlope: 0,
-			outSlope: 0,
-			weightedMode,
-			inWeight: weight,
-			outWeight: weight,
-		});
-		const curve = (weightedMode: number, weight: number): AnimationCurve => ({
-			keys: [flat(0, 0, weightedMode, weight), flat(1, 1, weightedMode, weight)],
-			preWrapMode: 2,
-			postWrapMode: 2,
-		});
-		const hermite = evaluateCurve(curve(0, 0), 0.25);
-		assert.ok(Math.abs(evaluateCurve(curve(3, 1 / 3), 0.25) - hermite) < 1e-6);
-		// heavier handles hold the ends flat for longer, so a quarter in it has barely risen
-		const heavy = evaluateCurve(curve(3, 1), 0.25);
-		assert.ok(heavy < hermite && heavy > 0);
-		assert.ok(Math.abs(evaluateCurve(curve(3, 1), 0.5) - 0.5) < 1e-4);
-	});
-
-	it('blends gradient keys, and holds them in fixed mode', () => {
-		const colorKeys = [
-			{ time: 0, color: [0, 0, 0] as [number, number, number] },
-			{ time: 1, color: [1, 1, 1] as [number, number, number] },
-		];
-		assert.deepEqual(evaluateGradient({ mode: 0, colorKeys, alphaKeys: [] }, 0.25), [0.25, 0.25, 0.25, 1]);
-		assert.deepEqual(evaluateGradient({ mode: 1, colorKeys, alphaKeys: [] }, 0.25), [1, 1, 1, 1]);
-	});
-
+describe('randomness', () => {
 	it('draws values within the range from a seeded xorshift', () => {
 		const a = new UnityRandom(14);
 		const b = new UnityRandom(14);

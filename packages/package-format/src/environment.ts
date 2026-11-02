@@ -1,3 +1,4 @@
+import type { AnimationCurve, Gradient } from './curves.ts';
 import type { TextureRef } from './textures.ts';
 import type { Color, Vec2, Vec3, Vec4, Quat } from './values.ts';
 
@@ -528,32 +529,6 @@ export interface LensFlareConfig {
 	sampleCount: number;
 	occlusionOffset: number;
 	allowOffScreen: boolean;
-}
-
-/** an `AnimationCurve` key */
-export interface CurveKey {
-	time: number;
-	value: number;
-	inSlope: number;
-	outSlope: number;
-	weightedMode: number;
-	inWeight: number;
-	outWeight: number;
-}
-
-/** an `AnimationCurve`; the wrap modes are Unity's internal ones (2, clamp, is the default) */
-export interface AnimationCurve {
-	keys: CurveKey[];
-	preWrapMode: number;
-	postWrapMode: number;
-}
-
-/** a `Gradient`: colour and alpha keys at times 0–1, raw colours */
-export interface Gradient {
-	/** 0 blends between keys, 1 holds each key until the next */
-	mode: number;
-	colorKeys: { time: number; color: Vec3 }[];
-	alphaKeys: { time: number; alpha: number }[];
 }
 
 /** SRP core's `LensFlareDataSRP`: a flare's elements, drawn in order */
