@@ -227,7 +227,8 @@ counts in `skin`.
 **skin pose.** [skin-pose.ts](../packages/formats/src/unity/skin-pose.ts) bakes linear blend
 skinning into a new static mesh: positions, normals, tangents and bounds move into the space of the
 supplied pose (bone matrix × bind pose per bone). it throws on missing influences, bad bone indices
-or singular transforms. skinned prefab renderers are drawn in their authored pose this way.
+or singular transforms. skinned prefab renderers are drawn in their authored pose this way, unless a
+looping clip moves their bones ([interactives](#interactives)).
 
 **texture.** [texture.ts](../packages/formats/src/unity/texture.ts) handles `Texture2D`, `Cubemap`,
 `Texture2DArray`, `CubemapArray` and `Texture3D`. it reads format, colour space, sampler settings
@@ -545,6 +546,19 @@ off and left alone by the clip draws nothing rather than a stand-in. clips name 
 by a hash, resolved against the renderer's materials' saved property names (a property the material
 doesn't save is dropped); a renderer whose materials take posed values draws a material variant
 whose record carries them before conversion. doodad-group shells aren't posed.
+
+a settled state whose clip loops keeps playing it
+([playing a clip](game-data/assets.md#interactive-view-states)): its pose clip carries the curves
+(`readClipMotion`), and the walk records every Transform so `poseFrames` can pose the hierarchy
+again at each of the clip's frames (its duration times its sample rate), the pose's other clips
+holding their end poses. a skinned renderer whose bones move between those frames gets a `motion`:
+its bones' skinning matrices (prefab-space bone matrix × bind pose) per frame, with bounds over
+every frame. the packer interns it as an animated geometry, which keeps the mesh in its bind space
+with its weights, bone indices and frames
+([geometry blob](package-format.md#geometry-blob-mesh-efgm)), rather than baking the end pose. a
+clip the sampler can't read holds its end pose as before. the balloon's tube
+(`int_balloon_postmodel`, 46 bones, 420 frames) and the regional upgrade terminal's robot
+(`int_system_fac_region_upgrade_postmodel`) play this way.
 
 - a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
   `activation:<id>` control (0 not activated; 1 activated, the default), in the viewer's progression

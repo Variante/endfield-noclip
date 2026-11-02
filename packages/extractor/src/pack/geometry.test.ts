@@ -311,6 +311,45 @@ describe('convertMesh', () => {
 		mesh.submeshes[0] = { ...mesh.submeshes[0], indexCount: mesh.submeshes[0].indexCount - 1 };
 		assert.throws(() => convertMesh(mesh, null), /not whole 3-corner primitives/);
 	});
+
+	it('keeps an animated mesh unposed, with its weights, bones and the frames, bounded over every frame', () => {
+		// vertices at x = 2 follow bone 1 alone, the others bone 0, with an unnormalized second influence of 0
+		const skin = {
+			bonesPerVertex: 2,
+			bindPoseCount: 2,
+			boneNameHashCount: 0,
+			hasBlendWeights: true,
+			hasBlendIndices: true,
+			weights: attribute(2, [2, 0, 2, 0, 2, 0, 2, 0, 3, 0, 3, 0]),
+			indices: attribute(2, [0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0], VertexAttributeFormat.UInt8),
+		};
+		const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+		const raised = [1, 0, 0, 0, 0, 1, 0, 3, 0, 0, 1, 0];
+		const motion = {
+			boneCount: 2,
+			frameCount: 2,
+			frameRate: 30,
+			// frame 1 lifts bone 1 by 3 m
+			matrices: Float32Array.from([...identity, ...identity, ...identity, ...raised]),
+		};
+		const { blob, entry } = convertMesh(testMesh({ skin }), null, motion);
+		const { geometry, streams, read } = decodeAll(blob);
+		assert.equal(entry.animationFrames, 2);
+		assert.deepEqual(entry.bounds, { min: [0, 0, 0], max: [2, 3, 1] });
+		assert.deepEqual(geometry.animation, { ...motion, offset: [0, 0, 0], scale: [2, 3, 1] });
+		// the bind pose's positions, not a frame's
+		assert.ok(read(VertexAttribute.Position).every(([, y]) => y === 0));
+		const weights = read(VertexAttribute.BlendWeight);
+		const bones = streams.get(VertexAttribute.BlendIndices)!;
+		const boneBytes = new Uint8Array(geometry.vertexCount * 4);
+		MeshoptDecoder.decodeVertexBuffer(boneBytes, geometry.vertexCount, 4, bones.data);
+		for (const [v, [x]] of read(VertexAttribute.Position).entries()) {
+			assert.deepEqual(weights[v], [1, 0, 0, 0]);
+			assert.equal(boneBytes[v * 4], x === 2 ? 1 : 0);
+		}
+		assert.throws(() => convertMesh(testMesh(), null, motion), /no bone weights/);
+		assert.throws(() => convertMesh(testMesh({ skin }), null, { ...motion, boneCount: 1 }), /bone 1 of 1/);
+	});
 });
 
 describe('encodeOctahedral', () => {

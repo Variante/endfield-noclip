@@ -21,6 +21,7 @@ const geometry = (hash: string): ConvertResult => ({
 		submeshCount: 1,
 		attributes: 1,
 		tangentUv: null,
+		animationFrames: null,
 	},
 	gpuBytes: 30,
 	blob: { hash, codec: BlobCodec.None, length: 1, rawLength: 1, crc32: 0 },

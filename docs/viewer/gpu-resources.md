@@ -19,7 +19,8 @@
   of an RGBA8 control array, a BC3 tint array and an index buffer (22 MiB); the package's layer
   textures get two BC7 arrays sized at load. the surface and splat arrays are allocated at full size
   up front, since a texture array can't grow without copying every layer. geometry gets one vertex
-  and one index buffer per blob.
+  and one index buffer per blob; an animated one also gets its bind pose, frames and skinning
+  parameters, and its vertex buffer is writable from compute.
 - **uniform ring** ([`gfx/uniform-ring.ts`](../../packages/viewer/src/gfx/uniform-ring.ts)): one
   uniform buffer in 3 per-frame regions, sub-allocated at `minUniformBufferOffsetAlignment`. callers
   fill CPU views; `flush` uploads the frame's region in one `writeBuffer`, and draws bind group 0 at

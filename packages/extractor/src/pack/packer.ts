@@ -1480,10 +1480,14 @@ const collectEntities = async (
 			if (!subset.includesEntity(levelTag, bounds.center[0], bounds.center[2])) {
 				continue;
 			}
-			const geometry =
-				renderer.pose === null
-					? pack.geometries.internObject(renderer.mesh)
-					: pack.geometries.internPosedObject(renderer.mesh, renderer.pose);
+			let geometry: number;
+			if (renderer.motion !== null) {
+				geometry = pack.geometries.internAnimatedObject(renderer.mesh, renderer.motion);
+			} else if (renderer.pose !== null) {
+				geometry = pack.geometries.internPosedObject(renderer.mesh, renderer.pose);
+			} else {
+				geometry = pack.geometries.internObject(renderer.mesh);
+			}
 			let role: DrawRole = DrawRole.Lit;
 			if (renderer.unsupported !== null) {
 				role = DrawRole.Unsupported;

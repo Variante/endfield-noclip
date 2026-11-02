@@ -5,7 +5,8 @@
 | #   | pass                                                                 | when                                                                                                                                                                                                                    |
 | --- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `irradiance update 0–2` (compute)                                    | a clipmap level re-centred or got new cells ([`render/irradiance-volume.ts`](../../packages/viewer/src/render/irradiance-volume.ts))                                                                                    |
-| 2   | `shadow layer 0–3`                                                   | `shadows` on, a package loaded, `debugView` is `lit`, and the casters or a layer's fit changed since the layers were drawn                                                                                              |
+| 1b  | `skin` (compute)                                                     | an animated geometry is resident ([`render/skin-animation.ts`](../../packages/viewer/src/render/skin-animation.ts))                                                                                                     |
+| 2   | `shadow layer 0–3`                                                   | `shadows` on, a package loaded, `debugView` is `lit`, and the casters or a layer's fit changed since the layers were drawn, or an animated geometry is drawn                                                            |
 | 3   | `volumetric fog` (compute)                                           | `heightFog` on, a package loaded, `lit`, and the environment's volumetric fog on ([`render/volumetric-fog.ts`](../../packages/viewer/src/render/volumetric-fog.ts))                                                     |
 | 4   | `main`                                                               | always (empty without a package)                                                                                                                                                                                        |
 | 5   | `transparent`                                                        | always, so the composite reads cleared targets                                                                                                                                                                          |
@@ -79,6 +80,14 @@ what each post pass computes is in [post-processing](post-processing.md) and
   don't draw into the shadow map at all. this cut draws by more than half at every profiled pose.
   the depth-only stages (shadow casters, alpha-tested depth) bind only the vertex streams they read:
   positions, plus the UV sets for alpha testing.
+- **animated geometries** ([package format](../package-format.md#geometry-blob-mesh-efgm)) are
+  skinned on the GPU before anything draws: each frame, `skin` blends the two current frames' bone
+  matrices, skins the bind pose (kept in its own storage buffer with the weights and bones) and
+  writes positions, normals and tangents over the geometry's own vertex streams, in the formats
+  every mesh pipeline already reads, positions quantized to the animation's box. so the prepass,
+  shading and shadow passes need no variants, and every placement of a geometry shows the same frame
+  of the viewer's clock. normals and tangents turn by the blended matrix itself, as Unity's skinning
+  turns them. a frame that draws one redraws the shadow layers.
 - **post** ([`render/post-process.ts`](../../packages/viewer/src/render/post-process.ts)) is
   fullscreen triangles with `auto` layouts. composite adds the screen-space reflections
   ([lighting](lighting.md#screen-space-reflections)), then applies AO, sky, atmosphere fog and

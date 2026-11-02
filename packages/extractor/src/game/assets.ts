@@ -22,6 +22,7 @@ import {
 } from '../hg/bundles.ts';
 import type { Vfs } from '../hg/vfs.ts';
 
+import type { SkinMotion } from './prefab.ts';
 import type { SyntheticMesh } from './synthetic-mesh.ts';
 
 // resolves external CAB and .resS files within the referencing bundle's dependency closure, caching each
@@ -86,6 +87,8 @@ export interface AssetRef {
 	locator?: ObjectLocator;
 	/** mesh-space to prefab-space skinning matrices for a baked authored pose */
 	pose?: Float32Array[];
+	/** the looping skeletal animation a skinned mesh plays instead of a baked pose */
+	motion?: SkinMotion;
 	/** a mesh the packer makes itself (see `syntheticMesh`); the asset then reads nothing from the install */
 	synthetic?: SyntheticMesh;
 }

@@ -7,6 +7,7 @@ import {
 	type GeometryStream,
 	GeometryStreamFlags,
 	GeometryVertexFormat,
+	type SkinAnimation,
 	VertexAttribute,
 } from '@endfield-noclip/package-format/geometry';
 import { decodeInstanceBlock } from '@endfield-noclip/package-format/instances';
@@ -20,7 +21,13 @@ import { MeshoptDecoder } from 'meshoptimizer/decoder';
 
 import { buildInstanceRows } from '../render/instance-rows.ts';
 
-import type { DecodedGeometry, DecodeRequest, DecodeResponse, UvTransform } from './decode-protocol.ts';
+import type {
+	DecodedGeometry,
+	DecodedSkin,
+	DecodeRequest,
+	DecodeResponse,
+	UvTransform,
+} from './decode-protocol.ts';
 import { decompressZstd, zstdReady } from './zstd.ts';
 
 const unwrap = (data: ArrayBuffer, codec: BlobCodec, rawLength: number): Uint8Array<ArrayBuffer> => {
@@ -247,8 +254,12 @@ const decodeGeometry = (
 	// index buffers are bound whole and must be a multiple of 4 bytes
 	const indices = new Uint8Array(Math.ceil((blob.indexCount * indexSize) / 4) * 4);
 	MeshoptDecoder.decodeIndexBuffer(indices, blob.indexCount, indexSize, blob.indices);
+	const skin =
+		blob.animation === null
+			? null
+			: decodeSkin(blob, blob.animation, position, { positions, normals, tangents });
 	const transfer: Transferable[] = [positions, indices.buffer];
-	for (const extra of [normals, ...uvs, tangents, colors]) {
+	for (const extra of [normals, ...uvs, tangents, colors, skin?.source ?? null, skin?.matrices ?? null]) {
 		if (extra !== null) {
 			transfer.push(extra);
 		}
@@ -260,8 +271,9 @@ const decodeGeometry = (
 			vertexCount: blob.vertexCount,
 			indexSize,
 			indices: indices.buffer,
-			positionOffset: position.offset,
-			positionScale: position.scale,
+			// an animation's output is quantized to the box its frames lie in
+			positionOffset: blob.animation?.offset ?? position.offset,
+			positionScale: blob.animation?.scale ?? position.scale,
 			positions,
 			normals,
 			uvs,
@@ -274,8 +286,49 @@ const decodeGeometry = (
 				indexCount,
 				baseVertex,
 			})),
+			skin,
 		},
 		transfer,
+	};
+};
+
+/** gathers the bind pose's streams, the weights and bones into the source an animation reads */
+const decodeSkin = (
+	blob: GeometryBlob,
+	animation: SkinAnimation,
+	position: GeometryStream,
+	bind: { positions: ArrayBuffer; normals: ArrayBuffer | null; tangents: ArrayBuffer | null },
+): DecodedSkin => {
+	const weights = decodeAttribute(blob, VertexAttribute.BlendWeight, GeometryVertexFormat.Unorm16x4);
+	const bones = decodeAttribute(blob, VertexAttribute.BlendIndices, GeometryVertexFormat.Uint8x4);
+	if (weights === null || bones === null) {
+		throw new Error('animated geometry has no bone weights or indices');
+	}
+	const parts = [bind.positions, bind.normals, bind.tangents, weights, bones];
+	const words: number[] = [];
+	let size = 0;
+	for (const part of parts) {
+		words.push(part === null ? -1 : size / 4);
+		size += part?.byteLength ?? 0;
+	}
+	const source = new Uint8Array(size);
+	for (const [i, part] of parts.entries()) {
+		if (part !== null) {
+			source.set(new Uint8Array(part), words[i] * 4);
+		}
+	}
+	return {
+		source: source.buffer,
+		normalWord: words[1],
+		tangentWord: words[2],
+		weightWord: words[3],
+		boneWord: words[4],
+		bindOffset: position.offset,
+		bindScale: position.scale,
+		boneCount: animation.boneCount,
+		frameCount: animation.frameCount,
+		frameRate: animation.frameRate,
+		matrices: animation.matrices.slice().buffer,
 	};
 };
 

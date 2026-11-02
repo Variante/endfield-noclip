@@ -378,6 +378,7 @@ describe('geometry blobs', () => {
 				},
 			],
 			indices: Uint8Array.from([42, 43, 44, 45, 46, 47, 48]),
+			animation: null,
 		};
 		const encoded = encodeGeometryBlob(blob);
 		assert.equal(encoded.byteLength % 4, 0);
@@ -386,6 +387,42 @@ describe('geometry blobs', () => {
 		const badFormat = encoded.slice();
 		badFormat[32 + 1] = 200;
 		assert.throws(() => decodeGeometryBlob(badFormat), /unknown vertex format/);
+	});
+
+	it('round-trips a skeletal animation after the indices', () => {
+		const blob: GeometryBlob = {
+			flags: 0,
+			vertexCount: 1,
+			indexCount: 3,
+			streams: [
+				{
+					attribute: VertexAttribute.BlendIndices,
+					format: GeometryVertexFormat.Uint8x4,
+					flags: 0,
+					offset: [0, 0, 0],
+					scale: [1, 1, 1],
+					data: Uint8Array.from([1, 0, 0, 0]),
+				},
+			],
+			submeshes: [],
+			// six bytes, so the animation starts after padding
+			indices: Uint8Array.from([1, 2, 3, 4, 5, 6]),
+			animation: {
+				boneCount: 2,
+				frameCount: 3,
+				frameRate: 30,
+				offset: [-1, 0, -2],
+				scale: [2, 7, 4],
+				matrices: Float32Array.from({ length: 2 * 3 * 12 }, (_, i) => i / 4),
+			},
+		};
+		const encoded = encodeGeometryBlob(blob);
+		assert.deepEqual(decodeGeometryBlob(encoded), blob);
+		assert.throws(() => decodeGeometryBlob(encoded.subarray(0, encoded.byteLength - 4)), PackageFormatError);
+		assert.throws(
+			() => encodeGeometryBlob({ ...blob, animation: { ...blob.animation!, frameCount: 4 } }),
+			/disagree with its matrices/,
+		);
 	});
 });
 

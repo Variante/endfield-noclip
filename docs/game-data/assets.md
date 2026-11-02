@@ -347,12 +347,14 @@ hold (`comparison` 0 =, 1 >, 2 <, 3 ≥, 4 ≤ against a bool, float, int or tri
 negating it); a transition without conditions is taken when its state's clip ends. a layer comes to
 rest in a state none of whose transitions holds. later layers of one animator override earlier ones.
 
-a settled state's look is its clip's end pose plus its `SetActive` switches. a generic clip's muscle
-clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
-(`m_ClipBindingConstant.genericBindings`): three values per position, scale or Euler-rotation
-binding (attributes 1, 3 and 4; Euler angles in degrees, applied z, then x, then y), four per
-rotation (2), one per other float, none per PPtr curve. a binding's `path` is the CRC32 of the
-GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
+a settled state's look is its clip's end pose plus its `SetActive` switches, unless the clip loops
+(`m_MuscleClip.m_LoopTime`): then it keeps playing, as the balloon's tube sways through its 14 s
+idle (`A_interactive_balloon+1_001_01_idle_01`). when each placement's loop starts is unknown. a
+generic clip's muscle clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the
+order of its bindings (`m_ClipBindingConstant.genericBindings`): three values per position, scale or
+Euler-rotation binding (attributes 1, 3 and 4; Euler angles in degrees, applied z, then x, then y),
+four per rotation (2), one per other float, none per PPtr curve. a binding's `path` is the CRC32 of
+the GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the Animator's
 GameObject. a GameObject binding (class 1) whose attribute is the CRC32 of `m_IsActive` switches
 that GameObject on (1) or off (0). effect clips switch whole groups of effects this way; in their
 subtree, what the clip leaves alone keeps its saved activity, so a node saved off stays off.

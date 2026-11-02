@@ -295,8 +295,12 @@ packs or renders correctly.
   (`ModelViewStateControllerData`) draw the pose their state machines settle in, and ignore
   per-placement component properties. [one-shot effects](game-data/assets.md#one-shot-effects) and
   the effects a state's `EffectBehavior` plays (the talosites' activation burst) aren't drawn, since
-  the viewer can't play them, and a settled loop clip shows its last frame. looks the player's
-  presence changes follow the camera
+  the viewer can't play them. a settled loop clip plays only where it moves a skinned mesh's bones
+  ([interactives](extraction.md#interactives)); what else it animates (rigid renderers, including
+  ones parented to its bones, material values, activity) holds its last frame, every placement of a
+  geometry plays in step from the viewer's clock (the game's start per placement is unknown), the
+  animation moves only while frames render, each LOD stores its own frames, and the balloon's sway
+  is unchecked against an in-game shot. looks the player's presence changes follow the camera
   ([keys the player sets](game-data/assets.md#keys-the-player-sets)); a campfire's `InZone` sphere
   uses the template's 2.5 m radius, though the game swaps the trigger's radius for runtime values
   once inside (unread), and the `Distance` measure is assumed to be a plain 3D distance (the helper
@@ -351,8 +355,9 @@ packs or renders correctly.
 - control labels still show internal identifiers or representative mesh names in many places
 - runtime world-space UI, including Dijiang's cabin nameplates and assigned-operator panels, is not
   drawn ([cabins](game-data/scene-states.md#dijiang-cabins))
-- animated poses and nonzero blend shapes (meshes with them are stand-ins); vertex-animation-texture
-  meshes (`_vat`, e.g. floating rocks) draw their rest pose
+- skeletons the reader can't pose and nonzero blend shapes (meshes with them are stand-ins);
+  skeletal animation outside a settled interactive view state (scenery Animators, characters) isn't
+  played; vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw their rest pose
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
 - HLOD clusters never stand in for Global chunk content, which always draws, so wherever a cluster

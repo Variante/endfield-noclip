@@ -17,6 +17,7 @@ import type {
 import { PackageChangedError } from '../package/package-source.ts';
 import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
 import type { RowKinds } from '../render/instance-rows.ts';
+import type { ResidentSkin } from '../render/skin-animation.ts';
 
 // #region types
 
@@ -103,6 +104,8 @@ export interface ResidentGeometry {
 	positionOffset: [x: number, y: number, z: number];
 	positionScale: [x: number, y: number, z: number];
 	submeshes: { firstIndex: number; indexCount: number; baseVertex: number }[];
+	/** the skeletal animation skinned into {@link vertices} each frame, or `null` for a still geometry */
+	skin: ResidentSkin | null;
 }
 
 /** GPU residency of a texture piece (the texture store owns the texture) */

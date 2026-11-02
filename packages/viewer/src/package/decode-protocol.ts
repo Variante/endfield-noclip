@@ -72,7 +72,7 @@ export interface DecodedInstances extends InstanceRows {
 	kind: 'instances';
 }
 
-/** a decoded geometry blob: the vertex streams the viewer draws with, and the indices */
+/** a decoded geometry blob: the vertex streams the viewer draws with, the indices and any animation */
 export interface DecodedGeometry {
 	id: number;
 	kind: 'geometry';
@@ -100,6 +100,34 @@ export interface DecodedGeometry {
 	/** `unorm8x4` vertex colours (wider values clamped to [0, 1]), or `null` if the mesh has none */
 	colors: ArrayBuffer | null;
 	submeshes: { firstIndex: number; indexCount: number; baseVertex: number }[];
+	/**
+	 * the skeletal animation the geometry plays, or `null`. the streams above then hold the bind pose, and
+	 * {@link positionOffset} and {@link positionScale} are the box every frame's positions lie in, which the
+	 * animation's output is quantized to
+	 */
+	skin: DecodedSkin | null;
+}
+
+/** what animating a geometry reads, besides the bind pose's streams (`SkinAnimation` in the package format) */
+export interface DecodedSkin {
+	/**
+	 * u32 words: the bind pose's `unorm16x4` positions, then its normals and tangents where present, then the
+	 * `unorm16x4` weights and `uint8x4` bones
+	 */
+	source: ArrayBuffer;
+	/** where each part starts in {@link source}, in words; -1 for normals or tangents the mesh lacks */
+	normalWord: number;
+	tangentWord: number;
+	weightWord: number;
+	boneWord: number;
+	/** the bind pose's position dequantization */
+	bindOffset: [x: number, y: number, z: number];
+	bindScale: [x: number, y: number, z: number];
+	boneCount: number;
+	frameCount: number;
+	frameRate: number;
+	/** `frameCount × boneCount` rows3x4 f32 matrices, frame-major */
+	matrices: ArrayBuffer;
 }
 
 /** a texture piece: its levels' texel blocks, largest level first */

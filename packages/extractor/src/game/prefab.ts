@@ -2,7 +2,11 @@
 import { crc32 } from 'node:zlib';
 
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
-import type { ClipMaterialValue, ClipTransformValue } from '@endfield-noclip/formats/unity/animation-clip';
+import type {
+	ClipMaterialValue,
+	ClipMotion,
+	ClipTransformValue,
+} from '@endfield-noclip/formats/unity/animation-clip';
 import { parseMaterial } from '@endfield-noclip/formats/unity/material';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { multiplyMatrices, trsMatrix, transformBounds } from '@endfield-noclip/formats/unity/transform';
@@ -19,6 +23,7 @@ import {
 	stringField,
 	type Aabb,
 } from '@endfield-noclip/formats/unity/values';
+import type { SkinAnimation } from '@endfield-noclip/package-format/geometry';
 import { ChainFlags } from '@endfield-noclip/package-format/instances';
 import { ParticleRenderMode, type ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
 
@@ -55,6 +60,11 @@ export interface PrefabRenderer {
 	shadowOnly: boolean;
 	/** bone transforms including bind poses, when geometry must be baked into prefab space */
 	pose: Float32Array[] | null;
+	/**
+	 * the looping clip a skinned renderer's bones play, in prefab space, `null` when they hold still. the
+	 * geometry then plays it from its bind space instead of being baked into {@link pose}
+	 */
+	motion: SkinMotion | null;
 	/**
 	 * the particle system that draws the mesh once per particle, `null` for an ordinary renderer. the matrix is
 	 * then the system's frame and the bounds everywhere its particles reach
@@ -109,6 +119,12 @@ export interface MaterialValues {
 	colors: Record<string, [number, number, number, number]>;
 }
 
+/** a skeletal animation for a geometry: {@link SkinAnimation} without the box its positions lie in */
+export type SkinMotion = Omit<SkinAnimation, 'offset' | 'scale'>;
+
+/** bone matrices that move less than this between frames hold still */
+const STILL = 1e-5;
+
 /** a ParticleSystemRenderer's `m_Pivot` components as clip bindings name them */
 const PIVOT_ATTRIBUTES = ['x', 'y', 'z'].map((axis) => crc32(`m_Pivot.${axis}`) >>> 0);
 
@@ -142,6 +158,20 @@ export interface PoseClip {
 	materials: ReadonlyMap<number, readonly ClipMaterialValue[]>;
 	/** other renderer properties the clip sets, by binding path, then by attribute */
 	renderers: ReadonlyMap<number, ReadonlyMap<number, number>>;
+	/** the clip's Transform values over time when it keeps playing (a looping clip), else `null` */
+	motion: ClipMotion | null;
+}
+
+/** a Transform as the walk met it, for posing it again at each frame of a clip */
+interface PosedNode {
+	/** the Transform's {@link objectKey} */
+	key: string;
+	/** the parent Transform's key, `null` for the prefab root */
+	parent: string | null;
+	/** the local transform as saved */
+	saved: LocalTransform;
+	/** per pose clip, the GameObject's path below that clip's Animator, `null` outside it */
+	below: readonly (string | null)[];
 }
 
 /** an Animator above a GameObject */
@@ -213,9 +243,13 @@ export const readPrefabRenderers = async (
 	};
 	// by GameObject with a distance LOD, its position in prefab space: where the camera's distance is measured from
 	const settingOrigins = new Map<string, [number, number, number]>();
+	// every Transform in walk order (parents first), for posing them at each frame of a looping clip
+	const nodes: PosedNode[] = [];
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
+		/** the parent's Transform, `null` for the root */
+		parentTransform: string | null,
 		isRoot: boolean,
 		/** how the parent is switched off, `null` when it's drawn */
 		parentOff: SwitchedOff | null,
@@ -366,6 +400,7 @@ export const readPrefabRenderers = async (
 					rotation: [...xyz(rotation), numberField(rotation, 'w')],
 					scale: xyz(objectField(t, 'm_LocalScale')),
 				};
+		nodes.push({ key: objectKey(transform.ref), parent: parentTransform, saved: { ...local }, below });
 		for (const [i, clip] of (pose?.clips ?? []).entries()) {
 			const path = below[i];
 			if (isRoot || path === null) {
@@ -589,12 +624,23 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, off, billboard, below, scopes, distances);
+					await visit(
+						childGo,
+						matrix,
+						objectKey(transform.ref),
+						false,
+						off,
+						billboard,
+						below,
+						scopes,
+						distances,
+					);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, [], [], null);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), null, true, null, null, [], [], null);
+	const frames = pose === null ? null : poseFrames(nodes, pose);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
@@ -618,16 +664,23 @@ export const readPrefabRenderers = async (
 			);
 		}
 		let skin: Float32Array[] | null = null;
+		let motion: SkinMotion | null = null;
 		let unsupported = candidate.unsupported;
 		if (candidate.ref.info.classId === UnityClass.SkinnedMeshRenderer) {
 			// a skinned mesh the reader can't pose stands in unposed, at its renderer, rather than failing the prefab
-			const posed = await poseSkin(resolver, candidate, mesh, bounds, transforms);
+			const meshBounds = bounds;
+			const posed = await poseSkin(resolver, candidate, mesh, meshBounds, transforms);
 			if ('reason' in posed) {
 				unsupported = posed.reason;
 			} else {
 				skin = posed.skin;
 				bounds = posed.bounds;
 				matrix = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+				const moving = frames === null ? null : skinMotion(frames, posed, meshBounds);
+				if (moving !== null) {
+					motion = moving.motion;
+					bounds = moving.bounds;
+				}
 				// the mesh is baked without its blend shapes, so it isn't the shape the game draws
 				if (arrayField(candidate.data, 'm_BlendShapeWeights').some((weight) => weight !== 0)) {
 					unsupported ??= 'nonzero blend shape';
@@ -646,6 +699,7 @@ export const readPrefabRenderers = async (
 			matrix,
 			bounds,
 			pose: skin,
+			motion,
 			mesh: candidate.mesh,
 			materials,
 			materialValues,
@@ -705,8 +759,8 @@ const posedMaterialValues = async (
 /**
  * bakes a skinned renderer's authored pose: each bone's prefab-space matrix times its bind pose
  *
- * @returns the bone matrices and the bounds every weighted position lies in, or why the skeleton can't be
- *   posed
+ * @returns the bone matrices, the bounds every weighted position lies in, and per bone its Transform's key
+ *   and bind pose; or why the skeleton can't be posed
  */
 const poseSkin = async (
 	resolver: AssetResolver,
@@ -714,13 +768,15 @@ const poseSkin = async (
 	mesh: TypeTreeObject,
 	meshBounds: Aabb,
 	transforms: ReadonlyMap<string, Float32Array>,
-): Promise<{ skin: Float32Array[]; bounds: Aabb } | { reason: string }> => {
+): Promise<PosedSkin | { reason: string }> => {
 	const bones = arrayField(renderer.data, 'm_Bones');
 	const bindPoses = arrayField(mesh, 'm_BindPose');
 	if (bones.length !== bindPoses.length || bones.length === 0) {
 		return { reason: 'invalid skeleton' };
 	}
 	const skin: Float32Array[] = [];
+	const boneKeys: string[] = [];
+	const binds: Float32Array[] = [];
 	const min = [Infinity, Infinity, Infinity];
 	const max = [-Infinity, -Infinity, -Infinity];
 	for (const [i, pointer] of bones.entries()) {
@@ -736,6 +792,8 @@ const poseSkin = async (
 		);
 		const posed = multiplyMatrices(boneMatrix, bindMatrix);
 		skin.push(posed);
+		boneKeys.push(objectKey(bone));
+		binds.push(bindMatrix);
 		const transformed = transformBounds(meshBounds, posed);
 		for (let axis = 0; axis < 3; axis++) {
 			min[axis] = Math.min(min[axis], transformed.center[axis] - transformed.extents[axis]);
@@ -743,11 +801,136 @@ const poseSkin = async (
 		}
 	}
 	// weighted positions lie inside this union, including poses whose bones move beyond the bind bounds
+	return { skin, bounds: boxBounds(min, max), bones: boneKeys, binds };
+};
+
+/** a skinned renderer posed by {@link poseSkin} */
+interface PosedSkin {
+	skin: Float32Array[];
+	bounds: Aabb;
+	/** per bone, its Transform's {@link objectKey} */
+	bones: string[];
+	/** per bone, its bind pose */
+	binds: Float32Array[];
+}
+
+const boxBounds = (min: readonly number[], max: readonly number[]): Aabb => ({
+	center: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
+	extents: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2],
+});
+
+/** every Transform's prefab-space matrix at each frame of a pose's looping clip */
+interface PoseFrames {
+	frameRate: number;
+	/** per frame, by Transform key */
+	matrices: Map<string, Float32Array>[];
+}
+
+/**
+ * poses the prefab's Transforms at each frame of the pose's first looping clip that moves any; the pose's
+ * other clips hold their end poses, and its other looping clips play on the first one's frames
+ *
+ * @param nodes the walk's Transforms, parents first
+ * @param pose the pose the walk drew
+ * @returns the frames, or `null` when no clip keeps moving a Transform
+ */
+const poseFrames = (nodes: readonly PosedNode[], pose: PrefabPose): PoseFrames | null => {
+	const playing = pose.clips.find(
+		(clip) => clip.motion !== null && clip.motion.loops && clip.motion.paths.length > 0,
+	)?.motion;
+	if (playing === undefined || playing === null || playing.duration <= 0 || playing.sampleRate <= 0) {
+		return null;
+	}
+	const frameRate = playing.sampleRate;
+	const frameCount = Math.max(Math.round(playing.duration * frameRate), 1);
+	const matrices: Map<string, Float32Array>[] = [];
+	for (let frame = 0; frame < frameCount; frame++) {
+		const time = frame / frameRate;
+		const sampled = pose.clips.map((clip) =>
+			clip.motion?.loops === true ? clip.motion.sample(time % clip.motion.duration) : clip.transforms,
+		);
+		const posed = new Map<string, Float32Array>();
+		for (const node of nodes) {
+			const parent = node.parent === null ? undefined : posed.get(node.parent);
+			if (parent === undefined) {
+				// the root keeps the caller's placement
+				posed.set(node.key, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]));
+				continue;
+			}
+			const local = { ...node.saved };
+			for (const [i, values] of sampled.entries()) {
+				const path = node.below[i];
+				for (const value of path === null ? [] : (values.get(crc32(path) >>> 0) ?? [])) {
+					switch (value.kind) {
+						case 'position': {
+							local.position = value.value;
+							break;
+						}
+						case 'rotation': {
+							local.rotation = value.value;
+							break;
+						}
+						case 'scale': {
+							local.scale = value.value;
+							break;
+						}
+					}
+				}
+			}
+			posed.set(node.key, multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale)));
+		}
+		matrices.push(posed);
+	}
+	return { frameRate, matrices };
+};
+
+/**
+ * @param frames the prefab's Transforms at each frame of its looping clip
+ * @param posed the renderer's skeleton
+ * @param meshBounds the mesh's own bounds
+ * @returns the bones' skinning matrices at each frame and the bounds they keep the mesh in, or `null` when no
+ *   bone moves
+ */
+const skinMotion = (
+	frames: PoseFrames,
+	posed: PosedSkin,
+	meshBounds: Aabb,
+): { motion: SkinMotion; bounds: Aabb } | null => {
+	const boneCount = posed.bones.length;
+	const frameCount = frames.matrices.length;
+	const matrices = new Float32Array(frameCount * boneCount * 12);
+	const min = [Infinity, Infinity, Infinity];
+	const max = [-Infinity, -Infinity, -Infinity];
+	let moves = false;
+	for (const [frame, byKey] of frames.matrices.entries()) {
+		for (let bone = 0; bone < boneCount; bone++) {
+			const boneMatrix = byKey.get(posed.bones[bone]);
+			if (boneMatrix === undefined) {
+				return null;
+			}
+			const skin = multiplyMatrices(boneMatrix, posed.binds[bone]);
+			const at = (frame * boneCount + bone) * 12;
+			// column-major to rows3x4
+			for (let row = 0; row < 3; row++) {
+				for (let column = 0; column < 4; column++) {
+					matrices[at + row * 4 + column] = skin[column * 4 + row];
+				}
+			}
+			for (let k = 0; k < 12; k++) {
+				moves ||= Math.abs(matrices[at + k] - matrices[bone * 12 + k]) > STILL;
+			}
+			const box = transformBounds(meshBounds, skin);
+			for (let axis = 0; axis < 3; axis++) {
+				min[axis] = Math.min(min[axis], box.center[axis] - box.extents[axis]);
+				max[axis] = Math.max(max[axis], box.center[axis] + box.extents[axis]);
+			}
+		}
+	}
+	if (!moves) {
+		return null;
+	}
 	return {
-		skin,
-		bounds: {
-			center: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
-			extents: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2],
-		},
+		motion: { boneCount, frameCount, frameRate: frames.frameRate, matrices },
+		bounds: boxBounds(min, max),
 	};
 };

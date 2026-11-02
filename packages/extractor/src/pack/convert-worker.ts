@@ -74,8 +74,9 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 			}
 			const ref = await resolver.findUnique(job.asset, UnityClass.Mesh);
 			const mesh = await loadMesh(resolver, ref);
+			// an animated mesh stays in its bind space; a posed one is baked into its pose
 			const posed = job.asset.pose ? bakeSkinPose(mesh, job.asset.pose) : mesh;
-			const converted = convertMesh(posed, job.tangentUv);
+			const converted = convertMesh(posed, job.tangentUv, job.asset.motion);
 			return {
 				kind: 'geometry',
 				object: objectKey(ref),

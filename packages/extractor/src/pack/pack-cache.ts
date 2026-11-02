@@ -81,14 +81,23 @@ export class PackCache {
 	}
 
 	/**
-	 * @param parts what the conversion depends on besides the converter's code; bigints are allowed
+	 * @param parts what the conversion depends on besides the converter's code; bigints and typed arrays are
+	 *   allowed
 	 * @returns the conversion's key
 	 */
 	key(parts: object): string {
 		return shortHash(
-			JSON.stringify([this.#fingerprint, parts], (_, value: unknown) =>
-				typeof value === 'bigint' ? value.toString() : value,
-			),
+			JSON.stringify([this.#fingerprint, parts], (_, value: unknown) => {
+				if (typeof value === 'bigint') {
+					return value.toString();
+				}
+				// an animation's frames run to megabytes as JSON; their digest stands in for them
+				if (ArrayBuffer.isView(value)) {
+					const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+					return `${value.constructor.name}:${createHash('sha256').update(bytes).digest('hex')}`;
+				}
+				return value;
+			}),
 		);
 	}
 

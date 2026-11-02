@@ -1,7 +1,13 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
-import { readClipEndPose } from '@endfield-noclip/formats/unity/animation-clip';
+import {
+	type ClipMotion,
+	readClipEndPose,
+	readClipMotion,
+} from '@endfield-noclip/formats/unity/animation-clip';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
+import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
+import { booleanField, objectField } from '@endfield-noclip/formats/unity/values';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -166,6 +172,27 @@ export const settledState = (layer: ViewStateRecord, blackboard: Blackboard): Vi
 };
 
 /**
+ * a settled state's looping clip keeps playing; any other rests on its end pose
+ *
+ * @param clip an AnimationClip
+ * @returns its motion when it loops, `null` otherwise or when its curves can't be read (it then holds its end
+ *   pose)
+ */
+const loopingMotion = (clip: TypeTreeObject): ClipMotion | null => {
+	if (!booleanField(objectField(clip, 'm_MuscleClip'), 'm_LoopTime')) {
+		return null;
+	}
+	try {
+		return readClipMotion(clip);
+	} catch (error) {
+		if (error instanceof FormatError) {
+			return null;
+		}
+		throw error;
+	}
+};
+
+/**
  * @param context bundle and path readers
  * @param states the model's view states
  * @param key tells this pose apart from the model's others, for caching
@@ -210,8 +237,8 @@ export const statesPose = async (
 			// oxlint-disable-next-line no-await-in-loop -- a few one-frame clips per model
 			const clip = await resolver.findUnique({ hash, path: clipPath }, UnityClass.AnimationClip);
 			// oxlint-disable-next-line no-await-in-loop -- as above
-			const end = readClipEndPose(await resolver.read(clip));
-			clips.push({ animator, ...end });
+			const data = await resolver.read(clip);
+			clips.push({ animator, ...readClipEndPose(data), motion: loopingMotion(data) });
 		}
 	}
 	return { key: `${states.model}:${key}`, clips, active };

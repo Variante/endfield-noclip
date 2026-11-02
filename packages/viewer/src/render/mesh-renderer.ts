@@ -24,6 +24,7 @@ import {
 import effectWgsl from './shaders/effect.wgsl?raw';
 import meshWgsl from './shaders/mesh.wgsl?raw';
 import { SHADOW_DEPTH_STATE } from './shadow-map.ts';
+import { type ResidentSkin, SkinAnimator } from './skin-animation.ts';
 import { placeholderView, type TextureBinding, type TextureStore } from './texture-store.ts';
 
 /** floats of `Draw` in mesh.wgsl: the position and UV dequantizations, then the material look */
@@ -407,6 +408,11 @@ export class MeshRenderer {
 	/** ends of the cast-only opaque and alpha-tested draws, where the main pass starts */
 	#opaqueCastOnlyEnd = 0;
 	#cutoutCastOnlyEnd = 0;
+	#skins: SkinAnimator;
+	/** the resident geometries' animations */
+	#animated = new Set<ResidentSkin>();
+	/** whether this frame's draws include an animated geometry */
+	#drawsAnimated = false;
 
 	/**
 	 * @param device the device
@@ -428,6 +434,7 @@ export class MeshRenderer {
 		this.#pipelines = pipelines;
 		this.#instances = instances;
 		this.#stencil = format.stencil;
+		this.#skins = new SkinAnimator(device);
 		this.#zeros = this.#zeroBuffer(ZERO_STRIDE * 65_536);
 		this.#params = device.createBuffer({
 			label: 'mesh draws',
@@ -742,7 +749,11 @@ export class MeshRenderer {
 		const vertices = this.#device.createBuffer({
 			label: `geometry ${blob}`,
 			size: Math.max(4, size),
-			usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+			// an animation skins its frames into the buffer
+			usage:
+				GPUBufferUsage.VERTEX |
+				GPUBufferUsage.COPY_DST |
+				(decoded.skin === null ? 0 : GPUBufferUsage.STORAGE),
 		});
 		streams.forEach((stream, i) => {
 			const offset = offsets[i];
@@ -760,9 +771,20 @@ export class MeshRenderer {
 			usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
 		});
 		this.#device.queue.writeBuffer(indices, 0, decoded.indices);
-		return {
+		const skin =
+			decoded.skin === null
+				? null
+				: this.#skins.create(`geometry ${blob}`, decoded.skin, {
+						vertices,
+						vertexCount: decoded.vertexCount,
+						normalOffset: offsets[1],
+						tangentOffset: offsets[4],
+						positionOffset: decoded.positionOffset,
+						positionScale: decoded.positionScale,
+					});
+		const resident: ResidentGeometry = {
 			kind: 'geometry',
-			bytes: vertices.size + indices.size,
+			bytes: vertices.size + indices.size + (skin?.bytes ?? 0),
 			vertices,
 			positionBytes: decoded.positions.byteLength,
 			normalOffset: offsets[1],
@@ -778,13 +800,39 @@ export class MeshRenderer {
 			positionOffset: decoded.positionOffset,
 			positionScale: decoded.positionScale,
 			submeshes: decoded.submeshes,
+			skin,
 		};
+		if (skin !== null) {
+			this.#animated.add(skin);
+		}
+		return resident;
 	}
 
 	/** @param resident a geometry from {@link upload}; its buffers are destroyed */
 	release(resident: ResidentGeometry): void {
 		resident.vertices.destroy();
 		resident.indices.destroy();
+		if (resident.skin !== null) {
+			this.#animated.delete(resident.skin);
+			for (const buffer of resident.skin.buffers) {
+				buffer.destroy();
+			}
+		}
+	}
+
+	/** whether this frame draws an animated geometry, so the shadows it casts must be drawn again */
+	get animating(): boolean {
+		return this.#drawsAnimated;
+	}
+
+	/**
+	 * skins the animated geometries at the time's frame; encode before anything draws meshes
+	 *
+	 * @param encoder the frame's encoder
+	 * @param time seconds of the viewer's clock
+	 */
+	animate(encoder: GPUCommandEncoder, time: number): void {
+		this.#skins.encode(encoder, this.#animated, time);
 	}
 
 	/** forgets material bind groups (when a package is unloaded) */
@@ -858,6 +906,7 @@ export class MeshRenderer {
 		this.instanceCount = 0;
 		this.triangles = 0;
 		this.texturedDraws = 0;
+		this.#drawsAnimated = false;
 	}
 
 	/**
@@ -1052,6 +1101,7 @@ export class MeshRenderer {
 			}
 			const look = bucket.look;
 			const state = this.#materialState(bucket.material, look, textures);
+			this.#drawsAnimated ||= resident.skin !== null;
 			const at = d * DRAW_FLOATS;
 			// element by element: `set` from a small plain array costs more than the copy
 			const [ox, oy, oz] = resident.positionOffset;

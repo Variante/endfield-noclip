@@ -21,7 +21,7 @@ import { describeMaterial } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 import { keywordsNotDrawn } from '../game/material-surfaces.ts';
 import type { MaterialValues as ConvertedMaterial } from '../game/material-values.ts';
-import type { MaterialValues } from '../game/prefab.ts';
+import type { MaterialValues, SkinMotion } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
 
@@ -143,6 +143,31 @@ export class AssetIds {
 			pose: pose.map((matrix) => matrix.slice()),
 		});
 		return id;
+	}
+
+	/**
+	 * @param ref skinned mesh dependency
+	 * @param motion the looping skeletal animation it plays
+	 * @returns a geometry id distinct for each animation of the mesh
+	 */
+	internAnimatedObject(ref: ObjectRef, motion: SkinMotion): number {
+		const key = objectKey(ref);
+		const { matrices } = motion;
+		const digest = createHash('sha256')
+			.update(key)
+			.update(`motion ${motion.boneCount} ${motion.frameCount} ${motion.frameRate}`)
+			.update(new Uint8Array(matrices.buffer, matrices.byteOffset, matrices.byteLength));
+		const hash = -BigInt(`0x${digest.digest('hex')}`);
+		return this.#ids.getOrInsertComputed(
+			hash,
+			() =>
+				this.assets.push({
+					hash,
+					path: key,
+					locator: locateObject(ref),
+					motion: { ...motion, matrices: matrices.slice() },
+				}) - 1,
+		);
 	}
 }
 

@@ -18,11 +18,14 @@ import {
 	type GeometrySubmesh,
 	GeometryVertexFormat,
 	type ReadyGeometry,
+	type SkinAnimation,
 	VertexAttribute,
 } from '@endfield-noclip/package-format/geometry';
 
 import { MeshoptEncoder } from 'meshoptimizer/encoder';
 import { MeshoptTangents } from 'meshoptimizer/tangents';
+
+import type { SkinMotion } from '../game/prefab.ts';
 
 import { aabbBounds } from './bounds.ts';
 
@@ -51,10 +54,18 @@ const UV_UNORM16_SPAN = 16;
  * @param mesh the decoded mesh
  * @param tangentUv UV set to generate MikkTSpace tangents from (because a normal-mapped material draws the
  *   mesh), or `null`. ignored when the mesh has its own tangents, or lacks normals or that UV set
+ * @param motion the skeletal animation a skinned mesh plays, given in its bind space; the blob then keeps the
+ *   mesh unposed, with its bone weights and indices, and its bounds hold every frame
  * @returns the blob and its entry fields
- * @throws {FormatError} on topologies other than triangles and quads, out-of-range indices or an empty mesh
+ * @throws {FormatError} on topologies other than triangles and quads, out-of-range indices or an empty mesh,
+ *   or with a motion, a mesh without bone weights and indices, more than four influences or 256 bones, or
+ *   bone indices past the motion's bones
  */
-export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): ConvertedGeometry => {
+export const convertMesh = (
+	mesh: DecodedMesh,
+	tangentUv: number | null,
+	motion?: SkinMotion,
+): ConvertedGeometry => {
 	const corners = submeshCorners(mesh);
 	if (corners.every((list) => list.length === 0)) {
 		throw new FormatError(`mesh ${mesh.name} has no triangles`);
@@ -207,6 +218,20 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 			add({ ...stream, attribute: VertexAttribute.TexCoord0 + set }, data);
 		}
 	}
+
+	let animation: SkinAnimation | null = null;
+	let bounds = { min, max };
+	if (motion !== undefined) {
+		const skin = skinStreams(mesh, order.map(vertexOf), motion.boneCount);
+		add(plain(VertexAttribute.BlendWeight, GeometryVertexFormat.Unorm16x4), bytesOf(skin.weights));
+		add(plain(VertexAttribute.BlendIndices, GeometryVertexFormat.Uint8x4), bytesOf(skin.bones));
+		bounds = motionBounds(mesh, order.map(vertexOf), skin, motion);
+		animation = {
+			...motion,
+			offset: [bounds.min[0], bounds.min[1], bounds.min[2]],
+			scale: [bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1], bounds.max[2] - bounds.min[2]],
+		};
+	}
 	// #endregion
 
 	const wide = maxSubmeshVertices > 0x1_00_00;
@@ -234,6 +259,7 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 		})),
 		submeshes,
 		indices: MeshoptEncoder.encodeIndexBuffer(bytesOf(indices), indexCount, indexSize),
+		animation,
 	});
 
 	let attributes = 0;
@@ -244,16 +270,20 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 		blob,
 		entry: {
 			bounds: {
-				min: vertexCount === 0 ? [0, 0, 0] : [min[0], min[1], min[2]],
-				max: vertexCount === 0 ? [0, 0, 0] : [max[0], max[1], max[2]],
+				min: vertexCount === 0 ? [0, 0, 0] : [bounds.min[0], bounds.min[1], bounds.min[2]],
+				max: vertexCount === 0 ? [0, 0, 0] : [bounds.max[0], bounds.max[1], bounds.max[2]],
 			},
 			vertexCount,
 			indexCount,
 			submeshCount: submeshes.length,
 			attributes,
 			tangentUv: generated ? tangentUv : null,
+			animationFrames: animation?.frameCount ?? null,
 		},
-		gpuBytes: raw.reduce((sum, data) => sum + data.byteLength, indexCount * indexSize),
+		gpuBytes: raw.reduce(
+			(sum, data) => sum + data.byteLength,
+			indexCount * indexSize + (animation?.matrices.byteLength ?? 0),
+		),
 	};
 };
 
@@ -375,6 +405,105 @@ const splitByTangent = (
 		}
 	}
 	return { origin: Uint32Array.from(origin), tangents: Float32Array.from(tangents) };
+};
+
+// #endregion
+
+// #region skinning
+
+/** the most bones a vertex's `uint8x4` indices can name */
+const MAX_BONES = 256;
+
+/** per output vertex, four quantized weights summing to 65,535 and their bones */
+interface SkinStreams {
+	weights: Uint16Array;
+	bones: Uint8Array;
+}
+
+/**
+ * @param mesh a skinned mesh
+ * @param sources per output vertex, its source vertex
+ * @param boneCount the bones its motion animates
+ * @returns its four weights per vertex, normalized and quantized, and their bones
+ */
+const skinStreams = (mesh: DecodedMesh, sources: readonly number[], boneCount: number): SkinStreams => {
+	const weights = mesh.skin?.weights;
+	const indices = mesh.skin?.indices;
+	if (weights === undefined || weights === null || indices === undefined || indices === null) {
+		throw new FormatError(`mesh ${mesh.name} has no bone weights and indices to animate`);
+	}
+	if (weights.dimension > 4 || indices.dimension !== weights.dimension) {
+		throw new FormatError(
+			`mesh ${mesh.name} has ${weights.dimension} influences, more than four or mismatched`,
+		);
+	}
+	if (boneCount > MAX_BONES) {
+		throw new FormatError(`mesh ${mesh.name} is animated by ${boneCount} bones, more than ${MAX_BONES}`);
+	}
+	const n = weights.dimension;
+	const out: SkinStreams = {
+		weights: new Uint16Array(sources.length * 4),
+		bones: new Uint8Array(sources.length * 4),
+	};
+	for (const [i, source] of sources.entries()) {
+		let sum = 0;
+		for (let k = 0; k < n; k++) {
+			sum += Math.max(weights.data[source * n + k], 0);
+		}
+		let remaining = 65_535;
+		for (let k = 0; k < n; k++) {
+			const bone = indices.data[source * n + k];
+			if (!Number.isInteger(bone) || bone < 0 || bone >= boneCount) {
+				throw new FormatError(`mesh ${mesh.name} vertex ${source} names bone ${bone} of ${boneCount}`);
+			}
+			out.bones[i * 4 + k] = bone;
+			// a vertex without weights follows its first bone; the last influence takes the rounding
+			const share = sum > 0 ? Math.max(weights.data[source * n + k], 0) / sum : Number(k === 0);
+			const quantized = k === n - 1 ? remaining : Math.min(Math.round(share * 65_535), remaining);
+			out.weights[i * 4 + k] = quantized;
+			remaining -= quantized;
+		}
+	}
+	return out;
+};
+
+/** @returns the box every frame's skinned positions lie in */
+const motionBounds = (
+	mesh: DecodedMesh,
+	sources: readonly number[],
+	skin: SkinStreams,
+	motion: SkinMotion,
+): { min: number[]; max: number[] } => {
+	const min = [Infinity, Infinity, Infinity];
+	const max = [-Infinity, -Infinity, -Infinity];
+	const { matrices, boneCount } = motion;
+	for (let frame = 0; frame < motion.frameCount; frame++) {
+		for (const [i, source] of sources.entries()) {
+			const [x, y, z] = [
+				mesh.positions[source * 3],
+				mesh.positions[source * 3 + 1],
+				mesh.positions[source * 3 + 2],
+			];
+			const out = [0, 0, 0];
+			for (let k = 0; k < 4; k++) {
+				const weight = skin.weights[i * 4 + k] / 65_535;
+				if (weight === 0) {
+					continue;
+				}
+				const m = (frame * boneCount + skin.bones[i * 4 + k]) * 12;
+				for (let row = 0; row < 3; row++) {
+					const r = m + row * 4;
+					out[row] +=
+						weight * (matrices[r] * x + matrices[r + 1] * y + matrices[r + 2] * z + matrices[r + 3]);
+				}
+			}
+			for (let k = 0; k < 3; k++) {
+				min[k] = Math.min(min[k], out[k]);
+				max[k] = Math.max(max[k], out[k]);
+			}
+		}
+	}
+	return { min, max };
 };
 
 // #endregion

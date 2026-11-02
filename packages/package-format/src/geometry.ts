@@ -44,6 +44,13 @@ export const VertexAttribute = {
 	 */
 	TexCoord0: 4,
 	TexCoord7: 11,
+	/**
+	 * `unorm16x4`: a skinned vertex's four bone weights, summing to 1, for the blob's
+	 * {@link GeometryBlob.animation}
+	 */
+	BlendWeight: 12,
+	/** `uint8x4`: the bones those weights belong to, indexing the animation's bones */
+	BlendIndices: 13,
 } as const;
 
 /** a {@link VertexAttribute} value; UV sets fill the range `TexCoord0`…`TexCoord7` */
@@ -62,6 +69,7 @@ export const GeometryVertexFormat = {
 	Unorm16x2: 5,
 	Float32x2: 6,
 	Float32x4: 7,
+	Uint8x4: 8,
 } as const;
 
 export type GeometryVertexFormat = (typeof GeometryVertexFormat)[keyof typeof GeometryVertexFormat];
@@ -76,6 +84,7 @@ export const GEOMETRY_VERTEX_FORMATS: Record<GeometryVertexFormat, { gpu: string
 	[GeometryVertexFormat.Unorm16x2]: { gpu: 'unorm16x2', size: 4 },
 	[GeometryVertexFormat.Float32x2]: { gpu: 'float32x2', size: 8 },
 	[GeometryVertexFormat.Float32x4]: { gpu: 'float32x4', size: 16 },
+	[GeometryVertexFormat.Uint8x4]: { gpu: 'uint8x4', size: 4 },
 };
 
 /** geometry blob flag bits */
@@ -115,6 +124,30 @@ export interface GeometryBlob {
 	 * indices
 	 */
 	indices: Uint8Array;
+	/** the skeletal animation the mesh plays, or `null` for a mesh that holds still */
+	animation: SkinAnimation | null;
+}
+
+/**
+ * a looping skeletal animation, sampled at the clip's frames. a geometry with one stores its positions,
+ * normals and tangents in the mesh's bind space, with {@link VertexAttribute.BlendWeight} and
+ * {@link VertexAttribute.BlendIndices} streams; at time `t` (seconds) its frame is `(t · frameRate) mod
+ * frameCount`, linearly interpolated (the last frame blends into the first), and each vertex moves to `Σ
+ * weight · matrix(bone) · bindPosition`
+ */
+export interface SkinAnimation {
+	boneCount: number;
+	frameCount: number;
+	/** frames per second */
+	frameRate: number;
+	/** every frame's skinned positions lie in `offset + [0, 1]³ · scale`, a box to quantize them to */
+	offset: [x: number, y: number, z: number];
+	scale: [x: number, y: number, z: number];
+	/**
+	 * `frameCount × boneCount` matrices, frame-major, as rows3x4 (12 floats): from the mesh's bind space to the
+	 * space the geometry is drawn in, bind pose included
+	 */
+	matrices: Float32Array;
 }
 
 /** one vertex buffer of a {@link GeometryBlob} */
@@ -168,12 +201,14 @@ export interface ReadyGeometry {
 	attributes: number;
 	/** the UV set tangents were generated from, or `null` without generated tangents */
 	tangentUv: number | null;
+	/** frames of the blob's {@link SkinAnimation}, `null` for a geometry that holds still */
+	animationFrames: number | null;
 }
 
 /** 'EFGM' */
 const GEOMETRY_HEADER: HeaderShape = {
 	magic: 0x4d_47_46_45,
-	version: 1,
+	version: 2,
 	size: 32,
 	label: 'geometry blob',
 };
@@ -184,30 +219,46 @@ const GEOMETRY_STREAM_SIZE = 32;
 
 const GEOMETRY_SUBMESH_SIZE = 40;
 
+const ANIMATION_HEADER_SIZE = 32;
+
 const isGeometryVertexFormat = enumGuard(GeometryVertexFormat);
 
 /**
  * geometry blob: 32-byte header (`'EFGM'`, u16 version, u16 flags, u32 vertexCount, u32 indexCount, u16
- * streamCount, u16 submeshCount, u32 index payload length, u32×2 0), 32-byte stream records (u8 attribute, u8
- * format, u8 flags, u8 0, u32 payload length, f32×3 offset, f32×3 scale), 40-byte submesh records (u32
- * firstIndex, u32 indexCount, u32 baseVertex, u32 vertexCount, f32×3 min, f32×3 max), then the stream
- * payloads in record order and the index payload, each starting 4-byte aligned.
+ * streamCount, u16 submeshCount, u32 index payload length, u32 animation length, u32 0), 32-byte stream
+ * records (u8 attribute, u8 format, u8 flags, u8 0, u32 payload length, f32×3 offset, f32×3 scale), 40-byte
+ * submesh records (u32 firstIndex, u32 indexCount, u32 baseVertex, u32 vertexCount, f32×3 min, f32×3 max),
+ * then the stream payloads in record order, the index payload and the animation (absent when its length is 0:
+ * a 32-byte header of u16 boneCount, u16 frameCount, f32 frameRate, f32×3 offset, f32×3 scale, then the f32
+ * matrices), each starting 4-byte aligned.
  *
  * @param blob the container; payloads are stored as given
  * @returns the encoded blob
- * @throws {RangeError} on more than 65,535 streams or submeshes
+ * @throws {RangeError} on more than 65,535 streams, submeshes, bones or frames, or animation matrices that
+ *   don't match its counts
  */
 export const encodeGeometryBlob = (blob: GeometryBlob): Uint8Array => {
 	if (blob.streams.length > 0xff_ff || blob.submeshes.length > 0xff_ff) {
 		throw new RangeError('geometry has more than 65,535 streams or submeshes');
 	}
+	const { animation } = blob;
+	if (
+		animation !== null &&
+		(animation.boneCount > 0xff_ff ||
+			animation.frameCount > 0xff_ff ||
+			animation.matrices.length !== animation.boneCount * animation.frameCount * 12)
+	) {
+		throw new RangeError('geometry animation counts are out of range or disagree with its matrices');
+	}
+	const animationLength = animation === null ? 0 : ANIMATION_HEADER_SIZE + animation.matrices.byteLength;
 	const tables =
 		GEOMETRY_HEADER_SIZE +
 		blob.streams.length * GEOMETRY_STREAM_SIZE +
 		blob.submeshes.length * GEOMETRY_SUBMESH_SIZE;
 	const size =
 		blob.streams.reduce((sum, stream) => sum + align4(stream.data.byteLength), tables) +
-		align4(blob.indices.byteLength);
+		align4(blob.indices.byteLength) +
+		animationLength;
 	const out = new Uint8Array(size);
 	const view = viewOf(out);
 	writeHeader(view, GEOMETRY_HEADER);
@@ -217,6 +268,7 @@ export const encodeGeometryBlob = (blob: GeometryBlob): Uint8Array => {
 	view.setUint16(16, blob.streams.length, true);
 	view.setUint16(18, blob.submeshes.length, true);
 	view.setUint32(20, blob.indices.byteLength, true);
+	view.setUint32(24, animationLength, true);
 
 	let at = GEOMETRY_HEADER_SIZE;
 	for (const stream of blob.streams) {
@@ -246,6 +298,21 @@ export const encodeGeometryBlob = (blob: GeometryBlob): Uint8Array => {
 		at += align4(stream.data.byteLength);
 	}
 	out.set(blob.indices, at);
+	at += align4(blob.indices.byteLength);
+	if (animation !== null) {
+		view.setUint16(at, animation.boneCount, true);
+		view.setUint16(at + 2, animation.frameCount, true);
+		view.setFloat32(at + 4, animation.frameRate, true);
+		for (let i = 0; i < 3; i++) {
+			view.setFloat32(at + 8 + i * 4, animation.offset[i], true);
+			view.setFloat32(at + 20 + i * 4, animation.scale[i], true);
+		}
+		at += ANIMATION_HEADER_SIZE;
+		out.set(
+			new Uint8Array(animation.matrices.buffer, animation.matrices.byteOffset, animation.matrices.byteLength),
+			at,
+		);
+	}
 	return out;
 };
 
@@ -260,6 +327,7 @@ export const decodeGeometryBlob = (data: Uint8Array): GeometryBlob => {
 	const streamCount = view.getUint16(16, true);
 	const submeshCount = view.getUint16(18, true);
 	const indexLength = view.getUint32(20, true);
+	const animationLength = view.getUint32(24, true);
 	let at = GEOMETRY_HEADER_SIZE;
 	let payloadAt =
 		GEOMETRY_HEADER_SIZE + streamCount * GEOMETRY_STREAM_SIZE + submeshCount * GEOMETRY_SUBMESH_SIZE;
@@ -301,13 +369,39 @@ export const decodeGeometryBlob = (data: Uint8Array): GeometryBlob => {
 		});
 		at += GEOMETRY_SUBMESH_SIZE;
 	}
-	checkLength(data, payloadAt + align4(indexLength), 'geometry blob');
+	const indicesAt = payloadAt;
+	payloadAt += align4(indexLength);
+	checkLength(data, payloadAt + animationLength, 'geometry blob');
+	let animation: SkinAnimation | null = null;
+	if (animationLength > 0) {
+		const boneCount = view.getUint16(payloadAt, true);
+		const frameCount = view.getUint16(payloadAt + 2, true);
+		const count = boneCount * frameCount * 12;
+		if (animationLength !== ANIMATION_HEADER_SIZE + count * 4) {
+			throw new PackageFormatError('geometry animation length disagrees with its counts');
+		}
+		const f = (offset: number): number => view.getFloat32(payloadAt + offset, true);
+		// a copy: the payload's offset in the blob needn't suit a Float32Array
+		const matrices = new Float32Array(count);
+		new Uint8Array(matrices.buffer).set(
+			data.subarray(payloadAt + ANIMATION_HEADER_SIZE, payloadAt + animationLength),
+		);
+		animation = {
+			boneCount,
+			frameCount,
+			frameRate: f(4),
+			offset: [f(8), f(12), f(16)],
+			scale: [f(20), f(24), f(28)],
+			matrices,
+		};
+	}
 	return {
 		flags: view.getUint16(6, true),
 		vertexCount: view.getUint32(8, true),
 		indexCount: view.getUint32(12, true),
 		streams,
 		submeshes,
-		indices: data.subarray(payloadAt, payloadAt + indexLength),
+		indices: data.subarray(indicesAt, indicesAt + indexLength),
+		animation,
 	};
 };

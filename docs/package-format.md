@@ -369,15 +369,26 @@ textures are missing or disagree (the pack log and `debug/terrain.json`'s `layer
 ### geometry blob (`.mesh`, `EFGM`)
 
 32-byte header
-(`u32 magic, u16 version, u16 flags, u32 vertexCount, u32 indexCount, u16 streamCount, u16 submeshCount, u32 index payload length, u32×2 0`),
+(`u32 magic, u16 version, u16 flags, u32 vertexCount, u32 indexCount, u16 streamCount, u16 submeshCount, u32 index payload length, u32 animation length, u32 0`),
 32-byte stream records
 (`u8 attribute, u8 format, u8 flags, u8 0, u32 payload length, f32×3 offset, f32×3 scale`), 40-byte
 submesh records
 (`u32 firstIndex, u32 indexCount, u32 baseVertex, u32 vertexCount, f32×3 min, f32×3 max`), then
-stream payloads and the index payload. payloads are meshopt-encoded (codec v1, no filters), so the
-decoded bytes are the GPU buffers as they are; `package-format` treats them as opaque and the viewer
-decodes with `meshoptimizer/decoder`. conversion is in
+stream payloads, the index payload and the animation, if any. payloads are meshopt-encoded (codec
+v1, no filters), so the decoded bytes are the GPU buffers as they are; `package-format` treats them
+as opaque and the viewer decodes with `meshoptimizer/decoder`. conversion is in
 [geometry.ts](../packages/extractor/src/pack/geometry.ts).
+
+an **animated geometry** (`SkinAnimation`) plays a looping skeletal clip: its streams hold the bind
+pose, with bone weights and indices, and the animation is a 32-byte header
+(`u16 boneCount, u16 frameCount, f32 frameRate, f32×3 offset, f32×3 scale`) and then
+`frameCount × boneCount` rows3x4 f32 matrices, frame-major, from the bind space to the space the
+geometry is drawn in. at time `t` the frame is `(t · frameRate) mod frameCount`, blended linearly
+into the next (the last into the first), and each vertex moves to
+`Σ weight · matrix · bindPosition`. the box `offset + [0, 1]³ · scale` holds every frame's
+positions, so a viewer can quantize them as it does still positions. the table's `bounds` are that
+box, and `animationFrames` says the blob has an animation. matrices are stored as they are: the
+balloon's tube, at 420 frames of 46 bones, takes 0.9 MB per LOD before zstd.
 
 each stream is its own vertex buffer. attributes use Unity's channel numbering (`VertexAttribute`):
 
@@ -388,6 +399,8 @@ each stream is its own vertex buffer. attributes use Unity's channel numbering (
 | 2 tangent  | `snorm8x4`: oct `xy`, bitangent sign `z`                                                                                                                  | generated (MikkTSpace-compatible via `meshoptimizer`'s tangents) only when a normal-mapped material draws the mesh, or the source's own                                                                                                                                                                                               |
 | 3 color    | `unorm8x4`, `float16x4` when values leave [0, 1]                                                                                                          |                                                                                                                                                                                                                                                                                                                                       |
 | 4–11 UV0–7 | `unorm16x2` dequantized when the span is ≤ 16, else `float32x2`; 8-bit sources keep `snorm8x4`/`unorm8x4`; sets with more than two components `float32x4` | half floats step 1/128 at 12, too coarse for tiling UVs; dequantized unorm16 at span ≤ 16 errs below 2^-13                                                                                                                                                                                                                            |
+| 12 weights | `unorm16x4`, summing to 1                                                                                                                                 | the game's own precision; animated geometries only                                                                                                                                                                                                                                                                                    |
+| 13 bones   | `uint8x4`, indexing the animation's bones                                                                                                                 | up to 256 bones; animated geometries only                                                                                                                                                                                                                                                                                             |
 
 a material is normal-mapped when a bound slot is one its shader flags `[Normal]` or, as a fallback
 for shaders that don't flag theirs, one whose name contains `normal` or `bump`; the name match is a
@@ -834,6 +847,7 @@ provenance lives there rather than in the manifest, which only identifies the bu
   levels would make a lite package.
 - **terrain cliffs**: the cliff-index pages and cone maps, which the game's cliff projection and
   parallax use, aren't packed.
-- **unsupported**: line and point topologies; skinned meshes are packed static or posed; the game's
-  packed tangent bits are undecoded (generated tangents replace them); terrain decals and decals in
-  dynamic structures are skipped.
+- **unsupported**: line and point topologies; skinned meshes are packed static or posed unless a
+  settled looping clip moves them, and clips that aren't skeletal (moving rigid renderers, material
+  values) hold their end pose; the game's packed tangent bits are undecoded (generated tangents
+  replace them); terrain decals and decals in dynamic structures are skipped.
