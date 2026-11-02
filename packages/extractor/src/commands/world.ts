@@ -1,6 +1,8 @@
+import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 
 import type { EnvironmentVolume } from '@endfield-noclip/formats/endfield/environment-volume';
+import type { ChunkEntity } from '@endfield-noclip/formats/endfield/init-chunk-data';
 import {
 	cellKey,
 	levelOfTag,
@@ -8,6 +10,8 @@ import {
 	type LevelPartition,
 } from '@endfield-noclip/formats/endfield/level-partition';
 import { CELL_SIZE } from '@endfield-noclip/formats/endfield/map-config';
+import type { Aabb } from '@endfield-noclip/formats/unity/values';
+import { streamAreaControl } from '@endfield-noclip/package-format/stream-areas';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
@@ -30,18 +34,33 @@ import {
 	resolveLevelPost,
 } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
+import {
+	boxDistance,
+	describeAlternatives,
+	loadDynamicPlacements,
+	parsePlacementKinds,
+	PLACEMENT_KINDS,
+	type PlacementKind,
+} from '../game/placements.ts';
 import { defaultSceneStates, loadSceneStates, sceneStateControl } from '../game/scene-conditions.ts';
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 
-export const summary = 'browse scenes and levels; search asset paths and static entities';
+export const summary = 'browse scenes and levels; search asset paths and everything placed in a scene';
 
 /** command usage, available without opening the install */
 export const usage = `usage:
   world paths <re> [--limit n] [--json]    search both path catalogs, with hashes and bundle names
-  world find <scene> [--name re] [--near x,y,z --radius n] [--limit n] [--json]
-                                          static chunk entities; names and mesh/material paths match --name
-                                          Unity coordinates, 3D pivot distance; includes all states/areas
-                                          --scene-state/--area filter before deduplication by entity id
+  world find <scene> [--name re] [--near x,y,z --radius n] [--kind k,…] [--max-size n] [--limit n] [--json]
+                                          everything placed in a scene, in every state and area, with what
+                                          gates it. kinds: static (chunk entities), dynamic (dynamic-structure
+                                          entities), model and effect (dynamic prefab rows), facility
+                                          (interactives), cabin (Dijiang cabin rows); default all
+                                          --name matches entity names, mesh/material and prefab paths
+                                          --near: Unity coordinates, 3D distance to the bounds (else the
+                                          pivot), nearest and then smallest first; marks stand-ins from
+                                          out/<scene>/debug/stand-ins.json
+                                          --max-size drops bounds longer than n m (HLOD clusters, volumes)
+                                          --scene-state/--area filter static chunk files only
   world scenes                             streaming scenes, with level counts for open-world maps
   world levels <map> [--verify]            levels with tag, cells and names; --verify votes tags against cells
   world cells <level>                      cells a level owns and their chunk files
@@ -59,6 +78,8 @@ const OPTIONS = {
 	name: { type: 'string' },
 	near: { type: 'string' },
 	radius: { type: 'string' },
+	kind: { type: 'string' },
+	'max-size': { type: 'string' },
 	limit: { type: 'string' },
 } as const;
 
@@ -89,10 +110,15 @@ export const run = async (args: string[]): Promise<void> => {
 				if ((near === undefined) !== (radius === undefined) || (radius !== undefined && radius < 0)) {
 					throw new Error('use --near x,y,z with --radius n (nonnegative)');
 				}
-				await findEntities(world, need(rest[0], 'scene'), {
+				await findPlacements(context, need(rest[0], 'scene'), {
 					pattern: values.name === undefined ? undefined : new RegExp(values.name, 'i'),
 					near,
 					radius,
+					kinds: values.kind === undefined ? new Set(PLACEMENT_KINDS) : parsePlacementKinds(values.kind),
+					maxSize:
+						values['max-size'] === undefined
+							? undefined
+							: parseNumbers(values['max-size'], 1, '--max-size')[0],
 					limit: searchLimit(values.limit),
 					json: values.json,
 					sceneState: parseOptionalInteger(values['scene-state'], '--scene-state'),
@@ -198,71 +224,330 @@ const findPaths = async (world: WorldIndex, pattern: RegExp, limit: number, json
 	);
 };
 
-const findEntities = async (
-	world: WorldIndex,
+/** a `world find` result, from any placement source */
+interface FoundRow {
+	kind: PlacementKind;
+	name: string;
+	/** world position: the pivot or placement position */
+	position: [number, number, number] | null;
+	/** to the bounds where known, else to the position; `null` without `--near` */
+	distance: number | null;
+	/** the bounds' longest side, `null` without bounds */
+	size: number | null;
+	/** owning level id, or the membership bucket for static entities */
+	level: string | null;
+	/** when the game loads it, as `describeAlternatives` writes it */
+	visibility: string;
+	/** chunk file, dynamic resource row, LevelData row or cabin row */
+	source: string;
+	/** draws or the prefab, for the text line */
+	summary: string;
+	/** stand-in reasons from the package's `debug/stand-ins.json` */
+	standIns: string[];
+	json: object;
+}
+
+const findPlacements = async (
+	context: Context,
 	scene: string,
 	options: {
 		pattern: RegExp | undefined;
 		near: number[] | undefined;
 		radius: number | undefined;
+		kinds: Set<PlacementKind>;
+		/** drops rows whose bounds' longest side is longer, in metres */
+		maxSize: number | undefined;
 		limit: number;
 		json: boolean;
 		sceneState: number | undefined;
 		area: number | undefined;
 	},
 ): Promise<void> => {
+	const { world } = context;
 	if (!(await world.scenes()).includes(scene)) {
 		throw new Error(`unknown streaming scene ${scene}`);
 	}
+	const { near, radius, pattern, kinds, limit } = options;
 	const partition = await world.partition(scene);
 	const names = await assetNames(world);
-	const rows: object[] = [];
-	let count = 0;
-	for await (const entity of world.sceneEntities(
-		scene,
-		(file) =>
-			(options.sceneState === undefined || file.sceneState === options.sceneState) &&
-			(options.area === undefined || file.area === options.area),
-	)) {
-		let distance: number | null = null;
-		if (options.near !== undefined && options.radius !== undefined) {
-			const p = entity.pivot;
-			if (p === null) {
-				continue;
-			}
-			distance = Math.hypot(p.x - options.near[0], p.y - options.near[1], p.z - options.near[2]);
-			if (distance > options.radius) {
-				continue;
-			}
+	const standIns = await loadStandIns(scene);
+	const levelOf = (tag: number): string | null =>
+		(partition && levelOfTag(partition, tag)?.id) ?? (tag === 0 ? 'shared' : `tag ${tag}`);
+	/** where a row sits relative to `--near`, or `undefined` to drop it */
+	const measure = (
+		bounds: Aabb | null,
+		position: readonly number[] | null,
+	): Pick<FoundRow, 'distance' | 'size'> | undefined => {
+		const size = bounds === null ? null : 2 * Math.max(...bounds.extents);
+		if (options.maxSize !== undefined && size !== null && size > options.maxSize) {
+			return undefined;
 		}
-		if (options.pattern !== undefined) {
-			const labels = [
-				entity.name,
-				...(entity.renderer?.draws.flatMap((draw) => [
-					names.pathOf(draw.meshHash) ?? hashText(draw.meshHash),
-					names.pathOf(draw.materialHash) ?? hashText(draw.materialHash),
-				]) ?? []),
-			];
-			if (!labels.some((label) => options.pattern?.test(label))) {
-				continue;
-			}
+		if (near === undefined || radius === undefined) {
+			return { distance: null, size };
 		}
-		count++;
-		if (options.json) {
-			rows.push({ ...entityJson(entity, partition, names), distance });
+		let distance: number;
+		if (bounds !== null) {
+			distance = boxDistance(near, bounds);
+		} else if (position !== null) {
+			distance = Math.hypot(position[0] - near[0], position[1] - near[1], position[2] - near[2]);
 		} else {
-			console.log(`${entityLine(entity, names.pathOf)}\t${entity.source.name}`);
+			return undefined;
 		}
-		if (count >= options.limit) {
-			break;
+		return distance <= radius ? { distance, size } : undefined;
+	};
+	const matches = (labels: readonly string[]): boolean =>
+		pattern === undefined || labels.some((label) => pattern.test(label));
+	const drawLabels = (entity: ChunkEntity): string[] =>
+		entity.renderer?.draws.flatMap((draw) => [
+			names.pathOf(draw.meshHash) ?? hashText(draw.meshHash),
+			names.pathOf(draw.materialHash) ?? hashText(draw.materialHash),
+		]) ?? [];
+	const rows: FoundRow[] = [];
+	// without --near, results keep source order and the scan stops at the limit
+	const full = (): boolean => near === undefined && rows.length >= limit;
+
+	if (kinds.has('static')) {
+		// a 128 m cell of margin keeps entities whose bounds reach into the searched cells
+		const cell =
+			near === undefined ? null : { x: Math.floor(near[0] / CELL_SIZE), z: Math.floor(near[2] / CELL_SIZE) };
+		const reach = radius === undefined ? 0 : Math.ceil(radius / CELL_SIZE) + 1;
+		for await (const entity of world.sceneEntities(
+			scene,
+			(file) =>
+				(options.sceneState === undefined || file.sceneState === options.sceneState) &&
+				(options.area === undefined || file.area === options.area) &&
+				(cell === null ||
+					file.cell === null ||
+					(Math.abs(file.cell.x - cell.x) <= reach && Math.abs(file.cell.z - cell.z) <= reach)),
+		)) {
+			const position =
+				entity.pivot === null ? null : ([entity.pivot.x, entity.pivot.y, entity.pivot.z] as const);
+			const place = measure(entity.bounds, position);
+			if (place === undefined || !matches([entity.name, ...drawLabels(entity)])) {
+				continue;
+			}
+			const { source } = entity;
+			const requirements = [];
+			if (source.sceneState !== 0) {
+				requirements.push({ control: sceneStateControl(source.sceneState - 1), mask: 2 });
+			}
+			if (source.area !== 0) {
+				requirements.push({ control: streamAreaControl(source.area), mask: 2 });
+			}
+			const visibility = describeAlternatives([requirements]);
+			const reasons = standIns.atEntity(entity.name, position);
+			rows.push({
+				kind: 'static',
+				name: entity.name,
+				position: position === null ? null : [...position],
+				...place,
+				level: entity.membership.level?.id ?? entity.membership.bucket,
+				visibility,
+				source: source.name.split('/').pop() ?? source.name,
+				summary: drawSummary(entity, names),
+				standIns: reasons,
+				json: {
+					kind: 'static',
+					...entityJson(entity, partition, names),
+					visibility,
+					standIns: reasons,
+					distance: place.distance,
+				},
+			});
+			if (full()) {
+				break;
+			}
 		}
 	}
+
+	if (!full() && PLACEMENT_KINDS.some((kind) => kind !== 'static' && kinds.has(kind))) {
+		const dynamic = await loadDynamicPlacements(context, scene, kinds);
+		for (const { kind, message } of dynamic.failures) {
+			console.error(`${kind}: not searched: ${message}`);
+		}
+		for (const { entity, pivot, visibility } of dynamic.entities) {
+			const position = pivot === null ? null : ([pivot.x, pivot.y, pivot.z] as const);
+			const place = measure(entity.bounds, position);
+			if (full() || place === undefined || !matches([entity.name, ...drawLabels(entity)])) {
+				continue;
+			}
+			rows.push({
+				kind: 'dynamic',
+				name: entity.name,
+				position: position === null ? null : [...position],
+				...place,
+				level: levelOf(entity.levelTag),
+				visibility,
+				source: `entity ${entity.id}`,
+				summary: drawSummary(entity, names),
+				standIns: standIns.atEntity(entity.name, position),
+				json: {
+					kind: 'dynamic',
+					id: entity.id,
+					levelTag: entity.levelTag,
+					level: levelOf(entity.levelTag),
+					name: entity.name,
+					pivot,
+					visibility,
+					standIns: standIns.atEntity(entity.name, position),
+					...chunkEntityJson(entity, names),
+					distance: place.distance,
+				},
+			});
+		}
+		for (const { kind, model, visibility } of dynamic.prefabs) {
+			const { pathHash, position, rotation, scale } = model.model;
+			// the manifest's asset path, as the packer names prefabs in its reports
+			const path = names.assetPathOf(pathHash) ?? names.pathOf(pathHash) ?? hashText(pathHash);
+			const place = measure(null, position);
+			if (full() || place === undefined || !matches([path, model.source])) {
+				continue;
+			}
+			const bundle = names.bundleOf(pathHash);
+			const reasons = standIns.ofPrefab(path);
+			rows.push({
+				kind,
+				name: path.split('/').pop() ?? path,
+				position: [...position],
+				...place,
+				level: levelOf(model.levelTag),
+				visibility,
+				source: model.source,
+				summary: `${path}  ${bundle ?? '-'}`,
+				standIns: reasons,
+				json: {
+					kind,
+					path,
+					bundle,
+					level: levelOf(model.levelTag),
+					position,
+					rotation,
+					scale,
+					source: model.source,
+					visibility,
+					alternatives: model.visibility.alternatives,
+					standIns: reasons,
+					distance: place.distance,
+				},
+			});
+		}
+		for (const { standIn } of dynamic.missing) {
+			const place = measure(null, standIn.position);
+			if (full() || place === undefined || !matches([standIn.template, standIn.source])) {
+				continue;
+			}
+			rows.push({
+				kind: 'facility',
+				name: standIn.template,
+				position: [...standIn.position],
+				...place,
+				level: levelOf(standIn.levelTag),
+				visibility: 'always',
+				source: standIn.source,
+				summary: `no model: ${standIn.reason}`,
+				standIns: [standIn.reason],
+				json: {
+					kind: 'facility',
+					...standIn,
+					level: levelOf(standIn.levelTag),
+					model: null,
+					distance: place.distance,
+				},
+			});
+		}
+	}
+
+	// nearest first; among rows whose bounds hold the point, the smallest first, so HLOD clusters, merged
+	// meshes and wide volumes don't crowd out what sits at the point
+	const shown = (
+		near === undefined
+			? rows
+			: rows.toSorted((a, b) => (a.distance ?? 0) - (b.distance ?? 0) || (a.size ?? 0) - (b.size ?? 0))
+	).slice(0, limit);
 	if (options.json) {
-		console.log(JSON.stringify(rows, null, '\t'));
+		console.log(
+			JSON.stringify(
+				shown.map((row) => row.json),
+				null,
+				'\t',
+			),
+		);
+	} else {
+		for (const row of shown) {
+			console.log(foundLine(row));
+		}
 	}
+	const counts = PLACEMENT_KINDS.flatMap((kind) => {
+		const n = shown.filter((row) => row.kind === kind).length;
+		return n === 0 ? [] : [`${n} ${kind}`];
+	});
 	console.error(
-		`${count} matches${count === options.limit ? ' (limit reached; raise --limit for more)' : ''}`,
+		`${shown.length} matches${counts.length === 0 ? '' : ` (${counts.join(', ')})`}${rows.length >= limit ? '; limit reached, raise --limit for more' : ''}${standIns.found ? '' : `; no out/${scene}/debug/stand-ins.json, so stand-ins aren't marked`}`,
 	);
+};
+
+/** stand-ins the scene's package reports, for marking found rows */
+interface StandInIndex {
+	found: boolean;
+	/** reasons for a prefab's renderers, by the prefab's asset path */
+	ofPrefab: (path: string) => string[];
+	/** reasons for placed stand-ins with this name within a metre or two of the position */
+	atEntity: (name: string, position: readonly number[] | null) => string[];
+}
+
+const DEFAULT_OUT = new URL('../../../../out/', import.meta.url);
+
+const loadStandIns = async (scene: string): Promise<StandInIndex> => {
+	let reports: { path: string; name: string; reason: string; position: number[] | null }[];
+	try {
+		reports = JSON.parse(await readFile(new URL(`${scene}/debug/stand-ins.json`, DEFAULT_OUT), 'utf8'));
+	} catch {
+		return { found: false, ofPrefab: () => [], atEntity: () => [] };
+	}
+	const byPrefab = new Map<string, Set<string>>();
+	const byName = new Map<string, { reason: string; position: number[] }[]>();
+	for (const { path, name, reason, position } of reports) {
+		if (position === null) {
+			byPrefab.getOrInsertComputed(path, () => new Set()).add(`${name}: ${reason}`);
+		} else {
+			byName.getOrInsertComputed(name, () => []).push({ reason, position });
+		}
+	}
+	return {
+		found: true,
+		ofPrefab: (path) => [...(byPrefab.get(path) ?? [])],
+		atEntity: (name, position) =>
+			position === null
+				? []
+				: (byName.get(name) ?? []).flatMap((report) =>
+						// stand-in positions are bounds centres rounded to the metre
+						Math.hypot(...report.position.map((v, i) => v - position[i])) <= 2 ? [report.reason] : [],
+					),
+	};
+};
+
+const foundLine = (row: FoundRow): string => {
+	const distance = row.distance === null ? '' : `${row.distance.toFixed(1).padStart(6)} m  `;
+	const size = row.size === null ? '' : `  ${row.size.toFixed(0)} m across`;
+	const position = row.position === null ? '-' : row.position.map((v) => v.toFixed(1)).join(',');
+	const standIn = row.standIns.length === 0 ? '' : `  STAND-IN: ${row.standIns.join('; ')}`;
+	return `${distance}${row.kind.padEnd(8)} ${(row.level ?? '-').padEnd(12)} ${position.padEnd(24)} ${row.name}${size}  [${row.visibility}]  ${row.summary}  @ ${row.source}${standIn}`;
+};
+
+/** an entity's draws: the first draw's mesh and material, with the material's bundle for `asset material` */
+const drawSummary = (entity: ChunkEntity, { pathOf, bundleOf }: AssetNames): string => {
+	const { renderer } = entity;
+	if (renderer === null) {
+		// the component ids show what else the entity carries, e.g. one the packer doesn't read
+		return `${entity.decal === null ? 'no renderer' : 'rect decal'} (components ${entity.components.join(' ')})`;
+	}
+	const first = renderer.draws[0];
+	if (first === undefined) {
+		return 'no draws';
+	}
+	const mesh = (pathOf(first.meshHash) ?? hashText(first.meshHash)).split('##').pop();
+	const material = pathOf(first.materialHash) ?? hashText(first.materialHash);
+	return `${renderer.draws.length} draws/${renderer.lodCount} lods  ${mesh}  ${material}  ${bundleOf(first.materialHash) ?? '-'}`;
 };
 
 const listScenes = async (world: WorldIndex): Promise<void> => {
@@ -547,16 +832,22 @@ const resolve = async (world: WorldIndex, query: string): Promise<void> => {
 /** lookups that name an entity's assets */
 interface AssetNames {
 	pathOf: (hash: bigint) => string | undefined;
+	/** the bundle manifest's path for the asset */
+	assetPathOf: (hash: bigint) => string | undefined;
 	bundleOf: (hash: bigint) => string | null;
 }
 
 const assetNames = async (world: WorldIndex): Promise<AssetNames> => {
 	const [pathOf, manifest] = await Promise.all([world.pathLookup(), world.manifest()]);
+	const assetPathOf = (hash: bigint): string | undefined => {
+		const asset = manifest.findAssets(hash)[0];
+		return asset === undefined ? undefined : manifest.assetPath(asset);
+	};
 	const bundleOf = (hash: bigint): string | null => {
 		const asset = manifest.findAssets(hash)[0];
 		return asset === undefined ? null : manifest.bundle(asset.bundleIndex).name;
 	};
-	return { pathOf, bundleOf };
+	return { pathOf, assetPathOf, bundleOf };
 };
 
 const entityLine = (entity: IndexedEntity, pathOf: (hash: bigint) => string | undefined): string => {
@@ -576,7 +867,7 @@ const entityLine = (entity: IndexedEntity, pathOf: (hash: bigint) => string | un
 const entityJson = (
 	entity: IndexedEntity,
 	partition: LevelPartition | undefined,
-	{ pathOf, bundleOf }: AssetNames,
+	names: AssetNames,
 ): object => {
 	return {
 		id: entity.id,
@@ -590,6 +881,13 @@ const entityJson = (
 		sceneState: entity.source.sceneState,
 		area: entity.source.area,
 		pivot: entity.pivot,
+		...chunkEntityJson(entity, names),
+	};
+};
+
+/** the fields every decoded entity has, wherever it was read from */
+const chunkEntityJson = (entity: ChunkEntity, { pathOf, bundleOf }: AssetNames): object => {
+	return {
 		matrix: entity.matrix === null ? null : [...entity.matrix],
 		bounds: entity.bounds,
 		decal: entity.decal,

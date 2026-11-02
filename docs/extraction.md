@@ -25,17 +25,17 @@ without a config or install, including `world find --help`. every command takes 
 through `withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the
 asset resolver on first use.
 
-| command    | what it does                                                                                                                                                                                                                                                |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                                                                                   |
-| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                                                                         |
-| `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and static entity search (`find`) |
-| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                                                                                     |
-| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                                                                             |
-| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                    |
-| `asset`    | decodes one mesh, texture or material by bundle and path id, follows an entity's draws, or exports a cell as glTF                                                                                                                                           |
-| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                               |
-| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                            |
+| command    | what it does                                                                                                                                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                                                                                                       |
+| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                                                                                             |
+| `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and search over everything placed in a scene (`find`) |
+| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                                                                                                         |
+| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                                                                                                 |
+| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                                        |
+| `asset`    | decodes one mesh, texture or material by bundle and path id or by asset path, follows an entity's draws, or exports a cell as glTF                                                                                                                                              |
+| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                                                   |
+| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                                                |
 
 the inspection commands (`world`, `variants`, `vfs`, `bundle`, `asset`, `terrain`, `water`) are for
 research and debugging; only `init` and `pack` are needed to produce a package. their glTF/PNG/KTX2
@@ -45,7 +45,8 @@ exports (`export/`) mirror Unity's X axis and use base colours only.
 
 ```sh
 pnpm extract world paths 'water.*material' --limit 50 --json
-pnpm extract world find map02 --name 'rock|cliff' --near=0,0,0 --radius 40 --json
+pnpm extract world find map02 --near=-476.6,181.8,734.3 --radius 20 --max-size 50
+pnpm extract world find map02 --name 'rock|cliff' --kind static --json
 pnpm extract bundle find --class Shader --group initial --limit 20
 ```
 
@@ -54,18 +55,41 @@ include the hex hash, full path and all matching manifest bundles; identical has
 emitted once, while different hashes for the same path remain distinguishable. an empty bundle list
 means the catalog entry has no manifest asset. use `world resolve` for its dependency details.
 
-`world find` searches static chunk entities by name or resolved mesh/material path. `--near x,y,z`
-and `--radius n` select by 3D distance from the pivot (translation, falling back to bounds centre),
-in Unity coordinates. entities without pivots cannot match a spatial query. results follow chunk
-order, not nearest-first order; `--scene-state` and `--area` filter files before entity-id
-deduplication. without those filters all states and areas are searched, including inactive content.
-dynamic models, facilities and cabin placements are outside this command's scope. JSON includes
-draws, asset bundles, source chunk, pivot, distance and state/area ids; text includes the source
-chunk for follow-up inspection.
+`world find` searches everything a scene places, in every scene state and stream area, and says what
+gates each row. `--kind` picks sources (default all):
+
+| kind       | source                                                                 | visibility from                       |
+| ---------- | ---------------------------------------------------------------------- | ------------------------------------- |
+| `static`   | chunk entities ([world](game-data/world.md))                           | the chunk file's scene state and area |
+| `dynamic`  | ECS entities of [dynamic structures](#dynamic-structures)              | the owner's gates, states and areas   |
+| `model`    | DynamicStreaming prefab rows                                           | as `dynamic`                          |
+| `effect`   | DynamicStreaming effect prefab rows                                    | as `dynamic`                          |
+| `facility` | [interactives](#interactives), including those whose model isn't found | facility, door and bridge controls    |
+| `cabin`    | rows of built [Dijiang cabins](#dijiang-cabins-and-region-walls)       | the slot's cabin control              |
+
+visibility prints as the scene controls the package would carry, under the default game state:
+alternatives joined by `|`, requirements by `&`, each `control=values` with the control values that
+satisfy it (`always` when nothing gates the row). `--name` matches entity names, mesh and material
+paths, prefab paths and row sources. `--near x,y,z --radius n` keeps rows whose world bounds (else
+pivot or placement position) lie within `n` m, in Unity coordinates, sorted nearest first and, among
+rows whose bounds hold the point, smallest first; `--max-size n` drops rows whose bounds' longest
+side exceeds `n` m, such as HLOD clusters and wide volumes. prefab rows have positions but no
+bounds. `--scene-state` and `--area` filter static chunk files before entity-id deduplication and
+leave other kinds alone. when `out/<scene>/debug/stand-ins.json` exists, rows the package drew as
+[stand-ins](package-format.md#stand-ins) are marked with the reasons: a prefab's renderers by its
+asset path, placed cubes by name within 2 m. a source that fails to load is reported on stderr and
+the rest are still searched.
+
+each text line gives the distance, kind, level, position, name, size, visibility, the first draw's
+mesh, material and material bundle (the prefab path and bundle for prefab rows, the component ids
+for entities without a renderer) for `asset` and `bundle dump`, and the source chunk, dynamic row,
+LevelData row or cabin row. JSON adds every draw, matrices, bounds, the raw visibility alternatives
+and rotation and scale for prefabs.
 
 both searches default to 100 results; `--limit` must be positive. summaries and limit notices go to
-stderr, leaving `--json` as one JSON array (including `[]` for no matches). reaching the limit stops
-the scan, so the notice does not imply more matches were found.
+stderr, leaving `--json` as one JSON array (including `[]` for no matches). without `--near`,
+reaching the limit stops the scan, so the notice does not imply more matches were found; with it,
+every source is searched and the nearest rows are kept.
 
 `bundle find --class` prints one row per object with bundle, SerializedFile node, path id, class,
 name and container paths, so the result can be passed to `bundle dump` or `asset`. `--filter`

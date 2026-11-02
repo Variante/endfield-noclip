@@ -525,7 +525,7 @@ const indexEntities = (
  * @param entity decoded entity
  * @returns its world pivot: matrix translation, else bounds centre
  */
-const pivotOf = (entity: ChunkEntity): { x: number; y: number; z: number } | null => {
+export const pivotOf = (entity: ChunkEntity): { x: number; y: number; z: number } | null => {
 	if (entity.matrix !== null) {
 		return { x: entity.matrix[12], y: entity.matrix[13], z: entity.matrix[14] };
 	}

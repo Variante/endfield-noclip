@@ -9,7 +9,9 @@ import { type DecodedTexture, toKtx2Texture } from '@endfield-noclip/formats/uni
 import { mapDefined } from '@mary-ext/array-fns';
 
 import {
+	hashText,
 	jsonReplacer,
+	parseHash,
 	parseInteger,
 	parseOptionalInteger,
 	parsePathId,
@@ -28,16 +30,17 @@ export const summary = 'decode meshes, textures and materials; trace entity draw
 
 /** command usage, available without opening the install */
 export const usage = `usage:
-  asset mesh <bundle> --path-id=N [-o file.glb]       mesh summary; -o exports it alone as glTF
-  asset texture <bundle> --path-id=N [-o file.ktx2] [--zstd level]
+  asset mesh <object> [-o file.glb]                   mesh summary; -o exports it alone as glTF
+  asset texture <object> [-o file.ktx2] [--zstd level]
                                                       texture summary; -o writes KTX2 (zstd per level if given)
-  asset material <bundle> --path-id=N                 material record, classification and its textures
+  asset material <object>                             material record, classification and its textures
   asset entity <map> <x> <z> <index|id> [-o file.glb] [--lod n]
                                                       follows an entity's draws to decoded summaries
   asset cell <map> <x> <z> -o file.glb [--lod n] [--scene-state n] [--area n]
                                                       exports every entity's draws of one LOD as glTF
 
-<bundle> is a bundle hex id, main/<hex>.ab or initial/<hex>.ab. glTF output mirrors Unity's X axis and uses
+<object> is <bundle> --path-id=N, or an asset path or path hash (as world find prints them). <bundle> is a
+bundle hex id, main/<hex>.ab or initial/<hex>.ab. glTF output mirrors Unity's X axis and uses
 material base colours only. negative path ids need the --path-id=-N form.`;
 
 const OPTIONS = {
@@ -64,16 +67,31 @@ export const run = async (args: string[]): Promise<void> => {
 	await withContext(values.config, async (context) => {
 		const { world } = context;
 		const resolver = await context.resolver();
-		const objectArg = async (): Promise<ObjectRef> => {
-			const [bundle] = rest;
-			if (bundle === undefined || pathId === undefined) {
-				throw new Error(`${sub} needs <bundle> --path-id=N\n${usage}`);
+		const objectArg = async (classId: number): Promise<ObjectRef> => {
+			const [target] = rest;
+			if (target === undefined) {
+				throw new Error(`${sub} needs <bundle> --path-id=N or <asset path|hash>\n${usage}`);
 			}
-			return resolver.object(resolver.bundleIndex(bundle), pathId);
+			if (pathId !== undefined) {
+				return resolver.object(resolver.bundleIndex(target), pathId);
+			}
+			const hash = parseHash(target);
+			if (hash !== null) {
+				return resolver.findUnique({ hash, path: (await world.pathOf(hash)) ?? null }, classId);
+			}
+			const hashes = await world.hashesOf(target);
+			if (hashes.length !== 1) {
+				throw new Error(
+					hashes.length === 0
+						? `${target} is not in StringPathHash`
+						: `${target} has ${hashes.length} path hashes; pass one of ${hashes.map(hashText).join(', ')}`,
+				);
+			}
+			return resolver.findUnique({ hash: hashes[0], path: target }, classId);
 		};
 		switch (sub) {
 			case 'mesh': {
-				const mesh = await loadMesh(resolver, await objectArg());
+				const mesh = await loadMesh(resolver, await objectArg(UnityClass.Mesh));
 				console.log(JSON.stringify(meshSummary(mesh), null, '\t'));
 				if (output !== undefined) {
 					const scene: GlbScene = {
@@ -92,7 +110,7 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			case 'texture': {
-				const texture = await loadTexture(resolver, await objectArg());
+				const texture = await loadTexture(resolver, await objectArg(UnityClass.Texture2D));
 				console.log(JSON.stringify(textureSummary(texture), null, '\t'));
 				if (output !== undefined) {
 					await save(output, encodeKtx2(texture, parseOptionalInteger(values.zstd, '--zstd')));
@@ -100,7 +118,7 @@ export const run = async (args: string[]): Promise<void> => {
 				break;
 			}
 			case 'material': {
-				const material = await loadMaterial(resolver, await objectArg());
+				const material = await loadMaterial(resolver, await objectArg(UnityClass.Material));
 				console.log(JSON.stringify(await materialJson(resolver, material), jsonReplacer, '\t'));
 				break;
 			}
