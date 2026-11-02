@@ -256,7 +256,10 @@ export const LookRow = {
 	maskOffset: 72,
 	/** `_DetailMode` (0 colour overlay, 1 PBR), `_DetailMaskMode`, normal intensity, PBR intensity */
 	detail: 76,
-	/** view depths where the detail starts and finishes fading out, overlay brighter scale */
+	/**
+	 * view depths where the detail starts and finishes fading out, overlay brighter scale, 1 when the surface
+	 * keeps lit decals off ({@link keepsLitDecalsOff})
+	 */
 	detail2: 80,
 	/** `_DetailOverlayColor`: linear colour, how much it covers */
 	detailOverlay: 84,
@@ -494,9 +497,33 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = lookOf(entry, shader);
 			}
 		}
+		if (keepsLitDecalsOff(entry, shader)) {
+			looks[entry.id].params[LookRow.detail2 + 3] = 1;
+		}
 	}
 	return looks;
 };
+
+/** shaders whose G-buffer pass writes the material's `_StencilRef` into the stencil */
+const STENCIL_REF_SHADERS = new Set([
+	'HGRP/Lit',
+	'HGRP/Foliage/Leaf',
+	'HGRP/Foliage/Grass',
+	'HGRP/Foliage/Trunk',
+	'HGRP/Foliage/TreeFoliageCardMeshLod',
+	'HGRP/Foliage/Grass Cardmesh Lod',
+]);
+
+/** the stencil bit `HGRP/DecalLit` draws only where clear */
+const LIT_DECAL_STENCIL_BIT = 32;
+
+/**
+ * @returns whether a material's surface keeps `HGRP/DecalLit` decals off: its shader writes `_StencilRef` and
+ *   the value has the bit the decals test (docs/game-data/materials.md#decals). most foliage does
+ */
+const keepsLitDecalsOff = (entry: ReadyMaterial, shader: ShaderEntry): boolean =>
+	STENCIL_REF_SHADERS.has(shader.name) &&
+	(floatOf(entry, shader, '_StencilRef', 0) & LIT_DECAL_STENCIL_BIT) !== 0;
 
 /**
  * @returns the look of a scene effect the viewer draws (effect-looks.ts), a look that isn't drawn for lit

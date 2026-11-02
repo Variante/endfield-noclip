@@ -207,7 +207,14 @@ over floors and rocks (the green floor of Power Plateau's grass cave, map01_lv00
 and per placement a UV scale and offset, an RGBA8 colour and an intensity. the game draws the box
 into its GBuffer after the opaque scenery, overlapping decals in their `_DrawOrder`. each covered
 pixel finds the surface from depth, and only points inside the box take the decal, which projects
-down the box's y:
+down the box's y. the decal pass tests the stencil (reference 0, read mask 32, equal), which the
+scenery's GBuffer pass fills with each material's `_StencilRef` (`HGRP/Lit`, the foliage shaders and
+their card LODs; `HGRP/LitHLOD` writes 0 whatever its material says), so surfaces whose
+`_StencilRef` has bit 32 never take a decal. most foliage has it (map02's grass and leaves 33,
+trunks 32), so the blight's erosion decals (`M_rdecal_com_effect_erosion…`, whose base map is an
+iridescent oil-slick pattern) colour the ground and rocks of Sword Vault Dale but not the grass and
+trees on them. the compare is read from the pass's shared stencil state; its per-face states say
+always.
 
 - UV: `(local.xz + 0.5) · scale + offset`, for `_BaseColorMap` and `_SampleTex1` (the PBR map:
   normal RG, roughness B; with `_SampleTex1UVSet` it takes its own `_ST` of the box's UVs instead)

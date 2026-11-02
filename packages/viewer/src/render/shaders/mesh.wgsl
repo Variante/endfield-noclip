@@ -408,7 +408,11 @@ fn layer_surface(
 
 @fragment
 fn fs_opaque(in: VertexOut) -> Shaded {
-	return shade(in, true);
+	var out = shade(in, true);
+	if (draws[in.draw].detail2.w > 0.5) {
+		out.reflection_surface.y |= SURFACE_NO_LIT_DECALS;
+	}
+	return out;
 }
 
 // the transparent pass's outputs (`TRANSPARENT_TARGETS` in render-targets.ts)

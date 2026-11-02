@@ -758,3 +758,43 @@ test('moss mounds: the mask layer takes its mask map into the emissive slot, on 
 		assert.deepEqual(look.textures.slice(5), [-1, -1]);
 	}
 });
+
+test("surfaces whose shader writes a _StencilRef with the lit decals' bit keep them off; HLODs, which write 0, don't", () => {
+	const shader = (name: string, family: ShaderEntry['family'], stencilRef: number): ShaderEntry => ({
+		name,
+		family,
+		floats: { _StencilRef: stencilRef },
+		colors: {},
+		vectors: {},
+		textures: {},
+		normalMaps: [],
+	});
+	const shaders = [
+		shader('HGRP/Foliage/Grass', 'grass', 33),
+		shader('HGRP/Foliage/Trunk', 'trunk', 32),
+		shader('HGRP/Foliage/Leaf', 'leaf', 1),
+		shader('HGRP/Lit', 'lit', 0),
+		shader('HGRP/LitHLOD', 'hlod', 32),
+	];
+	const entries: ReadyMaterial[] = shaders.map((_, id) => ({
+		id,
+		status: 'ready',
+		shader: id,
+		keywords: [],
+		renderQueue: 2000,
+		blend: 'opaque',
+		blendFactors: null,
+		alphaClipThreshold: null,
+		cull: 'back',
+		zWrite: true,
+		baseTextureMapCount: null,
+		slots: {},
+		floats: {},
+		colors: {},
+		vectors: {},
+	}));
+	assert.deepEqual(
+		materialLooks({ shaders, entries }).map((look) => look.params[LookRow.detail2 + 3]),
+		[1, 1, 0, 0, 0],
+	);
+});

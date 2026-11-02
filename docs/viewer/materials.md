@@ -56,6 +56,12 @@ the surface's normal and roughness from the main pass where the masks keep them,
 like any surface, and lays it over by its alpha. each placement draws its own copy of the material,
 carrying the placement's colour and UV transform, on the game's VFXDecal cube.
 
+the game keeps lit decals off surfaces by a stencil bit. the viewer carries it in the main pass's
+packed surface instead (bit 31, `SURFACE_NO_LIT_DECALS` in frame.wgsl), so it works without a
+stencil buffer: looks whose shader writes `_StencilRef` and whose value has bit 32 set it
+(`keepsLitDecalsOff` in [materials.ts](../../packages/viewer/src/render/materials.ts)), and
+laid-over and relit decals skip those pixels. VFXDecal boxes ignore it.
+
 decals that write no albedo can't be laid over the surface, because the main pass has already lit
 it. a pass between the main and the transparent pass (`fs_decal_relight`) adds the change in the
 surface's light instead: it lights the surface twice, with its own normal, roughness and occlusion

@@ -261,13 +261,17 @@ struct Shaded {
 
 // x: octahedral normal · 0.5 + 0.5 in 12 bits each, perceptual roughness in the top 8; y: the screen-space
 // reflection's weight (environment BRDF and specular occlusion) as the square root of each channel in 10 bits,
-// bit 30 set. unpacked by `reflection_surface_at` in ssr.wgsl
+// bit 30 set, bit 31 `SURFACE_NO_LIT_DECALS`. unpacked by `reflection_surface_at` in ssr.wgsl
 fn pack_reflection_surface(n: vec3f, roughness: f32, weight: vec3f) -> vec2u {
 	let e = vec2u(round(clamp(oct_encode(n) * 0.5 + 0.5, vec2f(0.0), vec2f(1.0)) * 4095.0));
 	let r = u32(round(clamp(roughness, 0.0, 1.0) * 255.0));
 	let w = vec3u(round(sqrt(clamp(weight, vec3f(0.0), vec3f(1.0))) * 1023.0));
 	return vec2u(e.x | (e.y << 12u) | (r << 24u), w.x | (w.y << 10u) | (w.z << 20u) | (1u << 30u));
 }
+
+// set in the packed surface's y where the material keeps `HGRP/DecalLit` decals off, as the game's stencil does
+// (`keepsLitDecalsOff` in materials.ts)
+const SURFACE_NO_LIT_DECALS = 1u << 31u;
 
 // what a material family hands to the lighting
 struct Surface {

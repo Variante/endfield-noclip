@@ -840,6 +840,9 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 		return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
 	}
 	if (fx_row(id, FX_UNFOGGED).y == FX_KIND_LIT_DECAL) {
+		if (fx_keeps_lit_decals_off(px)) {
+			return fx_accumulate(vec3f(0.0), 0.0, 1.0, 0.0);
+		}
 		return fx_lit_decal(in, px, rel, rel_dx, rel_dy, uv, bases.dx[0], bases.dy[0]);
 	}
 	let combined = fx_combine(id, bases, fx_row(id, FX_TINT));
@@ -1020,6 +1023,11 @@ fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, 
 	return d;
 }
 
+// whether the surface under a pixel keeps lit decals off (`SURFACE_NO_LIT_DECALS`), as the game's stencil test
+fn fx_keeps_lit_decals_off(px: vec2i) -> bool {
+	return (textureLoad(fx_surface, px, 0).y & SURFACE_NO_LIT_DECALS) != 0u;
+}
+
 // the main pass's roughness under a pixel (`pack_reflection_surface`)
 fn fx_surface_roughness(px: vec2i) -> f32 {
 	return f32(textureLoad(fx_surface, px, 0).x >> 24u) / 255.0;
@@ -1070,7 +1078,7 @@ fn fs_decal_relight(in: EffectOut) -> @location(0) vec4f {
 	let rel_dx = dpdx(rel);
 	let rel_dy = dpdy(rel);
 	let n = fx_surface_normal(px);
-	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9 || all(n == vec3f(0.0))) {
+	if (any(abs(object_p) >= vec3f(0.5)) || scene_depth >= 1e9 || all(n == vec3f(0.0)) || fx_keeps_lit_decals_off(px)) {
 		return vec4f(0.0);
 	}
 	let d = ld_decal(in, rel, rel_dx, rel_dy, uv, dx, dy, n, fx_surface_roughness(px));
