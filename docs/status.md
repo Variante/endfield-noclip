@@ -143,6 +143,20 @@ packs or renders correctly.
   layer's `_BaseHeightMap` (read as grey) and UV set 2, the noise and parallax mask blends, mask
   layers on emissive-mapped materials, and `_TERRAIN_BLEND`'s fade into the terrain.
   `HGRP/LitEffect` (98 map02 materials) draws as Lit without its dissolve and disturb effects
+- surface keywords the viewer ignores, which `pack` lists per material in `debug/assets.json`
+  ([unsupported materials](viewer/materials.md#unsupported-materials)). besides those named above,
+  on map02: Lit's macro normal map (`_MACRO_NORMAL_MAP`, 92 materials), subsurface profiles and
+  thickness maps (`_SUBSURFACE*`), fake glints, cracks, dust, volume and refraction (`_FAKE*`),
+  interior parallax and mapping, matcaps, `_ZWRITE_OFF`, and vertex animation of every kind
+  (`_SIMPLE_VERTEXANIM*`, `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`, `_MOVING_BAMBOO`); glass's
+  refraction, planar and high reflections; the card LODs' view culling, height culling, trunk cover
+  and sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own inputs (467
+  materials, shaded as plain alpha-tested foliage)
+- shaders without a look, shown as [unsupported](viewer/materials.md#unsupported-materials) and
+  counted per shader by `pack`: on map02 `HGRP/Effect/VFXSmoke_SixWay`,
+  `Hidden/HGRP/Effect/VFXInkWashPaint`, `HGRP/Effect/VFXRadialBlur`, `HGRP/CharacterNPR` and
+  `…_VFX`, `Hidden/HGRP/LitEffectBlend`, `HGRP/Effect/VFXTransparentDepthOnly`, `HGRP/Foliage/Glow`,
+  `HGRP/LitForward` and the factory placement and outline shaders (28 materials)
 - matte paintings ([matte paintings](game-data/materials.md#matte-paintings)): `_UseMainTexAsAlpha`
   isn't read (no map01 material sets it)
 - erosion rock ([erosion](game-data/materials.md#erosion)): the soft blend into what lies behind
