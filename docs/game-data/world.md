@@ -343,6 +343,9 @@ atlases.
 - **per-entity LOD chains.** every static draw carries its LOD index and a
   `(minSquared, maxSquared]` range of squared screen-relative height, as in Unity's LODGroup.
   `maxSquared` is `FLT_MAX` on the nearest LOD; a negative `minSquared` means never culled by size.
+  the negative values seen are all `−k²` with `k` between 0.005 and 0.05 (−0.000225 on 9,189 map02
+  draws, −0.0001 on every map02 HLOD cluster, −0.0025 on every indie_dg005 one, −0.0004, −0.000025),
+  so they may be ordinary cull heights stored negated rather than a "never" sentinel.
 - **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary far LODs.
 - **shadow proxies.** draws with `renderFlags` bit 10 only cast shadows.
 - **HLOD clusters.** auto-generated per-level clusters in three tiers, placed as ordinary entities
@@ -368,8 +371,9 @@ switch distances themselves are unknown.
 
 ## open
 
-- the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`
-  beyond "never culled by size"
+- the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`:
+  never culled by size, or culled below `√−minSquared`
+- the size the LODGroup thresholds are authored against (the object's bounds, a LODGroup size, …)
 - HLOD switch distances, and the HLOD generated-material channel layout
 - where a scene's HLOD grid (tier-0 cell and origin) is defined, and why it leaves the terrain
   quadtree in some scenes
