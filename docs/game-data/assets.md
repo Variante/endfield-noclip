@@ -357,6 +357,18 @@ GameObject. a GameObject binding (class 1) whose attribute is the CRC32 of `m_Is
 that GameObject on (1) or off (0). effect clips switch whole groups of effects this way; in their
 subtree, what the clip leaves alone keeps its saved activity, so a node saved off stays off.
 
+playing a clip needs its curves (`m_MuscleClip.m_Clip.data`), whose scalars follow the same binding
+order: the streamed block's first, then the dense block's, then the constant block's. the streamed
+block is Unity's: frames of a time, a key count and per key the curve index and a cubic's
+coefficients, evaluated from the key's time to the curve's next key, with a frame at −FLT_MAX for
+the values before the first key and one at +∞ to end. the game's dense blocks leave `m_SampleArray`
+empty and store `m_ACLType` 16 instead: `m_ACLArray` holds a u16 per frame and curve, frame-major,
+decoding to `(u16 − 32767.5) / 32767.5` times the curve kind's factor (`m_PositionFactor`,
+`m_ScaleFactor`, `m_EulerFactor`, `m_FloatFactor`; 1 for rotations, which are quaternion
+components). sampled at the clip's start and stop, this matches `m_ValueArrayDelta` to within one
+16-bit step on the balloon's clips (positions, rotations and scales). the clips seen leave the ACL
+buffer (`m_AclCompressedBuffer`) empty.
+
 clips also set renderer values (mesh renderer class 23, skinned 137, particle system renderer 199):
 
 - **material properties** (`customType` 22) apply to the renderer's materials. the attribute's low

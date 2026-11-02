@@ -1,7 +1,15 @@
 import { FormatError } from '../binary/binary-reader.ts';
 
 import type { TypeTreeObject } from './type-tree.ts';
-import { arrayField, booleanField, isObject, numberField, objectField } from './values.ts';
+import {
+	arrayField,
+	booleanField,
+	bytesField,
+	isObject,
+	numberField,
+	objectField,
+	optionalNumberField,
+} from './values.ts';
 
 /** a Transform property a clip animates, at the clip's last frame */
 export type ClipTransformValue =
@@ -165,6 +173,280 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	}
 	return { transforms, active, materials, renderers };
 };
+
+// #region playback
+
+/** a clip's Transform values over time, for playing it rather than holding its end pose */
+export interface ClipMotion {
+	/** seconds from the clip's start to its stop */
+	duration: number;
+	/** the clip's authored frames per second */
+	sampleRate: number;
+	/** whether the clip loops (`m_LoopTime`) */
+	loops: boolean;
+	/** binding paths of the Transforms the clip animates, in binding order */
+	paths: readonly number[];
+	/**
+	 * @param time seconds from the clip's start, within `[0, duration]`
+	 * @returns every animated Transform's values at that time, by binding path, as
+	 *   {@link ClipEndPose.transforms}
+	 */
+	sample(time: number): Map<number, ClipTransformValue[]>;
+}
+
+/** one streamed key: the cubic `((a·dt + b)·dt + c)·dt + value` from its time to the curve's next key */
+interface StreamedKey {
+	time: number;
+	a: number;
+	b: number;
+	c: number;
+	value: number;
+}
+
+/** what each scalar of a clip's curves animates: a Transform attribute (1–4) or `0` for anything else */
+type ScalarKinds = Uint8Array;
+
+/** the dense block's 16-bit encoding, Hypergryph's (`m_ACLType` 16) */
+const DENSE_PACKED16 = 16;
+
+/** the 16-bit dense block's scale field per scalar kind: other floats, position, rotation, scale, Euler */
+const DENSE_FACTORS = ['m_FloatFactor', 'm_PositionFactor', '', 'm_ScaleFactor', 'm_EulerFactor'] as const;
+
+/** @returns a numeric array field as numbers, typed arrays read in place */
+const numbersField = (parent: TypeTreeObject, name: string): ArrayLike<number> => {
+	const value = parent[name];
+	if (value instanceof Float32Array || value instanceof Uint32Array || value instanceof Uint8Array) {
+		return value;
+	}
+	return arrayField(parent, name).map((item) => {
+		if (typeof item !== 'number') {
+			throw new FormatError(`field ${name} holds a non-number`);
+		}
+		return item;
+	});
+};
+
+/** @returns the scalars of a streamed clip's words, each curve's keys ascending by time */
+const readStreamed = (words: ArrayLike<number>, curveCount: number): StreamedKey[][] => {
+	const bits = new DataView(new ArrayBuffer(4));
+	const float = (word: number): number => {
+		bits.setUint32(0, word >>> 0, true);
+		return bits.getFloat32(0, true);
+	};
+	const curves: StreamedKey[][] = Array.from({ length: curveCount }, () => []);
+	let at = 0;
+	while (at < words.length) {
+		if (at + 2 > words.length) {
+			throw new FormatError('truncated streamed AnimationClip frame');
+		}
+		const time = float(words[at]);
+		const count = words[at + 1] >>> 0;
+		at += 2;
+		if (at + count * 5 > words.length) {
+			throw new FormatError('truncated streamed AnimationClip keys');
+		}
+		for (let k = 0; k < count; k++, at += 5) {
+			const index = words[at] >>> 0;
+			if (index >= curveCount) {
+				throw new FormatError(`streamed AnimationClip key for curve ${index} of ${curveCount}`);
+			}
+			// a frame at −FLT_MAX holds constant values for before a curve's first key; one at +∞ ends the clip
+			if (Number.isFinite(time)) {
+				curves[index].push({
+					time,
+					a: float(words[at + 1]),
+					b: float(words[at + 2]),
+					c: float(words[at + 3]),
+					value: float(words[at + 4]),
+				});
+			}
+		}
+	}
+	return curves;
+};
+
+/** @returns a streamed curve's value at a time: its last key at or before it, else its first */
+const sampleStreamed = (keys: readonly StreamedKey[], time: number): number => {
+	if (keys.length === 0) {
+		return 0;
+	}
+	let low = 0;
+	let high = keys.length;
+	while (low + 1 < high) {
+		const mid = (low + high) >> 1;
+		if (keys[mid].time <= time) {
+			low = mid;
+		} else {
+			high = mid;
+		}
+	}
+	const key = keys[low];
+	const dt = Math.max(time - key.time, 0);
+	return ((key.a * dt + key.b) * dt + key.c) * dt + key.value;
+};
+
+/**
+ * reads a generic (non-humanoid) AnimationClip's curves for playback: the streamed block (Unity's cubic
+ * keys), the dense block (frames at its own rate, linearly interpolated, as floats or Hypergryph's 16-bit
+ * encoding: `(u16 − 32767.5) / 32767.5`, times `m_PositionFactor` for positions; rotations are normalized as
+ * quaternions) and the constant block, in that order of the bindings' scalars
+ *
+ * @param clip AnimationClip type-tree object
+ * @returns its Transform values over time
+ * @throws {FormatError} for legacy clips, ACL-compressed curves, 16-bit dense curves other than positions and
+ *   rotations, unknown Transform attributes, or blocks that don't add up to the bindings
+ */
+export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
+	if (booleanField(clip, 'm_Legacy')) {
+		throw new FormatError('legacy AnimationClip');
+	}
+	const acl = objectField(clip, 'm_AclCompressedBuffer');
+	if (numberField(acl, 'OutputTrackCount') !== 0 || numberField(acl, 'FloatCurveCount') !== 0) {
+		throw new FormatError('ACL-compressed AnimationClip');
+	}
+	const muscle = objectField(clip, 'm_MuscleClip');
+	const start = numberField(muscle, 'm_StartTime');
+	const duration = numberField(muscle, 'm_StopTime') - start;
+	const data = objectField(objectField(muscle, 'm_Clip'), 'data');
+
+	// what each scalar animates, from the bindings
+	const kinds: number[] = [];
+	const paths: number[] = [];
+	const transformBindings: { path: number; attribute: number; at: number }[] = [];
+	for (const binding of arrayField(objectField(clip, 'm_ClipBindingConstant'), 'genericBindings')) {
+		if (!isObject(binding)) {
+			throw new FormatError('invalid AnimationClip binding');
+		}
+		if (numberField(binding, 'isPPtrCurve') !== 0) {
+			continue;
+		}
+		if (numberField(binding, 'typeID') !== TRANSFORM) {
+			kinds.push(0);
+			continue;
+		}
+		const attribute = numberField(binding, 'attribute');
+		if (attribute < 1 || attribute > 4) {
+			throw new FormatError(`unsupported AnimationClip Transform attribute ${attribute}`);
+		}
+		const path = numberField(binding, 'path') >>> 0;
+		if (!paths.includes(path)) {
+			paths.push(path);
+		}
+		transformBindings.push({ path, attribute, at: kinds.length });
+		for (let i = 0; i < (attribute === 2 ? 4 : 3); i++) {
+			kinds.push(attribute);
+		}
+	}
+	const scalarKinds: ScalarKinds = Uint8Array.from(kinds);
+
+	const streamedClip = objectField(data, 'm_StreamedClip');
+	const streamedCount = numberField(streamedClip, 'curveCount');
+	const streamed = readStreamed(numbersField(streamedClip, 'data'), streamedCount);
+
+	const dense = objectField(data, 'm_DenseClip');
+	const denseCount = numberField(dense, 'm_CurveCount');
+	const frameCount = numberField(dense, 'm_FrameCount');
+	const denseRate = numberField(dense, 'm_SampleRate');
+	const denseBegin = numberField(dense, 'm_BeginTime');
+	const floats = numbersField(dense, 'm_SampleArray');
+	let denseValue: (curve: number, frame: number) => number;
+	if (denseCount === 0 || frameCount === 0) {
+		denseValue = () => 0;
+	} else if (floats.length > 0) {
+		if (floats.length !== denseCount * frameCount) {
+			throw new FormatError(
+				`dense AnimationClip has ${floats.length} samples for ${denseCount}×${frameCount}`,
+			);
+		}
+		denseValue = (curve, frame) => floats[frame * denseCount + curve];
+	} else {
+		const type = optionalNumberField(dense, 'm_ACLType') ?? 0;
+		const packed = bytesField(dense, 'm_ACLArray');
+		if (type !== DENSE_PACKED16 || packed.length !== denseCount * frameCount * 2) {
+			throw new FormatError(
+				`dense AnimationClip encoding ${type} with ${packed.length} bytes isn't supported`,
+			);
+		}
+		// each kind's range: rotations are unit quaternions, other values span ± their factor
+		const factors = new Float64Array(denseCount);
+		for (let curve = 0; curve < denseCount; curve++) {
+			const kind = scalarKinds[streamedCount + curve];
+			factors[curve] = kind === 2 ? 1 : numberField(dense, DENSE_FACTORS[kind]);
+		}
+		const view = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+		denseValue = (curve, frame) =>
+			((view.getUint16((frame * denseCount + curve) * 2, true) - 32_767.5) / 32_767.5) * factors[curve];
+	}
+
+	const constants = numbersField(objectField(data, 'm_ConstantClip'), 'data');
+	if (streamedCount + denseCount + constants.length !== scalarKinds.length) {
+		throw new FormatError(
+			`AnimationClip has ${streamedCount + denseCount + constants.length} curves for ${scalarKinds.length} bound`,
+		);
+	}
+
+	const values = new Float64Array(scalarKinds.length);
+	const sample = (time: number): Map<number, ClipTransformValue[]> => {
+		const t = start + time;
+		for (let i = 0; i < streamedCount; i++) {
+			values[i] = sampleStreamed(streamed[i], t);
+		}
+		if (denseCount > 0 && frameCount > 0) {
+			const position = Math.min(Math.max((t - denseBegin) * denseRate, 0), frameCount - 1);
+			const frame = Math.min(Math.floor(position), frameCount - 1);
+			const next = Math.min(frame + 1, frameCount - 1);
+			const blend = position - frame;
+			for (let i = 0; i < denseCount; i++) {
+				const a = denseValue(i, frame);
+				values[streamedCount + i] = a + (denseValue(i, next) - a) * blend;
+			}
+		}
+		for (let i = 0; i < constants.length; i++) {
+			values[streamedCount + denseCount + i] = constants[i];
+		}
+		const out = new Map<number, ClipTransformValue[]>();
+		for (const { path, attribute, at } of transformBindings) {
+			let value: ClipTransformValue;
+			switch (attribute) {
+				case 2: {
+					const length = Math.hypot(values[at], values[at + 1], values[at + 2], values[at + 3]) || 1;
+					value = {
+						kind: 'rotation',
+						value: [
+							values[at] / length,
+							values[at + 1] / length,
+							values[at + 2] / length,
+							values[at + 3] / length,
+						],
+					};
+					break;
+				}
+				case 4: {
+					value = { kind: 'rotation', value: eulerQuaternion(values[at], values[at + 1], values[at + 2]) };
+					break;
+				}
+				default: {
+					value = {
+						kind: attribute === 1 ? 'position' : 'scale',
+						value: [values[at], values[at + 1], values[at + 2]],
+					};
+				}
+			}
+			out.getOrInsertComputed(path, () => []).push(value);
+		}
+		return out;
+	};
+
+	return {
+		duration,
+		sampleRate: numberField(clip, 'm_SampleRate'),
+		loops: booleanField(muscle, 'm_LoopTime'),
+		paths,
+		sample,
+	};
+};
+
+// #endregion
 
 /**
  * @param clip a non-legacy AnimationClip

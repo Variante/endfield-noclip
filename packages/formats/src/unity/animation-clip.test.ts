@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { readClipActivity, readClipEndPose } from './animation-clip.ts';
+import { readClipActivity, readClipEndPose, readClipMotion } from './animation-clip.ts';
 
 const binding = (path: number, attribute: number, typeID = 4, isPPtrCurve = 0) => ({
 	path,
@@ -102,4 +102,131 @@ test('Euler rotations follow Unity: z first, then x, then y', () => {
 	// x 90° then y 90°: Quaternion.Euler(90, 90, 0) = (0.5, 0.5, −0.5, 0.5)
 	const [rotation] = readClipEndPose(clip([binding(1, 4)], [90, 90, 0])).transforms.get(1)!;
 	[0.5, 0.5, -0.5, 0.5].forEach((value, i) => assert.ok(Math.abs(rotation.value[i] - value) < 1e-9));
+});
+
+/** a clip with curves: streamed words, dense frames (16-bit when `packed`), constants */
+const motionClip = (options: {
+	bindings: ReturnType<typeof binding>[];
+	streamed: { curveCount: number; words: number[] };
+	dense: { curveCount: number; frames: number[][]; packed: boolean; positionFactor?: number };
+	constants: number[];
+	stop: number;
+}) => {
+	const { dense } = options;
+	const samples = dense.frames.flat();
+	const packed = new Uint8Array(dense.packed ? samples.length * 2 : 0);
+	const factorOf = (curve: number): number => {
+		const kind = options.bindings.flatMap((b) =>
+			Array.from({ length: b.attribute === 2 ? 4 : 3 }, () => b.attribute),
+		)[options.streamed.curveCount + curve];
+		return kind === 1 ? (dense.positionFactor ?? 1) : 1;
+	};
+	if (dense.packed) {
+		const view = new DataView(packed.buffer);
+		samples.forEach((value, i) => {
+			view.setUint16(i * 2, Math.round((value / factorOf(i % dense.curveCount)) * 32_767.5 + 32_767.5), true);
+		});
+	}
+	return {
+		m_Legacy: false,
+		m_SampleRate: 30,
+		m_AclCompressedBuffer: { OutputTrackCount: 0, FloatCurveCount: 0 },
+		m_MuscleClip: {
+			m_StartTime: 0,
+			m_StopTime: options.stop,
+			m_LoopTime: true,
+			m_Clip: {
+				data: {
+					m_StreamedClip: {
+						data: Uint32Array.from(options.streamed.words),
+						curveCount: options.streamed.curveCount,
+					},
+					m_DenseClip: {
+						m_FrameCount: dense.frames.length,
+						m_CurveCount: dense.curveCount,
+						m_SampleRate: 1,
+						m_BeginTime: 0,
+						m_SampleArray: dense.packed ? new Float32Array(0) : Float32Array.from(samples),
+						m_ACLType: dense.packed ? 16 : 0,
+						m_ACLArray: packed,
+						m_PositionFactor: dense.positionFactor ?? 1,
+						m_EulerFactor: 1,
+						m_ScaleFactor: 1,
+						m_FloatFactor: 1,
+					},
+					m_ConstantClip: { data: Float32Array.from(options.constants) },
+				},
+			},
+		},
+		m_ClipBindingConstant: { genericBindings: options.bindings },
+	};
+};
+
+/** @returns a float's bits as a streamed clip word */
+const word = (value: number): number => new Uint32Array(Float32Array.of(value).buffer)[0];
+
+test('clip playback samples streamed cubics, interpolated dense frames and constants in binding order', () => {
+	// streamed frames (time, key count, then index and a, b, c, value per key): the −FLT_MAX frame holds all
+	// three curves at 0, then node 1's x rises 0 → 2 over a second (the cubic's c·dt) and holds
+	// prettier-ignore
+	const words = [
+		word(-3.4028234663852886e38), 3,
+		0, word(0), word(0), word(0), word(0),
+		1, word(0), word(0), word(0), word(0),
+		2, word(0), word(0), word(0), word(0),
+		word(0), 1, 0, word(0), word(0), word(2), word(0),
+		word(1), 1, 0, word(0), word(0), word(0), word(2),
+		word(Infinity), 0,
+	];
+	const motion = readClipMotion(
+		motionClip({
+			// node 1's position (streamed), node 2's position (dense, 16-bit) and node 2's rotation (constant)
+			bindings: [binding(1, 1), binding(2, 1), binding(2, 2)],
+			streamed: { curveCount: 3, words },
+			dense: {
+				curveCount: 3,
+				frames: [
+					[0, 0, 0],
+					[1, -1, 0.5],
+				],
+				packed: true,
+				positionFactor: 2,
+			},
+			constants: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+			stop: 1,
+		}),
+	);
+	assert.equal(motion.duration, 1);
+	assert.equal(motion.loops, true);
+	assert.deepEqual(motion.paths, [1, 2]);
+	const half = motion.sample(0.5);
+	const close = (got: readonly number[], expected: number[]) =>
+		expected.forEach((value, i) =>
+			assert.ok(Math.abs(got[i] - value) < 1e-4, `${got.join()} vs ${expected.join()}`),
+		);
+	close(half.get(1)![0].value, [1, 0, 0]);
+	// halfway between the dense frames
+	close(half.get(2)![0].value, [0.5, -0.5, 0.25]);
+	close(half.get(2)![1].value, [0, 0, Math.SQRT1_2, Math.SQRT1_2]);
+	close(motion.sample(1).get(1)![0].value, [2, 0, 0]);
+});
+
+test('clip playback reads float dense frames and rejects blocks that disagree with the bindings', () => {
+	const options = {
+		bindings: [binding(3, 3)],
+		streamed: { curveCount: 0, words: [] },
+		dense: {
+			curveCount: 3,
+			frames: [
+				[1, 1, 1],
+				[3, 3, 3],
+			],
+			packed: false,
+		},
+		constants: [],
+		stop: 1,
+	};
+	const [scale] = readClipMotion(motionClip(options)).sample(0.25).get(3)!;
+	assert.deepEqual(scale, { kind: 'scale', value: [1.5, 1.5, 1.5] });
+	assert.throws(() => readClipMotion(motionClip({ ...options, constants: [1] })), /4 curves for 3 bound/);
 });
