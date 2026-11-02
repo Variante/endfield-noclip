@@ -40,7 +40,9 @@ the water), into the composited scene with the main pass's depth attached read-o
 unlit VFXDitherAlpha materials with a distortion, a dissolve, a mask or polar or screen UVs draw
 through VFXBaseV2's texture stack (`vfxDitherEffectLook`), fogged, blended by the alpha the game
 dithers with rather than dithered, which the temporal antialiasing would average to the same
-coverage. unlike the game's, they don't write depth, so they don't hide effects behind them. the
+coverage. that alpha is raised to `_DitherAlphaExp` as the game's is, which thins the Very Large
+Rift's red sky ring (`wenli_01_red` in `p_fxmap_dung02_dg005_boss_semicircle_sky_02`, exponent 3) to
+streaks. unlike the game's, they don't write depth, so they don't hide effects behind them. the
 stack's mask scales the colour as well as the alpha, so a mask draws only as its red
 (`_UseMaskTexAsAlpha`, the default), where its colour is white.
 

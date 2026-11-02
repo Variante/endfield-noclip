@@ -485,7 +485,8 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 	let alpha = saturate(
 		saturate(combined.a) * mix(1.0, fresnel, fresnel_row.w) * soft_fade * fx_near_fade(id, depth),
 	);
-	return vec4f(color, alpha);
+	// VFXDitherAlpha's `_DitherAlphaExp`; 1 for the other stack looks
+	return vec4f(color, pow(alpha, fx_row(id, FX_DECAL).w));
 }
 
 // #region refraction

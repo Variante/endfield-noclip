@@ -531,6 +531,35 @@ test('a VFXDitherAlpha mask scales only the tested alpha, by its red, and is dra
 	assert.equal(tinting.unsupported, true);
 });
 
+test('a VFXDitherAlpha stack look raises its alpha to `_DitherAlphaExp`; other stack looks keep it', () => {
+	// the rift's red sky ring (`M_fxmap_dung02_dg005_boss_semicircle_sky_02_fj_03`)
+	const dither: ShaderEntry = {
+		...shader('HGRP/Effect/VFXDitherAlpha'),
+		family: 'vfxDitherAlpha',
+		floats: { _UseMaskTexAsAlpha: 1, _UseMainTexAsAlpha: 1, _DitherAlphaExp: 1 },
+		textures: { _MainTex: 'white', _DisturbTex1: 'white', _DissolveTex: 'white', _MaskTex: 'white' },
+	};
+	const [ring, base] = materialLooks({
+		shaders: [dither, shader('HGRP/Effect/VFXBaseV2')],
+		entries: [
+			material({
+				id: 0,
+				blend: 'alphaTest',
+				blendFactors: null,
+				keywords: ['_USE_DISSOLVE', '_USE_DISTURB', '_USE_MASK', '_USE_POLARUV', '_USE_SCREENUV'],
+				slots: { _MainTex: slot(1), _DisturbTex1: slot(2), _DissolveTex: slot(3) },
+				floats: { _UsePolarUV: 1, _DitherAlphaExp: 3 },
+			}),
+			material({ id: 1, shader: 1, slots: { _MainTex: slot(1) } }),
+		],
+	});
+	assert.equal(ring.flags, LookFlags.Effect);
+	// no mask texture: the shader's default white
+	assert.deepEqual(ring.textures, [1, 2, 3, -1, -1, -1, -1]);
+	assert.equal(ring.params[EffectRow.decal + 3], 3);
+	assert.equal(base.params[EffectRow.decal + 3], 1);
+});
+
 test('a VFXRefract samples the scene behind at an offset by its texture and is masked by its mask red', () => {
 	// the rift's ground ripple (`M_fxmap_dung02_dg005_boss_semicircle_ripple_01_ground_1101`)
 	const refract: ShaderEntry = {

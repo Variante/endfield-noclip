@@ -62,7 +62,10 @@ export const EffectRow = {
 	misc: 100,
 	/** decals: edge fade across x, across z, the fades' width, height fade */
 	decalFade: 104,
-	/** decals: height fade offset, angle falloff (0: no angle fade), 0, 0 */
+	/**
+	 * decals: height fade offset, angle falloff (0: no angle fade), 0; then, for the texture stack, the power
+	 * its alpha is raised to (1 but for VFXDitherAlpha's `_DitherAlphaExp`)
+	 */
 	decal: 108,
 	/**
 	 * VFXBaseV2 vertex offset: `_OffsetDir` xyz, then how it's read: 0 in object space, 1 in world space, 2
@@ -282,6 +285,7 @@ const emptyEffect = (slots: number): EffectLook => {
 		params.set([1, 1, 0, 0], EffectRow.uv + i * 4);
 		params.set([0, 0, 1, 0], EffectRow.anim + i * 4);
 	}
+	params[EffectRow.decal + 3] = 1;
 	return {
 		textures: Array.from({ length: slots }, () => -1),
 		uvScales: Array.from({ length: slots }, () => 1),
@@ -582,7 +586,6 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 		keywords.some((keyword) => !DITHER_EFFECT_KEYWORDS.has(keyword)) ||
 		float('_UseLighting', 0) !== 0 ||
 		float('_DitherAlphaMode', 0) !== 0 ||
-		float('_DitherAlphaExp', 1) !== 1 ||
 		(keywords.includes('_USE_SCREENUV') && float('_LocalPivortSpace', 0) !== 0) ||
 		// the mask feeds only the tested alpha; the stack's mask also tints, which matches only when it's the red
 		(keywords.includes('_USE_MASK') && float('_UseMaskTexAsAlpha', 1) === 0)
@@ -678,6 +681,8 @@ export const vfxDitherEffectLook = (entry: ReadyMaterial, shader: ShaderEntry): 
 	params[EffectRow.weight] = float('_Bi_Disturb', 0);
 	params[EffectRow.misc + 1] = 1;
 	params[EffectRow.misc + 3] = keywords.includes('_USE_DISTURB') ? 1 : 0;
+	// the depth pass tests the saturated alpha raised to this power, which sets the share of pixels that survive
+	params[EffectRow.decal + 3] = float('_DitherAlphaExp', 1);
 	params[EffectRow.soft + 3] = float('_DisableVertColor', 0) !== 0 ? 0 : 1;
 	// a G-buffer surface, so the deferred fog covers it
 	params[EffectRow.unfogged] = 0;
