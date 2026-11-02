@@ -1,5 +1,6 @@
 /* oxlint-disable no-await-in-loop -- walks a small subtree in authored order */
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
+import { readClipActivity } from '@endfield-noclip/formats/unity/animation-clip';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
@@ -13,10 +14,47 @@ import {
 
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 
-// one-shot effects a prefab's view-state controller plays: docs/game-data/assets.md#one-shot-effects
+// effects a prefab's view states never show at rest: docs/game-data/assets.md#one-shot-effects
 
 const fieldNames = (ref: ObjectRef): Set<string> =>
 	new Set(ref.info.type?.nodes.filter((node) => node.level === 1).map((node) => node.name));
+
+/**
+ * @param resolver bundle reader
+ * @param animator an Animator component
+ * @param data its fields
+ * @returns binding paths (CRC32 of the path below the Animator) of the GameObjects its controller's clips
+ *   switch but never show: every clip that animates their activity starts and ends with them off. empty for a
+ *   disabled Animator or a controller other than a plain AnimatorController
+ */
+export const animatorHiddenNodes = async (
+	resolver: AssetResolver,
+	animator: ObjectRef,
+	data: TypeTreeObject,
+): Promise<Set<number>> => {
+	const hidden = new Set<number>();
+	if (numberField(data, 'm_Enabled') === 0) {
+		return hidden;
+	}
+	const controller = await resolver.resolve(animator, pptrField(data, 'm_Controller'));
+	if (controller === null || controller.info.classId !== UnityClass.AnimatorController) {
+		return hidden;
+	}
+	const shown = new Set<number>();
+	for (const pointer of arrayField(await resolver.read(controller), 'm_AnimationClips')) {
+		const clip = await resolver.resolve(controller, asPPtr(pointer));
+		if (clip === null) {
+			continue;
+		}
+		for (const [path, on] of readClipActivity(await resolver.read(clip))) {
+			(on ? shown : hidden).add(path);
+		}
+	}
+	for (const path of shown) {
+		hidden.delete(path);
+	}
+	return hidden;
+};
 
 /**
  * @param ref a MonoBehaviour

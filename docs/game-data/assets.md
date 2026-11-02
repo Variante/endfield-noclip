@@ -176,6 +176,13 @@ shows only for the moments after its state plays it, and never at rest. the chal
 spheres, 40 m decal boxes, a radial blur and smoke, plays when the challenge starts
 (`SwitchToRunning`).
 
+the controller's states drive an Animator in the prefab, whose clips switch GameObjects on and off
+(`m_IsActive` bindings). a GameObject switched off as saved that every clip animating it starts and
+ends off is never shown by any state. the one-time and repeatable challenge points share an effect
+block: in the repeatable one (`int_challenge_start_point_postmodel`) its rising motes
+(`dotAdd3stages`) and blue decal are part of the idle and running looks, while the one-time point's
+clips hold both off in every state.
+
 ## dynamic structures
 
 the dynamic ECS scene (`Data/DynamicStreaming/PC/Scene/<scene>/`) holds scenery that appears,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { readClipEndPose } from './animation-clip.ts';
+import { readClipActivity, readClipEndPose } from './animation-clip.ts';
 
 const binding = (path: number, attribute: number, typeID = 4, isPPtrCurve = 0) => ({
 	path,
@@ -58,6 +58,24 @@ test('a clip ends Euler rotations as quaternions and GameObjects on their activi
 		[
 			[12, false],
 			[13, true],
+		],
+	);
+});
+
+test('a clip shows a GameObject when it starts or ends switched on', () => {
+	const IS_ACTIVE = 0x7c5a22f6;
+	const shown = clip(
+		// a rotation's four values come first; then a node held off, one switched off, one switched on
+		[binding(1, 2), binding(21, IS_ACTIVE, 1), binding(22, IS_ACTIVE, 1), binding(23, IS_ACTIVE, 1)],
+		[0, 0, 0, 1, 0, 0, 1],
+	);
+	shown.m_MuscleClip.m_ValueArrayDelta[5].m_Start = 1;
+	assert.deepEqual(
+		[...readClipActivity(shown)],
+		[
+			[21, false],
+			[22, true],
+			[23, true],
 		],
 	);
 });

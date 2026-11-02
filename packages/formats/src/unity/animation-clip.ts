@@ -121,3 +121,44 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 	}
 	return { transforms, active };
 };
+
+/**
+ * @param clip a non-legacy AnimationClip
+ * @returns for each GameObject whose activity the clip animates, by binding path, whether it's switched on at
+ *   the clip's first or last frame (the values a clip stores for both ends; frames between aren't read)
+ * @throws {FormatError} for legacy clips or malformed bindings
+ */
+export const readClipActivity = (clip: TypeTreeObject): Map<number, boolean> => {
+	if (booleanField(clip, 'm_Legacy')) {
+		throw new FormatError('legacy AnimationClip');
+	}
+	const deltas = arrayField(objectField(clip, 'm_MuscleClip'), 'm_ValueArrayDelta');
+	const activity = new Map<number, boolean>();
+	let at = 0;
+	for (const binding of arrayField(objectField(clip, 'm_ClipBindingConstant'), 'genericBindings')) {
+		if (!isObject(binding)) {
+			throw new FormatError('invalid AnimationClip binding');
+		}
+		if (numberField(binding, 'isPPtrCurve') !== 0) {
+			continue;
+		}
+		const type = numberField(binding, 'typeID');
+		if (type === GAME_OBJECT && numberField(binding, 'attribute') >>> 0 === IS_ACTIVE) {
+			const delta = deltas[at];
+			if (!isObject(delta)) {
+				throw new FormatError('AnimationClip has fewer values than bindings');
+			}
+			activity.set(
+				numberField(binding, 'path') >>> 0,
+				numberField(delta, 'm_Start') !== 0 || numberField(delta, 'm_Stop') !== 0,
+			);
+		}
+		// Transform positions and scales take three values, rotations four (Euler three); other bindings one
+		if (type === TRANSFORM) {
+			at += numberField(binding, 'attribute') === 2 ? 4 : 3;
+		} else {
+			at++;
+		}
+	}
+	return activity;
+};

@@ -25,7 +25,12 @@ import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import { frozenParticleMatrix, type LocalTransform, SCALING_SHAPE } from './particle-mesh.ts';
 import { particleReach, readParticleSystem } from './particle-system.ts';
-import { isOneShotEffect, isViewStateControllerType, playedEffectNodes } from './view-state-effects.ts';
+import {
+	animatorHiddenNodes,
+	isOneShotEffect,
+	isViewStateControllerType,
+	playedEffectNodes,
+} from './view-state-effects.ts';
 
 /** one enabled mesh renderer in a prefab's highest-detail authored LOD */
 export interface PrefabRenderer {
@@ -85,6 +90,14 @@ export interface PoseClip {
 	active: ReadonlyMap<number, boolean>;
 }
 
+/** an Animator above a GameObject */
+interface AnimatorScope {
+	/** binding paths below the Animator its clips never show ({@link animatorHiddenNodes}) */
+	hidden: ReadonlySet<number>;
+	/** the GameObject's path below the Animator, `/`-joined; '' for the Animator's own */
+	path: string;
+}
+
 const xyz = (value: TypeTreeObject): [number, number, number] => [
 	numberField(value, 'x'),
 	numberField(value, 'y'),
@@ -136,6 +149,8 @@ export const readPrefabRenderers = async (
 		inherited: PrefabBillboard | null,
 		/** per pose clip, the parent's path below that clip's Animator, `null` outside it */
 		above: readonly (string | null)[],
+		/** the Animators above the parent: what their clips never show, and the parent's path below each */
+		animators: readonly AnimatorScope[],
 	): Promise<void> => {
 		const key = objectKey(go);
 		if (seen.has(key)) {
@@ -144,6 +159,10 @@ export const readPrefabRenderers = async (
 		seen.add(key);
 		const data = await resolver.read(go);
 		const name = stringField(data, 'm_Name');
+		const scopes: AnimatorScope[] = animators.map((scope) => ({
+			hidden: scope.hidden,
+			path: scope.path === '' ? name : `${scope.path}/${name}`,
+		}));
 		// clip bindings name GameObjects by their `/`-joined path below the Animator's own, which is ''
 		const below = (pose?.clips ?? []).map((clip, i): string | null => {
 			const parentPath = above[i] ?? null;
@@ -170,9 +189,11 @@ export const readPrefabRenderers = async (
 			if (posed === false || (posed === undefined && switching && !booleanField(data, 'm_IsActive'))) {
 				off = { standIn: null };
 			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
-				// a one-shot effect a view state plays shows for a moment, never at rest
+				// a one-shot effect a view state plays shows for a moment, never at rest; what the prefab's own
+				// Animator only ever holds off never shows
+				const neverShown = scopes.some((scope) => scope.hidden.has(crc32(scope.path) >>> 0));
 				off =
-					played.has(key) && (await isOneShotEffect(resolver, go))
+					neverShown || (played.has(key) && (await isOneShotEffect(resolver, go)))
 						? { standIn: null }
 						: { standIn: 'switched off until a script or view state turns it on' };
 			}
@@ -208,6 +229,11 @@ export const readPrefabRenderers = async (
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isViewStateControllerType(ref)) {
 				for (const node of await playedEffectNodes(resolver, ref, await resolver.read(ref))) {
 					played.add(node);
+				}
+			} else if (ref.info.classId === UnityClass.Animator) {
+				const hidden = await animatorHiddenNodes(resolver, ref, await resolver.read(ref));
+				if (hidden.size > 0) {
+					scopes.push({ hidden, path: '' });
 				}
 			}
 		}
@@ -396,12 +422,12 @@ export const readPrefabRenderers = async (
 				const childData = await resolver.read(child);
 				const childGo = await resolver.resolve(child, pptrField(childData, 'm_GameObject'));
 				if (childGo !== null) {
-					await visit(childGo, matrix, false, off, billboard, below);
+					await visit(childGo, matrix, false, off, billboard, below, scopes);
 				}
 			}
 		}
 	};
-	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, []);
+	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, null, null, [], []);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {
 		const key = objectKey(candidate.ref);
