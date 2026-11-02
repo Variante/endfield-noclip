@@ -85,7 +85,7 @@ const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo
 	shapeScaling: false,
 	duration: 5,
 	looping: true,
-	startDelay: 0,
+	startDelay: constant(0),
 	maxParticles: 150,
 	simulationSpeed: 1,
 	startLifetime: constant(80),

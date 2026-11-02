@@ -570,6 +570,10 @@ export const readParticleSystem = (
 		maxParticles = Math.ceil(curveReach(rate) * life + burstsPerLoop * Math.ceil(life / duration - 1e-6));
 	}
 	const delay = curve(system, 'startDelay');
+	// Unity's inspector offers a constant or two for the delay; a curve would need a time to read it at
+	if (!isConstant(delay)) {
+		return { reason: 'start delay curve' };
+	}
 	return {
 		info: {
 			renderMode,
@@ -583,10 +587,7 @@ export const readParticleSystem = (
 			shapeScaling: numberField(system, 'scalingMode') === SCALING_SHAPE,
 			duration,
 			looping: booleanField(system, 'looping'),
-			// a random delay takes its midpoint, a curve none
-			startDelay: isConstant(delay)
-				? (delay.scalar + (delay.mode === CurveMode.Constant ? delay.scalar : delay.min)) / 2
-				: 0,
+			startDelay: delay,
 			maxParticles,
 			simulationSpeed: numberField(system, 'simulationSpeed'),
 			startLifetime,

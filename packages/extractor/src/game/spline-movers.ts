@@ -294,7 +294,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 			shapeScaling: false,
 			duration: 1,
 			looping: true,
-			startDelay: 0,
+			startDelay: zero,
 			maxParticles: Math.ceil(Math.max(rate, 0) * Math.max(lifetime.scalar, lifetime.min)) + 1,
 			simulationSpeed: numberField(desc, 'simulateSpeed'),
 			startLifetime: lifetime,

@@ -100,6 +100,7 @@ const Channel = {
 	Drag: 34,
 	SpeedLimit: 35,
 	SplineSpeed: 36,
+	StartDelay: 37,
 } as const;
 
 /**
@@ -570,6 +571,8 @@ interface AdmittedEmission extends Emission {
 export class ParticleSimulation {
 	readonly info: ParticleSystemInfo;
 	readonly #seed: number;
+	/** seconds before the first emission, drawn once per emitter as the game draws it once per play */
+	readonly #startDelay: number;
 	/** the longest a particle lives, s */
 	readonly #longest: number;
 	/** how far back emissions can still be alive, s: their lifetime, or until enough newer ones replace them */
@@ -593,6 +596,7 @@ export class ParticleSimulation {
 	constructor(info: ParticleSystemInfo, seed: number) {
 		this.info = info;
 		this.#seed = seed;
+		this.#startDelay = Math.max(evaluateMinMax(info.startDelay, 0, random(seed, 0, Channel.StartDelay)), 0);
 		this.#longest = Math.max(upperBound(info.startLifetime), 0);
 		this.#rate = Math.max(meanOf(info.rate), 0);
 		this.#lookback = this.#longest;
@@ -622,7 +626,7 @@ export class ParticleSimulation {
 
 	/** seconds a looping system needs to look as if it had always played */
 	get settleTime(): number {
-		return this.info.startDelay + this.#lookback + this.info.duration;
+		return this.#startDelay + this.#lookback + this.info.duration;
 	}
 
 	/** the most particles alive at once: the cap, or less when one lifetime of emission holds fewer */
@@ -722,7 +726,8 @@ export class ParticleSimulation {
 	 * @returns the admitted emissions that may still be alive, oldest first
 	 */
 	#admit(time: number): AdmittedEmission[] {
-		const { startDelay, maxParticles } = this.info;
+		const { maxParticles } = this.info;
+		const startDelay = this.#startDelay;
 		// further back than a few lifetimes the history barely shows, so a long jump or a step back starts
 		// afresh from an empty system there
 		const horizon = 4 * this.#longest + this.info.duration;
@@ -765,7 +770,8 @@ export class ParticleSimulation {
 	#emitted(start: number, time: number): Emission[] {
 		const emissions = this.#emissions;
 		emissions.length = 0;
-		const { duration, looping, startDelay, bursts } = this.info;
+		const { duration, looping, bursts } = this.info;
+		const startDelay = this.#startDelay;
 		const from = Math.max(start, startDelay);
 		const end = looping ? time : Math.min(time, startDelay + duration);
 		if (end < from) {
@@ -812,7 +818,7 @@ export class ParticleSimulation {
 
 	/** @returns the emission time's place within its loop, 0–1, where start values read their curves */
 	#loopFraction(born: number): number {
-		const t = (born - this.info.startDelay) / this.info.duration;
+		const t = (born - this.#startDelay) / this.info.duration;
 		return this.info.looping ? t - Math.floor(t) : Math.min(Math.max(t, 0), 1);
 	}
 

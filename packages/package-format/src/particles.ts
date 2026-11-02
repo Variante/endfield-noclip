@@ -194,8 +194,8 @@ export interface ParticleSystemInfo {
 	/** seconds per loop; emission stops after one when not {@link looping} */
 	duration: number;
 	looping: boolean;
-	/** seconds before the first emission */
-	startDelay: number;
+	/** seconds before the first emission, a constant or two (one drawn per play) */
+	startDelay: MinMaxCurveInfo;
 	/** the most particles alive at once */
 	maxParticles: number;
 	/** the system's time scale */

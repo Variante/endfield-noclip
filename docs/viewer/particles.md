@@ -37,12 +37,13 @@ mesh instances.
 each particle follows from its emission time and random values hashed from the emitter's place, the
 system and its index, so any moment can be evaluated on its own:
 
-- emissions are the rate's steady stream (one every `1 / rate` seconds, a random rate taking its
-  mean) and each loop's bursts (count rounded, each fired with its probability), within the window
-  the longest lifetime reaches back; non-looping systems stop emitting after one duration. with a
-  ring buffer a particle stays until newer ones replace it, so the window reaches back far enough
-  for that many emissions; past its lifetime it shows its end (or replays its loop range), and the
-  newest live ones that fit the rows are kept.
+- emissions start after the start delay, drawn once per emitter between its two constants, and are
+  the rate's steady stream (one every `1 / rate` seconds, a random rate taking its mean) and each
+  loop's bursts (count rounded, each fired with its probability), within the window the longest
+  lifetime reaches back; non-looping systems stop emitting after one duration. with a ring buffer a
+  particle stays until newer ones replace it, so the window reaches back far enough for that many
+  emissions; past its lifetime it shows its end (or replays its loop range), and the newest live
+  ones that fit the rows are kept.
 - without a ring buffer, a system whose emissions can outnumber its cap
   ([assets](../game-data/assets.md#particle-systems)) skips the emissions that come while it's full,
   so which particles live depends on every earlier emission: the emitter plays them forward from

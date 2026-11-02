@@ -520,10 +520,11 @@ unless the mode is Shape. the entry keeps:
 
 - the render mode, a stretched quad's length scale and velocity scale, and whether the scaling mode
   is `Shape`
-- the duration, looping, start delay, particle cap and simulation speed. a system that stores a cap
-  of 0 ([particle systems](game-data/assets.md#particle-systems)) gets the most one longest lifetime
-  of emission holds: the top rate times the lifetime, plus each loop's top burst counts times the
-  loops that lifetime spans
+- the duration, looping, start delay (a constant or two; a curve makes the system a stand-in),
+  particle cap and simulation speed. a system that stores a cap of 0
+  ([particle systems](game-data/assets.md#particle-systems)) gets the most one longest lifetime of
+  emission holds: the top rate times the lifetime, plus each loop's top burst counts times the loops
+  that lifetime spans
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
   `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s
   (gradient key times are stored as 0–65535)
