@@ -8,6 +8,8 @@ import type {
 	WaterGlobal,
 	WaterSurfaceEntry,
 	WaterTable,
+	WaterVolumeEntry,
+	WaterVolumeLevel,
 } from '@endfield-noclip/package-format/water';
 
 import { unique } from '@mary-ext/array-fns';
@@ -15,6 +17,9 @@ import { unique } from '@mary-ext/array-fns';
 import type { Context } from '../context.ts';
 import { errorText } from '../errors.ts';
 import { type AssetResolver, objectKey, type ObjectRef } from '../game/assets.ts';
+import type { SyntheticMesh } from '../game/synthetic-mesh.ts';
+import type { ScriptWaterLevel } from '../game/water-volume-scripts.ts';
+import type { LevelWaterVolume } from '../game/water-volumes.ts';
 import {
 	loadSectorTexture,
 	loadWaterGlobalConfig,
@@ -36,6 +41,8 @@ import { aabbBounds } from './bounds.ts';
 export interface WaterDebug {
 	/** surfaces in the scene, and those the package's subset keeps */
 	surfaces: { scene: number; packed: number };
+	/** gameplay water volumes in the scene's levels, and those packed */
+	volumes: { scene: number; packed: number };
 	/** the global config asset's name, or `null` */
 	global: string | null;
 	/** sectors with data, and those packed */
@@ -53,10 +60,22 @@ export interface WaterPlan {
 	 * packer interns {@link surfaceOwners}
 	 */
 	table: WaterTable;
-	/** per table surface: its level's tag and the chunk files that load it */
-	surfaceOwners: { levelTag: number; sources: ChunkSource[] }[];
+	/**
+	 * per table surface: its level's tag and the chunk files that load it, `null` for a water volume, which
+	 * loads with its level
+	 */
+	surfaceOwners: { levelTag: number; sources: ChunkSource[] | null }[];
 	textures: PlacedTexture[];
 	debug: WaterDebug;
+}
+
+/** the scene's gameplay water volumes, as the entity pass found them */
+export interface WaterVolumeInput {
+	volumes: LevelWaterVolume[];
+	/** by volume id, the entity ids of the instance rows of interactives floating on it */
+	floaterRows: ReadonlyMap<string, readonly number[]>;
+	/** LevelData files whose volumes couldn't be read */
+	unsupported: { path: string; reason: string }[];
 }
 
 /** what {@link planWater} needs from the packer */
@@ -67,6 +86,12 @@ export interface WaterPlanOptions {
 	subset: boolean;
 	/** interns a mesh into the geometry table */
 	geometry: (hash: bigint) => number;
+	/** interns a mesh the packer makes into the geometry table */
+	syntheticGeometry: (mesh: SyntheticMesh) => number;
+	/** gameplay water volumes to draw as surfaces */
+	volumes: WaterVolumeInput;
+	/** constant fills the scene's level scripts set volumes to */
+	scriptLevels: readonly ScriptWaterLevel[];
 	/** the placement of a sector tile covering a world rectangle */
 	placeSector: (rect: Rect) => Place;
 }
@@ -89,23 +114,36 @@ export const planWater = async (
 	const water = await readSceneWater(world, scene, (file) => file.cell === null);
 	const selected = selectSurfaces(water.surfaces, options.includes);
 	const plan: WaterPlan = {
-		table: { global: null, configs: [], surfaces: [] },
+		table: { global: null, configs: [], surfaces: [], volumes: [] },
 		surfaceOwners: [],
 		textures: [],
 		debug: {
 			surfaces: { scene: water.surfaces.length, packed: 0 },
+			volumes: { scene: options.volumes.volumes.length, packed: 0 },
 			global: null,
 			sectors: { scene: 0, packed: 0 },
 			rows: [],
-			errors: [],
+			errors: options.volumes.unsupported.map(({ path, reason }) => `water volumes of ${path}: ${reason}`),
 		},
 	};
-	if (selected.length === 0) {
+	const volumes = options.volumes.volumes.flatMap((volume) => {
+		const { configHash } = volume;
+		if (configHash === null) {
+			plan.debug.errors.push(`water volume ${volume.id} names no water config`);
+			return [];
+		}
+		const [x, z] = polygonCenter(volume.points);
+		return options.includes(volume.levelTag, x, z) ? [{ ...volume, configHash }] : [];
+	});
+	if (selected.length === 0 && volumes.length === 0) {
 		return plan;
 	}
 	const [resolver, pathOf] = await Promise.all([context.resolver(), world.pathLookup()]);
 
-	const configHashes = unique(selected.map((surface) => surface.configHash));
+	const configHashes = unique([
+		...selected.map((surface) => surface.configHash),
+		...volumes.map((volume) => volume.configHash),
+	]);
 	const loaded = await Promise.all(
 		configHashes.map(async (hash) => {
 			try {
@@ -142,6 +180,33 @@ export const planWater = async (
 		});
 	}
 	plan.debug.surfaces.packed = plan.table.surfaces.length;
+	for (const volume of volumes) {
+		const config = configIndex.get(volume.configHash);
+		if (config === undefined) {
+			continue;
+		}
+		let geometry: number;
+		try {
+			geometry = options.syntheticGeometry({ kind: 'polygon', points: volume.points });
+		} catch (error) {
+			plan.debug.errors.push(`water volume ${volume.id}: ${errorText(error)}`);
+			continue;
+		}
+		const index = plan.table.volumes.length;
+		plan.table.volumes.push(
+			volumeEntry(volume, options.volumes.floaterRows.get(volume.id) ?? [], options.scriptLevels),
+		);
+		plan.table.surfaces.push(volumeSurface(volume, geometry, config, index));
+		plan.surfaceOwners.push({ levelTag: volume.levelTag, sources: null });
+		plan.debug.rows.push({
+			id: Number(volume.id),
+			name: `water volume ${volume.id}`,
+			file: volume.source,
+			mesh: null,
+			config: pathOf(volume.configHash) ?? null,
+		});
+	}
+	plan.debug.volumes.packed = plan.table.volumes.length;
 	if (plan.table.surfaces.length === 0) {
 		return plan;
 	}
@@ -372,6 +437,96 @@ const configEntry = ({ name, values }: WaterSurfaceConfig): WaterConfigEntry => 
 	return { name, values: values as WaterConfig };
 };
 
+/** @returns the centre of a polygon's x, z bounding box */
+const polygonCenter = (points: readonly (readonly [number, number])[]): [x: number, z: number] => {
+	const xs = points.map(([x]) => x);
+	const zs = points.map(([, z]) => z);
+	return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...zs) + Math.max(...zs)) / 2];
+};
+
+/** fills closer than this are one level */
+const FRACTION_EPSILON = 1e-4;
+
+/**
+ * @param volume a volume
+ * @param floaters its floaters' row entity ids
+ * @param scripts every constant fill the scene's scripts set
+ * @returns the volume's table entry, with its authored fill and the fills scripts set it to
+ */
+export const volumeEntry = (
+	volume: LevelWaterVolume,
+	floaters: readonly number[],
+	scripts: readonly ScriptWaterLevel[],
+): WaterVolumeEntry => {
+	const found: { fraction: number; speed: number | null; authored: boolean; moves: Set<string>; snaps: Set<string> }[] =
+		[{ fraction: volume.fraction, speed: null, authored: true, moves: new Set(), snaps: new Set() }];
+	for (const level of scripts) {
+		if (level.volume !== volume.id) {
+			continue;
+		}
+		const raw = level.kind === 'fraction' ? level.value : volume.amountMax > 0 ? level.value / volume.amountMax : 0;
+		const fraction = Math.min(Math.max(raw, 0), 1);
+		let entry = found.find((other) => Math.abs(other.fraction - fraction) < FRACTION_EPSILON);
+		if (entry === undefined) {
+			entry = { fraction, speed: null, authored: false, moves: new Set(), snaps: new Set() };
+			found.push(entry);
+		}
+		(level.smooth ? entry.moves : entry.snaps).add(level.script);
+		if (level.speed !== null) {
+			entry.speed ??= level.speed;
+		}
+	}
+	const levels: WaterVolumeLevel[] = found
+		.toSorted((a, b) => a.fraction - b.fraction)
+		.map(({ fraction, speed, authored, moves, snaps }) => {
+			const parts: string[] = [];
+			if (authored) {
+				parts.push('authored');
+			}
+			if (moves.size > 0) {
+				parts.push(`moved to by script ${[...moves].join(', ')}`);
+			}
+			if (snaps.size > 0) {
+				parts.push(`set by script ${[...snaps].join(', ')}`);
+			}
+			return { fraction, speed: speed ?? volume.fillSpeed, label: parts.join('; ') };
+		});
+	return {
+		id: volume.id,
+		base: volume.pivot[1],
+		heightMax: volume.heightMax,
+		initial: volume.fraction,
+		fillSpeed: volume.fillSpeed,
+		levels,
+		floaters: [...floaters],
+	};
+};
+
+/** @returns a volume's surface at its authored fill: its polygon, which lies at y = 0, raised to the surface */
+const volumeSurface = (
+	volume: LevelWaterVolume,
+	geometry: number,
+	config: number,
+	index: number,
+): WaterSurfaceEntry => {
+	const y = volume.pivot[1] + volume.heightMax * volume.fraction;
+	const xs = volume.points.map(([x]) => x);
+	const zs = volume.points.map(([, z]) => z);
+	return {
+		id: Number(volume.id),
+		group: 0,
+		geometry,
+		transform: [1, 0, 0, 0, 0, 1, 0, y, 0, 0, 1, 0],
+		bounds: { min: [Math.min(...xs), y, Math.min(...zs)], max: [Math.max(...xs), y, Math.max(...zs)] },
+		config,
+		// the game draws a volume through an HGWaterRendererV2 of a pooled prefab whose render type isn't
+		// recovered; the polygon faces up either way
+		renderTypeMask: 1,
+		param1: [0, 0, 0, 0],
+		volume: index,
+	};
+};
+
 const surfaceEntry = (surface: SourcedWaterSurface, geometry: number, config: number): WaterSurfaceEntry => {
 	const m = surface.matrix;
 	return {
@@ -385,5 +540,6 @@ const surfaceEntry = (surface: SourcedWaterSurface, geometry: number, config: nu
 		config,
 		renderTypeMask: surface.renderTypeMask,
 		param1: surface.param1,
+		volume: null,
 	};
 };

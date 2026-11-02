@@ -185,10 +185,82 @@ shaded through the grid, whose normals point up, so their mesh normals never sho
 - **shore**: `distanceEdgeBlendFactor` fades shallow water into what's under it; at a distance the
   thickness counts less at grazing angles.
 
+## water volumes
+
+besides the surfaces above, levels place gameplay water whose surface moves: LevelData
+`waterVolumes` (and `riftVolumes`, same record). 14 scenes have them: map02 (61 in the levels whose
+map is map02, 13 moved by scripts), Suiming, a race, three dungeons and eight factory puzzle scenes.
+a volume holds:
+
+| field                                                                         | meaning                                                                                                     |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `id`                                                                          | entity id; scripts and floaters name the volume by it                                                       |
+| `pivot`                                                                       | the volume's floor; `pivot.y` is where its height counts from                                               |
+| `points`                                                                      | the outline, world positions at `pivot.y`; the game triangulates it in x, z into a flat surface mesh        |
+| `heightMax`                                                                   | metres from the pivot to a full volume                                                                      |
+| `amountCurrent`, `amountMax`                                                  | the authored fill; the surface sits at `pivot.y + heightMax · amountCurrent / amountMax`                    |
+| `isInfinite`                                                                  | the fill is a fraction scripts set directly (`WaterVolumeInfiniteSetHeight`) rather than an amount of water |
+| `fillSpeed`                                                                   | metres per second for fixed-speed moves (below)                                                             |
+| `flowSpeed`, `flowDirection` (degrees)                                        | the surface's flow                                                                                          |
+| `isUseLunaConfig`, `lunaConfigPathHash`                                       | the surface `WaterConfig` it draws with, as an ordinary surface does                                        |
+| `obbCenter`, `obbRotation`, `obbSize`                                         | the volume's box, for gameplay (swimming, the danger area)                                                  |
+| `waterItemType`, `waterNameLangKey`, `isPrototype`, nav-mesh and audio fields | gameplay; `isPrototype` is false on every map02 volume and its meaning isn't recovered                      |
+
+the surface is a mesh the game builds from the outline, moved vertically as the fill changes; it's
+drawn by the water pipeline with the bound `WaterConfig` like any surface. a volume with id 0 is
+static and builds no mesh.
+
+level scripts move volumes:
+
+- `WaterVolumeInfiniteSetHeight` sets the fill (0–1). without `isSmooth` the surface jumps there;
+  with `isSmooth` and `isFixedSpeed` it moves linearly at the volume's fill speed and eases in over
+  the last metres; with `isSmooth` alone it eases over a time the game derives from the distance and
+  the fill speed (map02's switch drain, fill speed 50, takes about a second)
+- `WaterVolumeSetFillSpeed` changes the fill speed, so a script sets the speed and then moves the
+  surface
+- `WaterVolumeSetAmount`, `WaterVolumeTransfer(All)` set or move amounts; `…PauseHeightChange`
+  freezes a move
+
+what triggers the scripts varies: switches (map02's Marker Stone pit, a one-use
+`int_switch_wltech01` that drains volume 23400080003 from full to half), quests, map variables and
+script stages. in Suiming (`indie_dg016`) a server-side clock drives a round: script 46300000013
+reads the map variable `timer` (minutes since the round started) and lowers the pit (volume
+46300000002, floor y 51.19, 110 m) in stages, each snapping to where the water should be at that
+minute and then receding to the stage's level at a fixed speed:
+
+| minutes | level (y)                  | speed (m/s) | takes |
+| ------- | -------------------------- | ----------- | ----- |
+| 0 → 2   | 0.50 → 0.37 (106.2 → 91.9) | 0.119       | 120 s |
+| 2 → 5   | 0.37 → 0.31 (85.3)         | 0.0367      | 180 s |
+| 5 → 8   | 0.31 → 0.13 (65.5)         | 0.11        | 180 s |
+| 8 → 11  | 0.13 → 0.07 (58.9)         | 0.0367      | 180 s |
+
+the lily-pad pool beside it (46300010001) recedes from 107 to 91 over the first few minutes, a
+server event drains the pit to 0.08 when the round is solved, and another resets every volume. that
+one minute is one `timer` step is inferred from the speeds, which cover each stage's drop in exactly
+a minute per step; the server sets `timer`.
+
+### floaters
+
+interactives with component 39 (`BelongToWaterVolume`) ride a volume's surface: lily pads
+(`int_water_volume_floater*`), ice floes and art groups of lotus plants. their parameters:
+
+| key               | meaning                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `water_volume`    | the volume's id                                                                       |
+| `lock_offset`     | x, z offset from the volume's surface position (the authored position less the pivot) |
+| `surface_offset`  | height above the surface once following it (absent, so 0, on the floaters seen)       |
+| `ground_distance` | not recovered; values near the pit floor's height suggest a lowest height             |
+| `is_locked`       | whether it starts locked to the surface                                               |
+
+floaters are placed on the authored surface. once the water moves they follow it with an ease that
+lags more the further it moves. the floaters' own `surface_offset` (0) rather than their authored
+height (some sit up to 0.5 m above the surface) is then what keeps them above it.
+
 ## WaterProxy and WaterDecal
 
 no static InitChunkData renderer uses an `HGRP/WaterProxy` or `HGRP/WaterDecal` material, so water
-in static scenery is only the surfaces above. both arrive through prefab content. `HGRP/WaterProxy`
-has only the water pipeline's passes (top-down prepass, wetness mask, depth, the water G-buffer),
-none of which a scene renderer draws in the main view; ten map02 river meshes carry it
-(`M_river_proxy_22`). WaterDecal boxes put foam on pools and channels at the foot of waterfalls.
+in static scenery is only the surfaces and volumes above. both arrive through prefab content.
+`HGRP/WaterProxy` has only the water pipeline's passes (top-down prepass, wetness mask, depth, the
+water G-buffer), none of which a scene renderer draws in the main view; ten map02 river meshes carry
+it (`M_river_proxy_22`). WaterDecal boxes put foam on pools and channels at the foot of waterfalls.

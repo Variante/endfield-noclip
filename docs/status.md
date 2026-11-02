@@ -140,6 +140,14 @@ packs or renders correctly.
   [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the water's own
   foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer` values aren't
   packed); other fluid types are unverified
+- water volumes ([viewer](viewer/water.md#water-volumes)): moves are linear (no ease-in, and
+  non-fixed-speed moves use the fill speed as metres per second); floaters keep their authored height
+  above the surface rather than `surface_offset` and don't lag; `ground_distance`, `isPrototype`,
+  flow speed and direction, amount-based volumes' transfers and the volumes' render type aren't read;
+  each map02 volume that coincides with a placed surface (five lv006 pools, lv010's 37900010002,
+  several lv002/lv003 ones) draws twice, unverified against the game; Suiming's lily pads end 0.9 m
+  under the pit's surface at the first stage, as the data says, unverified in game; a volume's
+  surface has no shoreline wetness
 - waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
   beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
   of it, and the steep river surface running down the lip draws as clear water. what the game draws
@@ -248,7 +256,8 @@ packs or renders correctly.
   or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
   controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`), LevelData rows created later
-  (`createState` ≠ 0), script-driven water levels and map02's sprayable sludge aren't represented;
+  (`createState` ≠ 0) and map02's sprayable sludge aren't represented; script-driven water levels
+  are picked by hand, not tied to the switches, clocks and quests that drive them;
   the shop, depot and terminal level → visual form mapping, and the resource-node level's link to
   regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server

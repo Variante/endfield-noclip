@@ -40,6 +40,30 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
   written into its inputs. water draws after the composite here, so it marches separately, with the
   same march ([`ssr-trace.wgsl`](../../packages/viewer/src/render/shaders/ssr-trace.wgsl)).
 
+## water volumes
+
+[water-levels.ts](../../packages/viewer/src/render/water-levels.ts) holds each
+[water volume](../game-data/water.md#water-volumes)'s fill. a volume's surface is packed at its
+authored fill; the water renderer raises its transform and bounds by the difference, and the
+floaters' instance rows (found by entity id as their blocks upload) move by the same amount, in the
+CPU copy the selection culls with and on the GPU.
+
+the "Water levels" section of the scene conditions panel
+([water-levels.tsx](../../packages/viewer/src/ui/water-levels.tsx)) lists the shown level's volumes
+that scripts move or that something floats on, each with a select of the fills scripts set it to.
+picking one moves the surface there linearly at the speed the scripts move it at (else the volume's
+fill speed), so Suiming's stages take their two or three minutes; "Movement" speeds that up or
+jumps. "Reset" puts every volume back at its authored fill.
+
+it differs from the game in that:
+
+- moves are linear: the game's ease over the last metres, and the eased moves of scripts that don't
+  fix the speed, aren't reproduced
+- floaters keep their authored height above the surface instead of settling to `surface_offset`, and
+  follow it without lag
+- nothing is triggered: the switches, clocks and quests that move volumes are listed by script id in
+  the level labels, not run
+
 ## WaterProxy and WaterDecal
 
 the mesh renderer skips the map02 river meshes that carry

@@ -238,8 +238,10 @@ export class WaterRenderer {
 		textures: TextureStore;
 		/** the sun as the water column takes it: `Environment.sunRaw` */
 		sun: Vec3;
+		/** per water volume, metres its surface sits above where it was packed */
+		volumeOffsets: Float32Array;
 	}): void {
-		const { eye, planes, stream, geometries, textures, sun } = input;
+		const { eye, planes, stream, geometries, textures, sun, volumeOffsets } = input;
 		const table = this.#table;
 		this.clear();
 		if (table === null) {
@@ -256,7 +258,11 @@ export class WaterRenderer {
 			if (entry?.status !== 'ready') {
 				continue;
 			}
-			const { min, max } = surface.bounds;
+			// a water volume's surface rises and falls with its fill
+			const lift = surface.volume === null ? 0 : (volumeOffsets[surface.volume] ?? 0);
+			const { min: packedMin, max: packedMax } = surface.bounds;
+			const min: Vec3 = [packedMin[0], packedMin[1] + lift, packedMin[2]];
+			const max: Vec3 = [packedMax[0], packedMax[1] + lift, packedMax[2]];
 			const dx = Math.max(min[0] - eye[0], 0, eye[0] - max[0]);
 			const dz = Math.max(min[2] - eye[2], 0, eye[2] - max[2]);
 			const item = stream.want(entry.blob, PRIORITY / (1 + Math.hypot(dx, dz)));
@@ -270,7 +276,7 @@ export class WaterRenderer {
 				data[at + r * 4] = t[r * 4];
 				data[at + r * 4 + 1] = t[r * 4 + 1];
 				data[at + r * 4 + 2] = t[r * 4 + 2];
-				data[at + r * 4 + 3] = t[r * 4 + 3] - eye[r];
+				data[at + r * 4 + 3] = t[r * 4 + 3] + (r === 1 ? lift : 0) - eye[r];
 			}
 			data.set(resident.positionOffset, at + 12);
 			words[at + 15] = surface.config;

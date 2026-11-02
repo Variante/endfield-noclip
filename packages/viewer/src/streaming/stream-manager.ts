@@ -72,7 +72,7 @@ export interface ResidentInstances {
 	/** (chain, first, count) runs */
 	runs: Uint32Array;
 	/** the rows as uploaded, kept for CPU-side LOD selection */
-	rowsF32: Float32Array;
+	rowsF32: Float32Array<ArrayBuffer>;
 	/** per-row cull data, see {@link InstanceRows.cull} */
 	cull: Float32Array;
 }

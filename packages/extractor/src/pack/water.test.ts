@@ -5,7 +5,52 @@ import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import type { Bounds } from '@endfield-noclip/package-format/values';
 import type { WaterGlobal, WaterTable } from '@endfield-noclip/package-format/water';
 
-import { finishWater, sectorsOverlapping, selectSurfaces, type WaterPlan } from './water.ts';
+import type { LevelWaterVolume } from '../game/water-volumes.ts';
+
+import { finishWater, sectorsOverlapping, selectSurfaces, volumeEntry, type WaterPlan } from './water.ts';
+
+describe('volumeEntry', () => {
+	// Suiming's receding pit: authored half full, scripts snap it and move it down at their own speeds
+	const volume: LevelWaterVolume = {
+		id: '46300000002',
+		levelId: 'indie_dg016',
+		levelTag: 0,
+		pivot: [79.57, 51.187, -43.87],
+		points: [
+			[0, 0],
+			[1, 0],
+			[0, 1],
+		],
+		heightMax: 110,
+		fraction: 0.5,
+		amountMax: 100,
+		fillSpeed: 0.11,
+		configHash: 1n,
+		source: 'indie_dg016_lv_data.json#46300000002',
+	};
+
+	it('merges the authored fill with script fills, taking the speed scripts move it at', () => {
+		const entry = volumeEntry(
+			volume,
+			[7, 8],
+			[
+				{ volume: volume.id, script: '13', kind: 'fraction', value: 0.5, smooth: false, speed: null },
+				{ volume: volume.id, script: '13', kind: 'fraction', value: 0.37, smooth: true, speed: 0.1192 },
+				{ volume: volume.id, script: '13', kind: 'fraction', value: 0.37, smooth: false, speed: null },
+				{ volume: volume.id, script: '2', kind: 'amount', value: 8, smooth: true, speed: null },
+				{ volume: 'other', script: '2', kind: 'fraction', value: 0.9, smooth: false, speed: null },
+			],
+		);
+		assert.equal(entry.base, 51.187);
+		assert.equal(entry.initial, 0.5);
+		assert.deepEqual(entry.floaters, [7, 8]);
+		assert.deepEqual(entry.levels, [
+			{ fraction: 0.08, speed: 0.11, label: 'moved to by script 2' },
+			{ fraction: 0.37, speed: 0.1192, label: 'moved to by script 13; set by script 13' },
+			{ fraction: 0.5, speed: 0.11, label: 'authored; set by script 13' },
+		]);
+	});
+});
 
 const surface = (levelTag: number, x: number, z: number, extent = 1): { levelTag: number; bounds: Aabb } => ({
 	levelTag,
@@ -67,6 +112,7 @@ describe('finishWater', () => {
 			},
 			configs: [],
 			surfaces: [],
+			volumes: [],
 		};
 		const plan: WaterPlan = {
 			surfaceOwners: [],
@@ -74,6 +120,7 @@ describe('finishWater', () => {
 			textures: [],
 			debug: {
 				surfaces: { scene: 0, packed: 0 },
+				volumes: { scene: 0, packed: 0 },
 				global: null,
 				sectors: { scene: 2, packed: 2 },
 				rows: [],
@@ -104,16 +151,17 @@ describe('finishWater', () => {
 	it('passes a table without global water through', () => {
 		const plan: WaterPlan = {
 			surfaceOwners: [],
-			table: { global: null, configs: [], surfaces: [] },
+			table: { global: null, configs: [], surfaces: [], volumes: [] },
 			textures: [],
 			debug: {
 				surfaces: { scene: 3, packed: 0 },
+				volumes: { scene: 0, packed: 0 },
 				global: null,
 				sectors: { scene: 0, packed: 0 },
 				rows: [],
 				errors: [],
 			},
 		};
-		assert.deepEqual(finishWater(plan, []), { global: null, configs: [], surfaces: [] });
+		assert.deepEqual(finishWater(plan, []), { global: null, configs: [], surfaces: [], volumes: [] });
 	});
 });

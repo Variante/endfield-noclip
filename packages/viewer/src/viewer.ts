@@ -38,7 +38,14 @@ import {
 import { type Environment, deriveEnvironment } from './render/environment.ts';
 import { DEBUG_VIEWS, type DebugView, FRAME_UNIFORM_BYTES, FrameOffsets } from './render/frame-uniforms.ts';
 import { InstanceRenderer } from './render/instance-renderer.ts';
-import { markBillboardRows, RowKind, type RowKinds, type TierSpan } from './render/instance-rows.ts';
+import {
+	markBillboardRows,
+	ROW_BYTES,
+	ROW_WORDS,
+	RowKind,
+	type RowKinds,
+	type TierSpan,
+} from './render/instance-rows.ts';
 import { IrradianceVolume } from './render/irradiance-volume.ts';
 import { lensFlareLook } from './render/lens-flare-layout.ts';
 import { LocalLights } from './render/local-lights.ts';
@@ -51,6 +58,7 @@ import { SETTLE_FRAMES } from './render/temporal-aa.ts';
 import { PAGE_SIDE, SURFACE_BORDER, SURFACE_SIDE, TerrainRenderer } from './render/terrain-renderer.ts';
 import { type TextureBinding, TextureStore, placeholderView } from './render/texture-store.ts';
 import { VolumetricFog } from './render/volumetric-fog.ts';
+import { WaterLevels, type WaterVolumeState } from './render/water-levels.ts';
 import { WaterRenderer } from './render/water-renderer.ts';
 import { wetnessParams } from './render/wetness.ts';
 import { Camera, type Vec3 } from './scene/camera.ts';
@@ -123,6 +131,11 @@ export interface ViewerOptions {
 	/** animate flow noise on rendered frames; disabling freezes its time */
 	flowNoisePlaying: boolean;
 	water: boolean;
+	/**
+	 * how many times faster than the game water volumes move between levels; `Infinity` jumps (see
+	 * {@link Viewer.setWaterLevel})
+	 */
+	waterLevelRate: number;
 	ao: boolean;
 	/** screen-space reflections, as on puddles, wet floors and metal */
 	reflections: boolean;
@@ -177,6 +190,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	flowNoise: true,
 	flowNoisePlaying: true,
 	water: true,
+	waterLevelRate: 1,
 	ao: true,
 	reflections: true,
 	bloom: true,
@@ -337,6 +351,7 @@ export class Viewer {
 	/** the loaded package's irradiance volume; an empty one without a package */
 	#irradiance: IrradianceVolume;
 	#water: WaterRenderer;
+	#waterLevels = new WaterLevels();
 	/** the shown level's look */
 	#environment: Environment = deriveEnvironment(null);
 	/** the nebula and planets of {@link #environment}'s profile */
@@ -520,7 +535,11 @@ export class Viewer {
 				uploadInstances: (decoded) => {
 					// the decode worker doesn't hold the chains
 					markBillboardRows(decoded, pkg.chains);
-					return this.#instances.upload(decoded);
+					const resident = this.#instances.upload(decoded);
+					if (resident !== null) {
+						this.#waterLevels.track(resident, decoded.entityIds);
+					}
+					return resident;
 				},
 				uploadGeometry: (blob, decoded) => this.#meshes.upload(blob, decoded),
 				uploadTexture: (blob, decoded) => textures.upload(blob, decoded),
@@ -545,6 +564,7 @@ export class Viewer {
 						}
 						case 'instances': {
 							particles.release(resident);
+							this.#waterLevels.untrack(resident);
 							this.#instances.release(resident);
 							break;
 						}
@@ -633,6 +653,7 @@ export class Viewer {
 		this.#level = showable.find((level) => level.id === initialLevel) ?? showable[0] ?? null;
 		this.#post.autoExposure.reset();
 		this.#water.setTable(pkg.water);
+		this.#waterLevels.setVolumes(pkg.water.volumes);
 		this.#lights.setLights(pkg.lights.lights);
 		this.#updateVisibility();
 		this.#applyEnvironment();
@@ -676,6 +697,7 @@ export class Viewer {
 		this.#fades.reset();
 		this.#setIrradiance(new IrradianceVolume(this.#gfx.device, EMPTY_IRRADIANCE, []));
 		this.#water.setTable(null);
+		this.#waterLevels.setVolumes([]);
 		this.#lights.setLights([]);
 		this.#terrain.setSplat(null);
 		this.#level = null;
@@ -1219,9 +1241,28 @@ export class Viewer {
 		this.#emitState();
 	}
 
+	/** @returns every gameplay water volume of the package, with its fill now and the fill it's moving to */
+	get waterVolumes(): WaterVolumeState[] {
+		return this.#waterLevels.states;
+	}
+
+	/**
+	 * moves a water volume towards one of its levels, at the speed the game moves it there times
+	 * {@link ViewerOptions.waterLevelRate}
+	 *
+	 * @param index the volume, in {@link waterVolumes}
+	 * @param fraction one of its levels' fills
+	 */
+	setWaterLevel(index: number, fraction: number): void {
+		this.#waterLevels.setTarget(index, fraction, !Number.isFinite(this.options.waterLevelRate));
+		this.#dirty = true;
+		this.#emitState();
+	}
+
 	/** restores scene control and environment preview defaults for the current package */
 	resetSceneValues(): void {
 		this.#scenePicks = {};
+		this.#waterLevels.reset();
 		this.options.environmentEnabled = {};
 		this.options.environmentPin = null;
 		this.#fades.reset();
@@ -1404,6 +1445,14 @@ export class Viewer {
 		this.#frameSpans.clear();
 
 		const moved = this.controls.update(dt) || this.#settleFirstPose();
+		const watered = this.#waterLevels.update(dt, this.options.waterLevelRate);
+		this.#waterLevels.applyFloaters((resident, row) =>
+			this.#instances.writeRows(
+				resident.alloc.start + row,
+				new Uint32Array(resident.rowsF32.buffer, row * ROW_BYTES, ROW_WORDS),
+				1,
+			),
+		);
 		this.#followStreamAreas();
 		const resized = this.#targets.update();
 		this.#blendEnvironment(false, dt);
@@ -1416,6 +1465,7 @@ export class Viewer {
 		const changed =
 			this.#dirty ||
 			moved ||
+			watered ||
 			resized ||
 			options.continuous ||
 			compiled ||
@@ -1546,6 +1596,7 @@ export class Viewer {
 				geometries: scene.pkg.geometries.entries,
 				textures: scene.textures,
 				sun: this.#environment.sunRaw,
+				volumeOffsets: this.#waterLevels.offsets,
 			});
 		} else {
 			this.#water.clear();

@@ -12,6 +12,49 @@ export interface WaterTable {
 	/** surface configs, deduplicated; {@link WaterSurfaceEntry.config} indexes this list */
 	configs: WaterConfigEntry[];
 	surfaces: WaterSurfaceEntry[];
+	/** gameplay water volumes; their surfaces are in {@link surfaces}, naming them by {@link WaterSurfaceEntry.volume} */
+	volumes: WaterVolumeEntry[];
+}
+
+/**
+ * a gameplay water volume (LevelData `waterVolumes`): a polygon of water whose surface level scripts raise and
+ * lower. its surface sits at `base + heightMax · fraction`; its {@link WaterSurfaceEntry} is packed at
+ * {@link initial}, and a viewer moves it and the volume's {@link floaters} vertically by the difference
+ */
+export interface WaterVolumeEntry {
+	/** the game's id, decimal */
+	id: string;
+	/** the volume's floor, world y */
+	base: number;
+	/** metres from {@link base} to a full volume */
+	heightMax: number;
+	/** the fill (0–1) the level authors it at, before any script runs */
+	initial: number;
+	/** metres per second the surface moves at between fills, as scripts move it */
+	fillSpeed: number;
+	/**
+	 * fills the scene's level scripts set the volume to, ascending and deduplicated, each with what sets it;
+	 * {@link initial} is always listed
+	 */
+	levels: WaterVolumeLevel[];
+	/**
+	 * instance rows (by `InstanceBlock.entityIds`) of interactives that float on the volume: they follow its
+	 * surface up and down
+	 */
+	floaters: number[];
+}
+
+/** a fill a water volume can be at */
+export interface WaterVolumeLevel {
+	/** 0–1 of {@link WaterVolumeEntry.heightMax} */
+	fraction: number;
+	/**
+	 * metres per second the surface moves at on its way here: the speed a script sets before moving it here,
+	 * else {@link WaterVolumeEntry.fillSpeed}
+	 */
+	speed: number;
+	/** what sets it, e.g. "authored", "scripts 46300000013 (moves here)" */
+	label: string;
 }
 
 /**
@@ -165,4 +208,6 @@ export interface WaterSurfaceEntry {
 	 * the ground around it); see `docs/game-data/water.md#placements-initchunkdata-component-30`
 	 */
 	param1: Vec4;
+	/** index into {@link WaterTable.volumes} for a water volume's surface, `null` for a placed surface */
+	volume: number | null;
 }

@@ -1,7 +1,79 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { syntheticMesh } from './synthetic-mesh.ts';
+import { syntheticMesh, syntheticMeshKey, triangulatePolygon } from './synthetic-mesh.ts';
+
+/** the area of triangles over x, z points, and whether each is a front face seen from +y */
+const triangleStats = (points: readonly (readonly [number, number])[], indices: readonly number[]) => {
+	let area = 0;
+	let allUp = true;
+	for (let t = 0; t < indices.length; t += 3) {
+		const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]].map((i) => points[i]);
+		const cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+		area += Math.abs(cross) / 2;
+		// as the cube's +y face is wound
+		allUp &&= cross > 0;
+	}
+	return { area, allUp };
+};
+
+describe('triangulatePolygon', () => {
+	// an L: 3 × 3 minus its 2 × 2 top-right corner, area 5
+	const ell: [number, number][] = [
+		[0, 0],
+		[3, 0],
+		[3, 1],
+		[1, 1],
+		[1, 3],
+		[0, 3],
+	];
+
+	it('covers a concave outline with front faces up, in either winding', () => {
+		for (const points of [ell, ell.toReversed()]) {
+			const indices = triangulatePolygon(points);
+			assert.equal(indices.length, (points.length - 2) * 3);
+			const { area, allUp } = triangleStats(points, indices);
+			assert.equal(area, 5);
+			assert.ok(allUp);
+		}
+	});
+
+	it('skips collinear corners', () => {
+		const points: [number, number][] = [
+			[0, 0],
+			[1, 0],
+			[2, 0],
+			[2, 2],
+			[0, 2],
+		];
+		const { area, allUp } = triangleStats(points, triangulatePolygon(points));
+		assert.equal(area, 4);
+		assert.ok(allUp);
+	});
+});
+
+describe('syntheticMeshKey', () => {
+	it('tells polygons apart by their points', () => {
+		const a = syntheticMeshKey({
+			kind: 'polygon',
+			points: [
+				[0, 0],
+				[1, 0],
+				[0, 1],
+			],
+		});
+		const b = syntheticMeshKey({
+			kind: 'polygon',
+			points: [
+				[0, 0],
+				[2, 0],
+				[0, 1],
+			],
+		});
+		assert.notEqual(a, b);
+		assert.equal(syntheticMeshKey('cube'), 'synthetic:cube');
+	});
+});
 
 describe('syntheticMesh', () => {
 	it('makes a closed unit cube with outward face normals', () => {

@@ -18,6 +18,7 @@ import { volumeCondition, volumeLevelTag, volumeReaches } from '../render/enviro
 import type { Viewer } from '../viewer.ts';
 
 import { useViewerState } from './use-viewer.ts';
+import { WaterLevels } from './water-levels.tsx';
 
 /** panel sections in order, each listing the controls of its kinds */
 const SECTIONS: { kinds: SceneControlKind[]; title: string; note: string | null; open: boolean }[] = [
@@ -493,6 +494,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 					</details>
 				);
 			})}
+			<WaterLevels viewer={viewer} matches={matches} />
 			<details>
 				<summary>Lighting / environment volumes ({volumes.length})</summary>
 				<p className="muted small">A pinned phase overrides these.</p>

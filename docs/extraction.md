@@ -333,6 +333,16 @@ bound to surfaces by asset key, never by the config's `materialIndex` (see
 `(x, z)` from its path (`…/Sector/T_<x>_<z>.asset`) rather than from its array index, and turns the
 signed `sectorDataAssetHashes` entry into an unsigned 64-bit key.
 
+[water volumes](game-data/water.md#water-volumes) come from LevelData, decoded whole through the
+MemoryPack schema rather than by `readLevelInteractives`' prefix reader, since `waterVolumes` lies
+past the interactives in the serialized order:
+[water-volumes.ts](../packages/extractor/src/game/water-volumes.ts) reads each volume and the
+interactives whose component 39 names one (the floaters), skipping a file the schema can't decode
+whole (only Dijiang's two, whose spaceship data holds a tuple the schema has no wrapper for).
+[water-volume-scripts.ts](../packages/extractor/src/game/water-volume-scripts.ts) collects the
+constant fills the scene's level scripts set volumes to, with the fill speed set just before a
+smooth move.
+
 for inspection without packing, `water surfaces|census|config` dumps placements, counts per level,
 chunk file, mask, mesh and config, and single config assets
 ([commands/water.ts](../packages/extractor/src/commands/water.ts)). how `pack` turns surfaces into

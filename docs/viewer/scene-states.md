@@ -48,6 +48,8 @@ panel:
 - **script / event scenery**, **logic-gate previews**: checkboxes, or "Follow game (on/off)" for a
   script group derived from its scripts' quest checks; a script group lists its drivers ("Shown when
   the player uses …", "Hidden by quest progress: …"), with "Go" flying to a driver's place
+- **water levels**: a select per gameplay water volume of the fills scripts set it to
+  ([water volumes](water.md#water-volumes))
 - **lighting / environment volumes**: volumes owned by the shown level or reaching into it. a volume
   follows its scene-state condition unless ticked or unticked here, which overrides it.
   scripted-blend volumes (blend mode 3) are off unless ticked. packed volumes carry

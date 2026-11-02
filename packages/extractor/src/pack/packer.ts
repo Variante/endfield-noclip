@@ -106,6 +106,8 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { describeCondition, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { readScriptWaterLevels } from '../game/water-volume-scripts.ts';
+import { readWaterVolumes } from '../game/water-volumes.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
@@ -161,7 +163,7 @@ import { ParticleTable } from './particles.ts';
 import { PhaseTimer } from './phase-timer.ts';
 import { packTerrain as packTerrainStep } from './terrain.ts';
 import { TileTreeBuilder } from './tile-tree.ts';
-import { finishWater, planWater, type WaterDebug, type WaterPlan } from './water.ts';
+import { finishWater, planWater, type WaterDebug, type WaterPlan, type WaterVolumeInput } from './water.ts';
 
 // #region options and report
 
@@ -210,7 +212,7 @@ export interface PackReport {
 	/** environment profiles, the textures they reference, and what each level resolved to */
 	environments: { profiles: number; textures: number; levels: LevelEnvironmentDebug[] };
 	/** water surfaces in the scene and packed, configs, the global config's name, sectors and maps */
-	water: Pick<WaterDebug, 'surfaces' | 'global' | 'sectors'> & {
+	water: Pick<WaterDebug, 'surfaces' | 'volumes' | 'global' | 'sectors'> & {
 		configs: number;
 		textures: number;
 		/** assets that failed to load, listed in `debug/water.json` */
@@ -346,6 +348,8 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 		const terrainPacked = await packTerrain(context, pack);
 		timer.end('terrain');
 
+		const scriptWater = await readScriptWaterLevels(context, options.scene);
+		entities.counts.waterScriptsUndecoded = scriptWater.undecoded;
 		// independent; only water interns geometries, so ids stay deterministic
 		const [environments, water] = await Promise.all([
 			planEnvironments(
@@ -364,6 +368,13 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 					pack.uses.noteGeometry(id, null);
 					return id;
 				},
+				syntheticGeometry: (mesh) => {
+					const id = pack.geometries.internSynthetic(mesh);
+					pack.uses.noteGeometry(id, null);
+					return id;
+				},
+				volumes: entities.waterVolumes,
+				scriptLevels: scriptWater.levels,
 				placeSector: (rect) =>
 					tileAt(scene.grid, scene.grid.shardLevel, (rect.minX + rect.maxX) / 2, (rect.minZ + rect.maxZ) / 2),
 			}),
@@ -516,6 +527,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			},
 			water: {
 				surfaces: water.debug.surfaces,
+				volumes: water.debug.volumes,
 				configs: water.table.configs.length,
 				global: water.debug.global,
 				sectors: water.debug.sectors,
@@ -671,6 +683,11 @@ const collectEntities = async (
 	placedVolumes: SceneEnvironmentVolume[];
 	/** Dijiang's cabin slots, with the group that shows their built cabin */
 	cabinRooms: CabinRoomGroup[];
+	/**
+	 * gameplay water volumes, the entity ids of the instance rows floating on each (by volume id), and the
+	 * LevelData files they couldn't be read from
+	 */
+	waterVolumes: WaterVolumeInput;
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1153,6 +1170,25 @@ const collectEntities = async (
 			{ path: standIn.source, name: standIn.template, reason: standIn.reason },
 		);
 	}
+	const waterVolumes = await readWaterVolumes(
+		context,
+		scene.options.scene,
+		scene.options.level,
+		scene.partition,
+	);
+	counts.waterVolumes = waterVolumes.volumes.length;
+	/** by floating interactive's level logic id, its volume's id */
+	const floaterVolume = new Map<string, string>();
+	{
+		const known = new Set(waterVolumes.volumes.map(({ id }) => id));
+		for (const { id, volume } of waterVolumes.floaters) {
+			if (known.has(volume)) {
+				floaterVolume.set(id, volume);
+			}
+		}
+	}
+	/** by volume id, the entity ids of its floaters' instance rows */
+	const floaterRows = new Map<string, number[]>();
 	const cabins = await loadCabins(context, dynamic.slots, scene.partition);
 	counts.cabinSlots = cabins.rooms.length;
 	{
@@ -1199,6 +1235,14 @@ const collectEntities = async (
 			continue;
 		}
 		const { pose } = placement;
+		/** the rows of an interactive placement that floats on a water volume */
+		let floating: number[] | undefined;
+		if (placement.source.startsWith('Data/Json/LevelData/')) {
+			const volume = floaterVolume.get(placement.source.slice(placement.source.lastIndexOf('#') + 1));
+			if (volume !== undefined) {
+				floating = floaterRows.getOrInsertComputed(volume, () => []);
+			}
+		}
 		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}`, async () => {
 			const paths = unique(
 				resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
@@ -1326,12 +1370,14 @@ const collectEntities = async (
 			if (draws.length === 0) {
 				continue;
 			}
+			const entityId = syntheticEntityId(levelTag, modelId++);
+			floating?.push(entityId);
 			addStructure(
 				{
 					chain: pack.chains.intern(1, draws, renderer.billboard?.flag ?? 0),
 					matrix,
 					bounds,
-					entityId: syntheticEntityId(levelTag, modelId++),
+					entityId,
 				},
 				levelTag,
 				renderer.name,
@@ -1373,6 +1419,7 @@ const collectEntities = async (
 			position,
 			roomType,
 		})),
+		waterVolumes: { volumes: waterVolumes.volumes, floaterRows, unsupported: waterVolumes.unsupported },
 	};
 };
 
@@ -1437,7 +1484,8 @@ const gateByScene = (
 	}
 	for (const [i, surface] of water.table.surfaces.entries()) {
 		const { levelTag, sources } = water.surfaceOwners[i];
-		surface.group = collected.groupOfSources(levelTag, sources);
+		surface.group =
+			sources === null ? collected.group(levelTag, null) : collected.groupOfSources(levelTag, sources);
 	}
 	const lightsTable = lights.finish(
 		(levelTag, sources) => collected.groupOfSources(levelTag, sources),

@@ -328,7 +328,7 @@ const handle = (request: DecodeRequest): { response: DecodeResponse; transfer: T
 			const built = buildInstanceRows(decodeInstanceBlock(raw), request.rowKinds);
 			return {
 				response: { id: request.id, kind: 'instances', ...built },
-				transfer: [built.rows.buffer, built.cull.buffer, built.runs.buffer],
+				transfer: [built.rows.buffer, built.cull.buffer, built.runs.buffer, built.entityIds.buffer],
 			};
 		}
 		case 'geometry': {
