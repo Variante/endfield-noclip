@@ -8,6 +8,7 @@
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
+import { describeLightBeam, describeMistCard, describeMistVolume } from './material-effects.ts';
 import {
 	describeDithered,
 	describeErosion,
@@ -15,7 +16,7 @@ import {
 	describeMattePainting,
 	LIT_FAMILIES,
 } from './material-surfaces.ts';
-import { type MaterialValues, readerOf } from './material-values.ts';
+import { type MaterialValues, readerOf, unsupported } from './material-values.ts';
 
 /**
  * shader families drawn only through effect looks of their own (fog volumes, light beams, effects, projected
@@ -67,6 +68,17 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 		}
 		case 'erosion': {
 			return describeErosion(reader);
+		}
+		case 'fogSimple': {
+			return describeMistCard(reader);
+		}
+		case 'vfxFakeVolumeFog': {
+			return shader.name === 'HGRP/Effect/VFXFakeVolumeFog'
+				? describeMistVolume(reader)
+				: unsupported('the viewer has no look for this shader');
+		}
+		case 'volumetricBeam': {
+			return describeLightBeam(reader);
 		}
 		case 'vfxDitherAlpha': {
 			// the effect variants (a distortion, dissolve, mask or polar or screen UVs) still draw as legacy effects

@@ -4,7 +4,10 @@
  */
 
 import type { ReadyMaterial, ShaderEntry, TextureSlot } from '@endfield-noclip/package-format/materials';
-import type { Rgb } from '@endfield-noclip/package-format/surfaces';
+import type { Rgb, UnsupportedSurface } from '@endfield-noclip/package-format/surfaces';
+
+/** @returns an unsupported surface for `reason` */
+export const unsupported = (reason: string): UnsupportedSurface => ({ kind: 'unsupported', reason });
 
 /** a converted material's values: its overrides of its shader's defaults, slots and render state */
 export type MaterialValues = Omit<ReadyMaterial, 'id' | 'status' | 'surface'>;

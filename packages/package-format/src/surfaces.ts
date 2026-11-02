@@ -19,7 +19,13 @@ export type MaterialSurface =
 	| LitSurface
 	| MattePaintingSurface
 	| ErosionSurface
-	| DitheredSurface;
+	| DitheredSurface
+	| MistCardSurface
+	| MistVolumeSurface
+	| LightBeamSurface;
+
+/** an RGBA colour */
+export type Rgba = [r: number, g: number, b: number, a: number];
 
 /** a texture sampled on UV set 0, tiled by a scale of its own in place of its `_ST` */
 export interface TiledTexture {
@@ -406,3 +412,112 @@ export interface ErosionSurface {
 		roughness: number;
 	};
 }
+
+// #region mist and beams
+
+/** a fade between two view depths in metres, the ends at least 1e-4 apart */
+export type FadeRange = [start: number, end: number];
+
+/** `HGRP/FogSimple`, a mist card (`docs/game-data/effects.md#mist`) */
+export interface MistCardSurface {
+	kind: 'mistCard';
+	main: TextureSlot;
+	noise: TextureSlot;
+	/** HDR, as stored, with its alpha */
+	color: Rgba;
+	baseAlphaIntensity: number;
+	noiseIntensity: number;
+	/** 1 when the wind moves the noise */
+	useWind: number;
+	wind: {
+		noiseIntensity: number;
+		noiseContrast: number;
+		/** the wind noise's UV scale in u and v */
+		scale: [u: number, v: number];
+		speed: number;
+		direction: [x: number, y: number];
+	};
+	/** lit by the mesh normal (`_USE_LIGHTING` and `_UseLighting`) */
+	lit: boolean;
+	lightFactor: number;
+	/** HDR, as stored */
+	indirectColor: Rgb;
+	/** additive rather than premultiplied */
+	additive: boolean;
+	distanceFade: FadeRange;
+	nearFade: FadeRange;
+	topFade: { contrast: number; offset: number };
+	/** the soft blend's distance, 0 without `_USE_SOFTBLEND` */
+	softDistance: number;
+}
+
+/** `HGRP/Effect/VFXFakeVolumeFog`, an additive mist box (`docs/game-data/effects.md#mist`) */
+export interface MistVolumeSurface {
+	kind: 'mistVolume';
+	/** linear, with the alpha times `_TintColorAlpha` */
+	color: Rgba;
+	exponent: number;
+	density: number;
+	edgeFade: number;
+	/** the fade towards the camera's distance, 0 for boxes the player walks into */
+	nearFade: number;
+	height: { offset: number; falloff: number; verticalFalloff: [min: number, max: number] };
+	intensityFadeDistance: number;
+	/** 1 to measure the intensity fade from the box's centre */
+	intensityFadeFromCentre: number;
+	depth: [start: number, end: number];
+	ignorePostExposure: number;
+	/** `_USE_NOISE3D`'s noise, `null` without it */
+	noise: {
+		/** a 3D texture */
+		texture: number;
+		tiling: [x: number, y: number, z: number];
+		/** 1 to sample it at the world position, else the box's */
+		world: number;
+		/** scroll per second */
+		flow: [x: number, y: number, z: number];
+		nearIntensity: number;
+		farIntensity: number;
+		/** towards far, per metre */
+		farPerMetre: number;
+	} | null;
+}
+
+/** `Hidden/VLB_*`, a volumetric light beam on its cone (`docs/game-data/lighting.md#light-beams`) */
+export interface LightBeamSurface {
+	kind: 'lightBeam';
+	/** linear, with its alpha */
+	color: Rgba;
+	/** `_ConeParams0`: start and end radius, the side's normal (cosine and sine of the half angle) */
+	cone: Rgba;
+	/** `_ConeParams1`: the direction xyz, 1 when the start cap is drawn */
+	direction: Rgba;
+	/** `_DistanceFallOff`: attenuation start and end, length, fade-in length */
+	falloff: Rgba;
+	alphaInside: number;
+	alphaOutside: number;
+	attenuationLerp: number;
+	fresnelPower: number;
+	glareFrontal: number;
+	glareBehind: number;
+	/** the apex's offset behind the start (`_ConeGeomProps`) */
+	apexOffset: number;
+	/** additive (one, one) rather than alpha-blended */
+	additive: boolean;
+	distanceFade: FadeRange;
+	distanceFadeSecond: FadeRange;
+	/** the near camera fade's length */
+	cameraClipping: number;
+	/** the depth blend distance, 0 without `VLB_DEPTH_BLEND` */
+	depthBlend: number;
+	depthBlendCapOff: number;
+	useClippingPlane: number;
+	/** world-space normal, offset */
+	clippingPlane: Rgba;
+	tilt: [x: number, y: number];
+	clippingPlaneTransition: number;
+	/** drawn without fog (no `VLB_USE_FOG`) */
+	unfogged: boolean;
+}
+
+// #endregion

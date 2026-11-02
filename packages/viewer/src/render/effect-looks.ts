@@ -5,6 +5,11 @@ import {
 	type ShaderEntry,
 	type TextureSlot,
 } from '@endfield-noclip/package-format/materials';
+import type {
+	LightBeamSurface,
+	MistCardSurface,
+	MistVolumeSurface,
+} from '@endfield-noclip/package-format/surfaces';
 
 import { linearRgb } from './color.ts';
 
@@ -1505,151 +1510,46 @@ export const MistRow = {
 /** the slot index of a card's noise texture; its main texture is slot 0 */
 export const MIST_NOISE_SLOT = 1;
 
-/**
- * card keywords that are drawn. `_USE_LIGHTING` lights by the mesh normal rather than the game's normal map,
- * and `_USE_FOG`'s own fog isn't drawn (premultiplied cards take the composite's fog, additive ones none)
- */
-const FOG_SIMPLE_KEYWORDS = new Set(['_USE_FOG', '_USE_SOFTBLEND', '_USE_LIGHTING']);
+const STILL = { speed: [0, 0], cos: 1, sin: 0 };
 
-/** a fade between two view depths that also works with equal ends (then a step at the start) */
-const fadeRange = (start: number, end: number): [number, number] =>
-	Math.abs(end - start) < 1e-4 ? [start, start + 1e-4] : [start, end];
-
-/**
- * `HGRP/FogSimple`, the mist cards (`docs/game-data/effects.md#mist`).
- *
- * @param entry a material of `HGRP/FogSimple`
- * @param shader its shader
- * @returns its mist look, or `null` when it uses features that aren't drawn
- */
-export const fogSimpleLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	if (
-		(entry.blend !== 'premultiplied' && entry.blend !== 'additive') ||
-		entry.keywords.some((keyword) => !FOG_SIMPLE_KEYWORDS.has(keyword))
-	) {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
+/** a mist card ({@link MistCardSurface}): its main texture in slot 0, its noise in {@link MIST_NOISE_SLOT} */
+export const mistCardLook = (card: MistCardSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	for (const [i, name] of ['_MainTex', '_NoiseTex'].entries()) {
-		const slot = entry.slots[name];
-		if (slot === undefined || slot.uv > 1) {
-			return null;
-		}
-		setSlot(look, i, slot, { speed: [0, 0], cos: 1, sin: 0 }, ROLE_NONE);
-	}
-	// `_BaseColor` and `_IndirectColor` are [HDR]: authored linear, used as stored
-	const base = color('_BaseColor') ?? [1, 1, 1, 1];
-	params.set(base, MistRow.color);
-	params.set(
-		[
-			float('_BaseAlphaIntensity', 1),
-			float('_FogNoiseIntensity', 0),
-			float('_UseWind', 0),
-			float('_WindNoiseIntensity', 0),
-		],
-		MistRow.card,
-	);
-	const separate = float('_UseSeparateScale', 0) !== 0;
-	const windScale = float('_WindScale', 1);
-	params.set(
-		[
-			float('_WindNoiseContrast', 0),
-			windScale * (separate ? float('_WindScaleX', 1) : 1),
-			windScale * (separate ? float('_WindScaleY', 1) : 1),
-			float('_WindSpeed', 0),
-		],
-		MistRow.wind,
-	);
-	const lit = entry.keywords.includes('_USE_LIGHTING') && float('_UseLighting', 0) !== 0;
-	params.set(
-		[float('_WindDirX', 1), float('_WindDirY', 0), lit ? 1 : 0, float('_LightFactor', 0)],
-		MistRow.light,
-	);
-	const indirect = color('_IndirectColor') ?? [0, 0, 0, 1];
-	params.set([indirect[0], indirect[1], indirect[2], entry.blend === 'additive' ? 1 : 0], MistRow.indirect);
-	params.set(
-		[
-			...fadeRange(float('_DistanceFadeStart', 0), float('_DistanceFadeEnd', 0)),
-			...fadeRange(float('_NearCameraFadeDistanceStart', 0), float('_NearCameraFadeDistanceEnd', 0)),
-		],
-		MistRow.fade,
-	);
-	params.set(
-		[
-			float('_TopFadeContract', 1),
-			float('_TopFadeOffset', 0),
-			entry.keywords.includes('_USE_SOFTBLEND') ? Math.max(float('_SoftDistance', 1), 1e-3) : 0,
-		],
-		MistRow.top,
-	);
+	setSlot(look, 0, card.main, STILL, ROLE_NONE);
+	setSlot(look, MIST_NOISE_SLOT, card.noise, STILL, ROLE_NONE);
+	const { wind } = card;
+	params.set(card.color, MistRow.color);
+	params.set([card.baseAlphaIntensity, card.noiseIntensity, card.useWind, wind.noiseIntensity], MistRow.card);
+	params.set([wind.noiseContrast, ...wind.scale, wind.speed], MistRow.wind);
+	params.set([...wind.direction, card.lit ? 1 : 0, card.lightFactor], MistRow.light);
+	params.set([...card.indirectColor, card.additive ? 1 : 0], MistRow.indirect);
+	params.set([...card.distanceFade, ...card.nearFade], MistRow.fade);
+	params.set([card.topFade.contrast, card.topFade.offset, card.softDistance], MistRow.top);
 	return look;
 };
 
-/**
- * `HGRP/Effect/VFXFakeVolumeFog`, the mist boxes (`docs/game-data/effects.md#mist`), drawn only when
- * additive.
- *
- * @param entry a material of `HGRP/Effect/VFXFakeVolumeFog`
- * @param shader its shader
- * @returns its mist look, or `null` when it can't be drawn
- */
-export const fakeVolumeFogLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	if (entry.blend !== 'additive') {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
+/** a mist box ({@link MistVolumeSurface}), its noise the look's volume texture */
+export const mistVolumeLook = (volume: MistVolumeSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const fog = color('_FogColor') ?? [1, 1, 1, 1];
-	params.set([...linearRgb(fog), fog[3] * float('_TintColorAlpha', 1)], MistRow.color);
-	const walkIn = float('_canWalkIn', 0) !== 0;
+	params.set(volume.color, MistRow.color);
+	params.set([volume.exponent, volume.density, volume.edgeFade, volume.nearFade], MistRow.volume);
 	params.set(
-		[
-			float('_FogExponent', 1),
-			float('_FogDensity', 1),
-			Math.max(float('_CubEdgeFade', 1), 1e-3),
-			walkIn ? 0 : Math.max(float('_NearFadeDistance', 1), 1e-3),
-		],
-		MistRow.volume,
-	);
-	params.set(
-		[
-			float('_HeightOffset', 0),
-			float('_HeightFalloff', 0),
-			float('_VerticalFalloffMin', 0),
-			float('_VerticalFalloffMax', 0),
-		],
+		[volume.height.offset, volume.height.falloff, ...volume.height.verticalFalloff],
 		MistRow.volumeHeight,
 	);
 	params.set(
-		[
-			Math.max(float('_FogIntensityFadeDistance', 1e5), 1e-3),
-			float('_FogIntensityFadeUseCenter', 0),
-			float('_FogDepthStart', 0),
-			float('_FogDepthEnd', 0),
-		],
+		[volume.intensityFadeDistance, volume.intensityFadeFromCentre, ...volume.depth],
 		MistRow.volumeFade,
 	);
-	params[MistRow.misc] = float('_IgnorePostExposure', 1);
-	const noise = entry.slots['_NoiseTex3D'];
-	if (entry.keywords.includes('_USE_NOISE3D') && noise !== undefined) {
+	params[MistRow.misc] = volume.ignorePostExposure;
+	const { noise } = volume;
+	if (noise !== null) {
 		look.volumeTexture = noise.texture;
-		const tiling = color('_NoiseTexTilling1') ?? [1, 1, 1, 1];
-		params.set([tiling[0], tiling[1], tiling[2], float('_NoiseTexUseWorldUVW', 1)], MistRow.volumeNoise);
-		const dir = color('_NoiseUVWDir1') ?? [0, 0, 0, 0];
-		const speed = float('_NoiseUVWSpeed1', 0);
-		params.set([dir[0] * speed, dir[1] * speed, dir[2] * speed], MistRow.volumeNoiseFlow);
-		params.set(
-			[
-				float('_NoiseIntensity', 1),
-				float('_NoiseFarIntensity', 1),
-				0.1 / Math.max(float('_NoiseFar', 1), 1e-3),
-				1,
-			],
-			MistRow.volumeNoiseMix,
-		);
+		params.set([...noise.tiling, noise.world], MistRow.volumeNoise);
+		params.set(noise.flow, MistRow.volumeNoiseFlow);
+		params.set([noise.nearIntensity, noise.farIntensity, noise.farPerMetre, 1], MistRow.volumeNoiseMix);
 	}
 	return look;
 };
@@ -1688,89 +1588,25 @@ export const BeamRow = {
 	tilt: 36,
 } as const;
 
-/**
- * beam keywords that are drawn. `VLB_NOISE_3D`'s noise is left out; under `VLB_USE_FOG`, alpha-blended beams
- * take the composite's fog and additive ones stay unfogged
- */
-const BEAM_KEYWORDS = new Set(['VLB_DEPTH_BLEND', 'VLB_NOISE_3D', 'VLB_USE_FOG']);
-
-/** Unity's `BlendMode` values the beams use */
-const BlendFactor = {
-	One: 1,
-	SrcAlpha: 5,
-	OneMinusSrcAlpha: 10,
-} as const;
-
-/**
- * `Hidden/VLB_*`, the volumetric light beams (`docs/game-data/lighting.md#light-beams`), drawn on their cone
- * mesh.
- *
- * @param entry a material of a `Hidden/VLB_*` shader
- * @param shader its shader
- * @returns its beam look, or `null` when it uses features or blending that aren't drawn
- */
-export const volumetricBeamLook = (entry: ReadyMaterial, shader: ShaderEntry): EffectLook | null => {
-	if (entry.keywords.some((keyword) => !BEAM_KEYWORDS.has(keyword))) {
-		return null;
-	}
-	const { float, color } = readers(entry, shader);
-	const blendMode = float('_BlendMode', 0);
-	const src = float('_BlendSrcFactor', BlendFactor.One);
-	const dst = float('_BlendDstFactor', BlendFactor.One);
-	const additive = blendMode === 1 && src === BlendFactor.One && dst === BlendFactor.One;
-	const blended = blendMode === 0 && src === BlendFactor.SrcAlpha && dst === BlendFactor.OneMinusSrcAlpha;
-	if (!additive && !blended) {
-		return null;
-	}
+/** a volumetric light beam ({@link LightBeamSurface}), drawn on its cone mesh */
+export const lightBeamLook = (beam: LightBeamSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const flat = color('_ColorFlat') ?? [1, 1, 1, 1];
-	params.set([...linearRgb(flat), flat[3]], BeamRow.color);
-	params.set(color('_ConeParams0') ?? [1, 1, 1, 0], BeamRow.cone);
-	params.set(color('_ConeParams1') ?? [0, 0, 1, 0], BeamRow.direction);
-	params.set(color('_DistanceFallOff') ?? [0, 1, 1, 0], BeamRow.falloff);
+	const additive = beam.additive ? 1 : 0;
+	params.set(beam.color, BeamRow.color);
+	params.set(beam.cone, BeamRow.cone);
+	params.set(beam.direction, BeamRow.direction);
+	params.set(beam.falloff, BeamRow.falloff);
+	params.set([beam.alphaInside, beam.alphaOutside, beam.attenuationLerp, beam.fresnelPower], BeamRow.alpha);
+	params.set([beam.glareFrontal, beam.glareBehind, beam.apexOffset, additive], BeamRow.glare);
+	params.set([...beam.distanceFade, ...beam.distanceFadeSecond], BeamRow.fade);
 	params.set(
-		[
-			float('_AlphaInside', 1),
-			float('_AlphaOutside', 1),
-			float('_AttenuationLerpLinearQuad', 0.5),
-			float('_FresnelPow', 1),
-		],
-		BeamRow.alpha,
-	);
-	params.set(
-		[float('_GlareFrontal', 0.5), float('_GlareBehind', 0.5), float('_ConeGeomProps', 0), additive ? 1 : 0],
-		BeamRow.glare,
-	);
-	params.set(
-		[
-			...fadeRange(float('_DistanceFadeStart', 0), float('_DistanceFadeEnd', 1)),
-			...fadeRange(float('_DistanceFadeStartSecond', 0), float('_DistanceFadeEndSecond', 0)),
-		],
-		BeamRow.fade,
-	);
-	params.set(
-		[
-			float('_DistanceCamClipping', 0.5),
-			entry.keywords.includes('VLB_DEPTH_BLEND') ? float('_DepthBlendDistance', 2) : 0,
-			float('_DepthBlendCapOff', 0),
-			float('_UseClippingPlane', 0),
-		],
+		[beam.cameraClipping, beam.depthBlend, beam.depthBlendCapOff, beam.useClippingPlane],
 		BeamRow.clip,
 	);
-	params.set(color('_AdditionalClippingPlaneWS') ?? [0, 1, 0, 0], BeamRow.plane);
-	params.set(
-		[
-			float('_TiltVectorX', 0),
-			float('_TiltVectorY', 0),
-			Math.max(float('_ClippingPlaneTransition', 1), 1e-4),
-		],
-		BeamRow.tilt,
-	);
-	params.set(
-		[entry.keywords.includes('VLB_USE_FOG') ? 0 : 1, EffectKind.Beam, additive ? 1 : 0, 0],
-		EffectRow.unfogged,
-	);
+	params.set(beam.clippingPlane, BeamRow.plane);
+	params.set([...beam.tilt, beam.clippingPlaneTransition], BeamRow.tilt);
+	params.set([beam.unfogged ? 1 : 0, EffectKind.Beam, additive, 0], EffectRow.unfogged);
 	return look;
 };
 

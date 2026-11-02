@@ -22,10 +22,7 @@ import type {
 	UnsupportedSurface,
 } from '@endfield-noclip/package-format/surfaces';
 
-import { linearRgb, type MaterialReader, scaleRgb } from './material-values.ts';
-
-/** @returns an unsupported surface for `reason` */
-export const unsupported = (reason: string): UnsupportedSurface => ({ kind: 'unsupported', reason });
+import { linearRgb, type MaterialReader, scaleRgb, unsupported } from './material-values.ts';
 
 // #region lit
 

@@ -8,6 +8,11 @@ import {
 	type ShaderEntry,
 	type TextureSlot,
 } from '@endfield-noclip/package-format/materials';
+import type {
+	LightBeamSurface,
+	MistCardSurface,
+	MistVolumeSurface,
+} from '@endfield-noclip/package-format/surfaces';
 
 import {
 	BeamRow,
@@ -826,99 +831,82 @@ test('a VFXBaseV2 vertex offset outside particle mode samples its texture in the
 	assert.deepEqual([...look.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 1]);
 });
 
-test('mist: additive FogSimple cards and walk-in fog boxes draw; equal fade ends become a step', () => {
-	const looks = materialLooks({
-		shaders: [shader('HGRP/FogSimple'), shader('HGRP/Effect/VFXFakeVolumeFog')],
-		entries: [
-			material({
-				id: 0,
-				blend: 'additive',
-				keywords: ['_USE_SOFTBLEND'],
-				slots: { _MainTex: slot(1), _NoiseTex: slot(2) },
-				floats: {
-					_BaseAlphaIntensity: 2,
-					_DistanceFadeStart: 0.001,
-					_DistanceFadeEnd: 0.001,
-					_NearCameraFadeDistanceStart: 3000,
-					_NearCameraFadeDistanceEnd: 2500,
-					_SoftDistance: 12,
-				},
-				// Suiming's cave-exit card (`M_fog_indie_dg016_001`)
-				colors: { _BaseColor: [16.07, 19.84, 29.89, 1], _IndirectColor: [0.5, 0.25, 2, 1] },
-			}),
-			material({
-				id: 1,
-				shader: 1,
-				blend: 'additive',
-				keywords: ['_USE_NOISE3D'],
-				slots: { _NoiseTex3D: slot(3) },
-				floats: { _canWalkIn: 1, _NearFadeDistance: 5, _FogDensity: 4 },
-			}),
-			material({
-				id: 2,
-				keywords: ['_USE_SOMETHING_ELSE'],
-				slots: { _MainTex: slot(1), _NoiseTex: slot(2) },
-			}),
-		],
+/** a ready material drawing `surface` */
+const described = (id: number, surface: ReadyMaterial['surface']): ReadyMaterial => material({ id, surface });
+
+test('mist: cards and boxes draw in the mist rows; boxes by their back faces, with their noise as the volume texture', () => {
+	const card: MistCardSurface = {
+		kind: 'mistCard',
+		main: slot(1),
+		noise: slot(2),
+		color: [16.07, 19.84, 29.89, 1],
+		baseAlphaIntensity: 2,
+		noiseIntensity: 0,
+		useWind: 0,
+		wind: { noiseIntensity: 0, noiseContrast: 0, scale: [1, 1], speed: 0, direction: [1, 0] },
+		lit: false,
+		lightFactor: 0,
+		indirectColor: [0.5, 0.25, 2],
+		additive: true,
+		distanceFade: [0.001, 0.0011],
+		nearFade: [3000, 2500],
+		topFade: { contrast: 1, offset: 0 },
+		softDistance: 12,
+	};
+	const box: MistVolumeSurface = {
+		kind: 'mistVolume',
+		color: [1, 1, 1, 1],
+		exponent: 1,
+		density: 4,
+		edgeFade: 1,
+		nearFade: 0,
+		height: { offset: 0, falloff: 0, verticalFalloff: [0, 0] },
+		intensityFadeDistance: 1e5,
+		intensityFadeFromCentre: 0,
+		depth: [0, 0],
+		ignorePostExposure: 1,
+		noise: {
+			texture: 3,
+			tiling: [0.02, 0.02, 0.02],
+			world: 1,
+			flow: [0.5, 0, -0.5],
+			nearIntensity: 0,
+			farIntensity: -0.3,
+			farPerMetre: 0.05,
+		},
+	};
+	const [cardLook, boxLook, plainLook] = materialLooks({
+		shaders: [shader('any')],
+		entries: [described(0, card), described(1, box), described(2, { ...box, noise: null })],
 	});
-	const [card, box] = looks;
-	assert.equal(card.flags, LookFlags.Effect | LookFlags.EffectMist);
-	assert.deepEqual(card.textures.slice(0, 2), [1, 2]);
-	assert.equal(card.params[MistRow.card], 2);
-	// both colours are [HDR], authored linear: as stored, not gamma-decoded
+	assert.equal(cardLook.flags, LookFlags.Effect | LookFlags.EffectMist);
+	assert.deepEqual(cardLook.textures.slice(0, 2), [1, 2]);
+	assert.equal(cardLook.params[MistRow.card], 2);
 	assert.deepEqual(
-		Array.from(card.params.subarray(MistRow.color, MistRow.color + 4), (v) => Number(v.toFixed(2))),
+		Array.from(cardLook.params.subarray(MistRow.color, MistRow.color + 4), (v) => Number(v.toFixed(2))),
 		[16.07, 19.84, 29.89, 1],
 	);
-	assert.deepEqual([...card.params.subarray(MistRow.indirect, MistRow.indirect + 4)], [0.5, 0.25, 2, 1]);
+	assert.deepEqual([...cardLook.params.subarray(MistRow.indirect, MistRow.indirect + 4)], [0.5, 0.25, 2, 1]);
 	assert.deepEqual(
-		Array.from(card.params.subarray(MistRow.fade, MistRow.fade + 4), (v) => Number(v.toFixed(4))),
+		Array.from(cardLook.params.subarray(MistRow.fade, MistRow.fade + 4), (v) => Number(v.toFixed(4))),
 		[0.001, 0.0011, 3000, 2500],
 	);
-	assert.equal(card.params[MistRow.top + 2], 12);
-	assert.equal(box.flags, LookFlags.Effect | LookFlags.EffectMist | LookFlags.EffectDecal);
-	assert.equal(box.cull, 'front');
-	assert.equal(box.params[MistRow.volume + 1], 4);
-	// walk-in boxes skip the close-up fade
-	assert.equal(box.params[MistRow.volume + 3], 0);
-	assert.equal(looks[2].unsupported, true);
-});
-
-test('a fog box with _USE_NOISE3D samples its 3D noise with the far intensity and scroll it sets', () => {
-	const looks = materialLooks({
-		shaders: [shader('HGRP/Effect/VFXFakeVolumeFog')],
-		entries: [
-			material({
-				blend: 'additive',
-				keywords: ['_USE_NOISE3D'],
-				slots: { _NoiseTex3D: slot(3) },
-				floats: { _NoiseIntensity: 0, _NoiseFarIntensity: -0.3, _NoiseFar: 2, _NoiseUVWSpeed1: 0.5 },
-				vectors: { _NoiseTexTilling1: [0.02, 0.02, 0.02, 1], _NoiseUVWDir1: [1, 0, -1, 0] },
-			}),
-			material({ id: 1, blend: 'additive', slots: { _NoiseTex3D: slot(3) } }),
-		],
-	});
-	const [noisy, plain] = looks;
-	assert.equal(noisy.volumeTexture, 3);
+	assert.equal(cardLook.params[MistRow.top + 2], 12);
+	assert.equal(boxLook.flags, LookFlags.Effect | LookFlags.EffectMist | LookFlags.EffectDecal);
+	assert.equal(boxLook.cull, 'front');
+	assert.deepEqual([boxLook.params[MistRow.volume + 1], boxLook.params[MistRow.volume + 3]], [4, 0]);
+	assert.equal(boxLook.volumeTexture, 3);
 	assert.deepEqual(
-		Array.from(noisy.params.subarray(MistRow.volumeNoise, MistRow.volumeNoise + 4), (v) =>
-			Number(v.toFixed(4)),
-		),
-		[0.02, 0.02, 0.02, 1],
-	);
-	assert.deepEqual(
-		[...noisy.params.subarray(MistRow.volumeNoiseFlow, MistRow.volumeNoiseFlow + 3)],
+		[...boxLook.params.subarray(MistRow.volumeNoiseFlow, MistRow.volumeNoiseFlow + 3)],
 		[0.5, 0, -0.5],
 	);
 	assert.deepEqual(
-		Array.from(noisy.params.subarray(MistRow.volumeNoiseMix, MistRow.volumeNoiseMix + 4), (v) =>
+		Array.from(boxLook.params.subarray(MistRow.volumeNoiseMix, MistRow.volumeNoiseMix + 4), (v) =>
 			Number(v.toFixed(4)),
 		),
 		[0, -0.3, 0.05, 1],
 	);
-	// without the keyword the noise texture isn't sampled
-	assert.equal(plain.volumeTexture, -1);
-	assert.equal(plain.params[MistRow.volumeNoiseMix + 3], 0);
+	assert.deepEqual([plainLook.volumeTexture, plainLook.params[MistRow.volumeNoiseMix + 3]], [-1, 0]);
 });
 
 test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals and keeps its own rows', () => {
@@ -985,85 +973,46 @@ test('a VFXWater flipbook sheet lays out its frames, motion vectors and normals 
 	assert.equal(refract.unsupported, true);
 });
 
-const beamShader = (): ShaderEntry => ({
-	...shader('Hidden/VLB_HGRP_SinglePass'),
-	family: 'volumetricBeam',
-	floats: { _BlendMode: 1, _BlendSrcFactor: 1, _BlendDstFactor: 1, _FresnelPow: 1 },
-	colors: { _ColorFlat: [1, 1, 1, 1] },
-	vectors: { _ConeParams0: [0, 0, 0, 0], _ConeParams1: [0, 0, 0, 0], _DistanceFallOff: [0, 0, 0, 0] },
-});
-
-// dung02_dg005's `VLB_5006340546849160366`, one of the Wuling rift's two great beams
-const riftBeam = (overrides: Partial<ReadyMaterial> = {}): ReadyMaterial =>
-	material({
-		keywords: ['VLB_DEPTH_BLEND'],
-		blend: 'alphaBlend',
-		blendFactors: [5, 10],
-		floats: {
-			_AlphaInside: 0.15,
-			_AlphaOutside: 0.15,
-			_AttenuationLerpLinearQuad: 1,
-			_DepthBlendDistance: 22,
-			_DistanceFadeStart: 256,
-			_DistanceFadeEnd: 200,
-			_DistanceFadeStartSecond: 0,
-			_DistanceFadeEndSecond: 0,
-			_FresnelPow: 2,
-		},
-		colors: { _ColorFlat: [0.45, 0.5875, 1, 1] },
-		vectors: {
-			_ConeParams0: [1, 1.00087571, 0.99999994, 0.0002919],
-			_ConeParams1: [0, 0, 1, 0],
-			_DistanceFallOff: [1, 3, 3, 0],
-		},
-		...overrides,
+test('a light beam is a shadowless effect with its cone, falloff and colour in the beam rows', () => {
+	// dung02_dg005's `VLB_5006340546849160366`, one of the Wuling rift's two great beams
+	const beam: LightBeamSurface = {
+		kind: 'lightBeam',
+		color: [0.1708, 0.3, 1, 1],
+		cone: [1, 1.00087571, 0.99999994, 0.0002919],
+		direction: [0, 0, 1, 0],
+		falloff: [1, 3, 3, 0],
+		alphaInside: 0.15,
+		alphaOutside: 0.15,
+		attenuationLerp: 1,
+		fresnelPower: 2,
+		glareFrontal: 0.5,
+		glareBehind: 0.5,
+		apexOffset: 0,
+		additive: true,
+		distanceFade: [256, 200],
+		distanceFadeSecond: [0, 0.0001],
+		cameraClipping: 0.5,
+		depthBlend: 22,
+		depthBlendCapOff: 0,
+		useClippingPlane: 0,
+		clippingPlane: [0, 1, 0, 0],
+		tilt: [0, 0],
+		clippingPlaneTransition: 1,
+		unfogged: true,
+	};
+	const [look, fogged] = materialLooks({
+		shaders: [shader('any')],
+		entries: [described(0, beam), described(1, { ...beam, additive: false, unfogged: false })],
 	});
-
-test('an additive light beam is a shadowless effect with its cone, falloff and colour in the beam rows', () => {
-	const [look] = materialLooks({ shaders: [beamShader()], entries: [riftBeam()] });
-	assert.equal(look.unsupported, false);
-	assert.equal(look.transparent, true);
-	assert.equal(look.castsShadows, false);
-	assert.equal(look.cull, 'back');
+	assert.deepEqual(
+		[look.unsupported, look.transparent, look.castsShadows, look.cull],
+		[false, true, false, 'back'],
+	);
 	assert.notEqual(look.flags & LookFlags.Effect, 0);
 	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.Beam);
-	// additive
-	assert.equal(look.params[EffectRow.unfogged + 2], 1);
-	assert.equal(look.params[BeamRow.glare + 3], 1);
+	assert.deepEqual([look.params[EffectRow.unfogged + 2], look.params[BeamRow.glare + 3]], [1, 1]);
 	assert.deepEqual([...look.params.subarray(BeamRow.falloff, BeamRow.falloff + 4)], [1, 3, 3, 0]);
 	assert.ok(Math.abs(look.params[BeamRow.cone + 1] - 1.00087571) < 1e-6);
 	assert.equal(look.params[BeamRow.clip + 1], 22);
-	assert.deepEqual(
-		[...look.params.subarray(BeamRow.alpha, BeamRow.alpha + 2)].map((x) => x.toFixed(2)),
-		['0.15', '0.15'],
-	);
-	// `_ColorFlat` is an LDR colour: decoded to linear
-	assert.ok(Math.abs(look.params[BeamRow.color] - 0.1708) < 1e-3);
-	// equal second fade ends become a step at the start rather than a division by zero
-	assert.ok(look.params[BeamRow.fade + 3] > look.params[BeamRow.fade + 2]);
-});
-
-test('a light beam without depth blending, or alpha-blended under fog, keeps its own settings', () => {
-	const [plain, fogged] = materialLooks({
-		shaders: [beamShader()],
-		entries: [
-			riftBeam({ keywords: ['VLB_NOISE_3D'] }),
-			riftBeam({
-				id: 1,
-				keywords: ['VLB_DEPTH_BLEND', 'VLB_USE_FOG'],
-				floats: { _BlendMode: 0, _BlendSrcFactor: 5, _BlendDstFactor: 10 },
-			}),
-		],
-	});
-	assert.equal(plain.params[BeamRow.clip + 1], 0);
-	assert.equal(fogged.params[EffectRow.unfogged], 0);
-	assert.equal(fogged.params[EffectRow.unfogged + 2], 0);
-});
-
-test('a light beam with blending the game pairs with neither mode is unsupported', () => {
-	const [look] = materialLooks({
-		shaders: [beamShader()],
-		entries: [riftBeam({ floats: { _BlendMode: 1, _BlendSrcFactor: 5, _BlendDstFactor: 10 } })],
-	});
-	assert.equal(look.unsupported, true);
+	assert.deepEqual([fogged.params[EffectRow.unfogged], fogged.params[EffectRow.unfogged + 2]], [0, 0]);
 });

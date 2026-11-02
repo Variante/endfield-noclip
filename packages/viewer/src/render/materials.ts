@@ -22,15 +22,15 @@ import type {
 import {
 	decalLitLook,
 	type EffectLook,
-	fakeVolumeFogLook,
-	fogSimpleLook,
+	lightBeamLook,
+	mistCardLook,
+	mistVolumeLook,
 	multipliesScene,
 	vfxBaseLook,
 	vfxDecalLook,
 	vfxDitherEffectLook,
 	vfxRefractLook,
 	vfxWaterLook,
-	volumetricBeamLook,
 } from './effect-looks.ts';
 
 /** {@link unsupportedLook}'s colour, linear magenta */
@@ -451,6 +451,27 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = litLook(surface, entry.cull);
 				break;
 			}
+			case 'mistCard': {
+				looks[entry.id] = effectMaterialLook(mistCardLook(surface), {
+					flags: LookFlags.Effect | LookFlags.EffectMist,
+					cull: entry.cull,
+				});
+				break;
+			}
+			case 'mistVolume': {
+				looks[entry.id] = effectMaterialLook(mistVolumeLook(surface), {
+					flags: LookFlags.Effect | LookFlags.EffectMist | LookFlags.EffectDecal,
+					cull: entry.cull,
+				});
+				break;
+			}
+			case 'lightBeam': {
+				looks[entry.id] = effectMaterialLook(lightBeamLook(surface), {
+					flags: LookFlags.Effect,
+					cull: entry.cull,
+				});
+				break;
+			}
 			case 'legacy': {
 				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
 				break;
@@ -524,43 +545,52 @@ const effectLookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook |
 			effect = vfxWaterLook(entry, shader);
 			break;
 		}
-		case 'HGRP/FogSimple': {
-			effect = fogSimpleLook(entry, shader);
-			flags |= LookFlags.EffectMist;
-			break;
-		}
-		case 'HGRP/Effect/VFXFakeVolumeFog': {
-			effect = fakeVolumeFogLook(entry, shader);
-			flags |= LookFlags.EffectMist | LookFlags.EffectDecal;
-			break;
-		}
 		default: {
-			if (shader.family !== 'volumetricBeam') {
-				return null;
-			}
-			effect = volumetricBeamLook(entry, shader);
+			return null;
 		}
 	}
 	if (effect === null) {
 		return null;
 	}
-	return {
-		drawn: true,
-		unsupported: false,
-		cutout: false,
-		transparent: true,
-		cull: (flags & LookFlags.EffectDecal) !== 0 ? 'front' : entry.cull,
-		castsShadows: false,
-		textures: effect.textures,
-		uvScales: effect.uvScales,
-		volumeTexture: effect.volumeTexture,
-		flags,
-		params: effect.params,
-		stencil,
-		relight,
-		screen,
-	};
+	return effectMaterialLook(effect, { flags, cull: entry.cull, stencil, relight, screen });
 };
+
+/**
+ * @returns the look of a scene effect: alpha-blended and shadowless. decal boxes draw their back faces, so
+ *   they still show with the camera inside them
+ */
+const effectMaterialLook = (
+	effect: EffectLook,
+	{
+		flags,
+		cull,
+		stencil = null,
+		relight = false,
+		screen = null,
+	}: {
+		/** {@link LookFlags.Effect} and the kind's flags */
+		flags: number;
+		cull: MaterialCull;
+		stencil?: LookStencil | null;
+		relight?: boolean;
+		screen?: ScreenEffect | null;
+	},
+): MaterialLook => ({
+	drawn: true,
+	unsupported: false,
+	cutout: false,
+	transparent: true,
+	cull: (flags & LookFlags.EffectDecal) !== 0 ? 'front' : cull,
+	castsShadows: false,
+	textures: effect.textures,
+	uvScales: effect.uvScales,
+	volumeTexture: effect.volumeTexture,
+	flags,
+	params: effect.params,
+	stencil,
+	relight,
+	screen,
+});
 
 /**
  * the Lit model ({@link LitSurface}). slots are shared where materials rarely use both ({@link SLOTS}): the
