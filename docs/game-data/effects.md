@@ -74,12 +74,13 @@ between Wuling City's floating pillars (`M_fx_map02_zhenlie_*`, map02_lv002) use
 
 `_USE_WATER_BLEND` fades the colour as if seen through water below `_WaterHeight`: it absorbs by
 `_WaterAbsorption`/`_WaterAbsorption2` and adds inscattered light over the distance the view ray
-travels under that height, and changes nothing above it. the vertex stage is unaffected. a
-`VFXWaterBlendConfig` component on the effect sets these from water surfaces it enters (from its
-fields and method names; its code isn't read). materials keep the authored `_WaterHeight` of −9999,
-under every level, so placed effects out of water draw as without the keyword. the glows of
-Aurelyne, the collectible orbs (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity
-364, 44, −700), are such.
+travels under that height (`clamp(_WaterHeight − y, 0, 1000) / |view y|`, y the fragment's world
+height), and changes nothing above it. the vertex stage is unaffected. a `VFXWaterBlendConfig`
+component on the effect sets these from water surfaces it enters (from its fields and method names;
+its code isn't read). materials keep an authored `_WaterHeight` of −9999, −999 or 0, below where
+they're placed, so placed effects out of water draw as without the keyword. the glows of Aurelyne,
+the collectible orbs (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity 364, 44,
+−700), are such: the orbs placed in map01 and map02 lie at y 18.8 and above.
 
 `_VAT_SOFTBODY` plays a Houdini vertex animation: each vertex moves by `_PositionTexture`'s texel at
 UV set 1's column and the current frame's row, in object space. the frame is

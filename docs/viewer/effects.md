@@ -23,8 +23,9 @@ meshes play through the [particles](particles.md#particles); what's left out is 
   transparent pass's glow, unfogged, as additive mist does; drawn over, the glare at the corroded
   planet's centre (seen from Dijiang's deck) was a dark square.
 - [water blending](../game-data/effects.md#vfxbasev2-and-vfxdecal) is left out, which matches the
-  game for the authored `_WaterHeight` below the world; a material with a higher one is unsupported,
-  since the water a `VFXWaterBlendConfig` finds isn't followed.
+  game above the authored `_WaterHeight`. fragments below it show the unsupported checker
+  (`waterBlendBelow`), since neither the blend nor the water a `VFXWaterBlendConfig` finds is
+  followed; heights at or below −1000 are taken as under every level.
 - [soft-body animations](../game-data/effects.md#vfxbasev2-and-vfxdecal) also take the vertex
   offset's slot for their position texture, its UV and scroll rows holding the UV1 scales and the
   playback's cycles per second and phase (a held frame is a still phase), and the offset rows the

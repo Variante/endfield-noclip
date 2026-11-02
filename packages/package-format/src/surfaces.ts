@@ -682,6 +682,11 @@ export interface EffectStackSurface {
 	offset: EffectVertexOffset | null;
 	/** VFXBaseV2's soft-body animation, which takes the vertex offset's slot */
 	softBody: EffectSoftBody | null;
+	/**
+	 * VFXBaseV2's `_USE_WATER_BLEND` height (world y): the blend changes only what lies below it, which isn't
+	 * drawn, so the viewer shows those fragments as unsupported. `null` without the blend or below every level
+	 */
+	waterBlendBelow: number | null;
 	/** `_USE_LIGHTING`: lit at the world's up rather than the surface normal */
 	lighting: { worldUp: boolean } | null;
 	/** drawn after the fog (no `_USE_FOG`); VFXDitherAlpha's G-buffer surface is fogged */

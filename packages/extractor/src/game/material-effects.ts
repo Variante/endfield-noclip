@@ -407,6 +407,16 @@ const softBodyOf = (reader: MaterialReader): EffectSoftBody | UnsupportedSurface
 /** a `_WaterHeight` at or below this lies under every level, so water blending leaves the effect unchanged */
 const WATER_BLEND_UNSET = -1000;
 
+/**
+ * @returns the height below which `_USE_WATER_BLEND` absorbs and scatters, `null` without it or under every
+ *   level. the game sets the height from a water surface the effect meets (`VFXWaterBlendConfig`), which
+ *   isn't followed, so this is the authored one
+ */
+const waterBlendOf = ({ float, has }: MaterialReader): number | null => {
+	const height = float('_WaterHeight', 0);
+	return has('_USE_WATER_BLEND') && height > WATER_BLEND_UNSET ? height : null;
+};
+
 /** whether a VFXBaseV2 keyword outside {@link BASE_KEYWORDS} is drawn, or changes nothing in the viewer */
 const baseKeywordDrawn = (keyword: string, reader: MaterialReader): boolean => {
 	const { float, colorOrVector: color } = reader;
@@ -430,9 +440,9 @@ const baseKeywordDrawn = (keyword: string, reader: MaterialReader): boolean => {
 			return vertexOffsetOf(reader) === null;
 		}
 		case '_USE_WATER_BLEND': {
-			// the blend absorbs and scatters only below `_WaterHeight`, which the game sets from a water surface the
-			// effect meets; the authored height lies below the world, where the blend changes nothing
-			return float('_WaterHeight', 0) <= WATER_BLEND_UNSET;
+			// the blend changes only what lies below `_WaterHeight`, which the viewer marks unsupported per fragment
+			// (`waterBlendOf`)
+			return true;
 		}
 		case '_VAT_SOFTBODY': {
 			// drawn by `softBodyOf`, which rejects the variants it can't draw first
@@ -611,6 +621,7 @@ export const describeVfxBase = (
 						cameraPull: float('_VertCameraOffset', 0),
 					},
 		softBody,
+		waterBlendBelow: waterBlendOf(reader),
 		lighting: has('_USE_LIGHTING') ? { worldUp: float('_RotateNormalToWorldUp', 0) !== 0 } : null,
 		unfogged: !has('_USE_FOG'),
 		blendMode,
@@ -767,6 +778,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		alphaPower: float('_DitherAlphaExp', 1),
 		offset: vertexOffsetOf(reader),
 		softBody: null,
+		waterBlendBelow: null,
 		lighting: null,
 		// a G-buffer surface, so the deferred fog covers it
 		unfogged: false,
@@ -965,6 +977,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		alphaPower: 1,
 		offset: null,
 		softBody: null,
+		waterBlendBelow: null,
 		lighting: null,
 		unfogged: !has('_USE_FOG'),
 		blendMode: 0,

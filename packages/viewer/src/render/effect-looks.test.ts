@@ -22,6 +22,7 @@ import {
 	EffectRole,
 	EffectRow,
 	MistRow,
+	NO_WATER_BLEND,
 	OFFSET_SLOT,
 	RefractRow,
 	ROLE_NONE,
@@ -81,6 +82,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	alphaPower: 1,
 	offset: null,
 	softBody: null,
+	waterBlendBelow: null,
 	lighting: null,
 	unfogged: true,
 	blendMode: 0,
@@ -161,7 +163,10 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 		[...decal.params.subarray(EffectRow.decalFade, EffectRow.decalFade + 4)],
 		[0.1, 0.2, 0.3, 2].map(Math.fround),
 	);
-	assert.deepEqual([...decal.params.subarray(EffectRow.decal, EffectRow.decal + 4)], [0.5, 5, 0, 1]);
+	assert.deepEqual(
+		[...decal.params.subarray(EffectRow.decal, EffectRow.decal + 4)],
+		[0.5, 5, Math.fround(NO_WATER_BLEND), 1],
+	);
 	assert.deepEqual([...decal.params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
 	assert.equal(multiply.screen, 'multiply');
 	assert.equal(multiply.params[EffectRow.unfogged + 2], 2);

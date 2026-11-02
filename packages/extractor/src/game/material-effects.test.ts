@@ -415,21 +415,18 @@ describe('VFXBaseV2', () => {
 			stackOf({ slots: {} }, { ...base, textures: { _MainTex: 'black' } }),
 			stackOf({ keywords: ['_USE_BRIGHT'], floats: { _BrightType: 1 } }),
 			stackOf({ keywords: ['_USE_BRIGHT'], vectors: { _BrightCenter: [10, 0, 5, 1] } }),
-			stackOf({ keywords: ['_USE_WATER_BLEND'], floats: { _WaterHeight: 42 } }),
 		].map((surface) => surface.kind);
 		// a vertex offset without an offset texture, whose shader declares no white default
-		assert.deepEqual(kinds, [
-			'unsupported',
-			'unsupported',
-			'unsupported',
-			'unsupported',
-			'unsupported',
-			'unsupported',
-		]);
-		assert.equal(
-			stackOf({ keywords: ['_USE_WATER_BLEND'], floats: { _WaterHeight: -9999 } }).kind,
-			'effectStack',
-		);
+		assert.deepEqual(kinds, ['unsupported', 'unsupported', 'unsupported', 'unsupported', 'unsupported']);
+	});
+
+	it('draws water blending as without it, keeping a height within the world for the viewer to mark below', () => {
+		const below = (height: number) =>
+			ofKind(stackOf({ keywords: ['_USE_WATER_BLEND'], floats: { _WaterHeight: height } }), 'effectStack')
+				.waterBlendBelow;
+		// the Aurelyne orbs' `M_fx_coin_10_1` keeps −999, many others 0 or −9999
+		assert.deepEqual([below(-9999), below(-999), below(0)], [null, -999, 0]);
+		assert.equal(ofKind(stackOf({ floats: { _WaterHeight: 0 } }), 'effectStack').waterBlendBelow, null);
 	});
 
 	it('draws a soft body from its position texture, playing its frames on its own or holding one', () => {

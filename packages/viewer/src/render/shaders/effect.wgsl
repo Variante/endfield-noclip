@@ -468,6 +468,15 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let layer = fx_stack_layer(in, bases);
 	let color = layer.rgb;
 	let alpha = layer.a;
+	// below its `_USE_WATER_BLEND` height the game absorbs and scatters the colour, which isn't drawn: show
+	// those fragments as unsupported, a world-space magenta and black checker (as `unsupportedLook` in
+	// materials.ts)
+	let world = in.rel + frame.eye.xyz;
+	if (world.y < fx_row(id, FX_DECAL).z) {
+		let cell = vec3i(floor(world / 0.5));
+		let checker = select(vec3f(1.0, 0.0, 1.0), vec3f(0.0), ((cell.x + cell.y + cell.z) & 1) != 0);
+		return fx_accumulate(checker, 1.0, length(in.rel), kind.x);
+	}
 	// `_BlendMode` 1 adds the layer rather than blending it over
 	if (kind.z >= 0.5) {
 		var out: EffectAccumulated;

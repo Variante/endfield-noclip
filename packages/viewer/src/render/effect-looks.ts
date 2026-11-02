@@ -80,8 +80,9 @@ export const EffectRow = {
 	/** decals: edge fade across x, across z, the fades' width, height fade */
 	decalFade: 104,
 	/**
-	 * decals: height fade offset, angle falloff (0: no angle fade), 0; then, for the texture stack, the power
-	 * its alpha is raised to (1 but for VFXDitherAlpha's `_DitherAlphaExp`)
+	 * decals: height fade offset, angle falloff (0: no angle fade); the texture stack: 0, then the height
+	 * (world y) below which fragments show the unsupported checker (`waterBlendBelow`, {@link NO_WATER_BLEND}
+	 * without), and the power its alpha is raised to (1 but for VFXDitherAlpha's `_DitherAlphaExp`)
 	 */
 	decal: 108,
 	/**
@@ -164,6 +165,9 @@ export const slotDisturb = (share: number): number => Math.round(Math.max(share,
  * have both
  */
 export const OFFSET_SLOT = 6;
+
+/** the water-blend height of a texture stack without one: below every world */
+export const NO_WATER_BLEND = -1e30;
 
 /** what an effect look puts in `MaterialLook` besides its parameters */
 export interface EffectLook {
@@ -304,6 +308,7 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 		params.set([...fade.edge, fade.width, fade.height], EffectRow.decalFade);
 		params.set([fade.heightOffset, fade.angle], EffectRow.decal);
 	}
+	params[EffectRow.decal + 2] = stack.waterBlendBelow ?? NO_WATER_BLEND;
 	params[EffectRow.decal + 3] = stack.alphaPower;
 	if (stack.offset !== null) {
 		setVertexOffset(look, stack.offset);
