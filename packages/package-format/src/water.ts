@@ -40,11 +40,16 @@ export interface WaterVolumeEntry {
 	 * {@link initial} is always listed
 	 */
 	levels: WaterVolumeLevel[];
-	/**
-	 * instance rows (by `InstanceBlock.entityIds`) of interactives that float on the volume: they follow its
-	 * surface up and down
-	 */
-	floaters: number[];
+	/** instance rows of the interactives that float on the volume: they follow its surface up and down */
+	floaters: WaterFloater[];
+}
+
+/** an instance row floating on a water volume */
+export interface WaterFloater {
+	/** blob-table index of the instance block holding the row */
+	blob: number;
+	/** the row's index in the block */
+	row: number;
 }
 
 /** a fill a water volume can be at */

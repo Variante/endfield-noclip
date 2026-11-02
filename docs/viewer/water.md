@@ -46,8 +46,8 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
 [water-levels.ts](../../packages/viewer/src/render/water-levels.ts) holds each
 [water volume](../game-data/water.md#water-volumes)'s fill. a volume's surface is packed at its
 authored fill; the water renderer raises its transform and bounds by the difference, and the
-floaters' instance rows (found by entity id as their blocks upload) move by the same amount, in the
-CPU copy the selection culls with and on the GPU.
+floaters' instance rows (the package names each by block blob and row) move by the same amount, in
+the CPU copy the selection culls with and on the GPU.
 
 the "Water levels" section of the scene conditions panel
 ([water-levels.tsx](../../packages/viewer/src/ui/water-levels.tsx)) lists the shown level's volumes

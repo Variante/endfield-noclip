@@ -433,7 +433,8 @@ WaterTable
   surfaces   WaterSurfaceEntry[]  { kind: 'placed' | 'volume', id, group, geometry, transform,
                                     bounds, config, meshNormals, volume (kind 'volume') }
   volumes    WaterVolumeEntry[]   { id, base, heightMax, initial, fillSpeed,
-                                    levels: { fraction, speed, label }[], floaters }
+                                    levels: { fraction, speed, label }[],
+                                    floaters: { blob, row }[] }
 WaterGlobal  { mapSize, sectorSize, center, flowmapPrecision,
                flowMap, causticMap, normalMaps, rainMap, sectors: { x, z, texture }[] }
 ```
@@ -481,8 +482,10 @@ packing rules:
   always loaded. a volume without a config, or whose config fails, is left out and listed in
   `debug/water.json`. `levels` are the authored fill and every constant fill the scene's scripts
   set, merged within 1e-4; each takes the speed of a script's fill-speed action just before moving
-  the volume there, else the volume's. `floaters` are the synthetic entity ids of the renderers of
-  every interactive placement whose component 39 names the volume.
+  the volume there, else the volume's. `floaters` are the stored instance rows, as (block blob, row
+  index), of the renderers of every interactive placement whose component 39 names the volume; the
+  packer finds them by entity id once the blocks are stored, and lists a floater with no stored row
+  in `debug/water.json`.
 
 ### particles
 

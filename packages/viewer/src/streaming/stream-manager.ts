@@ -161,7 +161,7 @@ export interface ContentStores {
 	/** @returns the residency */
 	uploadLayer(blob: number, decoded: DecodedLayer): ResidentLayer;
 	/** @returns the residency, or `null` if there was no room */
-	uploadInstances(decoded: DecodedInstances): ResidentInstances | null;
+	uploadInstances(blob: number, decoded: DecodedInstances): ResidentInstances | null;
 	/** @returns the residency */
 	uploadGeometry(blob: number, decoded: DecodedGeometry): ResidentGeometry;
 	/** @returns the residency */
@@ -754,7 +754,7 @@ export class StreamManager {
 				return this.#stores.uploadLayer(item.blob, decoded);
 			}
 			case 'instances': {
-				return this.#stores.uploadInstances(decoded);
+				return this.#stores.uploadInstances(item.blob, decoded);
 			}
 			case 'geometry': {
 				return this.#stores.uploadGeometry(item.blob, decoded);

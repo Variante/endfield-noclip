@@ -41,8 +41,8 @@ export class WaterLevels {
 	#speed = new Float64Array(0);
 	/** metres above the packed surface, per volume, for the water renderer */
 	#offsets = new Float32Array(0);
-	/** by row entity id, its volume */
-	#floaterVolume = new Map<number, number>();
+	/** by instance-block blob, its floating rows and their volumes */
+	#floaters = new Map<number, { row: number; volume: number }[]>();
 	#rows = new Map<ResidentInstances, FloatingRow[]>();
 
 	/** @param volumes the package's water volumes, all at their authored fill */
@@ -52,10 +52,10 @@ export class WaterLevels {
 		this.#target = Float64Array.from(this.#current);
 		this.#speed = Float64Array.from(volumes, (volume) => volume.fillSpeed);
 		this.#offsets = new Float32Array(volumes.length);
-		this.#floaterVolume.clear();
+		this.#floaters.clear();
 		for (const [i, volume] of volumes.entries()) {
-			for (const id of volume.floaters) {
-				this.#floaterVolume.set(id, i);
+			for (const { blob, row } of volume.floaters) {
+				this.#floaters.getOrInsertComputed(blob, () => []).push({ row, volume: i });
 			}
 		}
 		this.#rows.clear();
@@ -130,24 +130,21 @@ export class WaterLevels {
 	 * remembers a block's floating rows, if any
 	 *
 	 * @param resident a block just uploaded
-	 * @param entityIds its rows' entity ids
+	 * @param blob its blob-table index
 	 */
-	track(resident: ResidentInstances, entityIds: Uint32Array): void {
-		if (this.#floaterVolume.size === 0) {
+	track(resident: ResidentInstances, blob: number): void {
+		const floaters = this.#floaters.get(blob);
+		if (floaters === undefined) {
 			return;
 		}
-		const rows: FloatingRow[] = [];
-		for (let row = 0; row < entityIds.length; row++) {
-			const volume = this.#floaterVolume.get(entityIds[row]);
-			if (volume !== undefined) {
+		const f32 = resident.rowsF32;
+		this.#rows.set(
+			resident,
+			floaters.map(({ row, volume }) => {
 				const at = row * ROW_WORDS;
-				const f32 = resident.rowsF32;
-				rows.push({ resident, row, volume, ty: f32[at + 7], cy: f32[at + 13], applied: 0 });
-			}
-		}
-		if (rows.length > 0) {
-			this.#rows.set(resident, rows);
-		}
+				return { resident, row, volume, ty: f32[at + 7], cy: f32[at + 13], applied: 0 };
+			}),
+		);
 	}
 
 	/** @param resident a block being released */

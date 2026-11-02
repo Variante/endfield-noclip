@@ -95,7 +95,7 @@ import {
 	type TreeInfo,
 } from '@endfield-noclip/package-format/tree';
 import type { Bounds, Rect } from '@endfield-noclip/package-format/values';
-import type { WaterTable } from '@endfield-noclip/package-format/water';
+import type { WaterFloater, WaterTable } from '@endfield-noclip/package-format/water';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
 
@@ -430,7 +430,12 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 
 		// spooled, so a failed pack leaves nothing outside the package's own entries
 		const debugLog = await DebugLog.create(join(spool, 'instances.jsonl'));
-		const instances = await packInstances(pack, entities.collected, debugLog);
+		const instances = await packInstances(
+			pack,
+			entities.collected,
+			debugLog,
+			new Set(water.floaterIds.flat()),
+		);
 		await debugLog.close();
 		timer.end('instances');
 
@@ -486,7 +491,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			{
 				...states,
 				...finishEnvironments(environments, environmentTextureIds),
-				water: finishWater(water, waterTextureIds),
+				water: finishWater(water, waterTextureIds, instances.rowsOf),
 				lights,
 				irradiance: irradiance?.table ?? { keys: new Uint32Array(), blobs: new Uint32Array() },
 				irradianceRegions,
@@ -1693,18 +1698,37 @@ const packTerrain = async (
 /** the archive holding the terrain layer textures, which every splat page draws from */
 const TERRAIN_LAYER_STEM = 'assets/terrain-layers';
 
-/** stores every instance block, attaching detail and HLOD blocks to the tree */
+/**
+ * stores every instance block, attaching detail and HLOD blocks to the tree
+ *
+ * @param tracked entity ids whose stored rows the caller needs (water floaters)
+ * @returns row counts, the global content refs, HLOD tallies, and by tracked entity id the (blob, row) of
+ *   every stored row that carries it
+ */
 const packInstances = async (
 	pack: PackState,
 	collected: Collector,
 	debugLog: DebugLog,
+	tracked: ReadonlySet<number>,
 ): Promise<{
 	rows: PackReport['instances'];
 	global: ContentRef[];
 	hlodClusters: number;
 	tierCounts: number[];
+	rowsOf: Map<number, WaterFloater[]>;
 }> => {
 	const { store, builder, scene } = pack;
+	const rowsOf = new Map<number, WaterFloater[]>();
+	const track = (blob: number, block: InstanceBlock): void => {
+		if (tracked.size === 0) {
+			return;
+		}
+		for (const [row, id] of block.entityIds.entries()) {
+			if (tracked.has(id)) {
+				rowsOf.getOrInsertComputed(id, () => []).push({ blob, row });
+			}
+		}
+	};
 	const rows = {
 		detail: countRows(collected.detail.values()),
 		hlod: countRows(collected.hlod.values()),
@@ -1743,6 +1767,7 @@ const packInstances = async (
 				NodeFlags.HasDetail,
 			);
 			builder.extend(group.key, group.bounds!);
+			track(blobs[i], block);
 			// oxlint-disable-next-line no-await-in-loop -- lines go out in block order
 			await debugLog.block(store.hashOf(blobs[i]), group, block, order);
 		}
@@ -1763,6 +1788,7 @@ const packInstances = async (
 			})),
 		);
 		for (const [i, { group, block, order }] of encoded.entries()) {
+			track(blobs[i], block);
 			// oxlint-disable-next-line no-await-in-loop -- lines go out in block order
 			await debugLog.block(store.hashOf(blobs[i]), group, block, order);
 		}
@@ -1809,7 +1835,7 @@ const packInstances = async (
 		count: group.rows.length,
 		param: 0,
 	}));
-	return { rows, global, hlodClusters, tierCounts };
+	return { rows, global, hlodClusters, tierCounts, rowsOf };
 };
 
 /** the manifest's levels and scenery states */

@@ -130,8 +130,6 @@ export interface InstanceRows {
 	cull: Float32Array<ArrayBuffer>;
 	/** (chain, first, count) triples of equal-chain runs, for per-template instancing */
 	runs: Uint32Array<ArrayBuffer>;
-	/** the game's entity id per row (`InstanceBlock.entityIds`), for rows the viewer moves itself */
-	entityIds: Uint32Array<ArrayBuffer>;
 }
 
 /**
@@ -194,7 +192,6 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		rows,
 		cull,
 		runs: new Uint32Array(runs),
-		entityIds: new Uint32Array(block.entityIds),
 	};
 };
 

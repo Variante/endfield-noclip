@@ -536,12 +536,12 @@ export class Viewer {
 				uploadSurface: (decoded) => this.#terrain.uploadSurface(decoded),
 				uploadDetail: (decoded) => this.#terrain.uploadDetail(decoded),
 				uploadLayer: (blob, decoded) => this.#terrain.uploadLayer(blob, decoded),
-				uploadInstances: (decoded) => {
+				uploadInstances: (blob, decoded) => {
 					// the decode worker doesn't hold the chains
 					markBillboardRows(decoded, pkg.chains);
 					const resident = this.#instances.upload(decoded);
 					if (resident !== null) {
-						this.#waterLevels.track(resident, decoded.entityIds);
+						this.#waterLevels.track(resident, blob);
 					}
 					return resident;
 				},

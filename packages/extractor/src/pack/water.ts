@@ -5,6 +5,7 @@ import type { Rect, Vec2, Vec4 } from '@endfield-noclip/package-format/values';
 import type {
 	WaterConfig,
 	WaterConfigEntry,
+	WaterFloater,
 	WaterGlobal,
 	WaterPlacedSurface,
 	WaterSurfaceEntry,
@@ -84,6 +85,11 @@ export interface WaterPlan {
 	 */
 	surfaceOwners: { levelTag: number; sources: ChunkSource[] | null }[];
 	textures: PlacedTexture[];
+	/**
+	 * per table volume, the entity ids of its floaters' instance rows; {@link finishWater} turns them into the
+	 * volume's `floaters` once the instance blocks are stored
+	 */
+	floaterIds: (readonly number[])[];
 	debug: WaterDebug;
 }
 
@@ -135,6 +141,7 @@ export const planWater = async (
 		table: { global: null, configs: [], surfaces: [], volumes: [] },
 		surfaceOwners: [],
 		textures: [],
+		floaterIds: [],
 		debug: {
 			surfaces: { scene: water.surfaces.length, packed: 0 },
 			volumes: { scene: options.volumes.volumes.length, packed: 0 },
@@ -214,9 +221,8 @@ export const planWater = async (
 			continue;
 		}
 		const index = plan.table.volumes.length;
-		plan.table.volumes.push(
-			volumeEntry(volume, options.volumes.floaterRows.get(volume.id) ?? [], options.scriptLevels),
-		);
+		plan.table.volumes.push(volumeEntry(volume, options.scriptLevels));
+		plan.floaterIds.push(options.volumes.floaterRows.get(volume.id) ?? []);
 		plan.table.surfaces.push(volumeSurface(volume, geometry, config, index));
 		plan.surfaceOwners.push({ levelTag: volume.levelTag, sources: null });
 		plan.debug.rows.push({
@@ -257,13 +263,36 @@ export const planWater = async (
 };
 
 /**
- * fills in the texture ids of a planned table
+ * fills in the texture ids and the volumes' floaters of a planned table. a floater whose entity has no stored
+ * row (the subset dropped it) is listed in the plan's debug errors
  *
- * @param plan the plan; its table is completed in place and handed out
+ * @param plan the plan; its table and debug errors are completed in place and the table handed out
  * @param textureIds per {@link WaterPlan.textures} entry, its texture-table id or `null`
+ * @param rowsOf by entity id, the stored instance rows that carry it
  * @returns the water table
  */
-export const finishWater = (plan: WaterPlan, textureIds: readonly (number | null)[]): WaterTable => {
+export const finishWater = (
+	plan: WaterPlan,
+	textureIds: readonly (number | null)[],
+	rowsOf: ReadonlyMap<number, readonly WaterFloater[]>,
+): WaterTable => {
+	for (const [i, ids] of plan.floaterIds.entries()) {
+		const volume = plan.table.volumes[i];
+		const missing: number[] = [];
+		for (const id of ids) {
+			const rows = rowsOf.get(id);
+			if (rows === undefined) {
+				missing.push(id);
+			} else {
+				volume.floaters.push(...rows);
+			}
+		}
+		if (missing.length > 0) {
+			plan.debug.errors.push(
+				`water volume ${volume.id}: no stored row for floater entities ${missing.join(', ')}`,
+			);
+		}
+	}
 	const { global } = plan.table;
 	if (global !== null) {
 		const id = (index: TextureRef): TextureRef => (index === null ? null : (textureIds[index] ?? null));
@@ -483,13 +512,12 @@ const FRACTION_EPSILON = 1e-4;
 
 /**
  * @param volume a volume
- * @param floaters its floaters' row entity ids
  * @param scripts every constant fill the scene's scripts set
- * @returns the volume's table entry, with its authored fill and the fills scripts set it to
+ * @returns the volume's table entry, with its authored fill and the fills scripts set it to; its floaters are
+ *   left for {@link finishWater}
  */
 export const volumeEntry = (
 	volume: LevelWaterVolume,
-	floaters: readonly number[],
 	scripts: readonly ScriptWaterLevel[],
 ): WaterVolumeEntry => {
 	const found: {
@@ -538,7 +566,7 @@ export const volumeEntry = (
 		initial: volume.fraction,
 		fillSpeed: volume.fillSpeed,
 		levels,
-		floaters: [...floaters],
+		floaters: [],
 	};
 };
 
