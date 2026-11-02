@@ -210,6 +210,17 @@ describe('decodeMesh', () => {
 		);
 	});
 
+	it('rejects packing nibbles it has not seen on a channel', () => {
+		const { data, channels } = build();
+		const base = { vertexCount: 3, data, indices: new Uint16Array(3), submeshes: [] };
+		// the packing nibble the colour channel never carries
+		const colour = { ...channels, 3: channel(1, 8, VertexAttributeFormat.UNorm8, 0x24) };
+		assert.throws(() => decodeMesh(mesh({ ...base, channels: colour }), undefined), /packing 2/);
+		// a packed normal word in a 2-byte format
+		const normal = { ...channels, 1: channel(1, 0, VertexAttributeFormat.Float16, 0x31) };
+		assert.throws(() => decodeMesh(mesh({ ...base, channels: normal }), undefined), /packing 3/);
+	});
+
 	it('decodes implicit unit weights only for explicitly single-influence skins', () => {
 		const data = new Uint8Array(20);
 		data[16] = 1;

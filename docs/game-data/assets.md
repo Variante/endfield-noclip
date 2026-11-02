@@ -64,6 +64,9 @@ data in `m_StreamData` when present.
   tangent frame comes from the packed word.
 - other channels seen: uv0/uv1 f32×2; vertex colour unorm8×4; uv2/uv3 snorm8×4 with dimension byte
   `0x24` (high nibble 2, meaning unknown).
+- **the dimension byte's high nibble** beyond the above: 3 on HLOD cluster meshes' snorm8×4 normals,
+  2 on unorm16×4 bone weights, 1 or 2 on uint8×4 bone indices (perhaps the influences used per
+  vertex). all read as their format says; the decoder rejects any other channel, format and nibble.
 - **compression.** `m_MeshCompression` is only an import setting: a mesh with a non-zero value and
   an empty `m_CompressedMesh` keeps its vertices in the ordinary channels.
 - skinned meshes carry weights, bone indices and bind poses.

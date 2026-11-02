@@ -130,7 +130,10 @@ const formatReport = (report: PackReport): string => {
 		lines.push(
 			`geometry: ${geometry.count} blobs, ${mb(geometry.stored)} stored, ${mb(geometry.raw)} meshopt, ` +
 				`${mb(geometry.gpuBytes)} on the GPU; ${geometry.vertices} vertices, ${geometry.triangles} triangles, ` +
-				`${geometry.generatedTangents} with generated tangents`,
+				`${geometry.generatedTangents} with generated tangents` +
+				(geometry.tangentUvConflicts === 0
+					? ''
+					: ` (${geometry.tangentUvConflicts} for one of several uv sets; tangentUvs in debug/assets.json)`),
 		);
 		const groups = Object.entries(conversion.texturePieces).toSorted(([a], [b]) =>
 			a === 'tail' ? -1 : b === 'tail' ? 1 : Number(a) - Number(b),

@@ -305,6 +305,12 @@ describe('convertMesh', () => {
 		mesh.submeshes[1] = { ...mesh.submeshes[1], topology: MeshTopology.Lines };
 		assert.throws(() => convertMesh(mesh, null), /unsupported topology/);
 	});
+
+	it('rejects index counts that leave a partial primitive', () => {
+		const mesh = testMesh();
+		mesh.submeshes[0] = { ...mesh.submeshes[0], indexCount: mesh.submeshes[0].indexCount - 1 };
+		assert.throws(() => convertMesh(mesh, null), /not whole 3-corner primitives/);
+	});
 });
 
 describe('encodeOctahedral', () => {

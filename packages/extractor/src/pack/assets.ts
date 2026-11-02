@@ -249,7 +249,11 @@ export interface AssetConversion {
 	 */
 	extraTextureIds: (number | null)[][];
 	debug: {
-		geometries: AssetDebug[];
+		/**
+		 * `tangentUvs`: when normal-mapped materials drawing the mesh read their normal maps on different uv
+		 * sets, those sets ascending; its tangents follow the first, so the others shade with wrong tangents
+		 */
+		geometries: (AssetDebug & { tangentUvs?: number[] })[];
 		materials: MaterialDebug[];
 		/**
 		 * by texture object, in first-use order; `id` is its texture-table entry, `approximations` the settings
@@ -264,6 +268,8 @@ export interface AssetConversion {
 			triangles: number;
 			gpuBytes: number;
 			generatedTangents: number;
+			/** meshes with generated tangents whose normal-mapped materials disagree on the uv set */
+			tangentUvConflicts: number;
 		};
 		/** texture blobs by piece: `tail`, or the level's largest dimension */
 		texturePieces: Record<string, BlobTally>;
@@ -431,19 +437,20 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 	// #endregion
 
 	// #region geometry
-	// a mesh gets tangents when any draw of it uses a normal-mapped material
-	const tangentUv = Array.from({ length: input.geometries.length }, (): number | null => null);
+	// a mesh gets tangents when any draw of it uses a normal-mapped material, for the lowest uv set any of
+	// them reads its normal map on
+	const tangentUvs = Array.from({ length: input.geometries.length }, () => new Set<number>());
 	for (const chain of input.chains) {
 		for (const draw of chain.draws) {
 			const uv = normalMapUv[draw.material] ?? null;
-			const current = tangentUv[draw.geometry];
-			if (uv !== null && (current === null || uv < current)) {
-				tangentUv[draw.geometry] = uv;
+			if (uv !== null) {
+				tangentUvs[draw.geometry].add(uv);
 			}
 		}
 	}
+	const tangentUv = tangentUvs.map((uvs) => (uvs.size === 0 ? null : Math.min(...uvs)));
 	const geometryEntries: GeometryEntry[] = [];
-	const geometryDebug: AssetDebug[] = [];
+	const geometryDebug: AssetConversion['debug']['geometries'] = [];
 	const geometry = {
 		count: 0,
 		stored: 0,
@@ -452,6 +459,7 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		triangles: 0,
 		gpuBytes: 0,
 		generatedTangents: 0,
+		tangentUvConflicts: 0,
 	};
 	await orderedPool(
 		input.geometries,
@@ -474,12 +482,23 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 				geometry,
 			);
 			geometryEntries.push({ id, status: 'ready', blob, ...result.entry });
-			geometryDebug.push({ object: result.object, name: result.name, error: null });
+			const uvs = tangentUvs[id];
+			geometryDebug.push({
+				object: result.object,
+				name: result.name,
+				error: null,
+				...(uvs.size > 1 && result.entry.tangentUv !== null
+					? { tangentUvs: [...uvs].toSorted((a, b) => a - b) }
+					: {}),
+			});
 			geometry.vertices += result.entry.vertexCount;
 			geometry.triangles += result.entry.indexCount / 3;
 			geometry.gpuBytes += result.gpuBytes;
 			if (result.entry.tangentUv !== null) {
 				geometry.generatedTangents++;
+				if (uvs.size > 1) {
+					geometry.tangentUvConflicts++;
+				}
 			}
 		},
 	);

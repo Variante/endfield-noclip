@@ -149,6 +149,38 @@ export interface DecodedMesh {
 
 // #region decoding
 
+/** the dimension byte's high nibble on normals; with dimension 1 the normal is packed into one 32-bit word */
+const NORMAL_PACKING = 3;
+
+/**
+ * @returns whether the decoder knows how to read a channel's packing (the dimension byte's high nibble). only
+ *   the combinations seen in the install are known; apart from the packed normal word, they read as their
+ *   format says, the nibble's meaning unknown
+ */
+const knownPacking = (info: VertexChannelInfo): boolean => {
+	const { channel, packing, format, dimension } = info;
+	if (packing === 0) {
+		return true;
+	}
+	if (channel === VertexAttribute.Normal) {
+		return (
+			packing === NORMAL_PACKING &&
+			((dimension === 1 && FORMAT_SIZES[format] === 4) || format === VertexAttributeFormat.SNorm8)
+		);
+	}
+	if (channel >= VertexAttribute.TexCoord0 && channel < VertexAttribute.TexCoord0 + TEXCOORD_COUNT) {
+		return packing === 2 && format === VertexAttributeFormat.SNorm8;
+	}
+	// 1 and 2 seen on bone indices, 2 on weights, so perhaps the influences per vertex
+	if (channel === VertexAttribute.BlendWeight) {
+		return packing <= dimension && format === VertexAttributeFormat.UNorm16;
+	}
+	if (channel === VertexAttribute.BlendIndices) {
+		return packing <= dimension && format === VertexAttributeFormat.UInt8;
+	}
+	return false;
+};
+
 /**
  * decodes a mesh. vertex data is read from `streamData` when the mesh streams it (see `streamingInfo` in
  * `values.ts`), else from `m_VertexData.m_DataSize`. all data is little-endian, as Unity stores it for PC
@@ -192,6 +224,15 @@ export const decodeMesh = (mesh: TypeTreeObject, streamData: Uint8Array | undefi
 		};
 	});
 
+	for (const info of channels) {
+		if (info.dimension > 0 && !knownPacking(info)) {
+			throw new FormatError(
+				`mesh ${name} channel ${info.channel} has packing ${info.packing} with ${info.dimension}× format ` +
+					`${info.format}, which isn't understood`,
+			);
+		}
+	}
+
 	let data: Uint8Array;
 	if (streamingInfo(mesh) === undefined) {
 		data = bytesField(vertexData, 'm_DataSize');
@@ -230,7 +271,7 @@ export const decodeMesh = (mesh: TypeTreeObject, streamData: Uint8Array | undefi
 	let packedNormals: Uint32Array | null = null;
 	const normal = present(VertexAttribute.Normal);
 	if (normal !== undefined) {
-		if (normal.dimension === 1 && FORMAT_SIZES[normal.format] === 4) {
+		if (normal.packing === NORMAL_PACKING && normal.dimension === 1) {
 			const stream = streams[normal.stream];
 			packedNormals = new Uint32Array(vertexCount);
 			normals = new Float32Array(vertexCount * 3);

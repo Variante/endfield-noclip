@@ -261,7 +261,8 @@ export const convertMesh = (mesh: DecodedMesh, tangentUv: number | null): Conver
 
 /**
  * @returns per submesh, its triangle corners as source vertex indices (quads split into two triangles)
- * @throws {FormatError} on other topologies or indices past the vertex count
+ * @throws {FormatError} on other topologies, index counts that don't fill whole primitives, or indices past
+ *   the vertex count
  */
 const submeshCorners = (mesh: DecodedMesh): Uint32Array[] => {
 	return mesh.submeshes.map((submesh, s) => {
@@ -275,17 +276,25 @@ const submeshCorners = (mesh: DecodedMesh): Uint32Array[] => {
 			}
 			return vertex;
 		};
+		const whole = (corners: number): void => {
+			if (indexCount % corners !== 0) {
+				throw new FormatError(
+					`mesh ${mesh.name} submesh ${s} has ${indexCount} indices, not whole ${corners}-corner primitives`,
+				);
+			}
+		};
 		switch (topology) {
 			case MeshTopology.Triangles: {
-				const count = indexCount - (indexCount % 3);
-				const out = new Uint32Array(count);
-				for (let i = 0; i < count; i++) {
+				whole(3);
+				const out = new Uint32Array(indexCount);
+				for (let i = 0; i < indexCount; i++) {
 					out[i] = index(i);
 				}
 				return out;
 			}
 			case MeshTopology.Quads: {
-				const quads = Math.floor(indexCount / 4);
+				whole(4);
+				const quads = indexCount / 4;
 				const out = new Uint32Array(quads * 6);
 				for (let q = 0; q < quads; q++) {
 					const [a, b, c, d] = [index(q * 4), index(q * 4 + 1), index(q * 4 + 2), index(q * 4 + 3)];
