@@ -203,6 +203,29 @@ describe('curves, gradients and randomness', () => {
 		assert.equal(evaluateCurve({ keys: [], preWrapMode: 2, postWrapMode: 2 }, 0.5), 0);
 	});
 
+	it('reads weighted segments as Bézier curves, and default weights as the Hermite one', () => {
+		const flat = (time: number, value: number, weightedMode: number, weight: number) => ({
+			time,
+			value,
+			inSlope: 0,
+			outSlope: 0,
+			weightedMode,
+			inWeight: weight,
+			outWeight: weight,
+		});
+		const curve = (weightedMode: number, weight: number): AnimationCurve => ({
+			keys: [flat(0, 0, weightedMode, weight), flat(1, 1, weightedMode, weight)],
+			preWrapMode: 2,
+			postWrapMode: 2,
+		});
+		const hermite = evaluateCurve(curve(0, 0), 0.25);
+		assert.ok(Math.abs(evaluateCurve(curve(3, 1 / 3), 0.25) - hermite) < 1e-6);
+		// heavier handles hold the ends flat for longer, so a quarter in it has barely risen
+		const heavy = evaluateCurve(curve(3, 1), 0.25);
+		assert.ok(heavy < hermite && heavy > 0);
+		assert.ok(Math.abs(evaluateCurve(curve(3, 1), 0.5) - 0.5) < 1e-4);
+	});
+
 	it('blends gradient keys, and holds them in fixed mode', () => {
 		const colorKeys = [
 			{ time: 0, color: [0, 0, 0] as [number, number, number] },

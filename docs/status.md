@@ -229,11 +229,11 @@ packs or renders correctly.
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the
   [sun disc](game-data/sky-and-fog.md#sun-disc) is unchecked against one too
-- lens flare ([lens flare](game-data/post-processing.md#lens-flare)): polygon elements, inverse SDFs
-  and key weights aren't drawn, and the flare component's own settings (when the environment's flare
-  is off) aren't known; per-light curves take SRP core's directional-light defaults. at Origin
-  Lodespring's overview the viewer's flare is fainter than the game's: the crystal mountain behind
-  the sun occludes it in the viewer's depth buffer (the game may not write it there), and Unity's
+- lens flare ([lens flare](game-data/post-processing.md#lens-flare)): polygon elements and inverse
+  SDFs aren't drawn, and the flare component's own settings (when the environment's flare is off)
+  aren't known; per-light curves take SRP core's directional-light defaults. at Origin Lodespring's
+  overview the viewer's flare is fainter than the game's: the crystal mountain behind the sun
+  occludes it in the viewer's depth buffer (the game may not write it there), and Unity's
   random-number mapping is assumed
 - the sky's celestial layers are unchecked against in-game shots, and the moon's sky-wide ring
   (`HG_RING`) and the aurora aren't drawn
