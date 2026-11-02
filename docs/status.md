@@ -343,6 +343,12 @@ packs or renders correctly.
   meshes (`_vat`, e.g. floating rocks) draw their rest pose
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
+- HLOD clusters never stand in for Global chunk content, which always draws, so wherever a cluster
+  covers Global scenery both draw until the cluster's tile refines. in indie_dg005 every static
+  renderer is Global, so its clusters only ever double what's there; whether the game hides Global
+  renderers behind HLOD is unknown ([LOD and HLOD](game-data/world.md#lod-and-hlod)). HLOD tiers
+  whose grid sits half a cell off the tile tree (indie_dg005, dung02_dg002's HLOD1) are filed under
+  one of the two tiles each cell straddles ([tile tree](package-format.md#tile-tree))
 - billboards turn only mesh renderers; skinned meshes and particle systems under a `VFXBillBoard`
   stay as authored; a renderer away from the `VFXBillBoard`'s origin turns in place instead of
   swinging around it, and modes 2–3 turn about the world's vertical rather than their own up, so

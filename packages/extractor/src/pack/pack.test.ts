@@ -22,7 +22,7 @@ import { fromFileHandle } from '@mary-ext/czar/node';
 import { BlobDir } from './blob-file.ts';
 import { BlobStore } from './blob-store.ts';
 import { ChainTable } from './chains.ts';
-import { resolveClampedHlodCell } from './hlod-cells.ts';
+import { type HlodSample, hlodCandidates, layoutHlodGrid, pickHlodTile } from './hlod-cells.ts';
 import { InstanceBlockBuilder } from './instances.ts';
 import { TileTreeBuilder } from './tile-tree.ts';
 
@@ -115,18 +115,90 @@ describe('TileTreeBuilder', () => {
 	});
 });
 
-describe('resolveClampedHlodCell', () => {
+describe('layoutHlodGrid', () => {
+	const tree = { origin: [-1024, -1024] as [number, number], rootSize: 2048, leafLevel: 5 };
+	// clusters spread across cells of `size` from `origin`, so their centres pin the origin down
+	const samples = (size: number, origin: [number, number], tier = 0): HlodSample[] =>
+		Array.from({ length: 40 }, (_, i) => {
+			const x = 1 + (i % 7);
+			const z = 1 + Math.floor(i / 7);
+			const cell = size * 2 ** tier;
+			const along = 0.02 + ((i * 0.37) % 0.96);
+			return {
+				tier,
+				x,
+				z,
+				center: [origin[0] + (x + along) * cell, origin[1] + (z + 1 - along) * cell] as [number, number],
+			};
+		});
+
+	it('keeps the tree grid when names follow it', () => {
+		const layout = layoutHlodGrid([...samples(64, [-1024, -1024]), ...samples(64, [-1024, -1024], 1)], tree);
+		assert.equal(layout.cellSize, 64);
+		assert.deepEqual(layout.origin, [-1024, -1024]);
+		assert.deepEqual(layout.levels, [5, 4, 3]);
+		assert.deepEqual(layout.aligned, [true, true, true]);
+	});
+
+	it('finds a coarser cell and an origin off the tree square, snapped to leaves', () => {
+		const layout = layoutHlodGrid(samples(128, [-701, -258]), tree);
+		assert.equal(layout.cellSize, 128);
+		assert.deepEqual(layout.origin, [-704, -256]);
+		assert.deepEqual(layout.levels, [4, 3, 2]);
+		// -704 is 5 leaves from the tree origin, so 128 m cells straddle 128 m tiles
+		assert.deepEqual(layout.aligned, [false, false, false]);
+	});
+
+	it('falls back to the tree grid without clusters', () => {
+		assert.deepEqual(layoutHlodGrid([], tree).origin, [-1024, -1024]);
+	});
+
+	it('refuses names that follow no grid', () => {
+		const scattered = samples(64, [-1024, -1024]);
+		for (const [i, sample] of scattered.entries()) {
+			sample.center = [(i * 7919) % 2000, (i * 104729) % 2000];
+		}
+		assert.throws(() => layoutHlodGrid(scattered, tree), /follow no grid/);
+	});
+});
+
+describe('hlodCandidates', () => {
+	const tree = { origin: [-1024, -1024] as [number, number], rootSize: 2048 };
+	const bounds: Aabb = { center: [-800, 0, -800], extents: [10, 10, 10] };
+
+	it('maps a named cell on an offset grid to its tile', () => {
+		const layout = layoutHlodGrid([], { ...tree, leafLevel: 5 });
+		const shifted = { ...layout, origin: [-768, -1024] as [number, number] };
+		assert.deepEqual(hlodCandidates({ tree, layout: shifted, sample: { tier: 1, x: 2, z: 3 }, bounds }), {
+			level: 4,
+			x: [4, 4],
+			z: [3, 3],
+		});
+	});
+
+	it('lists both tiles a misaligned cell straddles', () => {
+		const layout = layoutHlodGrid([], { ...tree, leafLevel: 5 });
+		const shifted = { ...layout, origin: [-960, -1024] as [number, number] };
+		assert.deepEqual(
+			hlodCandidates({ tree, layout: shifted, sample: { tier: 1, x: 2, z: 3 }, bounds }).x,
+			[2, 3],
+		);
+	});
+});
+
+describe('pickHlodTile', () => {
 	// 64 m leaves at level 5, origin at -1024
 	const tree = { origin: [-1024, -1024] as [number, number], rootSize: 2048 };
+	const layout = layoutHlodGrid([], { ...tree, leafLevel: 5 });
 	const box = (minX: number, maxX: number, z: number): Aabb => ({
 		center: [(minX + maxX) / 2, 10, z],
 		extents: [(maxX - minX) / 2, 5, 10],
 	});
-	const resolve = (bounds: Aabb, details: Map<string, Aabb[]>, named = { level: 5, x: 0, z: 6 }) =>
-		resolveClampedHlodCell({
+	const resolve = (bounds: Aabb, details: Map<string, Aabb[]>, sample = { tier: 0, x: 0, z: 6 }) =>
+		pickHlodTile({
 			tree,
 			leafLevel: 5,
-			named,
+			candidates: hlodCandidates({ tree, layout, sample, bounds }),
 			bounds,
 			detailAt: (leaf) => details.get(`${leaf.x},${leaf.z}`) ?? [],
 		});
@@ -149,7 +221,7 @@ describe('resolveClampedHlodCell', () => {
 	it('never moves a cell east of 0 or along an axis named other than 0', () => {
 		assert.deepEqual(resolve(box(-990, -970, z), new Map()), { level: 5, x: 0, z: 6 });
 		const details = new Map([['-16,7', [box(-2040, -1990, -560)]]]);
-		assert.deepEqual(resolve(box(-2400, -1980, -560), details, { level: 5, x: 0, z: 6 }).z, 6);
+		assert.deepEqual(resolve(box(-2400, -1980, -560), details).z, 6);
 	});
 });
 

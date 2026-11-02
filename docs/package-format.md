@@ -134,12 +134,22 @@ equal tree keys.
 | `hlodLevels[2]` | 256 m: HLOD tier 2                                                 |
 | `shardLevel`    | `leafLevel − 3` (512 m): groups shard archives                     |
 
-HLOD cluster names (`HLOD<tier>_<i>_<j>_Cluster_…`) give the tier and the cell on a `64 · 2^tier` m
-grid from the terrain origin, and the packer attaches each cluster to that named cell rather than to
-its bounds centre, because clusters overhang their cells. names clamp negative coordinates to 0, so
-along an axis named 0 the packer tries each spanned cell at or below 0 and picks the one with the
-most always-loaded detail instances inside the cluster's bounds (the cell nearest the centre without
-any). a cluster left on a cell without that detail can't refine, so it would draw over the detail it
+`hlodLevels[t]` is the level whose tiles are tier `t`'s cells, `leafLevel − t` where HLOD0 cells are
+64 m and one level coarser where they're 128 m (indie_dg005). HLOD cluster names
+(`HLOD<tier>_<i>_<j>_Cluster_…`) give the tier and the cell on the scene's
+[HLOD grid](game-data/world.md#lod-and-hlod), which the packer fits to the names (the pack report
+prints it, and fails the pack when no grid explains 80 % of them) and snaps to tree tiles within 8
+m. it attaches each cluster to the tile of its named cell rather than to its bounds centre, because
+clusters overhang their cells. two cases leave several candidate tiles, and the packer picks the one
+with the most always-loaded detail instances inside the cluster's bounds (the candidate nearest the
+centre without any):
+
+- names clamp negative coordinates to 0, so along an axis named 0 the candidates are the named tile
+  and each spanned tile west or south of it.
+- a tier whose grid is offset from the tree by half a cell (the report says which tiers straddle)
+  has cells covering two tiles per axis.
+
+a cluster left on a tile without that detail can't refine, so it would draw over the detail it
 stands for.
 
 **refinement contract** (REPLACE, at HLOD-cell granularity): a node draws its coarse content while

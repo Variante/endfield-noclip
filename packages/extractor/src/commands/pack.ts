@@ -93,6 +93,8 @@ export const run = async (args: string[]): Promise<void> => {
 
 const mb = (bytes: number): string => `${(bytes / 1e6).toFixed(2)} MB`;
 
+const share = (value: number | null): string => (value === null ? '–' : `${(value * 100).toFixed(1)}%`);
+
 const formatReport = (report: PackReport): string => {
 	const reused = report.archives.filter((archive) => archive.reused);
 	const lines = [
@@ -218,10 +220,18 @@ const formatReport = (report: PackReport): string => {
 		);
 	}
 	lines.push(`peak RSS ${(report.peakRss / 1e9).toFixed(2)} GB`);
-	lines.push(
-		`hlod: ${hlod.clusters} clusters (tiers ${hlod.tierCounts.join('/')}), ` +
-			`${(hlod.nameMatchesPosition * 100).toFixed(1)}% centred in their named cell`,
-	);
+	{
+		const { grid } = hlod;
+		const misaligned = grid.aligned.flatMap((aligned, tier) =>
+			aligned || hlod.tierCounts[tier] === 0 ? [] : [tier],
+		);
+		lines.push(
+			`hlod: ${hlod.clusters} clusters (tiers ${hlod.tierCounts.join('/')}), ` +
+				`${(hlod.nameMatchesPosition * 100).toFixed(1)}% centred in their tile; names on ${grid.cellSize} m ` +
+				`cells from ${grid.origin.join(', ')} (${share(grid.agreement[0])} / ${share(grid.agreement[1])} agree)` +
+				(misaligned.length === 0 ? '' : `, tiers ${misaligned.join('/')} straddle tree tiles`),
+		);
+	}
 	lines.push(
 		`tree: ${tree.nodes} nodes, ${tree.refs} refs (${Object.entries(tree.byKind)
 			.map(([kind, count]) => `${kind} ${count}`)

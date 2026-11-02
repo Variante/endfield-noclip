@@ -343,14 +343,20 @@ atlases.
 - **shadow proxies.** draws with `renderFlags` bit 10 only cast shadows.
 - **HLOD clusters.** auto-generated per-level clusters in three tiers, placed as ordinary entities
   named `HLOD<tier>_<i>_<j>_Cluster_<hash>…`, `i`/`j` being the tier's grid cell, with negative
-  coordinates clamped to 0 (west and south of the terrain origin every cluster is named on cell 0).
-  one large member can stretch a cluster's bounds hundreds of metres past its cell. their draw range
-  is unbounded, so HLOD visibility is decided by the HLOD/streaming system, not by LODGroup. they
-  occur only in always-loaded (scene state 0) files, and only the `pc` HLOD platform variant ships.
-  Jingyu's tiers hold 469 meshes / 451k triangles (HLOD0), 177 / 226k (HLOD1) and 69 / 45k (HLOD2).
-  the number after a cluster's hash (`_250`, `_600`) is its height rounded to 50 m, not a switch
-  distance. HLOD0 cells are 64 m, doubling per tier: 93.9 % of map02 cluster centres (91.0 % of
-  Jingyu's) lie in the 64 m-based cell their name gives, the rest overhang.
+  coordinates clamped to 0 (west and south of the grid origin every cluster is named on cell 0). one
+  large member can stretch a cluster's bounds hundreds of metres past its cell. their draw range is
+  unbounded, so HLOD visibility is decided by the HLOD/streaming system, not by LODGroup. they occur
+  only in always-loaded (scene state 0) Global chunk files (every scene of the install), and only
+  the `pc` HLOD platform variant ships. Jingyu's tiers hold 469 meshes / 451k triangles (HLOD0), 177
+  / 226k (HLOD1) and 69 / 45k (HLOD2). the number after a cluster's hash (`_250`, `_600`) is its
+  height rounded to 50 m, not a switch distance.
+- **HLOD grids.** each tier's cells double the previous tier's, but the tier-0 cell and the grid
+  origin vary by scene, and where the game stores them isn't found. fitted to cluster names (the
+  origin most cluster centres agree with, 95–99.7 % per axis): HLOD0 cells are 64 m with the origin
+  on the terrain square's corner in map01, map02, indie_dg002, indie_dg016 and the 1024 m dungeons
+  except dung02_rdg008, whose origin is (−256, −256) inside its (−512, −512) square. dung02_dg002's
+  is (−1664, −832) on a 4096 m square, and indie_dg005's cells are 128 m from (−1728, −832), so its
+  cells and dung02_dg002's HLOD1 cells are offset from the terrain quadtree by half a cell.
 
 the game streams HLOD as the streaming layers `HLOD0`–`HLOD2`, each with its own load radius
 (`hlod0LayerLoadRadius`, …, set in its streaming settings), and calls a tier an HLOD level. the
@@ -361,6 +367,11 @@ switch distances themselves are unknown.
 - the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`
   beyond "never culled by size"
 - HLOD switch distances, and the HLOD generated-material channel layout
+- where a scene's HLOD grid (tier-0 cell and origin) is defined, and why it leaves the terrain
+  quadtree in some scenes
+- whether HLOD clusters stand in for Global chunk content: indie_dg005 has every static renderer in
+  its Global chunk (14k, 9k of them inside an HLOD0 cluster's bounds) and none in cell files, so
+  there the clusters can only stand in for Global content
 - the cell size of `fb_main` grids; the levels are known from file names, the metric size is unknown
 - `farmod` far-field assets: whether they form a layer outside HLOD
 - whether dungeon levels that reuse an open-world scene add content of their own beyond LevelData

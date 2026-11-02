@@ -153,7 +153,14 @@ import {
 	type LevelEnvironmentDebug,
 	planEnvironments,
 } from './environments.ts';
-import { mayBeClamped, resolveClampedHlodCell } from './hlod-cells.ts';
+import {
+	type HlodCandidates,
+	type HlodLayout,
+	type HlodSample,
+	hlodCandidates,
+	layoutHlodGrid,
+	pickHlodTile,
+} from './hlod-cells.ts';
 import { type InstanceInput, InstanceBlockBuilder } from './instances.ts';
 import {
 	type CabinRoomGroup,
@@ -236,7 +243,13 @@ export interface PackReport {
 		orphanPages: number;
 		layerProblem: string | null;
 	} | null;
-	hlod: { clusters: number; tierCounts: number[]; nameMatchesPosition: number };
+	hlod: {
+		clusters: number;
+		tierCounts: number[];
+		nameMatchesPosition: number;
+		/** the grid fitted to cluster names; misaligned tiers' clusters were filed by their detail */
+		grid: Omit<HlodLayout, 'levels'>;
+	};
 	/** the baked irradiance volume's packed cells, or `null` if the scene has none */
 	irradiance: IrradianceReport | null;
 	tree: { nodes: number; refs: number; byKind: Record<string, number> };
@@ -281,8 +294,8 @@ interface HlodCluster {
 	/** level tag */
 	tag: number;
 	tier: number;
-	/** the cell in its name */
-	named: TileKey;
+	/** the tiles its named cell may be */
+	candidates: HlodCandidates;
 	row: InstanceInput;
 	name: string;
 	/** chunk-file index */
@@ -573,6 +586,12 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				clusters: instances.hlodClusters,
 				tierCounts: instances.tierCounts,
 				nameMatchesPosition: entities.hlodNameMatches / Math.max(1, instances.hlodClusters),
+				grid: {
+					cellSize: scene.hlod.cellSize,
+					origin: scene.hlod.origin,
+					aligned: scene.hlod.aligned,
+					agreement: scene.hlod.agreement,
+				},
 			},
 			irradiance: irradiance?.report ?? null,
 			tree: {
@@ -612,6 +631,8 @@ interface SceneIndex {
 	/** the manifest's terrain section without its levels, or `null` without terrain */
 	terrain: Omit<TerrainInfo, 'levels' | 'splat'> | null;
 	grid: TreeGrid;
+	/** how HLOD cluster names map onto the grid */
+	hlod: HlodLayout;
 	subset: Subset;
 	/** the scene's chunk files in processing order; debug rows index into it */
 	files: ChunkFile[];
@@ -675,7 +696,26 @@ const indexScene = async (
 	if (terrainScene !== undefined && surface === undefined) {
 		throw new Error(`${options.scene} has terrain tiles but no HGTerrainSurfacesData`);
 	}
-	const grid = treeGrid(surface);
+	const files = chunkFiles
+		.filter((file) => file.scene === options.scene)
+		// always-loaded files first, then scene states; the default area before stream areas: a fixed order
+		// for the first-wins dedupe, in which an entity of an always-loaded file stays unconditional
+		.toSorted(
+			(a, b) =>
+				Number(a.sceneState !== 0) - Number(b.sceneState !== 0) ||
+				Number(a.area !== 0) - Number(b.area !== 0) ||
+				(a.name < b.name ? -1 : 1),
+		);
+	const terrainGrid = treeGrid(surface);
+	// HLOD clusters sit in Global chunks only (every scene of the install), which are small
+	const hlod = layoutHlodGrid(
+		await hlodSamples(
+			world,
+			files.filter((file) => file.cell === null),
+		),
+		terrainGrid,
+	);
+	const grid: TreeGrid = { ...terrainGrid, hlodLevels: hlod.levels };
 	return {
 		options,
 		names,
@@ -690,17 +730,9 @@ const indexScene = async (
 						heightScale: surface.heightScale,
 					},
 		grid,
+		hlod,
 		subset: buildSubset(options, partition, grid),
-		files: chunkFiles
-			.filter((file) => file.scene === options.scene)
-			// always-loaded files first, then scene states; the default area before stream areas: a fixed order
-			// for the first-wins dedupe, in which an entity of an always-loaded file stays unconditional
-			.toSorted(
-				(a, b) =>
-					Number(a.sceneState !== 0) - Number(b.sceneState !== 0) ||
-					Number(a.area !== 0) - Number(b.area !== 0) ||
-					(a.name < b.name ? -1 : 1),
-			),
+		files,
 		sceneStates,
 		game,
 		pathOf,
@@ -768,8 +800,8 @@ const collectEntities = async (
 	/** per geometry id: whether its path names a card mesh */
 	const cards: boolean[] = [];
 	let hlodNameMatches = 0;
-	/** HLOD clusters whose names may have clamped a coordinate */
-	const clampedHlod: HlodCluster[] = [];
+	/** HLOD clusters whose name leaves more than one tile: clamped coordinates, or a misaligned tier */
+	const unresolvedHlod: HlodCluster[] = [];
 	/** bounds of always-loaded detail instances by `tileId/levelTag` */
 	const detailBounds = new Map<string, Aabb[]>();
 	const addHlod = (cluster: HlodCluster, key: TileKey): void => {
@@ -817,13 +849,18 @@ const collectEntities = async (
 		const condition = visibility === null ? null : collected.condition(visibility);
 		if (hlod !== null && !stateGated) {
 			const tier = Number(hlod[1]);
-			const named = { level: grid.hlodLevels[tier], x: Number(hlod[2]), z: Number(hlod[3]) };
-			const cluster = { tag, tier, named, row, name, file, condition };
-			if (mayBeClamped(named)) {
-				// resolved once every detail instance is known
-				clampedHlod.push(cluster);
+			const candidates = hlodCandidates({
+				tree: grid,
+				layout: scene.hlod,
+				sample: { tier, x: Number(hlod[2]), z: Number(hlod[3]) },
+				bounds: row.bounds,
+			});
+			const cluster = { tag, tier, candidates, row, name, file, condition };
+			if (candidates.x[0] === candidates.x[1] && candidates.z[0] === candidates.z[1]) {
+				addHlod(cluster, { level: candidates.level, x: candidates.x[0], z: candidates.z[0] });
 			} else {
-				addHlod(cluster, named);
+				// resolved once every detail instance is known
+				unresolvedHlod.push(cluster);
 			}
 			return;
 		}
@@ -1046,11 +1083,11 @@ const collectEntities = async (
 			addRow({ row, tag, name, file, global, hlod, visibility, stateGated });
 		}
 	}
-	for (const cluster of clampedHlod) {
-		const key = resolveClampedHlodCell({
+	for (const cluster of unresolvedHlod) {
+		const key = pickHlodTile({
 			tree: grid,
 			leafLevel: grid.leafLevel,
-			named: cluster.named,
+			candidates: cluster.candidates,
 			bounds: cluster.row.bounds,
 			detailAt: (leaf) => detailBounds.get(`${tileId(leaf)}/${cluster.tag}`) ?? [],
 		});
@@ -2159,10 +2196,36 @@ const treeGrid = (surface: TerrainSurfacesData | undefined): TreeGrid => {
 		rootSize,
 		leafLevel,
 		cellLevel,
-		// HLOD0 cells are 64 m, doubling per tier (checked against cluster positions in the pack report)
+		// replaced by the levels the HLOD grid fit finds
 		hlodLevels: [leafLevel, leafLevel - 1, leafLevel - 2],
 		shardLevel: Math.max(0, leafLevel - 3),
 	};
+};
+
+/**
+ * @param world the world index
+ * @param files chunk files to read
+ * @returns the HLOD clusters among their entities, once each
+ */
+const hlodSamples = async (world: WorldIndex, files: readonly ChunkFile[]): Promise<HlodSample[]> => {
+	const samples: HlodSample[] = [];
+	const seen = new Set<number>();
+	for (const entities of await Promise.all(files.map((file) => world.readChunk(file, undefined)))) {
+		for (const entity of entities) {
+			const name = HLOD_NAME.exec(entity.name);
+			if (name === null || entity.bounds === null || seen.has(entity.id)) {
+				continue;
+			}
+			seen.add(entity.id);
+			samples.push({
+				tier: Number(name[1]),
+				x: Number(name[2]),
+				z: Number(name[3]),
+				center: [entity.bounds.center[0], entity.bounds.center[2]],
+			});
+		}
+	}
+	return samples;
 };
 
 interface Subset {
