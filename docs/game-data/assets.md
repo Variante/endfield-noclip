@@ -221,6 +221,18 @@ block: in the repeatable one (`int_challenge_start_point_postmodel`) its rising 
 (`dotAdd3stages`) and blue decal are part of the idle and running looks, while the one-time point's
 clips hold both off in every state.
 
+### effect LOD tables
+
+an enabled `EffectSetting` lists GameObjects in its `lodSetting` table, each with a `gameobject`, a
+quality level and per-distance `_distanceLodInfos` (`isActive`, `speedPercent`). the first time the
+table is applied it records each GameObject's saved activity, and from then on it shows a GameObject
+only when its LOD entry is on and it was saved on; the only other switch it makes is off. so a
+GameObject the table lists and that is saved off never shows through the table, even with `isActive`
+1 at every distance, and the table's next refresh switches it back off if something else switched it
+on. the Very Large Rift (dung02_dg005) places two `p_fxmap_map02_lv002_qinshihuoyan_middle_01_half`
+walls whose `dither` layer (a `VFXDitherAlpha` sheet) is one, beside the drawn `caihong`, `wenli`
+and `trans` layers on the same mesh.
+
 ## dynamic structures
 
 the dynamic ECS scene (`Data/DynamicStreaming/PC/Scene/<scene>/`) holds scenery that appears,

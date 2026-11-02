@@ -29,6 +29,8 @@ import { particleReach, readParticleSystem } from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
 	animatorHiddenNodes,
+	effectLodNodes,
+	isEffectSettingType,
 	isOneShotEffect,
 	isViewStateControllerType,
 	playedEffectNodes,
@@ -162,6 +164,8 @@ export const readPrefabRenderers = async (
 	const transforms = new Map<string, Float32Array>();
 	// GameObjects a view-state controller switches on to play an effect, found before their subtrees are visited
 	const played = new Set<string>();
+	// GameObjects an EffectSetting's LOD table switches, found before their subtrees are visited
+	const lodSwitched = new Set<string>();
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -226,8 +230,10 @@ export const readPrefabRenderers = async (
 				off = { standIn: null };
 			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
 				// a one-shot effect a view state plays shows for a moment, never at rest; what the prefab's own
-				// Animator only ever holds off never shows
-				const neverShown = scopes.some((scope) => scope.hidden.has(crc32(scope.path) >>> 0));
+				// Animator, or an effect's LOD table outside a view state, only ever holds off never shows
+				const neverShown =
+					scopes.some((scope) => scope.hidden.has(crc32(scope.path) >>> 0)) ||
+					(lodSwitched.has(key) && !played.has(key));
 				off =
 					neverShown || (played.has(key) && (await isOneShotEffect(resolver, go)))
 						? { standIn: null }
@@ -275,6 +281,10 @@ export const readPrefabRenderers = async (
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isViewStateControllerType(ref)) {
 				for (const node of await playedEffectNodes(resolver, ref, await resolver.read(ref))) {
 					played.add(node);
+				}
+			} else if (ref.info.classId === UnityClass.MonoBehaviour && isEffectSettingType(ref)) {
+				for (const node of await effectLodNodes(resolver, ref, await resolver.read(ref))) {
+					lodSwitched.add(node);
 				}
 			} else if (ref.info.classId === UnityClass.Animator) {
 				const hidden = await animatorHiddenNodes(resolver, ref, await resolver.read(ref));

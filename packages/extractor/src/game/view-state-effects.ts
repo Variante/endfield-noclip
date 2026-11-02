@@ -98,6 +98,40 @@ export const playedEffectNodes = async (
 };
 
 /**
+ * @param ref a MonoBehaviour
+ * @returns whether it's an `EffectSetting`
+ */
+export const isEffectSettingType = (ref: ObjectRef): boolean => fieldNames(ref).has('effectLogicCfg');
+
+/**
+ * @param resolver bundle reader
+ * @param setting an `EffectSetting` (see {@link isEffectSettingType})
+ * @param data its fields
+ * @returns keys of the GameObjects its LOD table switches. the table keeps each one off when it was saved off
+ *   (docs/game-data/assets.md#effect-lod-tables), so those never show. empty when the setting is disabled
+ */
+export const effectLodNodes = async (
+	resolver: AssetResolver,
+	setting: ObjectRef,
+	data: TypeTreeObject,
+): Promise<Set<string>> => {
+	const nodes = new Set<string>();
+	if (numberField(data, 'm_Enabled') === 0) {
+		return nodes;
+	}
+	for (const entry of arrayField(data, 'lodSetting')) {
+		if (!isObject(entry)) {
+			throw new FormatError('invalid effect LOD entry');
+		}
+		const node = await resolver.resolve(setting, pptrField(entry, 'gameobject'));
+		if (node !== null) {
+			nodes.add(objectKey(node));
+		}
+	}
+	return nodes;
+};
+
+/**
  * @param resolver bundle reader
  * @param go a GameObject
  * @returns whether its subtree is effects that don't loop: it has `EffectSetting`s and none loops
@@ -117,7 +151,7 @@ export const isOneShotEffect = async (resolver: AssetResolver, go: ObjectRef): P
 			}
 			if (ref.info.classId === UnityClass.Transform) {
 				transform = ref;
-			} else if (ref.info.classId === UnityClass.MonoBehaviour && fieldNames(ref).has('effectLogicCfg')) {
+			} else if (ref.info.classId === UnityClass.MonoBehaviour && isEffectSettingType(ref)) {
 				settings++;
 				if (numberField(objectField(await resolver.read(ref), 'effectLogicCfg'), 'isLoop') !== 0) {
 					return false;
