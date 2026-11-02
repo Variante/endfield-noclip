@@ -69,7 +69,12 @@ test('mesh particles that die, multiply, face the camera, follow curves or flip 
 		frozenParticleMatrix(system({ initial: { maxNumParticles: 5 } }), renderer(1), identity, emitter),
 		null,
 	);
-	const curve = { minMaxState: 1, scalar: 1, minScalar: 0 };
+	const curve = {
+		minMaxState: 1,
+		scalar: 1,
+		minScalar: 0,
+		maxCurve: { m_Curve: [], m_PreInfinity: 2, m_PostInfinity: 2 },
+	};
 	assert.equal(
 		frozenParticleMatrix(system({ initial: { startSize: curve } }), renderer(1), identity, emitter),
 		null,

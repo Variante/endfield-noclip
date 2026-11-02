@@ -15,6 +15,14 @@ import {
 	objectField,
 	vector3Field,
 } from '@endfield-noclip/formats/unity/values';
+import {
+	type MinMaxCurveInfo,
+	ParticleAlignment,
+	ParticleRenderMode,
+	ParticleShapeKind,
+} from '@endfield-noclip/package-format/particles';
+
+import { ALIGNMENT_VELOCITY, constantMidpoint, readStartPose, ScalingMode } from './particle-system.ts';
 
 /** a Transform's local placement */
 export interface LocalTransform {
@@ -23,31 +31,6 @@ export interface LocalTransform {
 	rotation: readonly number[];
 	scale: readonly number[];
 }
-
-/** `ParticleSystemRenderer.m_RenderMode` that draws a mesh per particle */
-const RENDER_MODE_MESH = 4;
-
-/** `ParticleSystemRenderer.m_RenderAlignment` values whose orientation doesn't follow the camera */
-const Alignment = {
-	World: 1,
-	Local: 2,
-	Velocity: 4,
-} as const;
-
-/** `ShapeModule.type` of a box, which emits along the emitter's forward axis */
-const SHAPE_BOX = 5;
-
-/** `ParticleSystem.scalingMode` that sizes particles by the whole hierarchy's scale */
-const SCALING_HIERARCHY = 0;
-
-/**
- * `ParticleSystem.scalingMode` that sizes and moves particles by the system's own scale, ignoring its
- * parents'
- */
-const SCALING_LOCAL = 1;
-
-/** `ParticleSystem.scalingMode` that leaves particle sizes unscaled */
-export const SCALING_SHAPE = 2;
 
 /**
  * the matrix a played particle system's particles move in: its whole world matrix, except under the `Local`
@@ -64,8 +47,8 @@ export const particleEmitterMatrix = (
 	local: LocalTransform,
 	scalingMode: number,
 ): Float32Array =>
-	scalingMode === SCALING_LOCAL
-		? particleStandInMatrix(parent, local, SCALING_LOCAL)
+	scalingMode === ScalingMode.Local
+		? particleStandInMatrix(parent, local, ScalingMode.Local)
 		: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 
 /**
@@ -83,12 +66,12 @@ export const particleStandInMatrix = (
 	local: LocalTransform,
 	scalingMode: number,
 ): Float32Array => {
-	if (scalingMode === SCALING_HIERARCHY) {
+	if (scalingMode === ScalingMode.Hierarchy) {
 		return multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 	}
 	const matrix = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, [1, 1, 1]));
 	// rescaling each axis to the system's own scale drops the parents' scale and keeps where the axes point
-	const own = scalingMode === SCALING_SHAPE ? [1, 1, 1] : local.scale;
+	const own = scalingMode === ScalingMode.Shape ? [1, 1, 1] : local.scale;
 	for (let axis = 0; axis < 3; axis++) {
 		const length = Math.hypot(matrix[axis * 4], matrix[axis * 4 + 1], matrix[axis * 4 + 2]);
 		const factor = length > 0 ? own[axis] / length : 0;
@@ -99,22 +82,17 @@ export const particleStandInMatrix = (
 	return matrix;
 };
 
-/**
- * a MinMaxCurve's value: a constant, or the midpoint of a random range between two constants, since the
- * game's random draws can't be reproduced offline
- */
-const curveValue = (curve: TypeTreeObject): number | null => {
-	switch (numberField(curve, 'minMaxState')) {
-		case 0: {
-			return numberField(curve, 'scalar');
-		}
-		case 3: {
-			return (numberField(curve, 'minScalar') + numberField(curve, 'scalar')) / 2;
-		}
-		default: {
+/** @returns each curve's {@link constantMidpoint}, or `null` when any is a curve */
+const midpoints = (curves: readonly MinMaxCurveInfo[]): number[] | null => {
+	const values: number[] = [];
+	for (const curve of curves) {
+		const value = constantMidpoint(curve);
+		if (value === null) {
 			return null;
 		}
+		values.push(value);
 	}
+	return values;
 };
 
 /**
@@ -141,7 +119,7 @@ export const frozenParticleMatrix = (
 	const initial = objectField(system, 'InitialModule');
 	const shape = objectField(system, 'ShapeModule');
 	if (
-		numberField(renderer, 'm_RenderMode') !== RENDER_MODE_MESH ||
+		numberField(renderer, 'm_RenderMode') !== ParticleRenderMode.Mesh ||
 		// ring buffer mode 0 lets particles die at the end of their lifetime
 		numberField(system, 'ringBufferMode') === 0 ||
 		!booleanField(system, 'playOnAwake') ||
@@ -156,7 +134,7 @@ export const frozenParticleMatrix = (
 	const sizing = particleStandInMatrix(parent, emitter, scalingMode);
 	let frame: Float32Array;
 	switch (numberField(renderer, 'm_RenderAlignment')) {
-		case Alignment.World: {
+		case ParticleAlignment.World: {
 			// the world's axes, keeping the sizing scale
 			const lengths = [0, 1, 2].map((axis) =>
 				Math.hypot(sizing[axis * 4], sizing[axis * 4 + 1], sizing[axis * 4 + 2]),
@@ -164,13 +142,13 @@ export const frozenParticleMatrix = (
 			frame = trsMatrix([0, 0, 0], [0, 0, 0, 1], lengths);
 			break;
 		}
-		case Alignment.Local: {
+		case ParticleAlignment.Local: {
 			frame = sizing;
 			break;
 		}
-		case Alignment.Velocity: {
+		case ALIGNMENT_VELOCITY: {
 			// a box sends its particles along the emitter's forward axis, so they face where the emitter does
-			if (!booleanField(shape, 'enabled') || numberField(shape, 'type') !== SHAPE_BOX) {
+			if (!booleanField(shape, 'enabled') || numberField(shape, 'type') !== ParticleShapeKind.Box) {
 				return null;
 			}
 			frame = sizing;
@@ -180,28 +158,13 @@ export const frozenParticleMatrix = (
 			return null;
 		}
 	}
-	const sizes = booleanField(initial, 'size3D')
-		? ['startSize', 'startSizeY', 'startSizeZ']
-		: ['startSize', 'startSize', 'startSize'];
-	const angles = booleanField(initial, 'rotation3D')
-		? ['startRotationX', 'startRotationY', 'startRotation']
-		: [null, null, 'startRotation'];
-	const size: number[] = [];
-	for (const name of sizes) {
-		const value = curveValue(objectField(initial, name));
-		if (value === null) {
-			return null;
-		}
-		size.push(value);
+	const pose = readStartPose(initial);
+	const size = midpoints(pose.startSize);
+	const angles = midpoints(pose.startRotation);
+	if (size === null || angles === null) {
+		return null;
 	}
-	const degrees: number[] = [];
-	for (const name of angles) {
-		const value = name === null ? 0 : curveValue(objectField(initial, name));
-		if (value === null) {
-			return null;
-		}
-		degrees.push((value * 180) / Math.PI);
-	}
+	const degrees = angles.map((radians) => (radians * 180) / Math.PI);
 	// the shape's centre moves with the emitter's matrix, as played particles do
 	const [x, y, z] = booleanField(shape, 'enabled') ? vector3Field(shape, 'm_Position') : [0, 0, 0];
 	const moving = particleEmitterMatrix(parent, emitter, scalingMode);

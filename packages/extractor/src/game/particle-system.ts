@@ -33,8 +33,6 @@ import {
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
 
-import { SCALING_SHAPE } from './particle-mesh.ts';
-
 /** the renderer's meshes and their weights */
 const MESH_FIELDS = ['m_Mesh', 'm_Mesh1', 'm_Mesh2', 'm_Mesh3'] as const;
 const MESH_WEIGHT_FIELDS = [
@@ -49,6 +47,19 @@ const MESH_DISTRIBUTION_WEIGHTED = 1;
 
 /** `ParticleSystemRenderer.m_RenderAlignment` of Unity's `Facing`, which the viewer orients like `View` */
 const ALIGNMENT_FACING = 3;
+
+/** `ParticleSystemRenderer.m_RenderAlignment` of Unity's `Velocity`, along each particle's motion */
+export const ALIGNMENT_VELOCITY = 4;
+
+/** `ParticleSystem.scalingMode` values */
+export const ScalingMode = {
+	/** the whole hierarchy's scale sizes and moves particles */
+	Hierarchy: 0,
+	/** the system's own scale alone sizes and moves them, ignoring its parents' */
+	Local: 1,
+	/** the scale moves particles but leaves their size */
+	Shape: 2,
+} as const;
 
 /** shapes the viewer emits from, by `ShapeModule.type` */
 const SHAPES = new Set<number>(Object.values(ParticleShapeKind));
@@ -515,17 +526,8 @@ export const readParticleSystem = (
 	}
 
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));
-	const size = curve(initial, 'startSize');
-	const startSize: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] = booleanField(initial, 'size3D')
-		? [size, curve(initial, 'startSizeY'), curve(initial, 'startSizeZ')]
-		: [size, size, size];
+	const { startSize, startRotation } = readStartPose(initial);
 	const zero: MinMaxCurveInfo = { mode: CurveMode.Constant, scalar: 0, min: 0, curve: null, minCurve: null };
-	const startRotation: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] = booleanField(
-		initial,
-		'rotation3D',
-	)
-		? [curve(initial, 'startRotationX'), curve(initial, 'startRotationY'), curve(initial, 'startRotation')]
-		: [zero, zero, curve(initial, 'startRotation')];
 
 	let sizeOverLifetime: ParticleSystemInfo['sizeOverLifetime'] = null;
 	if (enabled(system, 'SizeModule')) {
@@ -581,7 +583,7 @@ export const readParticleSystem = (
 							velocityScale: numberField(renderer, 'm_VelocityScale'),
 						}
 					: null,
-			shapeScaling: numberField(system, 'scalingMode') === SCALING_SHAPE,
+			shapeScaling: numberField(system, 'scalingMode') === ScalingMode.Shape,
 			duration,
 			looping: booleanField(system, 'looping'),
 			startDelay: delay,
@@ -614,6 +616,47 @@ export const readParticleSystem = (
 		},
 		meshes,
 	};
+};
+
+/**
+ * @param initial a `ParticleSystem`'s `InitialModule`
+ * @returns each particle's start size per axis and start Euler angles (radians, about x, y and z), as
+ *   {@link ParticleSystemInfo} keeps them: one size for all three axes and a turn about z alone unless the
+ *   module sets them per axis
+ */
+export const readStartPose = (
+	initial: TypeTreeObject,
+): Pick<ParticleSystemInfo, 'startSize' | 'startRotation'> => {
+	const curve = (name: string) => readMinMaxCurve(objectField(initial, name));
+	const size = curve('startSize');
+	const zero: MinMaxCurveInfo = { mode: CurveMode.Constant, scalar: 0, min: 0, curve: null, minCurve: null };
+	return {
+		startSize: booleanField(initial, 'size3D')
+			? [size, curve('startSizeY'), curve('startSizeZ')]
+			: [size, size, size],
+		startRotation: booleanField(initial, 'rotation3D')
+			? [curve('startRotationX'), curve('startRotationY'), curve('startRotation')]
+			: [zero, zero, curve('startRotation')],
+	};
+};
+
+/**
+ * @param curve a MinMaxCurve
+ * @returns its constant, or the midpoint of its two constants (the game's random draws can't be reproduced
+ *   offline); `null` for curves
+ */
+export const constantMidpoint = (curve: MinMaxCurveInfo): number | null => {
+	switch (curve.mode) {
+		case CurveMode.Constant: {
+			return curve.scalar;
+		}
+		case CurveMode.TwoConstants: {
+			return (curve.min + curve.scalar) / 2;
+		}
+		default: {
+			return null;
+		}
+	}
 };
 
 /**
