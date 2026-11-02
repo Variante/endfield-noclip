@@ -808,8 +808,6 @@ const collectEntities = async (
 			sources: ChunkSource[];
 		}
 	>();
-	/** per geometry id: whether its path names a card mesh */
-	const cards: boolean[] = [];
 	let hlodNameMatches = 0;
 	/** HLOD clusters whose name leaves more than one tile: clamped coordinates, or a misaligned tier */
 	const unresolvedHlod: HlodCluster[] = [];
@@ -890,23 +888,13 @@ const collectEntities = async (
 		pack.uses.note(row.chain, key);
 	};
 
-	const chainDraw = (draw: RendererDraw, hlod: boolean): ChainDraw => {
-		const geometry = pack.geometries.intern(draw.meshHash, scene.pathOf);
-		cards[geometry] ??= pack.geometries.get(geometry).path?.toLowerCase().includes('_cardmesh') ?? false;
-		let role: DrawRole = DrawRole.Lit;
-		if (hlod) {
-			role = DrawRole.Hlod;
-		} else if ((draw.flags & DrawFlags.ShadowOnly) !== 0) {
-			role = DrawRole.ShadowOnly;
-		} else if (cards[geometry]) {
-			role = DrawRole.Card;
-		}
+	const chainDraw = (draw: RendererDraw): ChainDraw => {
 		return {
-			geometry,
+			geometry: pack.geometries.intern(draw.meshHash, scene.pathOf),
 			material: pack.materials.intern(draw.materialHash, scene.pathOf),
 			submesh: draw.submesh,
 			lod: draw.lod,
-			role,
+			role: (draw.flags & DrawFlags.ShadowOnly) === 0 ? DrawRole.Lit : DrawRole.ShadowOnly,
 			minSquared: draw.lodMinSquared,
 			maxSquared: draw.lodMaxSquared,
 			sourceFlags: draw.flags,
@@ -1015,7 +1003,7 @@ const collectEntities = async (
 
 				const hlod = HLOD_NAME.exec(entity.name);
 				if (entity.renderer !== null) {
-					draws = entity.renderer.draws.map((draw) => chainDraw(draw, hlod !== null));
+					draws = entity.renderer.draws.map(chainDraw);
 					lodCount = entity.renderer.lodCount;
 				}
 				if (draws === null) {
@@ -1067,10 +1055,7 @@ const collectEntities = async (
 					if (!subset.includesEntity(foliage.levelTag, x, z)) {
 						continue;
 					}
-					const chain = pack.chains.intern(
-						cluster.renderer.lodCount,
-						cluster.renderer.draws.map((draw) => chainDraw(draw, false)),
-					);
+					const chain = pack.chains.intern(cluster.renderer.lodCount, cluster.renderer.draws.map(chainDraw));
 					for (const matrix of cluster.instances) {
 						rows.push({ chain, matrix, bounds: cluster.bounds, entityId: foliage.id });
 					}
@@ -1217,10 +1202,7 @@ const collectEntities = async (
 		}
 		addStructure(
 			{
-				chain: pack.chains.intern(
-					entity.renderer.lodCount,
-					entity.renderer.draws.map((draw) => chainDraw(draw, false)),
-				),
+				chain: pack.chains.intern(entity.renderer.lodCount, entity.renderer.draws.map(chainDraw)),
 				matrix: entity.matrix,
 				bounds: entity.bounds,
 				entityId: entity.id,

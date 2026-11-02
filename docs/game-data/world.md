@@ -346,7 +346,8 @@ atlases.
   the negative values seen are all `−k²` with `k` between 0.005 and 0.05 (−0.000225 on 9,189 map02
   draws, −0.0001 on every map02 HLOD cluster, −0.0025 on every indie_dg005 one, −0.0004, −0.000025),
   so they may be ordinary cull heights stored negated rather than a "never" sentinel.
-- **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary far LODs.
+- **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary LODs, usually the last
+  but not always: 4,162 map02 card draws are an earlier LOD with a size cull (LOD 3 of 5, 4 of 6).
 - **shadow proxies.** draws with `renderFlags` bit 10 only cast shadows.
 - **HLOD clusters.** auto-generated per-level clusters in three tiers, placed as ordinary entities
   named `HLOD<tier>_<i>_<j>_Cluster_<hash>…`, `i`/`j` being the tier's grid cell, with negative

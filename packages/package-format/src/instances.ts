@@ -18,17 +18,13 @@ export const DrawRole = {
 	Lit: 0,
 	/** casts shadows only (a shadow proxy) */
 	ShadowOnly: 1,
-	/** foliage imposter card mesh */
-	Card: 2,
-	/** HLOD cluster mesh */
-	Hlod: 3,
 	/**
 	 * a stand-in for something the game draws that the viewer can't (a particle system it can't play, a prefab
 	 * it can't read), drawn with the viewer's unsupported look rather than its material. the material names
 	 * what it would have drawn, or is {@link NO_MATERIAL} when that isn't known; the geometry is the content's
 	 * own mesh, or a unit cube spanning −0.5 to 0.5 that the instance transform scales to its extent
 	 */
-	Unsupported: 4,
+	Unsupported: 2,
 } as const;
 
 /** {@link ChainDraw.material} of a `DrawRole.Unsupported` stand-in whose material isn't known */
@@ -36,26 +32,26 @@ export const NO_MATERIAL = 0xffff_ffff;
 
 export type DrawRole = (typeof DrawRole)[keyof typeof DrawRole];
 
-/** chain flag bits */
+/**
+ * chain flag bits. whether a chain is an HLOD cluster's follows from the tree ref that holds it
+ * (`ContentKind.Hlod`), and shadow-only draws from their role
+ */
 export const ChainFlags = {
-	HasShadowOnly: 1 << 0,
-	Hlod: 1 << 1,
-	HasCard: 1 << 2,
 	/**
 	 * the instances face the camera: each frame their transform's rotation is the camera's rotation times the
 	 * stored one, about the stored translation
 	 */
-	BillboardFacing: 1 << 3,
+	BillboardFacing: 1 << 0,
 	/**
 	 * the instances turn about the world's vertical to face the camera: the stored rotation is relative to the
 	 * camera's heading (its forward projected onto the horizontal)
 	 */
-	BillboardUpright: 1 << 4,
+	BillboardUpright: 1 << 1,
 	/**
 	 * the draws' `minSquared` and `maxSquared` are squared camera distances from {@link Chain.distanceOrigin},
 	 * in m², rather than screen-relative sizes
 	 */
-	CameraDistance: 1 << 5,
+	CameraDistance: 1 << 2,
 } as const;
 
 /** instance block flag bits */
@@ -141,7 +137,7 @@ const INSTANCE_ROW_SIZE = 4 + 48 + 24 + 4;
 /** 'EFCH' */
 const CHAINS_HEADER: HeaderShape = {
 	magic: 0x48_43_46_45,
-	version: 4,
+	version: 5,
 	size: TABLE_HEADER_SIZE,
 	label: 'chain table',
 };

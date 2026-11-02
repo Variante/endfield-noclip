@@ -1,4 +1,4 @@
-import { type Chain, ChainFlags, type ChainDraw, DrawRole } from '@endfield-noclip/package-format/instances';
+import { type Chain, ChainFlags, type ChainDraw } from '@endfield-noclip/package-format/instances';
 
 // float bits make the dedupe key exact: two thresholds are the same only if their f32 bits are
 const f32 = new Float32Array(1);
@@ -46,31 +46,10 @@ export class ChainTable {
 			() =>
 				this.chains.push({
 					lodCount,
-					flags: chainFlags(draws) | billboard | (distanceOrigin === null ? 0 : ChainFlags.CameraDistance),
+					flags: billboard | (distanceOrigin === null ? 0 : ChainFlags.CameraDistance),
 					draws: draws.map((draw) => ({ ...draw })),
 					distanceOrigin: distanceOrigin === null ? null : [...distanceOrigin],
 				}) - 1,
 		);
 	}
 }
-
-const chainFlags = (draws: readonly ChainDraw[]): number => {
-	let flags = 0;
-	for (const draw of draws) {
-		switch (draw.role) {
-			case DrawRole.ShadowOnly: {
-				flags |= ChainFlags.HasShadowOnly;
-				break;
-			}
-			case DrawRole.Card: {
-				flags |= ChainFlags.HasCard;
-				break;
-			}
-			case DrawRole.Hlod: {
-				flags |= ChainFlags.Hlod;
-				break;
-			}
-		}
-	}
-	return flags;
-};

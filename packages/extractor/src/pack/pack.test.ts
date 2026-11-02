@@ -60,11 +60,15 @@ describe('ChainTable', () => {
 		assert.equal(table.chains.length, 5);
 	});
 
-	it('flags shadow proxies, cards and HLOD', () => {
+	it('flags how instances are placed, not what their draws are', () => {
 		const table = new ChainTable();
-		const id = table.intern(1, [draw({ role: DrawRole.ShadowOnly }), draw({ role: DrawRole.Card })]);
-		assert.equal(table.chains[id].flags, ChainFlags.HasShadowOnly | ChainFlags.HasCard);
-		assert.equal(table.chains[table.intern(1, [draw({ role: DrawRole.Hlod })])].flags, ChainFlags.Hlod);
+		assert.equal(table.chains[table.intern(1, [draw({ role: DrawRole.ShadowOnly })])].flags, 0);
+		const banded = table.intern(1, [draw({})], {
+			billboard: ChainFlags.BillboardUpright,
+			distanceOrigin: [0, 1, 0],
+		});
+		assert.equal(table.chains[banded].flags, ChainFlags.BillboardUpright | ChainFlags.CameraDistance);
+		assert.deepEqual(table.chains[banded].distanceOrigin, [0, 1, 0]);
 	});
 });
 

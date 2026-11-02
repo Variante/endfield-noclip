@@ -446,7 +446,7 @@ gate them the same way as stream-area files.
 the packer preserves the game's [LOD and HLOD](game-data/world.md#lod-and-hlod):
 
 - per-entity LOD chains: the packer keeps whole chains, thresholds included.
-- foliage cards: the packer marks a draw as a card when its mesh path contains `_cardmesh`.
+- foliage cards: ordinary chain draws, not told apart.
 - HLOD clusters: setup reads the Global chunks' clusters and fits the scene's HLOD grid to their
   names; the pack report gives the grid, how many names it explains, and how many clusters' bounds
   centres lie in the tile they're filed under. a cluster whose name leaves several tiles (a clamped
