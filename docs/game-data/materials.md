@@ -46,6 +46,23 @@ grid still visible.
 | `_EMISSIVE_MASK`  | the colour times a channel of the material's own maps, picked by `_EmissiveMaskChannel` |
 | `_EMISSIVE_NOMAP` | only ships with the sweep animation (`_EMISSIVE_ANIM_SWEEP`)                            |
 
+`_EMISSIVE_ANIM` pulses the `_EmissiveColor` term by `mix(1, p, _EmissiveColor.a)`. its phase is
+`frac(_Time.x / 2π · _EmissiveAnimSpeed + _EmissiveAnimRandom)` (`_Time.x` assumed to be Unity's
+seconds / 20; unchecked against the game), scaled by `_EmissiveAnimInterval` and clamped to 1, then
+mapped to `x` in −1…1; with `m` = `_EmissiveMinBrightness`,
+`p = (1 − m)(2|x|³ − 3x² + ½) + (1 + m)/2`, which is 1 mid-cycle and `m` at its ends. the white lamp
+cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse once every
+π seconds. `_EnableEmissiveAnimFlicker` swaps the pulse for hashed on/off noise; no map02 material
+sets it.
+
+each draw also carries a runtime emission colour in its per-draw data, which replaces
+`_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
+glow green at Wuling and red at Marker Stone in the game, where each reads as a white cube with a
+coloured glow (likely a saturated colour too bright for the tonemapper to keep its hue; unverified),
+so something sets it while the game runs. the client's known setters work on GameObject renderers:
+interactives' emissive configs and VFX-driven emission. none of them covers static scenery, so the
+source is unknown.
+
 the mask channel is 0 for no emission, 1 for the base colour's alpha, 2 for the normal map's B
 (two-basemap layout) or the base alpha (MRO layout), and 3 or more for the normal map's alpha
 (two-basemap) or the MRO map's alpha; the channel is remapped by `saturate((m − 0.05) / 0.9)`. the

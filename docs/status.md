@@ -78,7 +78,7 @@ packs or renders correctly.
 - the sun may be π too dark against local lights and the game (the two conventions differ);
   unchecked
 - interiors, in order of impact:
-  - per-instance emission overrides aren't read
+  - per-draw emission overrides set at runtime aren't known (see the tower lamps below)
   - normal-map roughness is read only when the mesh has tangents; normals are transformed by the
     model matrix rather than its inverse transpose, and every material lights the side facing the
     camera
@@ -113,8 +113,12 @@ packs or renders correctly.
   scattering aren't drawn, glass in front of water is lost, glass against the sky isn't fogged, and
   nothing checks whether the game lets glass cast shadows
 - emission ([emission](game-data/materials.md#emission)): `_EMISSIVE_NOMAP` (the sweep animation)
-  isn't drawn, the other animated variants are drawn still, and `_EmissiveType`'s extra G/B/A
-  colours and the emission Fresnel term are left out
+  isn't drawn, `_EMISSIVE_ANIM`'s flicker variant and the emissive map's scrolling are drawn still,
+  and `_EmissiveType`'s extra G/B/A colours and the emission Fresnel term are left out
+- the white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`) glow
+  green and red in the game but white in the viewer. the colour isn't in any client data we read:
+  it's a per-draw emission override set at runtime ([emission](game-data/materials.md#emission)),
+  and what sets it for static scenery is untraced
 - foliage ([foliage](game-data/materials.md#foliage)): wind, the grass's per-instance colour and
   terrain albedo blend (`_BLEND_TERRAIN_ALBEDO`), the card LOD's normal decoding (so it takes
   neither the bend nor the masks), trunk ramps and vertex AO (trunks shade as Lit), sphere-shadow

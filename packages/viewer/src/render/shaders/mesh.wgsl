@@ -48,7 +48,8 @@ struct Draw {
 	detail2: vec4f,
 	// overlay colour (linear), how much it covers
 	detail_overlay: vec4f,
-	// parallax depth, march steps, Fresnel power, pulse amplitude
+	// parallax depth, march steps, Fresnel power, pulse amplitude. without parallax or layer maps, this row and
+	// the next hold `_EMISSIVE_ANIM`'s pulse (`emissive_pulse`)
 	parallax: vec4f,
 	// pulse phase per second, pulse phase per metre of the object's position, 1 when the glow ignores the post
 	// exposure, pulse mean
@@ -673,6 +674,9 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 	// (docs/game-data/materials.md#emission)
 	let tint = mix(s.albedo, vec3f(1.0), draw.emissive2.x);
 	s.emission = draw.emissive.rgb * emission * tint * mix(1.0, frame.ambient.y, draw.emissive2.z);
+	if ((flags & (PARALLAX_MAP | LAYER_BLEND)) == 0u && draw.parallax.z > 0.0) {
+		s.emission *= mix(1.0, emissive_pulse(draw), draw.parallax2.x);
+	}
 
 	let parallax_maps = PARALLAX_MAP | PARALLAX_NOISE_MAP;
 	if ((flags & (parallax_maps | LAYER_BLEND)) == parallax_maps && in.tangent.w != 0.0) {
@@ -776,6 +780,15 @@ fn map_channel(flags: u32, channel: f32, base_a: f32, packed: vec4f, mask: vec4f
 	}
 	let mro = (flags & (MASK_MAP | TRI_CHANNEL_MASK)) == MASK_MAP;
 	return mix(base_a, select(0.0, mask.a, mro), saturate(channel - 2.0));
+}
+
+// `_EMISSIVE_ANIM`'s pulse (`EmissivePulseRow` in materials.ts, docs/game-data/materials.md#emission): each cycle
+// rises from the minimum brightness to 1 and back over the interval's share of it, then stays at the minimum
+fn emissive_pulse(draw: Draw) -> f32 {
+	let x = saturate(fract(frame.eye.w * draw.parallax.x + draw.parallax.y) * draw.parallax.z) * 2.0 - 1.0;
+	let low = min(draw.parallax.w, 0.999);
+	let x2 = x * x;
+	return (2.0 * abs(x2 * x) - 3.0 * x2 + 0.5 + 0.5 * (1.0 + low) / (1.0 - low)) * (1.0 - low);
 }
 
 // `_PARALLAX_MAP` (`parallaxParams` in materials.ts, docs/game-data/materials.md#lit-layers): march the view

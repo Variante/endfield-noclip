@@ -5,6 +5,7 @@ import type { ReadyMaterial, ShaderEntry } from '@endfield-noclip/package-format
 
 import {
 	DitherRow,
+	EmissivePulseRow,
 	ErosionRow,
 	LayerBlendRow,
 	LayerSource,
@@ -400,6 +401,59 @@ test('glass is transparent, casts no shadow and takes its opacity from the tint 
 	assert.equal(look.castsShadows, false);
 	assert.equal(look.params[LookRow.emissive2 + 3], 0.5);
 	assert.notEqual(look.flags & LookFlags.AlphaNormal, 0);
+});
+
+test('pulsing tower lamps: _EMISSIVE_ANIM puts its pulse in the free parallax rows; flicker and still emitters stay still', () => {
+	const shaders: ShaderEntry[] = [
+		{
+			name: 'HGRP/Lit',
+			family: 'lit',
+			floats: { _EmissiveAnimInterval: 1, _EnableEmissiveAnimFlicker: 0 },
+			colors: { _EmissiveColor: [1, 1, 1, 1] },
+			vectors: {},
+			textures: {},
+			normalMaps: ['_NormalMap'],
+		},
+	];
+	// M_module_tylight+1_001_03, the white lamp cubes on Wuling's and Marker Stone's towers
+	const lamp = (id: number, keywords: string[], floats: Record<string, number>): ReadyMaterial => ({
+		id,
+		status: 'ready',
+		shader: 0,
+		keywords,
+		renderQueue: 2000,
+		blend: 'opaque',
+		blendFactors: [1, 0],
+		alphaClipThreshold: null,
+		cull: 'back',
+		zWrite: true,
+		baseTextureMapCount: 1,
+		slots: {
+			_BaseColorMap: { texture: 1, uv: 0, scale: [1, 1], offset: [0, 0] },
+			_EmissiveMap: { texture: 2, uv: 0, scale: [1, 1], offset: [0, 0] },
+		},
+		floats: { _EmissiveAnimSpeed: 40, ...floats },
+		colors: { _EmissiveColor: [23.97, 23.97, 23.97, 1] },
+		vectors: {},
+	});
+	const anim = ['_EMISSIVE_ANIM', '_EMISSIVE_MAP', '_TWO_BASEMAP'];
+	const [pulsing, flicker, still] = materialLooks({
+		shaders,
+		entries: [
+			lamp(0, anim, {}),
+			lamp(1, anim, { _EnableEmissiveAnimFlicker: 1 }),
+			lamp(2, ['_EMISSIVE_MAP', '_TWO_BASEMAP'], {}),
+		],
+	});
+	const pulse = Array.from(pulsing.params.subarray(EmissivePulseRow.pulse, EmissivePulseRow.pulse + 4));
+	// one cycle every 2π · 20 / 40 s
+	assert.ok(Math.abs(pulse[0] - 1 / Math.PI) < 1e-6);
+	assert.deepEqual(pulse.slice(1), [0, 1, 0]);
+	assert.equal(pulsing.params[EmissivePulseRow.strength], 1);
+	assert.equal(pulsing.flags & (LookFlags.ParallaxMap | LookFlags.LayerBlend), 0);
+	for (const look of [flicker, still]) {
+		assert.equal(look.params[EmissivePulseRow.pulse + 2], 0);
+	}
 });
 
 test('erosion rock: its maps tile by their own properties on UV set 0, the ramp streams whole, HDR colours stay as stored', () => {

@@ -11,6 +11,10 @@ describes. each material's packed state becomes a look in
 [emission](../game-data/materials.md#emission)'s post exposure is the auto exposure times the
 viewer's exposure option, so `_IgnorePostExposure` emitters divide out both.
 
+`_EMISSIVE_ANIM`'s pulse runs on the animation clock, so like the parallax pulse it moves only while
+frames render. it keeps its inputs in the parallax rows, which a look without parallax or layer maps
+leaves free; an `_EMISSIVE_ANIM` look with parallax or layer maps doesn't pulse.
+
 ## lit layers
 
 - **`_PARALLAX_MAP`**: the [pulse](../game-data/materials.md#lit-layers) moves only while frames

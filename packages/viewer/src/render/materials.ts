@@ -260,7 +260,10 @@ export const LookRow = {
 	detail2: 80,
 	/** `_DetailOverlayColor`: linear colour, how much it covers */
 	detailOverlay: 84,
-	/** parallax depth (`_ParallaxStrength`), march steps, Fresnel power, pulse amplitude */
+	/**
+	 * parallax depth (`_ParallaxStrength`), march steps, Fresnel power, pulse amplitude. `_EMISSIVE_ANIM` looks
+	 * reuse this row and the next ({@link EmissivePulseRow})
+	 */
 	parallax: 88,
 	/** pulse phase per second, pulse phase per metre of the object's position, ignore post exposure, pulse mean */
 	parallax2: 92,
@@ -710,10 +713,10 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 
 	// emission (docs/game-data/materials.md#emission): `_EMISSIVE_MAP`, or `_EMISSIVE_MASK` with a channel
 	// mesh.wgsl reads (0 turns it off). `_EMISSIVE_NOMAP` stays dark
+	let emits = false;
 	{
 		const emissive = colorOf(entry, shader, '_EmissiveColor');
 		const channel = floatOf(entry, shader, '_EmissiveMaskChannel', 0);
-		let emits = false;
 		if (emissiveMap) {
 			emits = look.textures[3] >= 0;
 		} else if (entry.keywords.includes('_EMISSIVE_MASK') && channel > 0) {
@@ -780,8 +783,44 @@ const lookOf = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
 	} else {
 		look.textures[5] = look.textures[6] = -1;
 		look.flags &= ~(LookFlags.ParallaxMap | LookFlags.ParallaxNoiseMap);
+		if (lit && emits && keywords.includes('_EMISSIVE_ANIM')) {
+			emissivePulseParams(look, entry, shader);
+		}
 	}
 	return look;
+};
+
+/**
+ * where `_EMISSIVE_ANIM`'s pulse keeps its inputs. a look without parallax or layer maps leaves their rows
+ * free; mesh.wgsl pulses emission when the interval is positive
+ */
+export const EmissivePulseRow = {
+	/** pulse cycles per second, phase offset (`_EmissiveAnimRandom`), interval, minimum brightness */
+	pulse: LookRow.parallax,
+	/** how much the pulse dims the emission (`_EmissiveColor.a`) */
+	strength: LookRow.parallax2,
+} as const;
+
+/**
+ * `_EMISSIVE_ANIM`'s pulse (docs/game-data/materials.md#emission). `_EnableEmissiveAnimFlicker`'s noise isn't
+ * drawn: those looks keep still
+ */
+const emissivePulseParams = (look: MaterialLook, entry: ReadyMaterial, shader: ShaderEntry): void => {
+	if (floatOf(entry, shader, '_EnableEmissiveAnimFlicker', 0) > 0.5) {
+		return;
+	}
+	const params = look.params;
+	// the phase is `_Time.x` (seconds / 20) / 2π times the speed
+	params.set(
+		[
+			floatOf(entry, shader, '_EmissiveAnimSpeed', 0) / (40 * Math.PI),
+			floatOf(entry, shader, '_EmissiveAnimRandom', 0),
+			floatOf(entry, shader, '_EmissiveAnimInterval', 1),
+			floatOf(entry, shader, '_EmissiveMinBrightness', 0),
+		],
+		EmissivePulseRow.pulse,
+	);
+	params[EmissivePulseRow.strength] = colorOf(entry, shader, '_EmissiveColor')?.[3] ?? 1;
 };
 
 /**
