@@ -22,6 +22,7 @@ import {
 	ParticleAlignment,
 	type ParticleBurstInfo,
 	type ParticleDragInfo,
+	type ParticleSpeedLimitInfo,
 	ParticleRenderMode,
 	type ParticleRingBufferInfo,
 	type ParticleShapeInfo,
@@ -265,11 +266,19 @@ const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo | string =
 	};
 };
 
-const readDrag = (clamp: TypeTreeObject): ParticleDragInfo | null | string => {
-	// a dampen of 0 lets particles pass the speed limit untouched, leaving only the drag
-	if (numberField(clamp, 'dampen') !== 0) {
-		return 'velocity limit';
+/** a speed limit, `null` when `dampen` is 0 and the limit does nothing */
+const readSpeedLimit = (clamp: TypeTreeObject): ParticleSpeedLimitInfo | null | string => {
+	const dampen = numberField(clamp, 'dampen');
+	if (dampen <= 0) {
+		return null;
 	}
+	if (booleanField(clamp, 'separateAxis')) {
+		return 'per-axis velocity limit';
+	}
+	return { limit: readMinMaxCurve(objectField(clamp, 'magnitude')), dampen: Math.min(dampen, 1) };
+};
+
+const readDrag = (clamp: TypeTreeObject): ParticleDragInfo | null | string => {
 	const amount = readMinMaxCurve(objectField(clamp, 'drag'));
 	if (!isConstant(amount)) {
 		return 'drag curve';
@@ -388,8 +397,9 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
  *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
- *   ones, a speed limit, a drag or rate curve, no mesh, or velocity alignment. `null` for a system that
- *   doesn't play on awake, which shows nothing until a script starts it
+ *   ones, a per-axis speed limit or one alongside drag or orbital or radial velocity, a drag or rate curve,
+ *   no mesh, or velocity alignment. `null` for a system that doesn't play on awake, which shows nothing until
+ *   a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -489,12 +499,28 @@ export const readParticleSystem = (
 		velocity = read;
 	}
 	let drag: ParticleDragInfo | null = null;
+	let speedLimit: ParticleSpeedLimitInfo | null = null;
 	if (enabled(system, 'ClampVelocityModule')) {
-		const read = readDrag(objectField(system, 'ClampVelocityModule'));
+		const clamp = objectField(system, 'ClampVelocityModule');
+		const readLimit = readSpeedLimit(clamp);
+		const read = readDrag(clamp);
+		if (typeof readLimit === 'string') {
+			return { reason: readLimit };
+		}
 		if (typeof read === 'string') {
 			return { reason: read };
 		}
 		drag = read;
+		speedLimit = readLimit;
+		// the viewer steps a limited particle along its own and linear velocities alone
+		if (
+			speedLimit !== null &&
+			(drag !== null ||
+				(velocity !== null &&
+					![...velocity.orbital, velocity.radial].every((curve) => curveReach(curve) === 0)))
+		) {
+			return { reason: 'velocity limit with drag, orbit or radial velocity' };
+		}
 	}
 
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));
@@ -583,6 +609,7 @@ export const readParticleSystem = (
 			shape,
 			velocity,
 			drag,
+			speedLimit,
 			sizeOverLifetime,
 			rotationOverLifetime,
 			alignment,

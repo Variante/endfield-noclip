@@ -457,15 +457,15 @@ packing rules:
 `tables/particles.json.zst`, `ParticlesTable`: the particle systems chain draws emit, equal ones
 interned to one entry ([particles.ts](../packages/package-format/src/particles.ts), read as
 [assets.md](game-data/assets.md#prefabs) describes). each `ParticleSystemInfo` keeps only modules a
-viewer can evaluate in closed form, so every live particle's state follows from its emission time
-and its own random values. values are Unity `MinMaxCurve`s (a constant, a curve times a scalar, or
-random between two of either), colours `MinMaxGradient`s (likewise, plus a random point of a
-gradient). a system draws its meshes, or a unit quad (the chain draw's geometry) that its render
-mode turns to the camera, stretches along the particle's velocity, or lays flat. an emitter is an
-ordinary instance row: its transform is the system's frame and its bounds cover everywhere a
-particle reaches, so the row culls like any other. a ring-buffered system's particles outlive their
-lifetime until replaced, held at their end or looping part of it; a texture sheet names the flipbook
-tile each particle's mesh UVs are remapped into.
+viewer can evaluate from its emission time and its own random values: in closed form, or, under a
+speed limit, by stepping the particle from its birth. values are Unity `MinMaxCurve`s (a constant, a
+curve times a scalar, or random between two of either), colours `MinMaxGradient`s (likewise, plus a
+random point of a gradient). a system draws its meshes, or a unit quad (the chain draw's geometry)
+that its render mode turns to the camera, stretches along the particle's velocity, or lays flat. an
+emitter is an ordinary instance row: its transform is the system's frame and its bounds cover
+everywhere a particle reaches, so the row culls like any other. a ring-buffered system's particles
+outlive their lifetime until replaced, held at their end or looping part of it; a texture sheet
+names the flipbook tile each particle's mesh UVs are remapped into.
 
 a `ParticleSystemRenderer` ([particle systems](game-data/assets.md#particle-systems)) whose
 `ParticleSystem` plays on awake is packed one of three ways. mesh-mode renderers draw their meshes;
@@ -503,6 +503,10 @@ the entry keeps:
   constants), and size and rotation over lifetime
 - the drag of a Limit Velocity module whose `dampen` is 0: its amount and whether it scales with the
   particle's size and its speed squared
+- the speed limit of one whose `dampen` is above 0 (`ParticleSpeedLimitInfo`: the `magnitude` curve
+  and the dampen), when it limits the whole speed rather than each axis and the system has no drag,
+  orbital or radial velocity. the viewer steps such particles at 30 Hz from their birth, applying
+  the limit as [the game does](game-data/assets.md#particle-systems)
 - the render alignment (Facing is kept as View) and pivot
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,

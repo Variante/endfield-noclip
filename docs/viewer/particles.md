@@ -34,8 +34,8 @@ of emission can hold, up to the cap. systems the packer froze into a single part
 ([particle systems](../game-data/assets.md#particle-systems)) aren't emitters: they arrive as plain
 mesh instances.
 
-each particle follows in closed form from its emission time and random values hashed from the
-emitter's place, the system and its index, so any moment can be evaluated on its own:
+each particle follows from its emission time and random values hashed from the emitter's place, the
+system and its index, so any moment can be evaluated on its own:
 
 - emissions are the rate's steady stream (one every `1 / rate` seconds, a random rate taking its
   mean) and each loop's bursts (count rounded, each fired with its probability), within the window
@@ -67,6 +67,11 @@ emitter's place, the system and its index, so any moment can be evaluated on its
   alone, by `k v` or `k v²` (k the amount, times the cross-section `π (size / 2)²` when it scales
   with size), and gravity falls towards the matching terminal speed; the velocity module's own terms
   and orbits aren't slowed, and the size is the start size.
+- under a speed limit (`limitedPath`) there is no closed form, so the particle is stepped from its
+  birth to its age at 30 Hz (at most 600 steps, longer ones beyond): each step adds gravity to its
+  own velocity, limits the whole speed, linear velocity included, as
+  [the game does](../game-data/assets.md#particle-systems), and moves it by the whole velocity. the
+  limit's random value is the particle's own, not the game's.
 - colour is the start colour (read at the emission's place in its loop) times the colour over
   lifetime, blended in the authored colour space, then made linear into the row's colour word.
 - quads turn by the render mode: billboards with the camera (their rotation rolls them), vertical

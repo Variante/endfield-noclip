@@ -219,6 +219,11 @@ export interface ParticleSystemInfo {
 	 * limit); `null` without
 	 */
 	drag: ParticleDragInfo | null;
+	/**
+	 * a speed limit each particle's speed is pulled down to (Unity's `ClampVelocityModule` with a `dampen`);
+	 * `null` without. it comes with no {@link drag} and no orbital or radial {@link velocity}
+	 */
+	speedLimit: ParticleSpeedLimitInfo | null;
 	/** a multiplier of the start size over each particle's lifetime, per axis; `null` without */
 	sizeOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
 	/** angular velocity about x, y and z, radians per second; `null` without */
@@ -294,6 +299,19 @@ export interface ParticleDragInfo {
 	bySize: boolean;
 	/** times its speed squared rather than its speed */
 	byVelocity: boolean;
+}
+
+/**
+ * a limit on a particle's whole speed, its velocity over lifetime included. while the speed exceeds the
+ * limit, each step pulls it {@link dampen} of the way down to the limit per 1/30 s, taking the excess from the
+ * particle's own velocity: with speed `s`, limit `L` and a step of `t` seconds, the speed becomes `s + (L −
+ * s)(1 − (1 − dampen)^(30 t))` along the same direction
+ */
+export interface ParticleSpeedLimitInfo {
+	/** m/s, read at the particle's age over its lifetime */
+	limit: MinMaxCurveInfo;
+	/** the fraction of the excess removed per 1/30 s, above 0 */
+	dampen: number;
 }
 
 /** Unity's `VelocityModule`; all but {@link linear} are constant (or two-constant) */

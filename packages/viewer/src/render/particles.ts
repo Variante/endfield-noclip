@@ -8,6 +8,7 @@ import {
 	type ParticleDragInfo,
 	ParticleRenderMode,
 	ParticleShapeKind,
+	type ParticleSpeedLimitInfo,
 	type ParticleSystemInfo,
 	type ParticlesTable,
 	type ParticleTextureSheetInfo,
@@ -96,6 +97,7 @@ const Channel = {
 	Color: 32,
 	ColorOverLifetime: 33,
 	Drag: 34,
+	SpeedLimit: 35,
 } as const;
 
 /**
@@ -270,6 +272,78 @@ export const draggedFall = (
 	}
 	const decay = Math.exp(-k * age);
 	return [(sign * g * (age - (1 - decay) / k)) / k, (sign * g * (1 - decay)) / k];
+};
+
+/** what a particle's path starts from, in the emitter's frame */
+interface ParticleMotion {
+	id: number;
+	start: Vec3;
+	direction: Vec3;
+	/** m/s along {@link direction} */
+	speed: number;
+	/** the velocity module's speed modifier */
+	modifier: number;
+	/** m/s² along {@link down} */
+	gravity: number;
+	/** seconds */
+	age: number;
+	life: number;
+	down: Vec3;
+	worldToLocal: (direction: Vec3) => Vec3;
+}
+
+/** steps per second {@link limitedPath} takes: the 30 fps Unity's speed limit is stated against */
+const LIMIT_STEP_RATE = 30;
+/** the most steps {@link limitedPath} takes; longer ages take longer steps */
+const LIMIT_MAX_STEPS = 600;
+
+/**
+ * a particle's path under a speed limit, stepped from its birth: each step adds gravity to the particle's own
+ * velocity, pulls the whole speed (its own velocity plus the extra velocity) towards the limit, taking the
+ * excess from its own velocity, then moves it by the whole velocity
+ *
+ * @param path the limit (and its random value), the particle's start velocity, its acceleration, the extra
+ *   velocity at an age, its age and lifetime, in seconds
+ * @returns how far it has moved by `age`, and its velocity then
+ */
+export const limitedPath = (path: {
+	limit: ParticleSpeedLimitInfo;
+	r: number;
+	start: Vec3;
+	acceleration: Vec3;
+	extra: (age: number) => Vec3;
+	age: number;
+	life: number;
+}): { offset: Vec3; velocity: Vec3 } => {
+	const { limit, r, acceleration, extra, age, life } = path;
+	const steps = Math.min(Math.max(Math.ceil(age * LIMIT_STEP_RATE), 1), LIMIT_MAX_STEPS);
+	const h = age / steps;
+	const pull = 1 - (1 - limit.dampen) ** (h * LIMIT_STEP_RATE);
+	const own: Vec3 = [...path.start];
+	const offset: Vec3 = [0, 0, 0];
+	for (let i = 1; i <= steps; i++) {
+		const t = i * h;
+		const added = extra(t);
+		const whole: Vec3 = [0, 0, 0];
+		for (let axis = 0; axis < 3; axis++) {
+			own[axis] += acceleration[axis] * h;
+			whole[axis] = own[axis] + added[axis];
+		}
+		const speed = Math.hypot(...whole);
+		const cap = evaluateMinMax(limit.limit, life > 0 ? t / life : 0, r);
+		if (speed > cap) {
+			const scale = (speed + (cap - speed) * pull) / speed;
+			for (let axis = 0; axis < 3; axis++) {
+				whole[axis] *= scale;
+				own[axis] = whole[axis] - added[axis];
+			}
+		}
+		for (let axis = 0; axis < 3; axis++) {
+			offset[axis] += whole[axis] * h;
+		}
+	}
+	const added = extra(age);
+	return { offset, velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]] };
 };
 
 /** sample pairs {@link travelled} integrates a velocity curve over */
@@ -739,33 +813,14 @@ export class ParticleSimulation {
 		return { position, direction };
 	}
 
-	/** writes one live particle */
-	#place(
-		id: number,
-		born: number,
-		age: number,
-		down: Vec3,
-		worldToLocal: (direction: Vec3) => Vec3,
-		out: Float32Array,
-		at: number,
-	): void {
+	/** where an unlimited particle is at an age and how it moves then, in closed form */
+	#freePath(motion: ParticleMotion & { startSize: number[] }): { position: Vec3; moving: Vec3 } {
 		const info = this.info;
 		const seed = this.#seed;
-		const u = this.#loopFraction(born);
-		const life = evaluateMinMax(info.startLifetime, u, random(seed, id, Channel.Lifetime));
-		const { position: start, direction } = this.#start(id);
 		const velocity = info.velocity;
-		const modifier =
-			velocity === null
-				? 1
-				: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
-		const speed = evaluateMinMax(info.startSpeed, u, random(seed, id, Channel.Speed)) * modifier;
+		const { id, start, direction, speed, modifier, gravity, startSize, age, life, down, worldToLocal } =
+			motion;
 		const lived = life > 0 ? age / life : 0;
-		const sizeRandom = random(seed, id, Channel.Size);
-		const growth = random(seed, id, Channel.SizeOverLifetime);
-		const startSize = info.startSize.map((curve) => evaluateMinMax(curve, u, sizeRandom));
-		// gravity, which Unity always pulls down the world's y
-		const gravity = GRAVITY * evaluateMinMax(info.gravityModifier, u, random(seed, id, Channel.Gravity));
 		const [launch, launchSpeed] =
 			info.drag === null
 				? [speed * age, speed]
@@ -825,6 +880,90 @@ export class ParticleSimulation {
 			]);
 			position = [turned[0] + offset[0], turned[1] + offset[1], turned[2] + offset[2]];
 		}
+		return { position, moving };
+	}
+
+	/**
+	 * where a particle under a speed limit is at an age and how it moves then, stepped ({@link limitedPath}).
+	 * the packer leaves such systems without drag, orbits or radial velocity
+	 */
+	#limitedPath(limit: ParticleSpeedLimitInfo, motion: ParticleMotion): { position: Vec3; moving: Vec3 } {
+		const seed = this.#seed;
+		const velocity = this.info.velocity;
+		const { id, start, direction, speed, modifier, gravity, age, life, down, worldToLocal } = motion;
+		const channels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
+		const randoms = channels.map((channel) => random(seed, id, channel));
+		const extra = (t: number): Vec3 => {
+			if (velocity === null) {
+				return [0, 0, 0];
+			}
+			const lived = life > 0 ? t / life : 0;
+			let linear: Vec3 = [0, 0, 0];
+			for (let axis = 0; axis < 3; axis++) {
+				linear[axis] = evaluateMinMax(velocity.linear[axis], lived, randoms[axis]) * modifier;
+			}
+			if (velocity.linearInWorld) {
+				linear = worldToLocal(linear);
+			}
+			return linear;
+		};
+		const { offset, velocity: moving } = limitedPath({
+			limit,
+			r: random(seed, id, Channel.SpeedLimit),
+			start: [direction[0] * speed, direction[1] * speed, direction[2] * speed],
+			acceleration: [down[0] * gravity, down[1] * gravity, down[2] * gravity],
+			extra,
+			age,
+			life,
+		});
+		return { position: [start[0] + offset[0], start[1] + offset[1], start[2] + offset[2]], moving };
+	}
+
+	/** writes one live particle */
+	#place(
+		id: number,
+		born: number,
+		age: number,
+		down: Vec3,
+		worldToLocal: (direction: Vec3) => Vec3,
+		out: Float32Array,
+		at: number,
+	): void {
+		const info = this.info;
+		const seed = this.#seed;
+		const u = this.#loopFraction(born);
+		const life = evaluateMinMax(info.startLifetime, u, random(seed, id, Channel.Lifetime));
+		const { position: start, direction } = this.#start(id);
+		const velocity = info.velocity;
+		const modifier =
+			velocity === null
+				? 1
+				: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
+		const speed = evaluateMinMax(info.startSpeed, u, random(seed, id, Channel.Speed)) * modifier;
+		const lived = life > 0 ? age / life : 0;
+		const sizeRandom = random(seed, id, Channel.Size);
+		const growth = random(seed, id, Channel.SizeOverLifetime);
+		const startSize = info.startSize.map((curve) => evaluateMinMax(curve, u, sizeRandom));
+		// gravity, which Unity always pulls down the world's y
+		const gravity = GRAVITY * evaluateMinMax(info.gravityModifier, u, random(seed, id, Channel.Gravity));
+		const motion: ParticleMotion = {
+			id,
+			start,
+			direction,
+			speed,
+			modifier,
+			gravity,
+			age,
+			life,
+			down,
+			worldToLocal,
+		};
+		const path =
+			info.speedLimit === null
+				? this.#freePath({ ...motion, startSize })
+				: this.#limitedPath(info.speedLimit, motion);
+		let position = path.position;
+		const moving = path.moving;
 
 		const size = startSize.map((value, axis) => {
 			const over = info.sizeOverLifetime;

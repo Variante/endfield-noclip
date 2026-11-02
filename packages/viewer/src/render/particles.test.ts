@@ -25,6 +25,7 @@ import {
 	evaluateGradient,
 	evaluateMinMax,
 	evaluateMinMaxGradient,
+	limitedPath,
 	ringBufferAge,
 	sheetTile,
 	travelled,
@@ -117,6 +118,7 @@ const system = (overrides: Partial<ParticleSystemInfo> = {}): ParticleSystemInfo
 	},
 	velocity: null,
 	drag: null,
+	speedLimit: null,
 	sizeOverLifetime: null,
 	rotationOverLifetime: null,
 	alignment: ParticleAlignment.View,
@@ -201,6 +203,37 @@ describe('motion', () => {
 		// terminal speed √(g / k) = √9.81
 		const [, falling] = draggedFall(drag, 9.81, 1, 100, 0);
 		assert.ok(Math.abs(falling - Math.sqrt(9.81)) < 1e-6);
+	});
+	// the challenge start point's rising stones: 1 m/s up from velocity over lifetime, limited to 0.1 m/s with
+	// a dampen of 0.1
+	const stones = {
+		limit: { limit: constant(0.1), dampen: 0.1 },
+		r: 0,
+		start: [0, 0, 0] as Vec3,
+		acceleration: [0, 0, 0] as Vec3,
+		extra: (): Vec3 => [0, 1, 0],
+		life: 3,
+	};
+	it('pulls the whole speed, extra velocity included, down to the limit', () => {
+		const { velocity } = limitedPath({ ...stones, age: 3 });
+		// 90 steps at 0.1 of the excess each leave 0.9^90 of it
+		assert.ok(Math.abs(velocity[1] - (0.1 + 0.9 * 0.9 ** 90)) < 1e-9);
+		const { offset } = limitedPath({ ...stones, age: 0.5 });
+		assert.ok(offset[1] > 0.05 && offset[1] < 0.5);
+	});
+	it('gives the same path whatever the age it is read at', () => {
+		const once = limitedPath({ ...stones, age: 2 }).offset[1];
+		const again = limitedPath({ ...stones, age: 2 }).offset[1];
+		assert.equal(once, again);
+	});
+	it('leaves a particle under the limit alone', () => {
+		const { offset, velocity } = limitedPath({
+			...stones,
+			limit: { ...stones.limit, limit: constant(5) },
+			age: 2,
+		});
+		assert.ok(Math.abs(offset[1] - 2) < 1e-9);
+		assert.deepEqual(velocity, [0, 1, 0]);
 	});
 });
 

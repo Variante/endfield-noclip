@@ -118,7 +118,16 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
 - **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its
   drag: an amount, optionally scaled by the particle's size and by its speed squared. the splashes
   at the foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on
-  it to hang in the air rather than drop under their 2–6× gravity.
+  it to hang in the air rather than drop under their 2–6× gravity. with `dampen` above 0 the engine
+  runs the module right after Velocity over Lifetime each frame and limits the whole speed `s`, the
+  particle's own velocity plus the velocity-over-lifetime part: above the limit `L` (`magnitude`,
+  read at the particle's age; two constants pick a random value per particle) the speed becomes
+  `s + (L − s)·k` with `k = 1 − (1 − dampen)^(30·dt)`, frame-rate independent against 30 fps, and
+  the excess comes out of the particle's own velocity alone, so the velocity-over-lifetime part is
+  added in full again next frame. a particle moved only by velocity over lifetime thus builds up an
+  opposing velocity of its own and settles at the limit. the challenge start point's rising rock
+  cards (`stone` in `int_challenge_start_point_once_postmodel`) start still, are pushed up at 0.2–1
+  m/s and limited to 0.1–1 m/s with a dampen of 0.1.
 - **ring buffer.** `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
   replays `ringBufferLoopRange`.
 - **texture sheet.** `UVModule` in grid mode plays the whole sheet or one row (fixed, random or by
