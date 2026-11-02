@@ -8,7 +8,7 @@
 import type { ShaderEntry, ShaderFamily } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
-import { describeMattePainting } from './material-surfaces.ts';
+import { describeErosion, describeMattePainting } from './material-surfaces.ts';
 import { type MaterialValues, readerOf } from './material-values.ts';
 
 /**
@@ -58,6 +58,9 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 	switch (shader.family) {
 		case 'mattePainting': {
 			return describeMattePainting(reader);
+		}
+		case 'erosion': {
+			return describeErosion(reader);
 		}
 		default: {
 			return { kind: 'legacy' };

@@ -5,7 +5,11 @@ import type {
 	ShaderEntry,
 	TextureSlot,
 } from '@endfield-noclip/package-format/materials';
-import type { MattePaintingSurface } from '@endfield-noclip/package-format/surfaces';
+import type {
+	ErosionSurface,
+	MattePaintingSurface,
+	TiledTexture,
+} from '@endfield-noclip/package-format/surfaces';
 import type { Color } from '@endfield-noclip/package-format/values';
 
 import { linearRgb } from './color.ts';
@@ -454,6 +458,10 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				looks[entry.id] = mattePaintingLook(surface, entry.cull);
 				break;
 			}
+			case 'erosion': {
+				looks[entry.id] = erosionLook(surface, entry.cull);
+				break;
+			}
 			case 'legacy': {
 				looks[entry.id] = legacyLook(entry, materials.shaders[entry.shader]);
 				break;
@@ -477,16 +485,7 @@ const legacyLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => 
 	if (EFFECT_FAMILIES.has(shader.family) || shader.name.startsWith('HGRP/Effect/')) {
 		return unsupportedLook();
 	}
-	let look: MaterialLook;
-	switch (shader.family) {
-		case 'erosion': {
-			look = erosionLook(entry, shader);
-			break;
-		}
-		default: {
-			look = lookOf(entry, shader);
-		}
-	}
+	const look = lookOf(entry, shader);
 	if (keepsLitDecalsOff(entry, shader)) {
 		look.params[LookRow.detail2 + 3] = 1;
 	}
@@ -1235,86 +1234,54 @@ export const ErosionRow = {
 	flow: LookRow.maskScale,
 } as const;
 
-/** an {@link erosionLook}'s textures by slot of {@link SLOTS}, with the property that tiles each */
-const EROSION_SLOTS: (readonly [name: string, tiling: string | null] | null)[] = [
-	null,
-	['_BaseNormalMap', '_BaseNormalTilling'],
-	['_MetalMixMap', null],
-	// sampled at a coordinate of its own, not by UV
-	['_FlowRampMap', null],
-	['_DetailNormalMap', '_DetailNormalTilling'],
-	// the noise layer: the parallax march samples it untiled, the colour lookup tiled
-	['_NoisePatternMap', '_NoisePatternMapTilling'],
-	['_NoisePatternMap', null],
-];
-
 /**
- * `HGRP/Erosion`, the blight-covered rock (`docs/game-data/materials.md#erosion`). every texture samples UV
- * set 0 and ignores its `_ST`, tiling by its own property ({@link EROSION_SLOTS}); HDR colours are used as
- * stored
+ * erosion rock ({@link ErosionSurface}). its textures take {@link SLOTS}' places: the base normal map the
+ * normal slot, the metal map the mask slot, the flow ramp the emissive slot, the detail normal map the detail
+ * slot, and the noise pattern both parallax slots (tiled, then untiled for the march)
  */
-const erosionLook = (entry: ReadyMaterial, shader: ShaderEntry): MaterialLook => {
+const erosionLook = (surface: ErosionSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
-	look.cull = entry.cull;
+	look.cull = cull;
 	look.flags |= LookFlags.Erosion;
 	const params = look.params;
-	EROSION_SLOTS.forEach((use, i) => {
-		const slot = use === null ? undefined : entry.slots[use[0]];
-		if (use === null || slot === undefined) {
-			return;
+	const { textures, noise, flow } = surface;
+	const slots: [number, TiledTexture | null][] = [
+		[1, textures.baseNormal],
+		[2, textures.metalMix],
+		[3, textures.flowRamp === null ? null : { texture: textures.flowRamp, tiling: 1 }],
+		[4, textures.detailNormal],
+		[5, textures.noisePattern],
+		[6, textures.noisePattern === null ? null : { ...textures.noisePattern, tiling: 1 }],
+	];
+	for (const [i, texture] of slots) {
+		if (texture === null) {
+			continue;
 		}
-		const tiling = use[1] === null ? 1 : floatOf(entry, shader, use[1], 1);
-		look.textures[i] = slot.texture;
+		look.textures[i] = texture.texture;
 		// the ramp is sampled at its finest level whatever its size on screen
-		look.uvScales[i] = i === 3 ? 0 : Math.max(Math.abs(tiling), 1e-3);
+		look.uvScales[i] = i === 3 ? 0 : Math.max(Math.abs(texture.tiling), 1e-3);
 		look.flags |= SLOT_FLAGS[i];
-		params.set([tiling, tiling, 0, 0], LookRow.uv + i * 4);
-	});
-	const hdr = (name: string): number[] => (colorOf(entry, shader, name) ?? [1, 1, 1, 1]).slice(0, 3);
-	const float = (name: string, fallback: number): number => floatOf(entry, shader, name, fallback);
-	params.set([...linearRgb(colorOf(entry, shader, '_BaseColor') ?? [1, 1, 1, 1]), -1], ErosionRow.base);
+		params.set([texture.tiling, texture.tiling, 0, 0], LookRow.uv + i * 4);
+	}
+	params.set([...surface.baseColor, -1], ErosionRow.base);
 	params.set(
-		[
-			float('_Roughness', 0),
-			float('_DetailRoughnessCover', 0),
-			float('_Metallic', 0),
-			float('_NormalScale', 1),
-		],
+		[surface.roughness, surface.detailRoughnessCover, surface.metallic, surface.normalScale],
 		ErosionRow.surface,
 	);
 	params.set(
-		[
-			float('_OcclusionStrength', 1),
-			0.08 * float('_Specular', 0.5),
-			float('_MetallicOffset', 0),
-			float('_DetailNormalScale', 1),
-		],
+		[surface.occlusionStrength, surface.f0, surface.metallicOffset, surface.detailNormalScale],
 		ErosionRow.surface2,
 	);
 	params.set(
-		[
-			float('_NoiseEmissiveStrength', 0),
-			float('_FlowColorStrength', 0),
-			float('_FlowColorEmissiveStrength', 0),
-			float('_DistanceBlend', 1),
-		],
+		[noise.emissiveStrength, flow.colorStrength, flow.emissiveStrength, noise.fadeDistance],
 		ErosionRow.strengths,
 	);
-	params.set([...hdr('_MetallicColor'), float('_NoiseStrength', 0)], ErosionRow.metal);
-	params.set([...hdr('_NoisePatternTintColor'), float('_NoiseMin', 0)], ErosionRow.noise);
-	params.set([...hdr('_NoisePatternAlphaTintColor'), float('_FlowColorOffset', 0)], ErosionRow.noiseAlpha);
-	params.set([...hdr('_FlowTopColor'), float('_FlowRoughness', 0)], ErosionRow.flowTop);
-	params.set(hdr('_FlowBottomColor'), ErosionRow.flowBottom);
-	// the scroll advances 0.05 · speed per second (docs/game-data/materials.md#clock)
-	params.set(
-		[
-			float('_FlowNormalTilling', 0),
-			float('_FlowNoiseStrength', 0),
-			0.05 * float('_FlowNormalSpeed', 0),
-			float('_FlowSpeedOffset', 0),
-		],
-		ErosionRow.flow,
-	);
+	params.set([...surface.metallicColor, noise.depth], ErosionRow.metal);
+	params.set([...noise.tint, noise.min], ErosionRow.noise);
+	params.set([...noise.alphaTint, flow.colorOffset], ErosionRow.noiseAlpha);
+	params.set([...flow.top, flow.roughness], ErosionRow.flowTop);
+	params.set(flow.bottom, ErosionRow.flowBottom);
+	params.set([flow.tiling, flow.noiseStrength, flow.scroll, flow.speedOffset], ErosionRow.flow);
 	return look;
 };
 

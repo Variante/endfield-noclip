@@ -507,54 +507,41 @@ test('pulsing tower lamps: _EMISSIVE_ANIM puts its pulse in the free parallax ro
 	}
 });
 
-test('erosion rock: its maps tile by their own properties on UV set 0, the ramp streams whole, HDR colours stay as stored', () => {
-	const shaders: ShaderEntry[] = [
-		{
-			name: 'HGRP/Erosion',
-			family: 'erosion',
-			floats: {
-				_BaseNormalTilling: 1,
-				_DetailNormalTilling: 1,
-				_NoisePatternMapTilling: 1,
-				_FlowNormalSpeed: 1,
-			},
-			colors: { _BaseColor: [1, 1, 1, 1], _FlowBottomColor: [1, 1, 1, 1] },
-			vectors: {},
-			textures: {},
-			normalMaps: [],
+test('erosion rock: its maps tile by their own scales on UV set 0, the ramp streams whole', () => {
+	const entry = described(0, {
+		kind: 'erosion',
+		textures: {
+			baseNormal: { texture: 1, tiling: 1 },
+			metalMix: { texture: 2, tiling: 1 },
+			flowRamp: 3,
+			detailNormal: { texture: 4, tiling: 5 },
+			noisePattern: { texture: 5, tiling: 3 },
 		},
-	];
-	const slot = (texture: number) => ({
-		texture,
-		uv: 1,
-		scale: [9, 9] as [number, number],
-		offset: [0, 0] as [number, number],
+		baseColor: [0.214, 0.214, 0.214],
+		roughness: 0,
+		detailRoughnessCover: 0,
+		metallic: 0,
+		metallicOffset: 0,
+		metallicColor: [1, 1, 1],
+		normalScale: 1,
+		detailNormalScale: 1,
+		occlusionStrength: 1,
+		f0: 0.04,
+		noise: { depth: 0, tint: [1, 1, 1], alphaTint: [1, 1, 1], min: 0, emissiveStrength: 0, fadeDistance: 1 },
+		flow: {
+			tiling: 0,
+			noiseStrength: 0,
+			scroll: 0.05,
+			speedOffset: 0,
+			colorOffset: 0,
+			top: [1, 1, 1],
+			bottom: [4, 4, 4],
+			colorStrength: 0,
+			emissiveStrength: 0,
+			roughness: 0,
+		},
 	});
-	const entry: ReadyMaterial = {
-		id: 0,
-		status: 'ready',
-		surface: { kind: 'legacy' },
-		shader: 0,
-		keywords: [],
-		renderQueue: 2000,
-		blend: 'opaque',
-		blendFactors: null,
-		alphaClipThreshold: null,
-		cull: 'back',
-		zWrite: true,
-		baseTextureMapCount: null,
-		slots: {
-			_BaseNormalMap: slot(1),
-			_MetalMixMap: slot(2),
-			_FlowRampMap: slot(3),
-			_DetailNormalMap: slot(4),
-			_NoisePatternMap: slot(5),
-		},
-		floats: { _DetailNormalTilling: 5, _NoisePatternMapTilling: 3 },
-		colors: { _BaseColor: [0.5, 0.5, 0.5, 1], _FlowBottomColor: [4, 4, 4, 1] },
-		vectors: {},
-	};
-	const [look] = materialLooks({ shaders, entries: [entry] });
+	const [look] = materialLooks({ shaders: ANY_SHADER, entries: [entry] });
 	assert.deepEqual(look.textures, [-1, 1, 2, 3, 4, 5, 5]);
 	assert.equal(look.flags & (0x7f << UV1_SHIFT), 0);
 	assert.notEqual(look.flags & LookFlags.Erosion, 0);
