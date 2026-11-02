@@ -299,9 +299,9 @@ const StoryProgress = ({
 }) => {
 	const points: { key: string; point: StoryPoint; text: string }[] = [
 		{ key: 'none', point: { mission: -1, step: 0 }, text: 'not started' },
-		...storyPoints(listed, order).map(({ point, mission, quest }) => {
+		...storyPoints(listed, order).map(({ point, mission, quests }) => {
 			const name = (order.length > 1 && missions.get(mission)?.name) || null;
-			const step = quest === null ? 'started' : quest.name;
+			const step = quests.length === 0 ? 'started' : quests.map((quest) => quest.name).join(' / ');
 			return {
 				key: point === null ? 'done' : `${point.mission}:${point.step}`,
 				point,

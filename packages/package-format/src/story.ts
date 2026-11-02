@@ -48,27 +48,28 @@ export const storyPointPicks = (
 /**
  * @param controls a package's controls
  * @param missions mission ids in story order
- * @returns the points that tell the controls apart: each mission's start and each step a quest control sits
- *   at, in order, then the finished story
+ * @returns the points that tell the controls apart: each mission's start and each step quest controls sit at,
+ *   in order, with the quests at that step (several off-flow quests can share one), then the finished story
  */
 export const storyPoints = (
 	controls: readonly SceneControl[],
 	missions: readonly string[],
-): { point: StoryPoint; mission: string; quest: SceneControl | null }[] => {
-	const points: { point: StoryPoint; mission: string; quest: SceneControl | null }[] = [];
+): { point: StoryPoint; mission: string; quests: SceneControl[] }[] => {
+	const points: { point: StoryPoint; mission: string; quests: SceneControl[] }[] = [];
 	for (const [index, mission] of missions.entries()) {
-		points.push({ point: { mission: index, step: 0 }, mission, quest: null });
-		const quests = controls
-			.filter(
+		points.push({ point: { mission: index, step: 0 }, mission, quests: [] });
+		const steps = Map.groupBy(
+			controls.filter(
 				(control) =>
 					control.kind === 'quest' && control.story?.mission === mission && control.story.step != null,
-			)
-			.toSorted((a, b) => (a.story?.step ?? 0) - (b.story?.step ?? 0));
-		for (const quest of quests) {
-			points.push({ point: { mission: index, step: quest.story?.step ?? 0 }, mission, quest });
+			),
+			(control) => control.story?.step ?? 0,
+		);
+		for (const [step, quests] of [...steps].toSorted((a, b) => a[0] - b[0])) {
+			points.push({ point: { mission: index, step }, mission, quests });
 		}
 	}
-	points.push({ point: null, mission: '', quest: null });
+	points.push({ point: null, mission: '', quests: [] });
 	return points;
 };
 

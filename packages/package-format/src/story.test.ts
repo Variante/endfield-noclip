@@ -56,17 +56,18 @@ it('a story point completes what came before it and leaves what follows unstarte
 	);
 });
 
-it('lists a point per mission start and per step a quest control sits at', () => {
+it('lists a point per mission start and per step quest controls sit at, once per step', () => {
+	const controls = [...CONTROLS, control('quest', 'e1m1_q#side2', 'e1m1', 5.5)];
 	assert.deepEqual(
-		storyPoints(CONTROLS, MISSIONS).map(({ point, quest }) => [point, quest?.id ?? null]),
+		storyPoints(controls, MISSIONS).map(({ point, quests }) => [point, quests.map(({ id }) => id)]),
 		[
-			[{ mission: 0, step: 0 }, null],
-			[{ mission: 0, step: 2 }, 'quest:e1m1_q#2'],
-			[{ mission: 0, step: 5 }, 'quest:e1m1_q#5'],
-			[{ mission: 0, step: 5.5 }, 'quest:e1m1_q#side'],
-			[{ mission: 1, step: 0 }, null],
-			[{ mission: 1, step: 1 }, 'quest:e1m2_q#1'],
-			[null, null],
+			[{ mission: 0, step: 0 }, []],
+			[{ mission: 0, step: 2 }, ['quest:e1m1_q#2']],
+			[{ mission: 0, step: 5 }, ['quest:e1m1_q#5']],
+			[{ mission: 0, step: 5.5 }, ['quest:e1m1_q#side', 'quest:e1m1_q#side2']],
+			[{ mission: 1, step: 0 }, []],
+			[{ mission: 1, step: 1 }, ['quest:e1m2_q#1']],
+			[null, []],
 		],
 	);
 });
