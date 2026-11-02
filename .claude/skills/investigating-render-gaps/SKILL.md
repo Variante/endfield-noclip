@@ -20,12 +20,14 @@ answered by looking at the rendered frame.
 
 ## 1. announce
 
-other agents may be editing the same tree. call `ListAgents`; if any session works in this repo,
-`SendMessage` each one with what you're investigating, the files and docs you expect to touch,
-whether you'll repack `out/<scene>/` and the browser session name you'd use. ask for their files and
-avoid them. as a subagent without those tools, your parent coordinates; tell it which files you'll
-touch. either way, treat uncommitted changes you didn't make (`git status`) as someone else's work.
-while others are active:
+other agents may be editing the same tree. call `ListAgents` and message only the sessions working
+in this repo: the list doesn't show directories, but session names start with their working folder's
+name (`endfield-noclip-…` here), and a message to an unrelated session interrupts work that can't
+conflict with yours. `SendMessage` each one with what you're investigating, the files and docs you
+expect to touch, whether you'll repack `out/<scene>/` and the browser session name you'd use. ask
+for their files and avoid them. as a subagent without those tools, your parent coordinates; tell it
+which files you'll touch. either way, treat uncommitted changes you didn't make (`git status`) as
+someone else's work. while others are active:
 
 - stage only your own hunks (`filterdiff` + `git apply --cached`); never stash, reset or check out
   files, which breaks their work and their dev servers
