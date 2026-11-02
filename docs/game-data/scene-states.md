@@ -177,8 +177,11 @@ every other interactive has one model (its variant's, else its template's; see
 [doors](#doors), [telescopic bridges](#telescopic-bridges) and [region walls](#dijiang-region-walls)
 follow runtime state. rows with another `createState` aren't created from client data: Dijiang's
 Control Nexus terminal is one, so the server creates it; its mission condition, `e1m9` completed,
-only locks interaction with it. some templates have no data file of their own (the weapon-wall
-racks, some doors), and some templates name no model.
+only locks interaction with it. Dijiang's operator summon point (`int_system_spaceship_summon`, in
+the hall near unity −24, 1, −13) is another: its row is `Disable`, no level script, mission or Lua
+names its id, and its map marker (`mark_ss_contact_center`) shows only once the server reports the
+`SpaceshipSystem` unlock, so the server creates it. some templates have no data file of their own
+(the weapon-wall racks, some doors), and some templates name no model.
 
 ## destructible props
 

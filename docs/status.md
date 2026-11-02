@@ -281,10 +281,10 @@ packs or renders correctly.
   or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
   controls yet
 - scene states that scripts set by name (`SetOverrideSceneState`), LevelData rows created later
-  (`createState` ≠ 0) and map02's sprayable sludge aren't represented; script-driven water levels
-  are picked by hand, not tied to the switches, clocks and quests that drive them; the shop, depot
-  and terminal level → visual form mapping, and the resource-node level's link to regional
-  development, aren't recovered
+  (`createState` ≠ 0; Dijiang's Control Nexus terminal and summon point are server-created) and
+  map02's sprayable sludge aren't represented; script-driven water levels are picked by hand, not
+  tied to the switches, clocks and quests that drive them; the shop, depot and terminal level →
+  visual form mapping, and the resource-node level's link to regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server
   sets show as "server", and groups no client script names have none
 - story-state expressions and script relationships beyond what client data proves; event and server
