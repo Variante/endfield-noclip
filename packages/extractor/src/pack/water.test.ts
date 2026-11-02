@@ -7,7 +7,106 @@ import type { WaterGlobal, WaterTable } from '@endfield-noclip/package-format/wa
 
 import type { LevelWaterVolume } from '../game/water-volumes.ts';
 
-import { finishWater, sectorsOverlapping, selectSurfaces, volumeEntry, type WaterPlan } from './water.ts';
+import {
+	configEntry,
+	finishWater,
+	sectorsOverlapping,
+	selectSurfaces,
+	volumeEntry,
+	type WaterPlan,
+} from './water.ts';
+
+describe('configEntry', () => {
+	const vectors = [
+		'waterRayleighScatteringMeter',
+		'waterRayleighAbsorptionMeter',
+		'waterRayleighAbsorptionMeter2',
+	];
+	const raw = (overrides: Record<string, number | number[]>): Record<string, number | number[]> => {
+		const values: Record<string, number | number[]> = {
+			foamColorG: [1, 0.5, 0.25, 1],
+			flowDirectionVector2: [0.5, 0.75],
+			// fields the shading doesn't take
+			absorptionTint: [1, 1, 1, 1],
+			rippleNormalStrength: 3,
+		};
+		for (const field of vectors) {
+			values[field] = [0.1, 0.2, 0.3, 0];
+		}
+		for (const field of [
+			'safeFullAbsorpDistance',
+			'envLightIntensity',
+			'sceneColorEnvInfluence',
+			'rayleighMieLerpFactor',
+			'distanceEdgeBlendFactor',
+			'roughness',
+			'specular',
+			'waterIOR',
+			'envLightSpecularIntensity',
+			'distanceFade',
+			'distanceNormalMinStrength',
+			'envSpecularDesaturation',
+			'dirSpecNormalScaler',
+			'foamOpacity',
+			'foamRoughness',
+			'foamShapeOffset',
+			'foamFadeDistance',
+			'waterBaseColorSubsurfaceScaler',
+			'emissiveStrength',
+			'causticTilling',
+			'causticOpacity',
+			'causticDistort',
+			'causticSpeed',
+			'causticStartDepth',
+			'causticEndDepth',
+			'useFlowMap',
+			'FlowmapOption',
+			'flowSpeed',
+			'flowFullCycle',
+			'normalTilling',
+			'normalScale',
+			'smallWaveNormalType',
+			'largeWaveNormalType',
+			'largeWaveFlowSpeed',
+			'largeWaveNormalTilling',
+			'largeWaveNormalScale',
+			'flowFullCycleLarge',
+			'largeWaveInvDir',
+		]) {
+			values[field] = 1;
+		}
+		return { ...values, ...overrides };
+	};
+
+	it("applies the game's transforms and keeps only what the shading takes", () => {
+		const { values } = configEntry({
+			name: 'Config_water_test',
+			values: raw({
+				envSpecularDesaturation: 0.31,
+				foamFadeDistance: 4,
+				largeWaveFlowSpeed: 2,
+				FlowmapOption: 0,
+			}),
+		});
+		assert.ok(Math.abs(values.normalMipBias - 1.9) < 1e-9);
+		assert.equal(values.foamFadeRate, 0.25);
+		assert.equal(values.largeWaveSignedSpeed, -2);
+		assert.equal(values.useFlowMap, true);
+		assert.equal(values.flowMapCoverage, false);
+		assert.deepEqual(values.flowDirectionVector2, [0.5, 0.75]);
+		assert.ok(!('absorptionTint' in values) && !('rippleNormalStrength' in values));
+	});
+
+	it('keeps the foam fade rate finite', () => {
+		assert.equal(configEntry({ name: 'c', values: raw({ foamFadeDistance: 0 }) }).values.foamFadeRate, 1e4);
+	});
+
+	it('names a missing or misshapen field', () => {
+		assert.throws(() => configEntry({ name: 'c', values: raw({ foamColorG: [1, 1] }) }), /c: foamColorG/);
+		const { roughness: _, ...missing } = raw({});
+		assert.throws(() => configEntry({ name: 'c', values: missing }), /c: roughness is missing/);
+	});
+});
 
 describe('volumeEntry', () => {
 	// Suiming's receding pit: authored half full, scripts snap it and move it down at their own speeds

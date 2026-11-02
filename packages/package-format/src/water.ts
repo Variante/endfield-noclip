@@ -102,13 +102,13 @@ export interface WaterConfigEntry {
 }
 
 /**
- * a surface `WaterConfig`'s numeric fields under the game's serialized names: scalars as numbers (flags as
- * 0/1), vectors as `[x, y(, z, w)]`, colours as {@link Color}s as authored. the fields named here are those a
- * renderer needs; every other numeric field (character ripples, displacement, TAA tweaks, …) is kept under
- * its own name too
+ * what the water shading takes from a surface `WaterConfig`. fields keep the game's serialized names where
+ * the value is the game's as authored (colours as {@link Color}s as authored); the few the game transforms
+ * before its shaders read them are resolved at pack time under names of their own. fields the shading doesn't
+ * take (the editor-side tints the `*Meter` vectors come from, ripples, displacement, TAA tweaks) aren't
+ * packed
  */
 export interface WaterConfig {
-	[field: string]: number | number[];
 	// optics
 	/** Rayleigh scattering per metre, rgb (`w` unused) */
 	waterRayleighScatteringMeter: Vec4;
@@ -116,11 +116,6 @@ export interface WaterConfig {
 	waterRayleighAbsorptionMeter: Vec4;
 	/** absorption per metre in shallow water, rgb, blending to the deep one by {@link safeFullAbsorpDistance} */
 	waterRayleighAbsorptionMeter2: Vec4;
-	absorptionTint: Color;
-	absorptionTint2: Color;
-	absorptionScale: number;
-	scatterTint: Color;
-	scatterScale: number;
 	/** depth (m) past which the water is fully absorbed */
 	safeFullAbsorpDistance: number;
 	envLightIntensity: number;
@@ -133,22 +128,24 @@ export interface WaterConfig {
 	/** screen-space refraction distortion strength, not an index of refraction */
 	waterIOR: number;
 	envLightSpecularIntensity: number;
-	punctualLightSpecularIntensity: number;
 	/** metres over which the waves fade with distance (sooner at grazing angles) */
 	distanceFade: number;
 	/** the large waves' strength once faded */
 	distanceNormalMinStrength: number;
-	/** the wave normals' mip offset despite its name: bias `(0.5 − value) · 10` */
-	envSpecularDesaturation: number;
+	/**
+	 * mip bias of {@link WaterGlobal.normalMaps}: `(0.5 − envSpecularDesaturation) · 10`, the game's misnamed
+	 * normal-map mip offset
+	 */
+	normalMipBias: number;
 	/** vertical scale of the normal the sun's highlight takes */
 	dirSpecNormalScaler: number;
-	flowBaseColor: Color;
 	/** the foam's colour */
 	foamColorG: Color;
 	foamOpacity: number;
 	foamRoughness: number;
 	foamShapeOffset: number;
-	foamFadeDistance: number;
+	/** `1 / foamFadeDistance` (the metres over which foam fades out), as the game uploads it; finite */
+	foamFadeRate: number;
 	waterBaseColorSubsurfaceScaler: number;
 	emissiveStrength: number;
 	// caustics
@@ -159,10 +156,11 @@ export interface WaterConfig {
 	causticStartDepth: number;
 	causticEndDepth: number;
 	// flow and waves
-	/** 1 to follow the flow maps, 0 to flow along {@link flowDirectionVector2} */
-	useFlowMap: number;
-	/** 1: the flow map's alpha masks the surface instead of scaling the waves */
-	FlowmapOption: number;
+	/** whether to follow the flow maps rather than flow along {@link flowDirectionVector2} */
+	useFlowMap: boolean;
+	/** whether the flow map's alpha masks the surface instead of scaling the waves (the game's `FlowmapOption` 1) */
+	flowMapCoverage: boolean;
+	/** the flow direction without a flow map, encoded as the map's rg (`· 2 − 1`, green negated) */
 	flowDirectionVector2: Vec2;
 	flowSpeed: number;
 	flowFullCycle: number;
@@ -172,11 +170,11 @@ export interface WaterConfig {
 	smallWaveNormalType: number;
 	/** layer of {@link WaterGlobal.normalMaps} for the large waves */
 	largeWaveNormalType: number;
-	largeWaveFlowSpeed: number;
+	/** the large waves' `largeWaveFlowSpeed`, negated when the game's `largeWaveInvDir` reverses them */
+	largeWaveSignedSpeed: number;
 	largeWaveNormalTilling: number;
 	largeWaveNormalScale: number;
 	flowFullCycleLarge: number;
-	largeWaveInvDir: number;
 }
 
 /** one water surface: a placed surface or a water volume's */

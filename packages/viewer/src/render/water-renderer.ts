@@ -75,24 +75,13 @@ const packConfig = (c: WaterConfig, out: Float32Array, at: number): void => {
 		[c.safeFullAbsorpDistance, c.envLightIntensity, c.distanceEdgeBlendFactor, c.rayleighMieLerpFactor],
 		[c.roughness, c.specular, c.waterIOR, c.envLightSpecularIntensity],
 		[c.flowSpeed, c.normalTilling, c.normalScale, c.flowFullCycle],
-		[
-			c.largeWaveFlowSpeed * (c.largeWaveInvDir > 0.5 ? -1 : 1),
-			c.largeWaveNormalTilling,
-			c.largeWaveNormalScale,
-			c.flowFullCycleLarge,
-		],
-		[...c.flowDirectionVector2, c.useFlowMap, c.FlowmapOption],
+		[c.largeWaveSignedSpeed, c.largeWaveNormalTilling, c.largeWaveNormalScale, c.flowFullCycleLarge],
+		[...c.flowDirectionVector2, c.useFlowMap ? 1 : 0, c.flowMapCoverage ? 1 : 0],
 		[c.smallWaveNormalType, c.largeWaveNormalType, c.dirSpecNormalScaler, c.sceneColorEnvInfluence],
-		// the game's normal-map mip offset is labelled `envSpecularDesaturation`
-		[c.distanceFade, c.distanceNormalMinStrength, (0.5 - c.envSpecularDesaturation) * 10, c.foamRoughness],
+		[c.distanceFade, c.distanceNormalMinStrength, c.normalMipBias, c.foamRoughness],
 		// colours go in as authored, as the game copies them
 		[c.foamColorG[0], c.foamColorG[1], c.foamColorG[2], c.foamOpacity],
-		[
-			c.foamShapeOffset,
-			1 / Math.max(c.foamFadeDistance, 1e-4),
-			c.waterBaseColorSubsurfaceScaler,
-			c.emissiveStrength,
-		],
+		[c.foamShapeOffset, c.foamFadeRate, c.waterBaseColorSubsurfaceScaler, c.emissiveStrength],
 		[c.causticTilling, c.causticOpacity, c.causticDistort, c.causticSpeed],
 		[c.causticStartDepth, c.causticEndDepth, 0, 0],
 	];

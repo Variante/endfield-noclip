@@ -446,9 +446,13 @@ packing rules:
 - **chunk files**: only Global files are read, since no cell file holds water.
 - **subset**: a surface is kept when the packer's `includesEntity(levelTag, centre x, centre z)`
   accepts its bounds centre, the same rule as instances.
-- **configs**: loaded once per distinct asset key. every field `WaterConfig` names must be present
-  with its declared shape, so the viewer can read them as typed; a config failing that or failing to
-  load drops its surfaces. the remaining numeric fields ride along under their own names.
+- **configs**: loaded once per distinct asset key, keeping only what the
+  [shading](game-data/water.md#shading) takes. the game's own transforms are applied here:
+  `normalMipBias` is `(0.5 − envSpecularDesaturation) · 10`, `foamFadeRate` is
+  `1 / foamFadeDistance` (the distance clamped to 1e-4 m), `largeWaveSignedSpeed` is
+  `largeWaveFlowSpeed` negated by `largeWaveInvDir`, and the `useFlowMap` and `FlowmapOption` flags
+  become booleans. a config missing a field the shading takes, or failing to load, drops its
+  surfaces.
 - **meshes**: interned into the geometry table and placed in the common asset archive, because
   surfaces are resident. no chain draws them, so no tangents are generated; polygon meshes come out
   with position and normal only.

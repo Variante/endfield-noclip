@@ -1,7 +1,7 @@
 import type { WaterGlobalConfig, WaterSurfaceConfig } from '@endfield-noclip/formats/endfield/water';
 import type { PPtr } from '@endfield-noclip/formats/unity/values';
 import type { TextureRef } from '@endfield-noclip/package-format/textures';
-import type { Rect } from '@endfield-noclip/package-format/values';
+import type { Rect, Vec2, Vec4 } from '@endfield-noclip/package-format/values';
 import type {
 	WaterConfig,
 	WaterConfigEntry,
@@ -393,78 +393,82 @@ const planGlobal = async (
 	return global;
 };
 
-/** the fields an interface names, without its index signature */
-type NamedKeys<T> = keyof { [K in keyof T as string extends K ? never : K]: T[K] };
-
-/** the shape of each field {@link WaterConfig} names: 0 for a number, else the vector length */
-const CONFIG_FIELDS: Record<NamedKeys<WaterConfig>, number> = {
-	waterRayleighScatteringMeter: 4,
-	waterRayleighAbsorptionMeter: 4,
-	waterRayleighAbsorptionMeter2: 4,
-	absorptionTint: 4,
-	absorptionTint2: 4,
-	absorptionScale: 0,
-	scatterTint: 4,
-	scatterScale: 0,
-	safeFullAbsorpDistance: 0,
-	envLightIntensity: 0,
-	sceneColorEnvInfluence: 0,
-	rayleighMieLerpFactor: 0,
-	distanceEdgeBlendFactor: 0,
-	roughness: 0,
-	specular: 0,
-	waterIOR: 0,
-	envLightSpecularIntensity: 0,
-	punctualLightSpecularIntensity: 0,
-	distanceFade: 0,
-	distanceNormalMinStrength: 0,
-	envSpecularDesaturation: 0,
-	dirSpecNormalScaler: 0,
-	flowBaseColor: 4,
-	foamColorG: 4,
-	foamOpacity: 0,
-	foamRoughness: 0,
-	foamShapeOffset: 0,
-	foamFadeDistance: 0,
-	waterBaseColorSubsurfaceScaler: 0,
-	emissiveStrength: 0,
-	causticTilling: 0,
-	causticOpacity: 0,
-	causticDistort: 0,
-	causticSpeed: 0,
-	causticStartDepth: 0,
-	causticEndDepth: 0,
-	useFlowMap: 0,
-	FlowmapOption: 0,
-	flowDirectionVector2: 2,
-	flowSpeed: 0,
-	flowFullCycle: 0,
-	normalTilling: 0,
-	normalScale: 0,
-	smallWaveNormalType: 0,
-	largeWaveNormalType: 0,
-	largeWaveFlowSpeed: 0,
-	largeWaveNormalTilling: 0,
-	largeWaveNormalScale: 0,
-	flowFullCycleLarge: 0,
-	largeWaveInvDir: 0,
-};
+/** `foamFadeDistance` is clamped to this before inverting it, so the rate stays finite (JSON has no ∞) */
+const MIN_FOAM_FADE_DISTANCE = 1e-4;
 
 /**
- * @returns the config as the package stores it
- * @throws {Error} if a field {@link WaterConfig} names is missing or has another shape, so a viewer can read
- *   every named field as typed
+ * @returns what the shading takes from a config, with the game's own transforms applied (see
+ *   docs/game-data/water.md#shading)
+ * @throws {Error} if a field the shading takes is missing or has another shape
  */
-const configEntry = ({ name, values }: WaterSurfaceConfig): WaterConfigEntry => {
-	for (const [field, length] of Object.entries(CONFIG_FIELDS)) {
+export const configEntry = ({ name, values }: WaterSurfaceConfig): WaterConfigEntry => {
+	const number = (field: string): number => {
 		const value = values[field];
-		const fits = length === 0 ? typeof value === 'number' : Array.isArray(value) && value.length === length;
-		if (!fits) {
+		if (typeof value !== 'number') {
 			throw new Error(`${name}: ${field} is ${JSON.stringify(value) ?? 'missing'}`);
 		}
-	}
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- every named field was checked above
-	return { name, values: values as WaterConfig };
+		return value;
+	};
+	const array = (field: string, length: number): number[] => {
+		const value = values[field];
+		if (!Array.isArray(value) || value.length !== length) {
+			throw new Error(`${name}: ${field} is ${JSON.stringify(value) ?? 'missing'}`);
+		}
+		return value;
+	};
+	const vec2 = (field: string): Vec2 => {
+		const [x, y] = array(field, 2);
+		return [x, y];
+	};
+	const vec4 = (field: string): Vec4 => {
+		const [x, y, z, w] = array(field, 4);
+		return [x, y, z, w];
+	};
+	const config: WaterConfig = {
+		waterRayleighScatteringMeter: vec4('waterRayleighScatteringMeter'),
+		waterRayleighAbsorptionMeter: vec4('waterRayleighAbsorptionMeter'),
+		waterRayleighAbsorptionMeter2: vec4('waterRayleighAbsorptionMeter2'),
+		safeFullAbsorpDistance: number('safeFullAbsorpDistance'),
+		envLightIntensity: number('envLightIntensity'),
+		sceneColorEnvInfluence: number('sceneColorEnvInfluence'),
+		rayleighMieLerpFactor: number('rayleighMieLerpFactor'),
+		distanceEdgeBlendFactor: number('distanceEdgeBlendFactor'),
+		roughness: number('roughness'),
+		specular: number('specular'),
+		waterIOR: number('waterIOR'),
+		envLightSpecularIntensity: number('envLightSpecularIntensity'),
+		distanceFade: number('distanceFade'),
+		distanceNormalMinStrength: number('distanceNormalMinStrength'),
+		normalMipBias: (0.5 - number('envSpecularDesaturation')) * 10,
+		dirSpecNormalScaler: number('dirSpecNormalScaler'),
+		foamColorG: vec4('foamColorG'),
+		foamOpacity: number('foamOpacity'),
+		foamRoughness: number('foamRoughness'),
+		foamShapeOffset: number('foamShapeOffset'),
+		foamFadeRate: 1 / Math.max(number('foamFadeDistance'), MIN_FOAM_FADE_DISTANCE),
+		waterBaseColorSubsurfaceScaler: number('waterBaseColorSubsurfaceScaler'),
+		emissiveStrength: number('emissiveStrength'),
+		causticTilling: number('causticTilling'),
+		causticOpacity: number('causticOpacity'),
+		causticDistort: number('causticDistort'),
+		causticSpeed: number('causticSpeed'),
+		causticStartDepth: number('causticStartDepth'),
+		causticEndDepth: number('causticEndDepth'),
+		useFlowMap: number('useFlowMap') !== 0,
+		flowMapCoverage: number('FlowmapOption') === 1,
+		flowDirectionVector2: vec2('flowDirectionVector2'),
+		flowSpeed: number('flowSpeed'),
+		flowFullCycle: number('flowFullCycle'),
+		normalTilling: number('normalTilling'),
+		normalScale: number('normalScale'),
+		smallWaveNormalType: number('smallWaveNormalType'),
+		largeWaveNormalType: number('largeWaveNormalType'),
+		largeWaveSignedSpeed: number('largeWaveFlowSpeed') * (number('largeWaveInvDir') !== 0 ? -1 : 1),
+		largeWaveNormalTilling: number('largeWaveNormalTilling'),
+		largeWaveNormalScale: number('largeWaveNormalScale'),
+		flowFullCycleLarge: number('flowFullCycleLarge'),
+	};
+	return { name, values: config };
 };
 
 /** @returns the centre of a polygon's x, z bounding box */
