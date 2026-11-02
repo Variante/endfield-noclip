@@ -5,13 +5,7 @@ import type { TextureSlot } from '@endfield-noclip/package-format/materials';
 import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
 import { describeMaterial } from './material-describe.ts';
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	type MaterialValues,
-	type ShaderEntry,
-	type ShaderFamily,
-} from './material-values.ts';
+import type { MaterialValues, ShaderEntry, ShaderFamily } from './material-values.ts';
 
 const shader = (name: string, family: ShaderFamily, overrides: Partial<ShaderEntry> = {}): ShaderEntry => ({
 	name,
@@ -271,10 +265,6 @@ describe('VFXDecal', () => {
 
 describe('lit decals', () => {
 	const litDecal = shader('HGRP/DecalLit', 'decal');
-	const placement = {
-		colors: { [DECAL_COLOR_PROPERTY]: [0.3, 0.6, 0.25, 0.9] as [number, number, number, number] },
-		vectors: { [DECAL_UV_PROPERTY]: [1, 0.5, 0, 0.25] as [number, number, number, number] },
-	};
 	const floats = {
 		_ColorMask2: 2,
 		_ColorMask3: 14,
@@ -290,20 +280,12 @@ describe('lit decals', () => {
 					keywords: ['_COMPLETE_PBR', '_NORMAL_ANGLE_BLEND'],
 					slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
 					floats,
-					...placement,
 				}),
 				litDecal,
 			),
 			'litDecal',
 		);
-		assert.deepEqual(
-			[decal.base, decal.pbr, decal.placementUv],
-			[1, { texture: 2, ownTransform: null }, [1, 0.5, 0, 0.25]],
-		);
-		assert.deepEqual(
-			decal.color.map((v) => Math.round(v * 1000) / 1000),
-			[0.3, 0.6, 0.25, 0.45],
-		);
+		assert.deepEqual([decal.base, decal.pbr, decal.opacity], [1, { texture: 2, ownTransform: null }, 0.5]);
 		assert.equal(decal.angleFade, 2);
 		// roughness only: `_ColorMask2` 2 is blue
 		assert.deepEqual([decal.writesNormal, decal.writesRoughness, decal.relight], [false, true, false]);
@@ -311,10 +293,7 @@ describe('lit decals', () => {
 
 	it('relights without albedo, projects its water flow at world positions, and skips what changes nothing', () => {
 		const placed = (overrides: Partial<MaterialValues>) =>
-			describeMaterial(
-				material({ slots: { _BaseColorMap: slot(1) }, floats, ...placement, ...overrides }),
-				litDecal,
-			);
+			describeMaterial(material({ slots: { _BaseColorMap: slot(1) }, floats, ...overrides }), litDecal);
 		const relit = ofKind(
 			placed({
 				slots: { _BaseColorMap: slot(1), _SampleTex1: slot(2) },
@@ -336,7 +315,7 @@ describe('lit decals', () => {
 					_NormalFactor: 0.01,
 					_AngleBlendFallOff2: 0.1,
 				},
-				vectors: { ...placement.vectors, _UVMovement: [0.02, 0.05, 1, 1] },
+				vectors: { _UVMovement: [0.02, 0.05, 1, 1] },
 			}),
 			'litDecal',
 		);
@@ -350,7 +329,6 @@ describe('lit decals', () => {
 			movement: [0.02, 0.05, 1, 1],
 			levelFade: 0.1,
 		});
-		assert.equal(placed({ colors: {}, vectors: {} }).kind, 'unsupported');
 		assert.equal(placed({ keywords: ['_BLEND_SLUDGE_EROSION'] }).kind, 'unsupported');
 		// writes no albedo, and has no map to change the surface with
 		assert.equal(placed({ floats: { ...floats, _ColorMask3: 0 } }).kind, 'undrawn');
@@ -371,8 +349,7 @@ describe('lit decals', () => {
 						_ColorMask3: 14,
 						_EmissiveChannel: 3,
 					},
-					colors: { ...placement.colors, _EmissiveColor: [1, 1, 1, 1] },
-					vectors: placement.vectors,
+					colors: { _EmissiveColor: [1, 1, 1, 1] },
 				}),
 				litDecal,
 			),

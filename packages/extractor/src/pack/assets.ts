@@ -65,22 +65,6 @@ export class AssetIds {
 		);
 	}
 
-	/**
-	 * interns a variant of an asset: the same asset under an id of its own, for uses that change some of its
-	 * values once it's converted (see {@link MaterialOverrides})
-	 *
-	 * @param hash StringPathHash key
-	 * @param variant tells variants of one asset apart
-	 * @param resolve looks up the path, called once per new variant
-	 * @returns the variant's id
-	 */
-	internVariant(hash: bigint, variant: string, resolve: (hash: bigint) => string | undefined): number {
-		return this.#variants.getOrInsertComputed(
-			`${hash}/${variant}`,
-			() => this.assets.push({ hash, path: resolve(hash) ?? null }) - 1,
-		);
-	}
-
 	/** @returns the asset with the given id */
 	get(id: number): AssetRef {
 		return this.assets[id];
@@ -106,7 +90,8 @@ export class AssetIds {
 	}
 
 	/**
-	 * interns a variant of a prefab dependency, as {@link internVariant} does for assets by path
+	 * interns a variant of a prefab dependency: the same object under an id of its own, for uses that change
+	 * some of its values before it's converted (see {@link MaterialOverrides})
 	 *
 	 * @param ref resolved dependency
 	 * @param variant tells variants of one object apart
@@ -171,13 +156,10 @@ const objectHash = (key: string): bigint => -BigInt(`0x${createHash('sha256').up
 
 // #region conversion
 
-/** what a material variant ({@link AssetIds.internVariant}, {@link AssetIds.internObjectVariant}) changes */
+/** what a material variant ({@link AssetIds.internObjectVariant}) changes */
 export interface MaterialOverrides {
-	/** saved values replaced before conversion, as a pose's clips set them; `null` for none */
-	saved: MaterialValues | null;
-	/** properties added to the converted entry, replacing any of the same name */
-	colors: Record<string, [r: number, g: number, b: number, a: number]>;
-	vectors: Record<string, [x: number, y: number, z: number, w: number]>;
+	/** saved values replaced before conversion, as a pose's clips set them */
+	saved: MaterialValues;
 }
 
 /** what {@link convertAssets} needs */
@@ -409,16 +391,8 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 				const key = `${loaded.shader.name} ${keyword}`;
 				keywordsNotDrawnCounts[key] = (keywordsNotDrawnCounts[key] ?? 0) + 1;
 			}
-			const material =
-				overrides === undefined
-					? converted.material
-					: {
-							...converted.material,
-							colors: { ...converted.material.colors, ...overrides.colors },
-							vectors: { ...converted.material.vectors, ...overrides.vectors },
-						};
 			// described once its textures have their final ids
-			convertedMaterials.push(material);
+			convertedMaterials.push(converted.material);
 			materialDebug.push({
 				object: objectKey(ref),
 				name: loaded.record.name,

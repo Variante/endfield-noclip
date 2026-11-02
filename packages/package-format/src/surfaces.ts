@@ -727,15 +727,16 @@ export interface WaterSheetSurface {
 	near: EffectNearFade;
 }
 
-/** `HGRP/DecalLit`, a projected decal of the scenery (`docs/game-data/materials.md#decals`) */
+/**
+ * `HGRP/DecalLit`, a projected decal of the scenery (`docs/game-data/materials.md#decals`). each placement's
+ * colour and UV transform are its instance row's (`DecalPlacements` in instances.ts)
+ */
 export interface LitDecalSurface {
 	kind: 'litDecal';
 	/** the base colour map, through the placement's UV transform */
 	base: number;
-	/** the placement's UV scale and offset of the box's `local.xz + 0.5` */
-	placementUv: [scaleU: number, scaleV: number, offsetU: number, offsetV: number];
-	/** the placement's colour, used as stored, with the alpha times `_DecalOpacity` */
-	color: Rgba;
+	/** `_DecalOpacity`, which multiplies the placement's alpha */
+	opacity: number;
 	/**
 	 * the PBR map (normal RG, roughness B): through the placement's UV transform, or its own `_ST` of the box's
 	 * UVs (`ownTransform`); or with `_BLEND_WATER_FLOW` the water normal map at world positions, its scale per

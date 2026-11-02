@@ -28,14 +28,7 @@ import type {
 } from '@endfield-noclip/package-format/surfaces';
 
 import { BlendFactor } from './material-classify.ts';
-import {
-	DECAL_COLOR_PROPERTY,
-	DECAL_UV_PROPERTY,
-	linearRgb,
-	type MaterialReader,
-	scaleRgb,
-	unsupported,
-} from './material-values.ts';
+import { linearRgb, type MaterialReader, scaleRgb, unsupported } from './material-values.ts';
 
 /** @returns `unsupported` naming the material's keywords outside `drawn`, or `null` when it has none */
 export const undrawnKeywords = (
@@ -1089,21 +1082,16 @@ const WRITE_BLUE = 2;
  * the surface through the colour masks the material sets (`_ColorMask1` metallic and occlusion, `_ColorMask2`
  * normal and roughness, `_ColorMask3` albedo)
  *
- * @param reader the properties of a placement's copy of the material, with its colour and UV transform
+ * @param reader the material's properties; each placement's colour and UV transform are its instance row's
  * @returns its surface, `undrawn` when it changes nothing the viewer draws, or `unsupported`
  */
 export const describeLitDecal = (
 	reader: MaterialReader,
 ): LitDecalSurface | UndrawnSurface | UnsupportedSurface => {
-	const { float, colorOrVector: color, has, material } = reader;
+	const { float, colorOrVector: color, has } = reader;
 	const keywords = undrawnKeywords(reader, LIT_DECAL_KEYWORDS);
 	if (keywords !== null) {
 		return keywords;
-	}
-	const placementColor = material.colors[DECAL_COLOR_PROPERTY];
-	const placementUv = material.vectors[DECAL_UV_PROPERTY];
-	if (placementColor === undefined || placementUv === undefined) {
-		return unsupported('no placement');
 	}
 	const invisible: UndrawnSurface = { kind: 'undrawn', reason: 'writes nothing the viewer draws' };
 	const waterFlow = has('_BLEND_WATER_FLOW');
@@ -1146,13 +1134,7 @@ export const describeLitDecal = (
 	return {
 		kind: 'litDecal',
 		base: base.texture,
-		placementUv: [placementUv[0], placementUv[1], placementUv[2], placementUv[3]],
-		color: [
-			placementColor[0],
-			placementColor[1],
-			placementColor[2],
-			placementColor[3] * float('_DecalOpacity', 1),
-		],
+		opacity: float('_DecalOpacity', 1),
 		pbr,
 		relight,
 		roughness: [float('_RoughnessMin', 0), float('_RoughnessMax', 1)],

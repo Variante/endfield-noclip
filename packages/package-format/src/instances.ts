@@ -123,6 +123,22 @@ export interface InstanceBlock {
 	 * through the debug index. ownership and visibility come from the block's group, not from the id
 	 */
 	entityIds: Uint32Array;
+	/** the placements of the block's rect decal rows */
+	decalPlacements: DecalPlacements;
+}
+
+/**
+ * f32 per rect decal placement: its RGBA8 colour (0–1, used as stored, not gamma-decoded) with RGB times its
+ * intensity, the alpha being multiplied by the material's `_DecalOpacity`; then the scale (u, v) and offset
+ * (u, v) of the UV transform of the decal box's `local.xz + 0.5`
+ */
+export const DECAL_PLACEMENT_FLOATS = 8;
+
+/** the rect decal rows of an instance block and their placements, the rows ascending */
+export interface DecalPlacements {
+	rows: Uint32Array;
+	/** {@link DECAL_PLACEMENT_FLOATS} per row in {@link rows} */
+	values: Float32Array;
 }
 
 const CHAIN_SIZE = 8;
@@ -144,7 +160,7 @@ const CHAINS_HEADER: HeaderShape = {
 /** 'EFIN' */
 const INSTANCES_HEADER: HeaderShape = {
 	magic: 0x4e_49_46_45,
-	version: 2,
+	version: 3,
 	size: INSTANCE_HEADER_SIZE,
 	label: 'instance block',
 };
@@ -277,23 +293,32 @@ export const decodeChains = (data: Uint8Array): Chain[] => {
 };
 
 /**
- * instance block: 32-byte header (`'EFIN'`, u16 version, u16 flags, u32 count, f32×3 origin, u32×2 0), then
- * sections of `count` elements each: u32 chain, f32×12 transform, f32×6 bounds, u32 entity id.
+ * instance block: 32-byte header (`'EFIN'`, u16 version, u16 flags, u32 count, f32×3 origin, u32
+ * placementCount, u32 0), then sections of `count` elements each: u32 chain, f32×12 transform, f32×6 bounds,
+ * u32 entity id; then `placementCount` u32 decal rows, ascending, and their f32×8 placements.
  *
  * @param block rows
  * @returns the encoded block
- * @throws {RangeError} if the sections disagree in length
+ * @throws {RangeError} if the sections disagree in length, or the decal rows aren't ascending rows of the
+ *   block
  */
 export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 	const count = block.chains.length;
+	const { rows: decalRows, values: placements } = block.decalPlacements;
 	if (
 		block.transforms.length !== count * 12 ||
 		block.bounds.length !== count * 6 ||
-		block.entityIds.length !== count
+		block.entityIds.length !== count ||
+		placements.length !== decalRows.length * DECAL_PLACEMENT_FLOATS
 	) {
 		throw new RangeError('instance block sections differ in length');
 	}
-	const out = new Uint8Array(instanceBlockSize(count));
+	for (let i = 0; i < decalRows.length; i++) {
+		if (decalRows[i] >= count || (i > 0 && decalRows[i] <= decalRows[i - 1])) {
+			throw new RangeError('decal rows must be ascending rows of the block');
+		}
+	}
+	const out = new Uint8Array(instanceBlockSize(count, decalRows.length));
 	const view = viewOf(out);
 	writeHeader(view, INSTANCES_HEADER);
 	view.setUint16(6, block.flags, true);
@@ -301,15 +326,24 @@ export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 	for (let i = 0; i < 3; i++) {
 		view.setFloat32(12 + i * 4, block.origin[i], true);
 	}
+	view.setUint32(24, decalRows.length, true);
 	let at = INSTANCE_HEADER_SIZE;
-	for (const section of [block.chains, block.transforms, block.bounds, block.entityIds]) {
+	for (const section of [
+		block.chains,
+		block.transforms,
+		block.bounds,
+		block.entityIds,
+		decalRows,
+		placements,
+	]) {
 		out.set(new Uint8Array(section.buffer, section.byteOffset, section.byteLength), at);
 		at += section.byteLength;
 	}
 	return out;
 };
 
-const instanceBlockSize = (count: number): number => INSTANCE_HEADER_SIZE + count * INSTANCE_ROW_SIZE;
+const instanceBlockSize = (count: number, placements: number): number =>
+	INSTANCE_HEADER_SIZE + count * INSTANCE_ROW_SIZE + placements * (4 + DECAL_PLACEMENT_FLOATS * 4);
 
 /**
  * @param data an instance block
@@ -320,7 +354,8 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 	const view = viewOf(data);
 	checkHeader(view, INSTANCES_HEADER);
 	const count = view.getUint32(8, true);
-	checkLength(data, instanceBlockSize(count), 'instance block');
+	const placementCount = view.getUint32(24, true);
+	checkLength(data, instanceBlockSize(count, placementCount), 'instance block');
 
 	let at = INSTANCE_HEADER_SIZE;
 	const chains = u32Section(data, at, count);
@@ -330,6 +365,15 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 	const bounds = f32Section(data, at, count * 6);
 	at += count * 24;
 	const entityIds = u32Section(data, at, count);
+	at += count * 4;
+	const decalRows = u32Section(data, at, placementCount);
+	at += placementCount * 4;
+	const placements = f32Section(data, at, placementCount * DECAL_PLACEMENT_FLOATS);
+	for (let i = 0; i < placementCount; i++) {
+		if (decalRows[i] >= count || (i > 0 && decalRows[i] <= decalRows[i - 1])) {
+			throw new PackageFormatError('instance block decal rows aren’t ascending rows of the block');
+		}
+	}
 	return {
 		flags: view.getUint16(6, true),
 		origin: [view.getFloat32(12, true), view.getFloat32(16, true), view.getFloat32(20, true)],
@@ -337,5 +381,6 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 		transforms,
 		bounds,
 		entityIds,
+		decalPlacements: { rows: decalRows, values: placements },
 	};
 };

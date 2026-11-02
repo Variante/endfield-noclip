@@ -1,5 +1,9 @@
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
-import { type InstanceBlock, InstanceBlockFlags } from '@endfield-noclip/package-format/instances';
+import {
+	DECAL_PLACEMENT_FLOATS,
+	type InstanceBlock,
+	InstanceBlockFlags,
+} from '@endfield-noclip/package-format/instances';
 
 /** one placed instance, in world space */
 export interface InstanceInput {
@@ -9,6 +13,8 @@ export interface InstanceInput {
 	/** world AABB */
 	bounds: Aabb;
 	entityId: number;
+	/** a rect decal's placement, {@link DECAL_PLACEMENT_FLOATS} floats; absent on other rows */
+	decalPlacement?: readonly number[];
 }
 
 /** growable struct-of-arrays rows, encoded into an {@link InstanceBlock} at the end */
@@ -18,6 +24,8 @@ export class InstanceBlockBuilder {
 	readonly #matrices: number[] = [];
 	readonly #bounds: number[] = [];
 	readonly #entityIds: number[] = [];
+	/** by insertion index, the decal rows' placements */
+	readonly #placements = new Map<number, readonly number[]>();
 
 	/** number of rows */
 	get length(): number {
@@ -30,6 +38,7 @@ export class InstanceBlockBuilder {
 	 * @param row the instance
 	 * @param group extra sort key applied before the chain (e.g. the node of an HLOD row); 0 when unused
 	 * @returns the row's insertion index
+	 * @throws {RangeError} if a decal placement isn't {@link DECAL_PLACEMENT_FLOATS} floats
 	 */
 	add(row: InstanceInput, group: number): number {
 		const m = row.matrix;
@@ -40,6 +49,12 @@ export class InstanceBlockBuilder {
 		this.#chains.push(row.chain);
 		this.#groups.push(group);
 		this.#entityIds.push(row.entityId);
+		if (row.decalPlacement !== undefined) {
+			if (row.decalPlacement.length !== DECAL_PLACEMENT_FLOATS) {
+				throw new RangeError(`a decal placement is ${DECAL_PLACEMENT_FLOATS} floats`);
+			}
+			this.#placements.set(this.#chains.length - 1, row.decalPlacement);
+		}
 		return this.#chains.length - 1;
 	}
 
@@ -58,6 +73,9 @@ export class InstanceBlockBuilder {
 		const transforms = new Float32Array(count * 12);
 		const bounds = new Float32Array(count * 6);
 		const entityIds = new Uint32Array(count);
+		const decalRows = new Uint32Array(this.#placements.size);
+		const placements = new Float32Array(this.#placements.size * DECAL_PLACEMENT_FLOATS);
+		let decals = 0;
 		for (let out = 0; out < count; out++) {
 			const i = order[out];
 			chains[out] = this.#chains[i];
@@ -74,6 +92,12 @@ export class InstanceBlockBuilder {
 			bounds[out * 6] -= origin[0];
 			bounds[out * 6 + 1] -= origin[1];
 			bounds[out * 6 + 2] -= origin[2];
+			const placement = this.#placements.get(i);
+			if (placement !== undefined) {
+				decalRows[decals] = out;
+				placements.set(placement, decals * DECAL_PLACEMENT_FLOATS);
+				decals++;
+			}
 		}
 		return {
 			block: {
@@ -83,6 +107,7 @@ export class InstanceBlockBuilder {
 				transforms,
 				bounds,
 				entityIds,
+				decalPlacements: { rows: decalRows, values: placements },
 			},
 			order,
 		};

@@ -225,9 +225,14 @@ describe('instance blocks', () => {
 		transforms: Float32Array.from({ length: count * 12 }, (_, i) => i / 4),
 		bounds: Float32Array.from({ length: count * 6 }, (_, i) => -i),
 		entityIds: Uint32Array.from({ length: count }, (_, i) => 0xf000_0000 + i),
+		// every other row a decal
+		decalPlacements: {
+			rows: Uint32Array.from({ length: Math.ceil(count / 2) }, (_, i) => i * 2),
+			values: Float32Array.from({ length: Math.ceil(count / 2) * 8 }, (_, i) => i / 8),
+		},
 	});
 
-	it('round-trips any count', () => {
+	it('round-trips any count, with its decal placements', () => {
 		for (const count of [0, 1, 3, 4, 5]) {
 			assert.deepEqual(decodeInstanceBlock(encodeInstanceBlock(block(count))), block(count));
 		}
@@ -238,8 +243,17 @@ describe('instance blocks', () => {
 		assert.equal(data.length % 4, 0);
 	});
 
-	it('rejects mismatched sections', () => {
+	it('rejects mismatched sections, and decal rows out of order or past the block', () => {
 		assert.throws(() => encodeInstanceBlock({ ...block(2), entityIds: new Uint32Array(1) }), RangeError);
+		const placements = (rows: number[]) => ({
+			rows: Uint32Array.from(rows),
+			values: new Float32Array(rows.length * 8),
+		});
+		assert.throws(
+			() => encodeInstanceBlock({ ...block(3), decalPlacements: placements([2, 0]) }),
+			RangeError,
+		);
+		assert.throws(() => encodeInstanceBlock({ ...block(3), decalPlacements: placements([3]) }), RangeError);
 	});
 });
 

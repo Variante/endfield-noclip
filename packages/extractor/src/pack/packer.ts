@@ -103,7 +103,6 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { allOf, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
-import { DECAL_COLOR_PROPERTY, DECAL_UV_PROPERTY } from '../game/material-values.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
@@ -296,6 +295,20 @@ const DECAL_CUBE_PATH =
 
 /** a rect decal's draw has no LOD range: up to the largest f32 */
 const DECAL_MAX_SQUARED = 3.4028234663852886e38;
+
+/**
+ * @param decal a rect decal
+ * @returns its row's placement (`DECAL_PLACEMENT_FLOATS`): its colour with RGB times its intensity, then its
+ *   UV scale and offset
+ */
+const decalPlacement = (decal: RectDecal): number[] => [
+	decal.color[0] * decal.intensity,
+	decal.color[1] * decal.intensity,
+	decal.color[2] * decal.intensity,
+	decal.color[3],
+	...decal.uvScale,
+	...decal.uvOffset,
+];
 
 /** HLOD cluster entity names: `HLOD<tier>_<i>_<j>_Cluster_<hash>_<n>…`, `i`/`j` being the tier's grid cell */
 const HLOD_NAME = /^HLOD(\d)_(-?\d+)_(-?\d+)_Cluster_/;
@@ -671,7 +684,7 @@ interface PackState {
 	particles: ParticleTable;
 	geometries: AssetIds;
 	materials: AssetIds;
-	/** by material id, what a material variant changes (rect decal placements) */
+	/** by material id, what a material variant changes (the material values a pose's clips set) */
 	materialOverrides: Map<number, MaterialOverrides>;
 	uses: AssetPlacement;
 	assetArchives: AssetArchives;
@@ -916,33 +929,16 @@ const collectEntities = async (
 		};
 	};
 
-	// rect decals draw the decal cube with a variant of their material carrying their placement's colour and UV
-	// transform (docs/package-format.md#materials; the game's decals: docs/game-data/materials.md#decals)
+	// rect decals draw the decal cube with their material, their row carrying their placement's colour and UV
+	// transform (docs/package-format.md#instance-blocks; the game's decals: docs/game-data/materials.md#decals)
 	const [cubeHash] = await world.hashesOf(DECAL_CUBE_PATH);
 	const decalDraw = (decal: RectDecal, materialHash: bigint): ChainDraw | null => {
 		if (cubeHash === undefined) {
 			return null;
 		}
-		const color: MaterialOverrides['colors'][string] = [
-			decal.color[0] * decal.intensity,
-			decal.color[1] * decal.intensity,
-			decal.color[2] * decal.intensity,
-			decal.color[3],
-		];
-		const uv: MaterialOverrides['vectors'][string] = [...decal.uvScale, ...decal.uvOffset];
-		const material = pack.materials.internVariant(
-			materialHash,
-			`decal ${color.join(',')} ${uv.join(',')}`,
-			scene.pathOf,
-		);
-		pack.materialOverrides.set(material, {
-			saved: null,
-			colors: { [DECAL_COLOR_PROPERTY]: color },
-			vectors: { [DECAL_UV_PROPERTY]: uv },
-		});
 		return {
 			geometry: pack.geometries.intern(cubeHash, scene.pathOf),
-			material,
+			material: pack.materials.intern(materialHash, scene.pathOf),
 			submesh: 0,
 			lod: 0,
 			role: DrawRole.Lit,
@@ -1029,6 +1025,9 @@ const collectEntities = async (
 					bounds,
 					entityId: entity.id,
 				};
+				if (entity.decal !== null) {
+					row.decalPlacement = decalPlacement(entity.decal);
+				}
 
 				if (file.sceneState !== 0 || file.area !== 0) {
 					gatedRows.set(entity.id, {
@@ -1510,7 +1509,7 @@ const collectEntities = async (
 					id = pack.materials.internObject(material);
 				} else {
 					id = pack.materials.internObjectVariant(material, `posed ${JSON.stringify(saved)}`);
-					pack.materialOverrides.set(id, { saved, colors: {}, vectors: {} });
+					pack.materialOverrides.set(id, { saved });
 				}
 				const particles = renderer.particles === null ? null : pack.particles.intern(renderer.particles);
 				// a prefab renderer has no game flag word; its role says whether it only casts shadows

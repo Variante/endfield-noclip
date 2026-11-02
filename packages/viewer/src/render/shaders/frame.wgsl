@@ -832,6 +832,16 @@ fn instance_color(info: u32, extent_z: f32) -> vec4f {
 	return select(vec4f(1.0), unpack4x8unorm(bitcast<u32>(extent_z)), (info & (1u << 3u)) != 0u);
 }
 
+// an instance row's block slot, from its block word (`BLOCK_SLOT_BITS` in instance-rows.ts)
+fn row_block(word: u32) -> u32 {
+	return word & 0x3fffu;
+}
+
+// an instance row's decal placement index in its block plus 1, or 0 for a row without one, from its block word
+fn row_placement(word: u32) -> u32 {
+	return word >> 14u;
+}
+
 // the 3×3 part of an instance row's transform (rows t0–t2). a billboard row's (`RowBillboard` in
 // instance-rows.ts, info bits 30–31) is relative to the camera's rotation (1), or to its heading about the
 // vertical (2), so it turns to face the camera about its origin

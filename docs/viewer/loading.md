@@ -62,7 +62,7 @@ undoes the blob codec and builds GPU-ready arrays:
 | kind                       | worker output                                                                                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | heights                    | raw `u16` samples, padded to whole words for the storage buffer                                                                                            |
-| instances                  | instance rows, per-row cull data and (chain, first, count) runs, built by `buildInstanceRows`                                                              |
+| instances                  | instance rows, per-row cull data, (chain, first, count) runs and decal placements, built by `buildInstanceRows`                                            |
 | geometry                   | meshopt-decoded vertex streams (quantized positions, `snorm16x2` octahedral normals, UV0, UV1, tangents, `unorm8x4` colours) and indices padded to 4 bytes |
 | surface                    | the albedo and normal BC3 images, each in its own buffer                                                                                                   |
 | splat                      | the control, tint and index arrays                                                                                                                         |

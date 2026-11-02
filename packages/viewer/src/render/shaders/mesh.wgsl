@@ -173,7 +173,7 @@ fn vs_main(v: VertexIn, @builtin(instance_index) ii: u32) -> VertexOut {
 	let draw_id = draw_ids[ii];
 	let draw = draws[draw_id];
 	let p = draw.offset.xyz + v.position.xyz * draw.scale.xyz;
-	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row.block].xyz;
+	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row_block(row.block)].xyz;
 	// as vs_cutout_depth computes it, so alpha-tested depth matches exactly where they're shaded
 	let rel = instance_rel(v.position.xyz, ii, draw);
 	let m = row_basis(row.t0, row.t1, row.t2, row.info);
@@ -221,7 +221,7 @@ struct CutoutDepthIn {
 fn instance_rel(position: vec3f, ii: u32, draw: Draw) -> vec3f {
 	let row = rows[list[ii]];
 	let p = draw.offset.xyz + position * draw.scale.xyz;
-	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row.block].xyz;
+	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row_block(row.block)].xyz;
 	return row_basis(row.t0, row.t1, row.t2, row.info) * p + origin + grass_lean(draw, p.y);
 }
 

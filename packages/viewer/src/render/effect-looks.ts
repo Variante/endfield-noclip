@@ -397,6 +397,12 @@ export const DecalLitRow = {
 	 * `_AlbedoAffectEmissive` (1: emission ignores the albedo), `_IgnorePostExposure`, 0
 	 */
 	emissiveMask: 100,
+	/**
+	 * 1 when the PBR map takes the placement's UV transform rather than its own (`FX_UV` + 1), then 0, 0, 0.
+	 * the base map always takes the placement's, and the tint row holds `_DecalOpacity` in its alpha, which
+	 * multiplies the placement's colour
+	 */
+	pbrPlaced: 104,
 } as const;
 
 /**
@@ -408,26 +414,27 @@ export const DECAL_PBR_SLOT = 1;
 
 /**
  * a lit decal ({@link LitDecalSurface}): its base colour map tinted by the placement's colour, with the PBR
- * map's roughness and normal (or a scrolling water normal map's), on the game's VFXDecal cube
+ * map's roughness and normal (or a scrolling water normal map's), on the game's VFXDecal cube. each
+ * placement's colour and UV transform come from its row
  */
 export const litDecalLook = (decal: LitDecalSurface): EffectLook => {
 	const look = emptyEffect(7);
 	const params = look.params;
-	const [scaleU, scaleV, offsetU, offsetV] = decal.placementUv;
-	const placement = {
-		scale: [scaleU, scaleV] as [number, number],
-		offset: [offsetU, offsetV] as [number, number],
-	};
-	setSlot(look, 0, { ...still(decal.base), ...placement }, ROLE_NONE);
+	setSlot(look, 0, still(decal.base), ROLE_NONE);
 	if (decal.pbr !== null) {
 		const own = decal.pbr.ownTransform;
-		const transform =
-			own === null
-				? placement
-				: { scale: [own[0], own[1]] as [number, number], offset: [own[2], own[3]] as [number, number] };
-		setSlot(look, DECAL_PBR_SLOT, { ...still(decal.pbr.texture), ...transform }, ROLE_NONE);
+		if (own === null) {
+			setSlot(look, DECAL_PBR_SLOT, still(decal.pbr.texture), ROLE_NONE);
+			params[DecalLitRow.pbrPlaced] = 1;
+		} else {
+			const transform = {
+				scale: [own[0], own[1]] as [number, number],
+				offset: [own[2], own[3]] as [number, number],
+			};
+			setSlot(look, DECAL_PBR_SLOT, { ...still(decal.pbr.texture), ...transform }, ROLE_NONE);
+		}
 	}
-	params.set(decal.color, EffectRow.tint);
+	params.set([1, 1, 1, decal.opacity], EffectRow.tint);
 	params.set([...decal.roughness, decal.normalScale, decal.angleFade], DecalLitRow.surface);
 	params.set(
 		[decal.writesNormal ? 1 : 0, decal.writesRoughness ? 1 : 0, decal.blendSceneNormal],

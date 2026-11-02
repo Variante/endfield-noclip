@@ -15,8 +15,11 @@ struct EffectRow {
 }
 
 @group(1) @binding(0) var<storage, read> effect_rows: array<EffectRow>;
+// each block's origin (xyz) and where its decal placements start, less 1 (w)
 @group(1) @binding(1) var<storage, read> effect_blocks: array<vec4f>;
 @group(1) @binding(2) var<storage, read> effect_list: array<u32>;
+// rect decal placements (`DecalPlacements` in package-format): colour, then UV scale and offset
+@group(1) @binding(3) var<storage, read> effect_placements: array<array<vec4f, 2>>;
 // mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 32 rows (`EffectRow`, `WaterSheetRow` or
 // `MistRow` in effect-looks.ts)
 @group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 36>>;
@@ -115,6 +118,9 @@ struct EffectOut {
 	@location(8) @interpolate(flat) up: vec3f,
 	// the object origin's view depth, which scales VFXBaseV2's screen UVs
 	@location(9) @interpolate(flat) origin_depth: f32,
+	// a rect decal row's placement: its colour, and its UV scale and offset; white and the identity elsewhere
+	@location(10) @interpolate(flat) placement_color: vec4f,
+	@location(11) @interpolate(flat) placement_uv: vec4f,
 }
 
 // the transparent pass's outputs (`TRANSPARENT_TARGETS` in render-targets.ts), as in mesh.wgsl
@@ -176,7 +182,7 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	if (fx_row(draw_id, FX_UNFOGGED).y == FX_KIND_BEAM) {
 		p = beam_vertex(draw_id, p);
 	}
-	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + effect_blocks[row.block].xyz;
+	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + effect_blocks[row_block(row.block)].xyz;
 	let m = row_basis(row.t0, row.t1, row.t2, row.info);
 	let inverse = transpose(inverse3(m));
 	let flags = bitcast<u32>(offset.w);
@@ -199,6 +205,14 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	out.to_object2 = vec4f(inverse[2], -dot(inverse[2], origin));
 	out.up = normalize(m[1]);
 	out.origin_depth = dot(origin, frame.view_forward.xyz);
+	out.placement_color = vec4f(1.0);
+	out.placement_uv = vec4f(1.0, 1.0, 0.0, 0.0);
+	let placement = row_placement(row.block);
+	if (placement != 0u) {
+		let at = u32(i32(effect_blocks[row_block(row.block)].w) + i32(placement));
+		out.placement_color = effect_placements[at][0];
+		out.placement_uv = effect_placements[at][1];
+	}
 	return out;
 }
 
@@ -880,6 +894,7 @@ const LD_FLOW = 22u;
 const LD_FLOW_FADE = 23u;
 const LD_EMISSIVE = 24u;
 const LD_EMISSIVE_MASK = 25u;
+const LD_PBR_PLACED = 26u;
 
 // one of four map channels by `_MetallicChannel`/`_OcclusionChannel`'s numbering, as the game blends them:
 // `offset` 1 for the occlusion's (R at 1, … A at 4) and 0 for the metallic's (R at 2, … A at 5)
@@ -916,7 +931,7 @@ struct LitDecal {
 // at camera-relative `rel` (with its screen gradients): the base colour tinted by the placement's colour, its
 // alpha times the opacity (faded on surfaces facing away from the box's y). where the material's colour masks
 // let it, the PBR map's roughness, normal, metallic and occlusion replace the surface's. `uv` is the box's
-// `local.xz + 0.5` with its screen gradients.
+// `local.xz + 0.5` with its screen gradients; the placement's colour and UV transform are its row's.
 //
 // with `_BLEND_WATER_FLOW` the normal and roughness come from two layers of a water normal map scrolling down
 // the world's y, each projected along x and z (at world zy and xy) and blended by how much the surface faces
@@ -928,10 +943,12 @@ struct LitDecal {
 fn ld_decal(in: EffectOut, rel: vec3f, rel_dx: vec3f, rel_dy: vec3f, uv: vec2f, dx: vec2f, dy: vec2f, n: vec3f,
 	roughness: f32) -> LitDecal {
 	let id = in.draw;
-	let base_t = fx_row(id, FX_UV);
+	let base_t = in.placement_uv;
 	let base = textureSampleGrad(fx_tex0, fx_samp0, uv * base_t.xy + base_t.zw, dx * base_t.xy, dy * base_t.xy);
-	let pbr_t = fx_row(id, FX_UV + 1u);
-	let tint = fx_row(id, FX_TINT);
+	// the PBR map's own transform, or the placement's
+	let pbr_t = select(fx_row(id, FX_UV + 1u), in.placement_uv, fx_row(id, LD_PBR_PLACED).x > 0.5);
+	// the placement's colour, its alpha times the opacity
+	let tint = in.placement_color * fx_row(id, FX_TINT);
 	let surface_row = fx_row(id, LD_SURFACE);
 	let writes = fx_row(id, LD_WRITES);
 	let pbr_row = fx_row(id, LD_PBR);

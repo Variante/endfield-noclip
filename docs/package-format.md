@@ -302,13 +302,17 @@ cabin shows.
 
 ### instance block (`.inst`, `EFIN`)
 
-32-byte header: `u32 magic, u16 version, u16 flags, u32 count, f32×3 origin, u32×2 0`. then
+32-byte header:
+`u32 magic, u16 version, u16 flags, u32 count, f32×3 origin, u32 placementCount, u32 0`. then
 struct-of-arrays sections of `count` elements: `u32 chain`, `f32×12 transform` (rows3x4, translation
 relative to origin), `f32×6 bounds` (world AABB centre relative to origin, then half-extents, as the
-game stores them), `u32 entity id`. origin is the leaf's minimum corner (y 0) for detail blocks and
-the tree origin for core blocks. rows are sorted by (HLOD node, chain) (`SortedByChain`), so equal
-chains form instanced ranges. the entity id traces a row through the debug index (prefab renderers
-get made-up ids); who owns a row and when it loads is the block's group, not the id.
+game stores them), `u32 entity id`. then the rect decal placements: `placementCount` ascending
+`u32 row`s and their `f32×8` placements (the RGBA8 colour, used as stored, with RGB times the
+intensity, then the UV scale and offset of the box's `local.xz + 0.5`). origin is the leaf's minimum
+corner (y 0) for detail blocks and the tree origin for core blocks. rows are sorted by (HLOD node,
+chain) (`SortedByChain`), so equal chains form instanced ranges. the entity id traces a row through
+the debug index (prefab renderers get made-up ids); who owns a row and when it loads is the block's
+group, not the id.
 
 full 3×4 matrices are kept rather than quantized TRS because Unity hierarchies bake shear and
 non-uniform scale into them.
@@ -432,9 +436,10 @@ with Unity property names, keyword rules, colour spaces and the shaders' formula
 viewer can't draw it. textures are texture-table ids with their UV set and transform. the viewer
 packs a surface into its draw parameters without reading Unity properties.
 
-**decal copies**: the packer gives each rect decal placement a copy of its material carrying the
-placement's colour and UV transform, which its `litDecal` surface carries, and the box it draws is
-the game's VFXDecal cube ([decals](game-data/materials.md#decals)).
+**rect decals**: a rect decal placement draws the game's VFXDecal cube with its material
+([decals](game-data/materials.md#decals)), its colour and UV transform being its row's
+[placement](#instance-block-inst-efin); its `litDecal` surface holds the material's `_DecalOpacity`,
+which multiplies the placement's alpha.
 
 **posed copies**: a prefab renderer whose placement's pose sets material values (an interactive's
 settled view state; [interactives](extraction.md#interactives)) draws a copy of its material with

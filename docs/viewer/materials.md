@@ -57,8 +57,10 @@ boxes ([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces witho
 the transparent pass ([`litDecalLook`](../../packages/viewer/src/render/effect-looks.ts),
 `fx_lit_decal` in [`effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). it takes
 the surface's normal and roughness from the main pass where the masks keep them, shades the decal
-like any surface, and lays it over by its alpha. each placement draws its own copy of the material,
-carrying the placement's colour and UV transform, on the game's VFXDecal cube.
+like any surface, and lays it over by its alpha. placements of one material share its look and draw
+the game's VFXDecal cube; each row's block word indexes its placement's colour and UV transform in a
+placement buffer beside the rows (`row_placement` in frame.wgsl), which the effect vertex shader
+passes on.
 
 the game keeps lit decals off surfaces by a stencil bit. the viewer carries it in the main pass's
 packed surface instead (bit 31, `SURFACE_NO_LIT_DECALS` in frame.wgsl), so it works without a

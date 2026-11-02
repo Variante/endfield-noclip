@@ -79,7 +79,7 @@ fn load_box(ii: u32) -> Box {
 	}
 	let row = rows[index];
 	var box: Box;
-	box.center = blocks[row.block].xyz + row.center;
+	box.center = blocks[row_block(row.block)].xyz + row.center;
 	// a coloured particle row keeps its colour in extent.z; its extents are all equal
 	let extent = select(row.extent, row.extent.xxx, (row.info & (1u << 3u)) != 0u);
 	box.extent = max(extent, vec3f(0.05));

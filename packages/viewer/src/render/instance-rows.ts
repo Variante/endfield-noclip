@@ -7,8 +7,17 @@
 
 import { type Chain, ChainFlags, type InstanceBlock } from '@endfield-noclip/package-format/instances';
 
-/** 32-bit words per row: transform (12), bounds centre + block slot (4), half extents + info (4) */
+/** 32-bit words per row: transform (12), bounds centre + block word (4), half extents + info (4) */
 export const ROW_WORDS = 20;
+
+/**
+ * bits of a row's block word that hold its block slot (`row_block` in frame.wgsl); the bits above hold its
+ * decal placement's index in its block plus 1, or 0 for a row without one (`row_placement`)
+ */
+export const BLOCK_SLOT_BITS = 14;
+
+/** block slots the block word can name */
+export const BLOCK_SLOTS = 1 << BLOCK_SLOT_BITS;
 
 /** bytes per row */
 export const ROW_BYTES = ROW_WORDS * 4;
@@ -130,17 +139,21 @@ export interface InstanceRows {
 	cull: Float32Array<ArrayBuffer>;
 	/** (chain, first, count) triples of equal-chain runs, for per-template instancing */
 	runs: Uint32Array<ArrayBuffer>;
+	/** the block's rect decal placements, `DECAL_PLACEMENT_FLOATS` each, in the order rows index them */
+	placements: Float32Array<ArrayBuffer>;
 }
 
 /**
- * row: f32×12 transform rows (relative to the block origin), f32×3 bounds centre (relative), u32 block slot,
- * f32×3 half extents, u32 info (the row's {@link RowKind}; see {@link rowInfo} for the rest of the word).
+ * row: f32×12 transform rows (relative to the block origin), f32×3 bounds centre (relative), u32 block word
+ * ({@link BLOCK_SLOT_BITS}), f32×3 half extents, u32 info (the row's {@link RowKind}; see {@link rowInfo} for
+ * the rest of the word).
  *
  * the block slot is left 0; {@link assignBlockSlot} sets it once the block gets a slot.
  *
  * @param block decoded block
  * @param kinds the rows' kinds; rows outside every tier span become tier 0
- * @returns rows, cull data and chain runs
+ * @returns rows, cull data, chain runs and decal placements
+ * @throws {RangeError} if the block has more decal placements than a block word can index
  */
 export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): InstanceRows => {
 	const count = block.chains.length;
@@ -175,6 +188,15 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		cull[i * CULL_FLOATS] = Math.sqrt(fx * fx + fy * fy + fz * fz);
 		cull[i * CULL_FLOATS + 1] = Math.max(fx, fy, fz);
 	}
+	const { rows: decalRows, values } = block.decalPlacements;
+	if (decalRows.length >= 2 ** (32 - BLOCK_SLOT_BITS)) {
+		throw new RangeError(
+			`an instance block has ${decalRows.length} decal placements, more than rows can index`,
+		);
+	}
+	for (let p = 0; p < decalRows.length; p++) {
+		rows[decalRows[p] * ROW_WORDS + 15] = ((p + 1) << BLOCK_SLOT_BITS) >>> 0;
+	}
 
 	const runs: number[] = [];
 	for (let i = 0; i < count;) {
@@ -192,17 +214,19 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		rows,
 		cull,
 		runs: new Uint32Array(runs),
+		placements: new Float32Array(values),
 	};
 };
 
 /**
- * sets the block slot of every row.
+ * sets the block slot of every row, keeping its placement index.
  *
  * @param rows rows from {@link buildInstanceRows}; modified in place
- * @param slot index into the per-frame block origin table
+ * @param slot index into the per-frame block table, below {@link BLOCK_SLOTS}
  */
 export const assignBlockSlot = (rows: Uint32Array, slot: number): void => {
+	const keep = ~(BLOCK_SLOTS - 1);
 	for (let at = 15; at < rows.length; at += ROW_WORDS) {
-		rows[at] = slot;
+		rows[at] = ((rows[at] & keep) | slot) >>> 0;
 	}
 };

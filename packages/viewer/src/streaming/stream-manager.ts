@@ -65,6 +65,8 @@ export interface ResidentInstances {
 	/** GPU bytes */
 	bytes: number;
 	alloc: RangeAllocation;
+	/** its rect decal placements' range of the placement buffer */
+	placements: RangeAllocation;
 	blockSlot: number;
 	count: number;
 	/** world origin of the rows, f64 */

@@ -26,12 +26,17 @@ import type { InstanceRange } from '../streaming/selection.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { FRAME_WGSL } from './frame-uniforms.ts';
-import { ROW_BYTES, ROW_WORDS, assignBlockSlot } from './instance-rows.ts';
+import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from './instance-rows.ts';
 import boxesWgsl from './shaders/instance-boxes.wgsl?raw';
 
-const BLOCK_SLOTS = 16_384;
 /** rows the mega buffer starts with (10 MiB) */
 const INITIAL_ROWS = 131_072;
+/** bytes per decal placement (`DECAL_PLACEMENT_FLOATS`) */
+const PLACEMENT_BYTES = 32;
+/** decal placements the placement buffer starts with */
+const INITIAL_PLACEMENTS = 4096;
+/** decal placements it can grow to */
+const MAX_PLACEMENTS = 1 << 20;
 /** entries of the visible list */
 export const LIST_CAPACITY = 1 << 20;
 const BOX_FILL_VERTICES = 36;
@@ -60,9 +65,12 @@ export class InstanceRenderer {
 
 	#device: GPUDevice;
 	#layout: GPUBindGroupLayout;
-	/** the rows buffer version {@link #bindGroup} binds */
+	/** the rows and placement buffer versions {@link #bindGroup} binds */
 	#rowsVersion = -1;
+	#placementsVersion = -1;
 	#pool: GrowableBuffer;
+	/** the resident blocks' rect decal placements, each block's run starting at its block table entry's w */
+	#placements: GrowableBuffer;
 	#blocks: GPUBuffer;
 	#blockOrigins = new Float64Array(BLOCK_SLOTS * 3);
 	#blockData = new Float32Array(BLOCK_SLOTS * 4);
@@ -103,6 +111,13 @@ export class InstanceRenderer {
 			unitBytes: ROW_BYTES,
 			initialUnits: INITIAL_ROWS,
 			maxUnits: maxRows,
+			usage: GPUBufferUsage.STORAGE,
+		});
+		this.#placements = new GrowableBuffer(device, {
+			label: 'decal placements',
+			unitBytes: PLACEMENT_BYTES,
+			initialUnits: INITIAL_PLACEMENTS,
+			maxUnits: MAX_PLACEMENTS,
 			usage: GPUBufferUsage.STORAGE,
 		});
 		this.#blocks = device.createBuffer({
@@ -149,6 +164,7 @@ export class InstanceRenderer {
 
 	#createBindGroup(): GPUBindGroup {
 		this.#rowsVersion = this.#pool.version;
+		this.#placementsVersion = this.#placements.version;
 		return this.#device.createBindGroup({
 			label: 'instances',
 			layout: this.#layout,
@@ -156,16 +172,17 @@ export class InstanceRenderer {
 				{ binding: 0, resource: { buffer: this.#pool.buffer } },
 				{ binding: 1, resource: { buffer: this.#blocks } },
 				{ binding: 2, resource: { buffer: this.#list } },
+				{ binding: 3, resource: { buffer: this.#placements.buffer } },
 			],
 		});
 	}
 
 	/**
-	 * @returns group 1 of the instance families (rows, block origins, visible list); a new group after the rows
-	 *   grew, so fetch it every frame
+	 * @returns group 1 of the instance families (rows, block table, visible list, decal placements); a new
+	 *   group after the rows or placements grew, so fetch it every frame
 	 */
 	get bindGroup(): GPUBindGroup {
-		if (this.#rowsVersion !== this.#pool.version) {
+		if (this.#rowsVersion !== this.#pool.version || this.#placementsVersion !== this.#placements.version) {
 			this.#bindGroup = this.#createBindGroup();
 		}
 		return this.#bindGroup;
@@ -173,7 +190,7 @@ export class InstanceRenderer {
 
 	/** @returns bytes of the GPU allocations */
 	get poolBytes(): number {
-		return this.#pool.bytes + this.#blockData.byteLength + this.#listData.byteLength;
+		return this.#pool.bytes + this.#placements.bytes + this.#blockData.byteLength + this.#listData.byteLength;
 	}
 
 	/**
@@ -183,14 +200,20 @@ export class InstanceRenderer {
 	 * @returns the residency, or `null` if there was no room
 	 */
 	upload(decoded: DecodedInstances): ResidentInstances | null {
+		const placementCount = decoded.placements.length / (PLACEMENT_BYTES / 4);
 		const alloc = decoded.count > 0 ? this.#pool.allocate(decoded.count) : { start: 0, count: 0 };
 		if (alloc === null) {
 			return null;
 		}
-		const slot = this.#freeSlots.pop();
-		if (slot === undefined) {
+		const placements =
+			placementCount > 0 ? this.#placements.allocate(placementCount) : { start: 0, count: 0 };
+		const slot = placements === null ? undefined : this.#freeSlots.pop();
+		if (placements === null || slot === undefined) {
 			if (alloc.count > 0) {
 				this.#pool.free(alloc);
+			}
+			if (placements !== null && placements.count > 0) {
+				this.#placements.free(placements);
 			}
 			return null;
 		}
@@ -198,12 +221,22 @@ export class InstanceRenderer {
 		if (alloc.count > 0) {
 			this.#device.queue.writeBuffer(this.#pool.buffer, alloc.start * ROW_BYTES, decoded.rows);
 		}
+		if (placements.count > 0) {
+			this.#device.queue.writeBuffer(
+				this.#placements.buffer,
+				placements.start * PLACEMENT_BYTES,
+				decoded.placements,
+			);
+		}
 		this.#blockOrigins.set(decoded.origin, slot * 3);
+		// a row's placement index counts from 1 (`row_placement` in frame.wgsl)
+		this.#blockData[slot * 4 + 3] = placements.start - 1;
 		this.#liveSlots = Math.max(this.#liveSlots, slot + 1);
 		return {
 			kind: 'instances',
-			bytes: decoded.count * ROW_BYTES,
+			bytes: decoded.count * ROW_BYTES + placements.count * PLACEMENT_BYTES,
 			alloc,
+			placements,
 			blockSlot: slot,
 			count: decoded.count,
 			origin: decoded.origin,
@@ -242,6 +275,9 @@ export class InstanceRenderer {
 	release(resident: ResidentInstances): void {
 		if (resident.alloc.count > 0) {
 			this.#pool.free(resident.alloc);
+		}
+		if (resident.placements.count > 0) {
+			this.#placements.free(resident.placements);
 		}
 		this.#freeSlots.push(resident.blockSlot);
 	}
