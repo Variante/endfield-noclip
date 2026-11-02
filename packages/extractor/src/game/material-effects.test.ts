@@ -432,6 +432,64 @@ describe('VFXBaseV2', () => {
 		);
 	});
 
+	it('draws a soft body from its position texture, playing its frames on its own or holding one', () => {
+		// map01's Aurelyne blob (`M_erosionmud_core`), whose HDR offsets are stored as they are
+		const blob = {
+			keywords: ['_USE_FOG', '_USE_WATER_BLEND', '_VAT_SOFTBODY'],
+			slots: { _MainTex: slot(1), _PositionTexture: slot(2), _RotationTexture: slot(3) },
+			floats: {
+				_WaterHeight: -9999,
+				_TextureFormat: 1,
+				_B_autoPlayback: 1,
+				_frameCount: 100,
+				_houdiniFPS: 70,
+				_playbackSpeed: 5,
+				_boundMinX: -0.699999988079071,
+				_boundMinY: -0.7009999752044678,
+				_boundMinZ: -0.699999988079071,
+				_boundMaxX: 0.699999988079071,
+				_boundMaxY: 0.699999988079071,
+				_boundMaxZ: 0.75,
+			},
+		};
+		const body = ofKind(stackOf(blob), 'effectStack').softBody;
+		assert.deepEqual(
+			{ ...body, cycleRate: Number(body?.cycleRate.toFixed(4)) },
+			{
+				texture: 2,
+				min: [0, 0, 0],
+				range: [1, 1, 1],
+				frameCount: 100,
+				cycleRate: 3.5004,
+				cycleStart: 0,
+				fixedFrame: null,
+				// ten times the bounds land on whole numbers in f32, so neither pads
+				uScale: 1,
+				vScale: 1,
+				cameraPull: 0,
+			},
+		);
+		// 8-bit textures store a fraction of the bounds; `_displayFrame` is 1-based
+		const held = ofKind(
+			stackOf({
+				...blob,
+				floats: { ...blob.floats, _TextureFormat: 0, _B_autoPlayback: 0, _displayFrame: 3 },
+			}),
+			'effectStack',
+		).softBody;
+		assert.deepEqual(
+			[held?.min[0], held?.range[2], held?.fixedFrame],
+			[-0.699999988079071, 1.449999988079071, 2],
+		);
+		const kinds = [
+			stackOf({ ...blob, keywords: [...blob.keywords, '_USE_FRESNEL'] }),
+			stackOf({ ...blob, slots: { _MainTex: slot(1) } }),
+			stackOf({ ...blob, floats: { ...blob.floats, _HoudiniVATInParticle: 1 } }),
+			stackOf({ ...blob, keywords: ['_VAT_RIGIDBODY'] }),
+		].map((surface) => surface.kind);
+		assert.deepEqual(kinds, ['unsupported', 'unsupported', 'unsupported', 'unsupported']);
+	});
+
 	it('stays out of the fog without _USE_FOG, and starts slots from polar UVs only where computed', () => {
 		assert.equal(ofKind(stackOf({}), 'effectStack').unfogged, true);
 		assert.equal(ofKind(stackOf({ keywords: ['_USE_FOG'] }), 'effectStack').unfogged, false);

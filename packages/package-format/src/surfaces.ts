@@ -594,6 +594,32 @@ export interface EffectVertexOffset {
 	cameraPull: number;
 }
 
+/**
+ * VFXBaseV2's soft-body vertex animation (`_VAT_SOFTBODY`, Houdini's vertex animation textures): each vertex
+ * moves by a position texture's texel at its UV1 column and the current frame's row
+ * (`docs/game-data/effects.md`)
+ */
+export interface EffectSoftBody {
+	/** the position texture (`_PositionTexture`), sampled at its own coordinates, without its `_ST` */
+	texture: number;
+	/** the object-space offset is `range · texel + min`; textures of HDR offsets store them as they are */
+	min: [x: number, y: number, z: number];
+	range: [x: number, y: number, z: number];
+	frameCount: number;
+	/**
+	 * the frame is `floor(fract((time − cycleStart) · cycleRate) · frameCount)`, or `fixedFrame` when not
+	 * `null`
+	 */
+	cycleRate: number;
+	cycleStart: number;
+	fixedFrame: number | null;
+	/** UV1's u is scaled by `uScale`, and the frame rows by `vScale` (the padding the bounds' digits encode) */
+	uScale: number;
+	vScale: number;
+	/** the most it pulls vertices towards the camera, in metres (`_VertCameraOffset`) */
+	cameraPull: number;
+}
+
 /** the fades by view depth every effect shader shares */
 export interface EffectNearFade {
 	on: boolean;
@@ -654,6 +680,8 @@ export interface EffectStackSurface {
 	/** the power the alpha is raised to (VFXDitherAlpha's `_DitherAlphaExp`) */
 	alphaPower: number;
 	offset: EffectVertexOffset | null;
+	/** VFXBaseV2's soft-body animation, which takes the vertex offset's slot */
+	softBody: EffectSoftBody | null;
 	/** `_USE_LIGHTING`: lit at the world's up rather than the surface normal */
 	lighting: { worldUp: boolean } | null;
 	/** drawn after the fog (no `_USE_FOG`); VFXDitherAlpha's G-buffer surface is fogged */

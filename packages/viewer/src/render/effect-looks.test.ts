@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import type { ReadyMaterial } from '@endfield-noclip/package-format/materials';
 import type {
+	EffectSoftBody,
 	EffectStackSurface,
 	EffectTexture,
 	LightBeamSurface,
@@ -26,6 +27,7 @@ import {
 	ROLE_NONE,
 	SLOT_NO_BASE,
 	SlotSource,
+	VertexMotion,
 	WaterSheetFlags,
 	WaterSheetRow,
 } from './effect-looks.ts';
@@ -78,6 +80,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	decalFade: null,
 	alphaPower: 1,
 	offset: null,
+	softBody: null,
 	lighting: null,
 	unfogged: true,
 	blendMode: 0,
@@ -225,6 +228,44 @@ test('a stack’s vertex offset takes the offset slot and rows, and its stencil 
 		['equal', 'greater-equal', false],
 	);
 	assert.deepEqual([mask.transparent, mask.castsShadows, mask.stencil?.maskOnly], [false, false, true]);
+});
+
+test('a soft body takes the offset slot for its position texture, with its playback and bounds in the offset rows', () => {
+	// map01's Aurelyne blob (`M_erosionmud_core`): 100 frames played at 70 fps, five times over, from HDR offsets
+	const body = {
+		texture: 3,
+		min: [0, 0, 0],
+		range: [1, 1, 1],
+		frameCount: 100,
+		cycleRate: (70 / 99.99) * 5,
+		cycleStart: 2,
+		fixedFrame: null,
+		uScale: 1,
+		vScale: 1,
+		cameraPull: 0,
+	} satisfies EffectSoftBody;
+	const [playing, still] = materialLooks({
+		entries: [
+			described(0, stack({ softBody: body })),
+			described(1, stack({ softBody: { ...body, fixedFrame: 49 } })),
+		],
+	});
+	assert.equal(playing.textures[OFFSET_SLOT], 3);
+	assert.equal(playing.params[EffectRow.slotBits + OFFSET_SLOT], ROLE_NONE);
+	assert.equal(playing.params[EffectRow.offsetMode], VertexMotion.SoftBody);
+	assert.deepEqual(
+		[...playing.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)],
+		[0, 0, 0, 100],
+	);
+	assert.deepEqual([...playing.params.subarray(EffectRow.offset, EffectRow.offset + 4)], [1, 1, 1, 0]);
+	// the phase starts the cycle at `cycleStart`
+	const anim = EffectRow.anim + OFFSET_SLOT * 4;
+	assert.deepEqual(
+		[...playing.params.subarray(anim, anim + 2)],
+		[body.cycleRate, -2 * body.cycleRate].map(Math.fround),
+	);
+	// a fixed frame stands still in the middle of its row
+	assert.deepEqual([...still.params.subarray(anim, anim + 2)], [0, Math.fround(0.495)]);
 });
 
 test('a lit decal draws its maps through the placement or the PBR map’s own transform, and relights without albedo', () => {

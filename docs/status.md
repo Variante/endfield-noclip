@@ -207,18 +207,20 @@ packs or renders correctly.
   states, `_BlendMode` 2 outside a multiplying blend state, the vertex-offset mask, particle-data
   terms, the sixth sample texture together with a vertex offset, screen UVs relative to the object,
   brightening that is a scan line or centred on a fixed point (the player-centred one is left out),
-  breathing, edge colour, vertex animation textures (Aurelyne collectibles' soft-body blob), water
-  blending under a water height above the authored one, flipbook and particle inputs, and VFXDecal's
-  lighting, parallax, 3D-texture and particle variants; local lights and the post-exposure division
-  on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and
-  the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword variants, and in its dither the
-  vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog
-  (`_USE_FOG`), the mist boxes' depth prepass and vertex colour, and the game's global scene-effect
-  colour adjustment (`_VFXParams1`, set by native code; the Jingyu blight reads less saturated than
-  in game, and Suiming's [cave-exit light card](game-data/effects.md#mist) is unchecked against an
-  in-game shot). stencil [portals](game-data/effects.md#portals) draw without their masks' own
-  colour and depth, stencil operations other than keep and replace are unsupported, and none draw
-  unless the GPU has `depth32float-stencil8`
+  breathing, edge colour, rigid-body, fluid and particle vertex animation textures, soft bodies that
+  are lit, take a Fresnel term or a vertex offset or play from particle data (the drawn Aurelyne
+  blob is unchecked against an in-game shot), water blending under a water height above the authored
+  one, flipbook and particle inputs, and VFXDecal's lighting, parallax, 3D-texture and particle
+  variants; local lights and the post-exposure division on lit effects; for VFXWater,
+  `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and the `VFX_WATER_SIMPLE_LIGHT`
+  probe; VFXDitherAlpha's other keyword variants, and in its dither the vertex alpha, the
+  near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog (`_USE_FOG`), the
+  mist boxes' depth prepass and vertex colour, and the game's global scene-effect colour adjustment
+  (`_VFXParams1`, set by native code; the Jingyu blight reads less saturated than in game, and
+  Suiming's [cave-exit light card](game-data/effects.md#mist) is unchecked against an in-game shot).
+  stencil [portals](game-data/effects.md#portals) draw without their masks' own colour and depth,
+  stencil operations other than keep and replace are unsupported, and none draw unless the GPU has
+  `depth32float-stencil8`
 - effect distance bands ([effect LOD tables](game-data/assets.md#effect-lod-tables)) switch without
   the game's fade, and a billboarded renderer's offset from the effect's origin doesn't turn with
   the camera; only prefab renderers take them (whether static scenery has distance-banded effects is

@@ -72,6 +72,9 @@ const FX_OFFSET_MODE = 30u;
 const FX_UNFOGGED = 31u;
 // the slot of the vertex offset's texture (`OFFSET_SLOT` in effect-looks.ts)
 const FX_OFFSET_SLOT = 6u;
+// how the vertex stage moves vertices (`VertexMotion` in effect-looks.ts)
+const FX_MOTION_OFFSET = 1.0;
+const FX_MOTION_SOFT_BODY = 2.0;
 
 // texture roles (`EffectRole` in effect-looks.ts)
 const ROLE_DISTURB1 = 0u;
@@ -164,10 +167,28 @@ fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, rel: vec3f, uv: vec4f, v
 	let base = select(uv.xy, uv.zw, fx_row(id, FX_OFFSET_MODE).y != 0.0);
 	let t = textureSampleLevel(fx_tex6, fx_samp6, base * st.xy + st.zw + speed * frame.eye.w, 0.0).r;
 	let weight = (1.0 - params.z) + vertex_alpha * params.z;
+	return dir * params.x * (t * (1.0 + params.y) - params.y) * weight + fx_camera_pull(rel, params.w);
+}
+
+// VFXBaseV2's pull towards the camera: up to `pull` metres past the first, plus 1 mm
+fn fx_camera_pull(rel: vec3f, pull: f32) -> vec3f {
 	let camera_distance = length(rel);
-	let towards_camera =
-		-rel / max(camera_distance, 1e-6) * (min(max(0.0, camera_distance - 1.0), params.w) + 0.001);
-	return dir * params.x * (t * (1.0 + params.y) - params.y) * weight + towards_camera;
+	return -rel / max(camera_distance, 1e-6) * (min(max(0.0, camera_distance - 1.0), pull) + 0.001);
+}
+
+// VFXBaseV2's soft-body animation (`VertexMotion.SoftBody` in effect-looks.ts): the object-space position moved
+// by the position texture's texel at UV1's column and the current frame's row. vertices with UV1's v at most
+// 0.1 collapse to the object's origin, as the game's do
+fn fx_soft_body(id: u32, p: vec3f, uv1: vec2f) -> vec3f {
+	let low = fx_row(id, FX_OFFSET_DIR);
+	let range = fx_row(id, FX_OFFSET).xyz;
+	let scale = fx_row(id, FX_UV + FX_OFFSET_SLOT).xy;
+	let play = fx_row(id, FX_ANIM + FX_OFFSET_SLOT).xy;
+	let frames = low.w;
+	let current = floor(fract(frame.eye.w * play.x + play.y) * frames);
+	let at = vec2f(uv1.x * scale.x, 1.0 - scale.y * ((1.0 - uv1.y) + current / frames));
+	let texel = textureSampleLevel(fx_tex6, fx_samp6, at, 0.0).xyz;
+	return select(p + range * texel + low.xyz, vec3f(0.0), uv1.y <= 0.1);
 }
 
 @vertex
@@ -189,9 +210,15 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	let uv = sheet_uv(row.info, vec4f(v.uv0 * uv0.xy + uv0.zw, v.uv1 * uv1.xy + uv1.zw));
 	let color = select(vec4f(1.0), v.color, (flags & FX_HAS_COLORS) != 0u) * instance_color(row.info, row.extent.z);
 	let normal = oct_decode(v.normal);
+	let motion = fx_row(draw_id, FX_OFFSET_MODE).x;
+	if (motion == FX_MOTION_SOFT_BODY) {
+		p = fx_soft_body(draw_id, p, v.uv1 * uv1.xy + uv1.zw);
+	}
 	var rel = m * p + origin;
-	if (fx_row(draw_id, FX_OFFSET_MODE).x != 0.0) {
+	if (motion == FX_MOTION_OFFSET) {
 		rel += fx_vertex_offset(draw_id, m, normal, rel, uv, color.a);
+	} else if (motion == FX_MOTION_SOFT_BODY) {
+		rel += fx_camera_pull(rel, fx_row(draw_id, FX_OFFSET).w);
 	}
 	var out: EffectOut;
 	out.position = frame.view_proj * vec4f(rel, 1.0);

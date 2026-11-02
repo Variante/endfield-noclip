@@ -81,6 +81,18 @@ under every level, so placed effects out of water draw as without the keyword. t
 Aurelyne, the collectible orbs (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity
 364, 44, −700), are such.
 
+`_VAT_SOFTBODY` plays a Houdini vertex animation: each vertex moves by `_PositionTexture`'s texel at
+UV set 1's column and the current frame's row, in object space. the frame is
+`floor(fract((time − _gameTimeAtFirstFrame) · _houdiniFPS / (_frameCount − 0.01) · _playbackSpeed) · _frameCount)`
+with `_B_autoPlayback`, else `_displayFrame − 1`; the texel is read at
+`(u · a, 1 − b · ((1 − v) + frame / _frameCount))`, where a and b are `1 + x − ceil(x)` for x ten
+times `_boundMinZ` and `_boundMaxX` (1 for the bounds seen). textures of HDR offsets
+(`_TextureFormat` 1) store them as they are; 8-bit ones a fraction between the `_boundMin*` and
+`_boundMax*`. vertices whose UV1 v is at most 0.1 collapse to the object's origin.
+`_RotationTexture` holds a quaternion per vertex that turns the normal and tangent from +y and −x.
+the wobbling blob at the heart of the Hub's Aurelyne (`M_erosionmud_core`, map01_lv001 near unity
+−104, 118, −534) is one, 100 frames looped 3.5 times a second.
+
 **VFXDecal** draws a unit box (`s_fx_particle_decal_cube`): each covered pixel finds the surface
 behind from the scene depth and, if that point lies inside the box, projects the textures down the
 box's y (UV = local xz + 0.5). its roles are fixed: `_MainTex`, `_MaskTex`, `_BlendTex`,

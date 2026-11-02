@@ -25,6 +25,12 @@ meshes play through the [particles](particles.md#particles); what's left out is 
 - [water blending](../game-data/effects.md#vfxbasev2-and-vfxdecal) is left out, which matches the
   game for the authored `_WaterHeight` below the world; a material with a higher one is unsupported,
   since the water a `VFXWaterBlendConfig` finds isn't followed.
+- [soft-body animations](../game-data/effects.md#vfxbasev2-and-vfxdecal) also take the vertex
+  offset's slot for their position texture, its UV and scroll rows holding the UV1 scales and the
+  playback's cycles per second and phase (a held frame is a still phase), and the offset rows the
+  bounds, frame count and camera pull (`VertexMotion` in `effect-looks.ts`). the rotation texture
+  isn't read: materials with lighting or a Fresnel term, which would read the turned normals, stay
+  unsupported, as do those with a vertex offset, a sixth sample texture or particle-driven playback.
 - VFXDecal boxes draw their back faces without a depth test, so they still show with the camera
   inside. each covered pixel reconstructs the main pass's surface from the depth buffer, and
   `_USE_NORMALBLEND` reads its normal from the main pass's packed surface normal.

@@ -1,5 +1,6 @@
 import type {
 	EffectNearFade,
+	EffectSoftBody,
 	EffectStackSurface,
 	EffectTexture,
 	EffectUvSource,
@@ -95,8 +96,8 @@ export const EffectRow = {
 	 */
 	offset: 116,
 	/**
-	 * VFXBaseV2: 1 when the vertex offset is on, 1 when the offset texture reads UV set 1, 1 when
-	 * `_USE_LIGHTING` lights the colour, 1 when it lights it at the world's up rather than the surface normal
+	 * VFXBaseV2: {@link VertexMotion}, 1 when the offset texture reads UV set 1, 1 when `_USE_LIGHTING` lights
+	 * the colour, 1 when it lights it at the world's up rather than the surface normal
 	 * (`_RotateNormalToWorldUp`)
 	 */
 	offsetMode: 120,
@@ -107,6 +108,18 @@ export const EffectRow = {
 	 * 2 to take v from the world height (`_UsePosYAsScreenV`)
 	 */
 	unfogged: 124,
+} as const;
+
+/**
+ * how the vertex stage moves an effect's vertices ({@link EffectRow.offsetMode} x). with the soft body, the
+ * {@link OFFSET_SLOT} holds the position texture, its UV row UV1's u scale and the frame rows' scale, its
+ * scroll row the cycles per second and the phase; {@link EffectRow.offsetDir} holds the offset's minimum and
+ * the frame count, and {@link EffectRow.offset} its range and the camera pull
+ */
+export const VertexMotion = {
+	None: 0,
+	Offset: 1,
+	SoftBody: 2,
 } as const;
 
 /**
@@ -219,7 +232,31 @@ const setVertexOffset = (look: EffectLook, offset: EffectVertexOffset): void => 
 	setSlot(look, OFFSET_SLOT, offset.texture, ROLE_NONE);
 	params.set([...offset.direction, offset.space], EffectRow.offsetDir);
 	params.set([offset.intensity, offset.bias, offset.vertexAlphaWeight, offset.cameraPull], EffectRow.offset);
-	params.set([1, offset.uv1 ? 1 : 0], EffectRow.offsetMode);
+	params.set([VertexMotion.Offset, offset.uv1 ? 1 : 0], EffectRow.offsetMode);
+};
+
+/** the soft-body animation's slot and rows ({@link VertexMotion}) */
+const setSoftBody = (look: EffectLook, body: EffectSoftBody): void => {
+	const params = look.params;
+	// a fixed frame is a still phase in the middle of its frame
+	const rate = body.fixedFrame === null ? body.cycleRate : 0;
+	const phase =
+		body.fixedFrame === null ? -body.cycleStart * body.cycleRate : (body.fixedFrame + 0.5) / body.frameCount;
+	setSlot(
+		look,
+		OFFSET_SLOT,
+		{
+			texture: body.texture,
+			scale: [body.uScale, body.vScale],
+			offset: [0, 0],
+			scroll: [rate, phase],
+			rotation: [1, 0],
+		},
+		ROLE_NONE,
+	);
+	params.set([...body.min, body.frameCount], EffectRow.offsetDir);
+	params.set([...body.range, body.cameraPull], EffectRow.offset);
+	params[EffectRow.offsetMode] = VertexMotion.SoftBody;
 };
 
 /**
@@ -270,6 +307,9 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 	params[EffectRow.decal + 3] = stack.alphaPower;
 	if (stack.offset !== null) {
 		setVertexOffset(look, stack.offset);
+	}
+	if (stack.softBody !== null) {
+		setSoftBody(look, stack.softBody);
 	}
 	if (stack.lighting !== null) {
 		params.set([1, stack.lighting.worldUp ? 1 : 0], EffectRow.offsetMode + 2);
