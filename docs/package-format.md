@@ -775,12 +775,17 @@ test at the camera. which content a stream area gates is in
 
 ### proximity
 
-`StatesInfo.proximities` (`ProximityInfo`) gives each `proximity:<id>` control an interactive's
-position and a radius. the control is 1 while the player is within that 3D distance and 0 beyond; a
-viewer sets it from the camera unless the user picks a value (`proximityValues` in
-[proximity.ts](../packages/package-format/src/proximity.ts)), and its stored default (away) only
-holds without a camera. the interactive's away and near poses require its values 0 and 1
-([interactives](extraction.md#interactives)).
+`StatesInfo.proximities` (`ProximityInfo`) gives each `proximity:<id>` control one or more reaches,
+a position and a radius each. the control is 1 while the player is within the 3D distance of any of
+its reaches and 0 beyond all; a viewer sets it from the camera unless the user picks a value
+(`proximityValues` in [proximity.ts](../packages/package-format/src/proximity.ts)), and its stored
+default (away) only holds without a camera. two kinds exist:
+
+- `proximity:<interactive id>`: one reach around an interactive, whose away and near poses require
+  its values 0 and 1 ([interactives](extraction.md#interactives))
+- `proximity:volume:<script id>:<slot id>`: a level script's trigger volume, a reach per sphere.
+  script groups the script shows and hides as the player enters and leaves it derive from it
+  ([what sets a script group](game-data/scene-states.md#what-sets-a-script-group))
 
 ## versioning
 

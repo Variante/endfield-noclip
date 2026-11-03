@@ -626,6 +626,54 @@ export const entityVisibilityTargets = (
 
 // #endregion
 
+// #region trigger volumes
+
+/** `LevelScriptTriggerVolumeShapeType.Sphere` */
+const SPHERE_SHAPE = 2;
+
+/**
+ * a group one level script shows on the player entering a trigger volume and hides on leaving it, or the
+ * reverse, with nothing else setting it: in game it follows where the player stands
+ */
+export interface VolumeRule {
+	/** `<script id>:<slot id>`, shared by every group the same volume sets */
+	volume: string;
+	/** the volume's shapes, all spheres; the player is inside while within any of them (3D distance) */
+	spheres: { position: Vec3; radius: number }[];
+	/** whether the group shows while the player is inside */
+	inside: boolean;
+}
+
+/** a group's volume rule while its paths are collected: which edges were seen */
+interface PendingVolume {
+	script: Script;
+	slot: MemoryPackValue;
+	inside: boolean;
+	enter: boolean;
+	leave: boolean;
+}
+
+/** @returns the volume's spheres, or `null` when a shape isn't a sphere or some shapes only count for leaving */
+const volumeSpheres = (script: Script, slot: MemoryPackValue): VolumeRule['spheres'] | null => {
+	const volume = entry(script.data.triggerVolumes, slot);
+	const shapes = asList(volume?.shapeList);
+	if (volume === null || shapes.length === 0 || volume.exitShapeStartIndex !== -1) {
+		return null;
+	}
+	const spheres: VolumeRule['spheres'] = [];
+	for (const value of shapes) {
+		const shape = asNode(value);
+		const position = vec3(shape?.position);
+		if (shape?.shapeType !== SPHERE_SHAPE || position === null || typeof shape.radius !== 'number') {
+			return null;
+		}
+		spheres.push({ position, radius: shape.radius });
+	}
+	return spheres;
+};
+
+// #endregion
+
 /** what sets each script-controlled entity group */
 export interface ScriptLinks {
 	/** drivers by entity id */
@@ -635,6 +683,8 @@ export interface ScriptLinks {
 	 * path passes only quest and mission state checks (see {@link activationCondition})
 	 */
 	rules: Map<string, ActivationRule>;
+	/** by entity id, the trigger volume that alone sets the group (see {@link VolumeRule}) */
+	volumes: Map<string, VolumeRule>;
 	/** show and hide action targets computed at runtime (getters, the script's own slots), not followed */
 	untraced: number;
 	/** event header types the driver mapping doesn't know, with how many driver paths start at each */
@@ -812,6 +862,8 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 	const drivers = new Map<string, ControlDriver[]>();
 	// `null` once some activation path sets a group in a way quest tests don't capture
 	const rules = new Map<string, ActivationRule | null>();
+	// `null` once something other than one volume's enter and leave events sets a group
+	const volumes = new Map<string, PendingVolume | null>();
 	let untraced = 0;
 	/** header types no rule maps, by paths reaching a show or hide action from them */
 	const unmapped = new Map<string, number>();
@@ -855,6 +907,9 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 	): Promise<void> {
 		const found: ControlDriver[] = [];
 		if (!ownLevels.has(script.level)) {
+			if (activation) {
+				volumes.set(target, null);
+			}
 			found.push({
 				kind: 'level',
 				levelId: script.level,
@@ -869,6 +924,9 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 				}
 				if (activation && ACTIVATION.has(typeOf(path.header))) {
 					noteActivation(script, target, path.guards, value === null ? null : value === 1);
+				}
+				if (activation) {
+					noteVolume(script, path, target, value);
 				}
 			}
 		}
@@ -916,6 +974,40 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			paths.push(tests);
 		}
 		rules.set(target, next);
+	}
+
+	/** adds a path to its group's volume rule, or drops the rule when the path isn't an unguarded volume edge */
+	function noteVolume(script: Script, path: Reach, target: string, value: number | null): void {
+		const current = volumes.get(target);
+		if (current === null) {
+			return;
+		}
+		const type = typeOf(path.header);
+		const enters = type === 'ScriptEvent_OnLeaderEnterTriggerVolume';
+		if (
+			(!enters && type !== 'ScriptEvent_OnLeaderLeaveTriggerVolume') ||
+			path.guards.length > 0 ||
+			value === null
+		) {
+			volumes.set(target, null);
+			return;
+		}
+		const slot = param(script, path.header.triggerSlotIdFilter);
+		const inside = enters === (value === 1);
+		if (
+			current !== undefined &&
+			(current.script !== script || current.slot !== slot || current.inside !== inside)
+		) {
+			volumes.set(target, null);
+			return;
+		}
+		const next = current ?? { script, slot, inside, enter: false, leave: false };
+		if (enters) {
+			next.enter = true;
+		} else {
+			next.leave = true;
+		}
+		volumes.set(target, next);
 	}
 
 	/** @returns the drivers a cause becomes */
@@ -1004,7 +1096,22 @@ export const linkScripts = async (scripts: readonly Script[], context: LinkConte
 			settled.set(target, rule);
 		}
 	}
-	return { drivers, rules: settled, untraced, unmapped };
+	const followed = new Map<string, VolumeRule>();
+	for (const [target, pending] of volumes) {
+		// with only one edge, the group keeps the other value once the player first crosses
+		if (pending === null || !pending.enter || !pending.leave || pending.slot === null) {
+			continue;
+		}
+		const spheres = volumeSpheres(pending.script, pending.slot);
+		if (spheres !== null) {
+			followed.set(target, {
+				volume: `${pending.script.id}:${keyOf(pending.slot)}`,
+				spheres,
+				inside: pending.inside,
+			});
+		}
+	}
+	return { drivers, rules: settled, volumes: followed, untraced, unmapped };
 };
 
 /** @returns whether the bytes hold any of the ids as a little-endian u64 */

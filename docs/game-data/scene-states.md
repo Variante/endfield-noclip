@@ -310,7 +310,10 @@ getter node (`CheckMissionOrQuestIsComplete`, `CompareQuestState`, …) named by
   active shape (`startShapeList`/`activeShapeList`: `offset`, `radius`). `ManualStartLevelScript` in
   another script also starts it
 - `ScriptEvent_OnLeaderEnterTriggerVolume` (and leave, list): the player entering one of the
-  script's `triggerVolumes` (shape `position`, `radius`)
+  script's `triggerVolumes`, picked by `triggerSlotIdFilter`. a volume is a `shapeList` of shapes
+  (`shapeType` 1 box with `size` and `rotation`, 2 sphere with `radius`, 3 polyline, 4 infinite)
+  around `position`; the player is inside while within any of them. `exitShapeStartIndex` is -1 in
+  the volumes seen so far (shapes from that index presumably count only for leaving; unverified)
 - `EntityEvent_*`: an interactive's event; `targetEntity` names a slot of the script's own
   `interactives` (template `entityDataIdKey`, `position`) or a LevelData placement by logic id
 - `LevelEvent_OnQuestStateChanged` / `…OnMissionStateChanged`: a quest event (`filtedQuestId`)
@@ -331,6 +334,18 @@ known.
 scripts of other levels can name a scene's group (dungeons reusing the open world, such as the
 racing courses). missions whose objectives check a script (stage, property) drive its activation,
 since the server runs such scripts as those missions progress.
+
+### groups that follow the player
+
+some groups are scenery swaps by where the player stands: one script hides a group on entering a
+volume and shows it again on leaving (or the reverse), and nothing else sets it. Jingyu Valley's
+tree cave (map02_lv001, near unity −1046, 229, −1400) is one: group 10100030008, four huge rocks
+that roof over the cave's skylight, is hidden by script 10100030016 while the player is inside its
+volume 80003 (three spheres of 78 to 92 m around the cave), so from inside the shaft opens onto the
+tree; the same script shows group 10100030005 only inside volume 80004, east of the cave. such a
+script still has to be running for its volume events to fire; 10100030016 has no quest checks and an
+active shape of 350 m around unity −910, 249, −1255 that covers both volumes, but whether the server
+starts it unconditionally isn't known.
 
 ### following quest checks on activation
 

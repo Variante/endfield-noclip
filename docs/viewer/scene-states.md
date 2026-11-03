@@ -21,10 +21,11 @@ controls' stored default (shown) only holds without a camera.
 ### proximity
 
 the camera stands in for the player: unless the user picks a value, each `proximity:<id>` control is
-1 while the eye is within its radius of its interactive and 0 beyond (`proximityValues`;
-[package format](../package-format.md#proximity)). the viewer recomputes them whenever the camera
-moves, with the stream areas, and re-evaluates visibility only when one changes. an interactive
-swaps between its two settled looks at once, without the game's transition clips.
+1 while the eye is within any of its reaches (an interactive's radius, or a trigger volume's
+spheres) and 0 beyond (`proximityValues`; [package format](../package-format.md#proximity)). the
+viewer recomputes them whenever the camera moves, with the stream areas, and re-evaluates visibility
+only when one changes. an interactive swaps between its two settled looks at once, without the
+game's transition clips.
 
 ## the scene conditions panel
 

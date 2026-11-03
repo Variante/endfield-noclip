@@ -20,8 +20,9 @@ packs or renders correctly.
   progressions, facility visual forms (shops, depots, recycling stations, monitoring terminals),
   Dijiang cabins and Control Nexus level (region walls), tree harvest state, stream areas and
   script/event groups as controls, each listed for the levels it gates; script groups list what sets
-  them in game (quests, switches, areas, dungeons), from the level scripts, and follow the quests
-  their scripts check when they run ([scene states](game-data/scene-states.md))
+  them in game (quests, switches, areas, dungeons), from the level scripts, follow the quests their
+  scripts check when they run, and follow the camera where a script swaps them as the player enters
+  and leaves a spherical trigger volume ([scene states](game-data/scene-states.md))
 - static and dynamic stream areas switched by the camera through the game's trigger zones
   ([world](game-data/world.md#stream-areas))
 - terrain heights, baked surface pages and the close-up layer blend
@@ -344,7 +345,10 @@ packs or renders correctly.
   than snap it; the shop, depot and terminal level → visual form mapping, and the resource-node
   level's link to regional development, aren't recovered
 - script-group drivers are found from client scripts only: stages, properties and events the server
-  sets show as "server", and groups no client script names have none
+  sets show as "server", and groups no client script names have none. groups swapped by trigger
+  volumes follow the camera only when every shape is a sphere and nothing else sets them; box and
+  polyline volumes, and groups also set by other events, are picked by hand, and the volume script
+  is assumed to be running
 - interactives level scripts show and hide default to shown, since whether they start hidden isn't
   known; show and hide targets that are a script's own slots or computed at runtime aren't followed
   (counted as `scriptVisibilityUntraced` in the pack report). LevelData function areas that hide

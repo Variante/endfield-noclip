@@ -1259,6 +1259,8 @@ const collectEntities = async (
 		entityVisibilityTargets(levelScripts.scripts, levelScripts.ownLevels),
 	);
 	counts.interactiveFacilities = facilities.progressions.length;
+	/** proximity controls of the trigger volumes script groups follow */
+	const volumeProximities: SceneControl[] = [];
 	{
 		for (const [id, control] of facilities.scriptControls) {
 			if (!scripted.has(id)) {
@@ -1298,6 +1300,45 @@ const collectEntities = async (
 			control.assumption = 'set by its level scripts’ quest checks when they run';
 			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
 			counts.scriptGroupsDerived++;
+		}
+		// a group one script sets as the player enters and leaves a volume follows the camera through a proximity
+		// control per volume
+		counts.scriptGroupsByVolume = 0;
+		for (const [id, rule] of found.volumes) {
+			const control = scripted.get(id);
+			if (control === undefined) {
+				continue;
+			}
+			const nearness = `proximity:volume:${rule.volume}`;
+			if (!volumeProximities.some((known) => known.id === nearness)) {
+				volumeProximities.push({
+					kind: 'proximity',
+					id: nearness,
+					name: `Script ${rule.volume.replace(':', ' volume ')}`,
+					rule: null,
+					assumption: 'follows the camera, as the game follows the player',
+					followsCamera: true,
+					levelTags: [],
+					values: [
+						{ value: 0, label: 'outside' },
+						{ value: 1, label: 'inside' },
+					],
+					default: 0,
+					derived: null,
+				});
+				for (const { position, radius } of rule.spheres) {
+					collected.proximities.push({ control: nearness, position, radius });
+				}
+			}
+			control.rule = [
+				rule.inside ? 'shown while ' : 'hidden while ',
+				{ control: nearness, text: 'the player is inside its level script’s trigger volume' },
+			];
+			control.assumption = 'follows the camera, as its level script follows the player';
+			control.derived = collected.condition({
+				alternatives: [[{ control: nearness, mask: rule.inside ? 2 : 1 }]],
+			});
+			counts.scriptGroupsByVolume++;
 		}
 		counts.levelScripts = found.counts.scripts;
 		counts.levelScriptsUndecoded = found.counts.undecoded;
@@ -1375,8 +1416,9 @@ const collectEntities = async (
 		...facilities.doors.map(({ control }) => control),
 		...facilities.bridges,
 		...facilities.proximityControls,
+		...volumeProximities,
 	];
-	collected.proximities = facilities.proximities;
+	collected.proximities.push(...facilities.proximities);
 	counts.bridges = facilities.bridges.length;
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
