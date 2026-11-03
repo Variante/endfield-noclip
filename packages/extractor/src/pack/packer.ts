@@ -1189,7 +1189,7 @@ const collectEntities = async (
 			lights.addConditional(light, visibility);
 		}
 	}
-	for (const { entity, visibility } of dynamic.entities) {
+	for (const { entity, decalMaterial, visibility } of dynamic.entities) {
 		if (seen.has(entity.id)) {
 			continue;
 		}
@@ -1198,12 +1198,35 @@ const collectEntities = async (
 			skipped.add('dynamic', 'no matrix', entity);
 			continue;
 		}
-		// a dynamic structure's decal material isn't read, so its box stands in for it
 		if (entity.decal !== null) {
 			seen.add(entity.id);
-			addStandInCube(
-				{ matrix: entity.matrix, tag: entity.levelTag, entityId: entity.id, visibility },
-				{ path: entity.name, name: entity.name, reason: 'decal in a dynamic structure' },
+			const draw = decalMaterial === null ? null : decalDraw(entity.decal, decalMaterial);
+			if (draw === null) {
+				counts.decalSkipped++;
+				skipped.add(
+					'dynamic',
+					decalMaterial === null ? 'rect decal without a material' : 'no decal cube mesh',
+					entity,
+				);
+				continue;
+			}
+			// the decal cube maps the unit cube, so its matrix gives the bounds when the entity has none
+			const bounds = entity.bounds ?? transformBounds(UNIT_CUBE_BOUNDS, entity.matrix);
+			if (!subset.includesEntity(entity.levelTag, bounds.center[0], bounds.center[2])) {
+				continue;
+			}
+			counts.decal++;
+			addStructure(
+				{
+					chain: pack.chains.intern(1, [draw]),
+					matrix: entity.matrix,
+					bounds,
+					entityId: entity.id,
+					decalPlacement: decalPlacement(entity.decal),
+				},
+				entity.levelTag,
+				entity.name,
+				visibility,
 			);
 			continue;
 		}

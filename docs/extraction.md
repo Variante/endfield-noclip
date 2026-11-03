@@ -507,7 +507,8 @@ shows them. each structure keeps the level tag of its resource group's `levelNum
 have no game entity id, so the packer gives them a synthetic one: the level tag over an index
 counted down from the top of the 27-bit id space, away from the game's ids. ECS entities already
 present in static chunks keep their static copy. the local lights in the selected ECS groups are
-kept the same way ([lights](package-format.md#lights)).
+kept the same way ([lights](package-format.md#lights)). rect decals take their material from the
+chunk's `fb_streaming` payload and draw the decal cube as static ones do.
 
 ### interactives
 

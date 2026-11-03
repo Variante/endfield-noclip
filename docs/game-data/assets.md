@@ -299,7 +299,9 @@ entity's logic state is `n`. how these masks, gates and scene-state lists decide
 - **ECS rows** (type 7): `(sceneIndex, chunk, index)` naming component group `index` of the paired
   `fb_init_<ss>_<chunk>` / `fb_streaming_<ss>_<chunk>` files. `fb_init` holds the component groups,
   in InitChunkData's layout ([world.md](world.md#initchunkdata-layout)), and `fb_streaming` the
-  matching entity ids.
+  matching entity ids and, in StreamingChunkData's layout, their property tables: rect decals bind
+  their material there under `0xff010000` as in static chunks (all 1786 of map02's, among them
+  Jingyu Valley's cliff moss, 64 materials).
 
 one model or ECS group can be referenced by several resource groups, and some ECS entities also
 appear in static chunks.

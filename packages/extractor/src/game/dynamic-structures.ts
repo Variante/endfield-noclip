@@ -14,9 +14,16 @@ import {
 	type ChunkEntity,
 } from '@endfield-noclip/formats/endfield/init-chunk-data';
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
+import {
+	assetProperty,
+	parseStreamingChunk,
+	RECT_DECAL_MATERIAL_KEY,
+} from '@endfield-noclip/formats/endfield/streaming-chunk-data';
 import { unpackHgPayload } from '@endfield-noclip/formats/hg/payload';
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
 import { streamAreaControl } from '@endfield-noclip/package-format/stream-areas';
+
+import { mapDefined } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -39,9 +46,17 @@ export interface StructureModel {
 	pose: PrefabPose | null;
 }
 
+/** an ECS entity of a dynamic structure */
+export interface DynamicEntity {
+	entity: ChunkEntity;
+	/** a rect decal's material key, from its chunk's `fb_streaming` payload; `null` for other entities */
+	decalMaterial: bigint | null;
+	visibility: ConditionalSetInfo;
+}
+
 /** structures and their visibility decoded from dynamic resources */
 export interface DynamicStructures {
-	entities: { entity: ChunkEntity; visibility: ConditionalSetInfo }[];
+	entities: DynamicEntity[];
 	/** local lights in the ECS groups, under their structure's visibility */
 	lights: { light: ChunkLight; visibility: ConditionalSetInfo }[];
 	/** script-group and logic-gate controls; load gates read controls of the game state instead */
@@ -275,7 +290,7 @@ export const loadDynamicStructures = async (
 			}
 		}
 	}
-	const entities = new Map<number, { entity: ChunkEntity; visibility: ConditionalSetInfo }>();
+	const entities = new Map<number, DynamicEntity>();
 	const lights = new Map<number, { light: ChunkLight; visibility: ConditionalSetInfo }>();
 	for (const [key, indices] of chunks) {
 		// oxlint-disable-next-line no-await-in-loop -- release each pair after its renderer groups are decoded
@@ -284,8 +299,20 @@ export const loadDynamicStructures = async (
 			read(`${prefix}fb_streaming_${key}.bytes`),
 		]);
 		const initPayload = unpackHgPayload(init);
-		const chunk = parseDynamicChunk(initPayload, unpackHgPayload(streaming));
+		const streamingPayload = unpackHgPayload(streaming);
+		const chunk = parseDynamicChunk(initPayload, streamingPayload);
 		const chunkLights = new Map(readChunkLights(initPayload, chunk).map((light) => [light.id, light]));
+		// the streaming payload binds rect decals' materials as StreamingChunkData does
+		let decalMaterials: Map<number, bigint> | null = null;
+		const decalMaterial = (id: number): bigint | null => {
+			decalMaterials ??= new Map(
+				mapDefined(parseStreamingChunk(streamingPayload).records, (record): [number, bigint] | undefined => {
+					const material = assetProperty(record, RECT_DECAL_MATERIAL_KEY);
+					return material === undefined ? undefined : [record.id, material];
+				}),
+			);
+			return decalMaterials.get(id) ?? null;
+		};
 		for (const [index, visibility] of indices) {
 			const group = chunk.groups[index];
 			if (!group) {
@@ -294,7 +321,11 @@ export const loadDynamicStructures = async (
 			result.counts.ecsGroups++;
 			for (const entity of readChunkEntities({ ...chunk, groups: [group] })) {
 				entities
-					.getOrInsertComputed(entity.id, () => ({ entity, visibility: { alternatives: [] } }))
+					.getOrInsertComputed(entity.id, () => ({
+						entity,
+						decalMaterial: entity.decal === null ? null : decalMaterial(entity.id),
+						visibility: { alternatives: [] },
+					}))
 					.visibility.alternatives.push(...visibility.alternatives);
 			}
 			for (const id of group.ids) {

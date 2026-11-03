@@ -259,7 +259,7 @@ packs or renders correctly.
   metallic, and add their emission over the surface's instead of replacing it; under a laid-over
   decal that doesn't write them, the surface's own occlusion and metallic are taken as 1 and 0;
   terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28) and `HGRP/DecalUnlit` aren't
-  packed, and decals in dynamic structures are only [stand-ins](package-format.md#stand-ins)
+  packed
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the
