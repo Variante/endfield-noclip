@@ -543,14 +543,14 @@ export const EffectKind = {
 	WaterSheet: 1,
 	/** an `HGRP/DecalLit` box ({@link DecalLitRow}), drawn by the decal entry point */
 	LitDecal: 2,
-	/** six-way lit smoke ({@link SixWayRow}) */
-	SixWaySmoke: 6,
 	/** a volumetric light beam's cone ({@link BeamRow}) */
 	Beam: 3,
 	/** a VFXRefract layer ({@link RefractRow}), drawn by the refraction entry point over the composited scene */
 	Refract: 4,
 	/** a WaterDecal box ({@link WaterFoamRow}), drawn into the water's foam by its own entry point */
 	WaterFoam: 5,
+	/** six-way lit smoke ({@link SixWayRow}) */
+	SixWaySmoke: 6,
 } as const;
 
 /**
@@ -672,6 +672,12 @@ export const waterSheetLook = (sheet: WaterSheetSurface): EffectLook => {
 		EffectRow.soft,
 	);
 	setNear(look, sheet.near);
+	params.set([0, EffectKind.WaterSheet, 0, 0], EffectRow.unfogged);
+	return look;
+};
+
+// #endregion
+
 // #region six-way smoke
 
 /**
@@ -765,12 +771,6 @@ export const sixWaySmokeLook = (smoke: SixWaySmokeSurface): EffectLook => {
 	setNear(look, smoke.near);
 	params.set([smoke.brighten.threshold, smoke.brighten.intensity], EffectRow.misc + 1);
 	params.set([smoke.unfogged ? 1 : 0, EffectKind.SixWaySmoke, 0, 0], EffectRow.unfogged);
-	return look;
-};
-
-// #endregion
-
-	params.set([0, EffectKind.WaterSheet, 0, 0], EffectRow.unfogged);
 	return look;
 };
 
