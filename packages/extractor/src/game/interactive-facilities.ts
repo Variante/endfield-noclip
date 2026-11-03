@@ -370,12 +370,12 @@ export interface InteractiveStandIn {
 /**
  * resolves the models of interactives placed by referenced LevelData: the visual forms of the facility
  * templates in {@link TEMPLATES}, each under a `facility:<id>` control, and every other interactive's model
- * (its template variant's, else the template's), always shown. a model that is a doodad-group shell also
- * places its form models, one per group level, under a per-level `doodadGroups:<level id>` control. a model
- * with door poses is placed closed and open, under a `door:<id>` control, closed by default. a telescopic
- * bridge is placed retracted and extended, under a `bridge:<id>` control, retracted by default. rows the game
- * creates later (`createState` ≠ 0) are placed the same way and also require their level's `created:<level
- * id>` control, off by default
+ * (its template variant's, else the template's; none for a variant that overrides it with an empty model),
+ * always shown. a model that is a doodad-group shell also places its form models, one per group level, under
+ * a per-level `doodadGroups:<level id>` control. a model with door poses is placed closed and open, under a
+ * `door:<id>` control, closed by default. a telescopic bridge is placed retracted and extended, under a
+ * `bridge:<id>` control, retracted by default. rows the game creates later (`createState` ≠ 0) are placed the
+ * same way and also require their level's `created:<level id>` control, off by default
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
@@ -604,9 +604,10 @@ export const loadInteractiveFacilities = async (
 			continue;
 		}
 		const { base } = resolved;
-		const modelId = resolved.variants.get(key) ?? base?.id;
-		if (modelId === undefined) {
-			// triggers and logic-only interactives have no model
+		const modelId = resolved.variants.has(key) ? resolved.variants.get(key) : base?.id;
+		if (modelId === undefined || modelId === null) {
+			// triggers and logic-only interactives have no model, and variants that empty it (bridges whose
+			// DynamicStreaming row is the model they drive) draw nothing of their own
 			continue;
 		}
 		if (!(modelId in modelData)) {

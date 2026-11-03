@@ -267,7 +267,9 @@ export const readInteractiveTable = (
  * @param bytes pooled template bytes
  * @param string resolves pooled string ids
  * @param variants the interactive ids that instantiate this template, without the template's own id
- * @returns each variant's model id, or `null` where the variant keeps the template's model
+ * @returns the model id of each variant that overrides the template's model, or `null` where it overrides it
+ *   with no model (its interactive draws nothing of its own); variants that keep the template's model are
+ *   absent
  * @throws {FormatError} when no single position frames the table
  */
 export const readInteractiveVariantModels = (
@@ -290,7 +292,7 @@ export const readInteractiveVariantModels = (
 			throw error;
 		}
 	};
-	let found: Map<string, string | null> | null = null;
+	let found: Map<string, string | null | undefined> | null = null;
 	// a table header is the dictionary wrapper's member count (1), the entry count and a known first key;
 	// the table's nine-byte header and the six-byte remainder bound the last position
 	for (let at = bytes.length - 15; at >= 0; at--) {
@@ -313,14 +315,23 @@ export const readInteractiveVariantModels = (
 	if (found === null) {
 		throw new FormatError('interactive variant table not found');
 	}
-	return found;
+	const overrides = new Map<string, string | null>();
+	for (const [id, model] of found) {
+		if (model !== undefined) {
+			overrides.set(id, model);
+		}
+	}
+	return overrides;
 };
 
-/** reads the variant table through the end of the template, or returns `null` where it doesn't frame */
+/**
+ * reads the variant table through the end of the template, or returns `null` where it doesn't frame. each
+ * variant maps to its model override: a model id, `null` for an enabled empty override, `undefined` for none
+ */
 const readVariantTail = (
 	r: BinaryReader,
 	string: (id: number) => string | null,
-): Map<string, string | null> | null => {
+): Map<string, string | null | undefined> | null => {
 	class Mismatch extends Error {}
 	const fail = (): never => {
 		throw new Mismatch();
@@ -362,17 +373,18 @@ const readVariantTail = (
 		read();
 	};
 	// a managed Optional<T>: an object of (enabled, value)
-	const optional = <T>(read: () => T): T | null => {
+	// `undefined` when absent or disabled
+	const optional = <T>(read: () => T): T | undefined => {
 		const n = r.u8();
 		if (n === 255) {
-			return null;
+			return undefined;
 		}
 		if (n !== 2) {
 			fail();
 		}
 		const enabled = bool();
 		const value = read();
-		return enabled ? value : null;
+		return enabled ? value : undefined;
 	};
 	// an unmanaged Optional<T> of a four-byte value: enabled, padding, value
 	const optionalValue = (): void => {
@@ -392,7 +404,7 @@ const readVariantTail = (
 		});
 	};
 	try {
-		const models = new Map<string, string | null>();
+		const models = new Map<string, string | null | undefined>();
 		marker(1);
 		for (let i = count(); i > 0; i--) {
 			const id = str();
@@ -434,7 +446,8 @@ const readVariantTail = (
 					str();
 				}),
 			);
-			models.set(id, model || null);
+			// an enabled empty override means no model, not the template's
+			models.set(id, model === undefined ? undefined : model || null);
 		}
 		list(param);
 		bool();

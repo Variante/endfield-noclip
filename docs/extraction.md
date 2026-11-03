@@ -516,7 +516,9 @@ chunk's `fb_streaming` payload and draw the decal cube as static ones do.
 ([interactives](game-data/assets.md#interactives)); `readInteractiveTable` reads
 `InteractiveTable.json`; `readInteractiveBaseModel` reads a template's model component and
 `readInteractiveVariantModels` its variant table. a placement draws its variant's model, else the
-template's, always visible. a doodad-group shell places one form per group level instead
+template's, always visible; a variant whose override is enabled but empty draws nothing, so the
+magic [Wuling bridges](game-data/assets.md#wuling-bridges) show only their DynamicStreaming row, not
+the template's drawbridge as well. a doodad-group shell places one form per group level instead
 ([doodad groups](#doodad-groups)).
 
 between the model component and the variant table sit hundreds of component and action-graph types,

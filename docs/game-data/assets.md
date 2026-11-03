@@ -323,7 +323,8 @@ harvestable plants, shops. their models come from four sources:
    variant table, keyed by interactive id, whose entries can override the model id.
 4. `Data/Json/GameplayConfig/ModelTable.json` maps each model id to a prefab path and `scaleFactor`.
 
-a placement's model is its variant's, else the template's. templates without a model (triggers,
+a placement's model is its variant's, else the template's. a variant whose model override is enabled
+but empty has no model of its own, rather than the template's. templates without a model (triggers,
 logic) have nothing to draw. a model that is a doodad-group shell draws nothing itself; one form per
 group level attaches to it instead ([scene-states.md](scene-states.md#doodad-groups)).
 
@@ -462,6 +463,21 @@ all offsets are along the prefab root's +z, with n pieces of length L:
 each copy's Animator plays its open idle state when extended, which raises the piece's rails (bones
 below the piece), and its close idle state when retracted. the prefab as saved is neither: its end
 port sits 13.35 m out with no pieces between.
+
+### Wuling bridges
+
+the `int_bridge_wuling` template covers two kinds of bridge. its own model,
+`int_bridge_wuling_90_postmodel`, and the `_78` and `_102` variants' models are drawbridges: a leaf
+that an animator raises and lowers (`closeidle`, `<angle>_open`, `<angle>_openidle`, `<angle>_close`
+clips on `int_door_base_layer`, keyed by the int `state` property). the `_12m`, `_18m`, `_24m`,
+`_24m_02` and `_94m` variants are magic bridges that appear with an effect: each variant's model
+override is enabled but empty, and its `Comp_InteractiveCommonPerform` diff properties set
+`use_dynamic_res` true (and a `model_id` naming `int_bridge_wuling_<length>_postmodel`, which
+nothing in that component reads). the bridge itself is a DynamicStreaming prefab row of that model
+at the placement; with `use_dynamic_res` set, the interactive's common-perform component takes its
+view controller from the DynamicStreaming entity named by its `dynamic_entity_id` property instead
+of its own model, so its `state` switches that row's `on`/`off` states (`SetActive` on the deck
+copies, effects on the way). the magic bridge's model has no clips.
 
 ### the variant table
 

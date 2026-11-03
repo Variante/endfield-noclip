@@ -86,10 +86,12 @@ const variantFixture = (): Uint8Array => {
 	// undecoded components and action graphs before the table, including a decoy header
 	bytes.push(26, 1, 2, 0, 0, 0, 0, 0, 0, 0, 255, 7);
 	u8(1);
-	i32(2);
+	i32(3);
+	// a model override's string id, -1 for a disabled one
 	for (const [key, model] of [
 		[0, 2],
 		[1, -1],
+		[3, 4],
 	]) {
 		i32(key);
 		u8(14);
@@ -118,7 +120,7 @@ const variantFixture = (): Uint8Array => {
 };
 
 it('finds the variant table from the end of the template and reads model overrides', () => {
-	const strings = ['int_variant_a', 'int_variant_b', 'model_a'];
+	const strings = ['int_variant_a', 'int_variant_b', 'model_a', 'int_variant_c', ''];
 	// like the install's pool, ids outside it throw
 	const string = (id: number): string | null => {
 		if (id === -1) {
@@ -131,12 +133,13 @@ it('finds the variant table from the end of the template and reads model overrid
 		return value;
 	};
 	const data = variantFixture();
-	const variants = new Set(['int_variant_a', 'int_variant_b']);
+	const variants = new Set(['int_variant_a', 'int_variant_b', 'int_variant_c']);
+	// b keeps the template's model; c's enabled empty override means no model
 	assert.deepEqual(
 		readInteractiveVariantModels(data, string, variants),
 		new Map([
 			['int_variant_a', 'model_a'],
-			['int_variant_b', null],
+			['int_variant_c', null],
 		]),
 	);
 	assert.deepEqual(readInteractiveVariantModels(data, string, new Set()), new Map());

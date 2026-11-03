@@ -333,7 +333,10 @@ packs or renders correctly.
   tier variables are separate controls, so all four tiers show by default
   ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
   or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
-  controls yet
+  controls yet. the magic [Wuling bridges](game-data/assets.md#wuling-bridges)' DynamicStreaming
+  rows draw their prefab as saved, not posed by their interactive's `state`; whether the empty model
+  override alone keeps the game from loading the template's drawbridge there is inferred from the
+  data, not read in the model component
 - whether completing an outpost's `upgradeMissionId` raises its level at once or only unlocks the
   raise is unverified; the viewer treats them as one, reading the mission as complete exactly above
   the level that names it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions))
