@@ -312,6 +312,15 @@ export const readPrefabRenderers = async (
 			if (posed === false || (posed === undefined && switching && !booleanField(data, 'm_IsActive'))) {
 				off = { standIn: null };
 			} else if (posed === undefined && !booleanField(data, 'm_IsActive')) {
+				// an EffectSetting's LOD table can list its own GameObject, which the main loop below reads too late
+				for (const item of arrayField(data, 'm_Component')) {
+					const ref = isObject(item) ? await resolver.resolve(go, pptrField(item, 'component')) : null;
+					if (ref !== null && ref.info.classId === UnityClass.MonoBehaviour && isEffectSettingType(ref)) {
+						if ((await effectLodNodes(resolver, ref, await resolver.read(ref))).has(key)) {
+							lodSwitched.add(key);
+						}
+					}
+				}
 				// a one-shot effect a view state plays shows for a moment, never at rest; what the prefab's own
 				// Animator, or an effect's LOD table outside a view state, only ever holds off never shows
 				const neverShown =

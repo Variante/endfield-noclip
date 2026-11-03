@@ -263,6 +263,13 @@ on. the Very Large Rift (dung02_dg005) places two `p_fxmap_map02_lv002_qinshihuo
 walls whose `dither` layer (a `VFXDitherAlpha` sheet) is one, beside the drawn `caihong`, `wenli`
 and `trans` layers on the same mesh.
 
+the table can list the setting's own GameObject, even a prefab's root. effects placed by dynamic
+structures are instantiated as saved and have their table applied when they load, and nothing on
+that path switches the root on, so a root saved off and listed in its own table never shows. in
+map02 there's one such prefab: `p_fxmap_lv002_fangyuzhenlie_middle_01`, eleven ungated placements of
+thread particles and stream meshes along Wuling City's pillar array, beside the drawn `_high_03`,
+`_middle_02` and `_middle_03` streams.
+
 with `isUseDistanceLod` set, the setting picks a distance band from the camera's distance to its own
 GameObject, whenever either moves. `distanceLodCfgList` holds each band's `distance`; the band is
 the last one whose distance the camera is beyond (strictly), else the first, and each listed
