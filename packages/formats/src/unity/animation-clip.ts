@@ -59,29 +59,57 @@ const MATERIAL_FLOAT = 8;
 const DEGREES = Math.PI / 180;
 
 /**
- * @param x rotation about x, degrees
- * @param y rotation about y, degrees
- * @param z rotation about z, degrees
- * @returns Unity's `Quaternion.Euler`: z first, then x, then y
+ * Unity's `RotationOrder` by value, as the axes in the order they're applied. an Euler binding's `customType`
+ * holds it; `Quaternion.Euler` uses ZXY (4)
  */
-const eulerQuaternion = (x: number, y: number, z: number): [number, number, number, number] => {
-	const [sx, cx] = [Math.sin(x * DEGREES * 0.5), Math.cos(x * DEGREES * 0.5)];
-	const [sy, cy] = [Math.sin(y * DEGREES * 0.5), Math.cos(y * DEGREES * 0.5)];
-	const [sz, cz] = [Math.sin(z * DEGREES * 0.5), Math.cos(z * DEGREES * 0.5)];
-	// qy · qx · qz
-	return [
-		cy * sx * cz + sy * cx * sz,
-		sy * cx * cz - cy * sx * sz,
-		cy * cx * sz - sy * sx * cz,
-		cy * cx * cz + sy * sx * sz,
-	];
+const ROTATION_ORDERS = [
+	[0, 1, 2],
+	[0, 2, 1],
+	[1, 2, 0],
+	[1, 0, 2],
+	[2, 0, 1],
+	[2, 1, 0],
+] as const;
+
+/** @returns the `RotationOrder` an Euler binding records in its `customType` */
+const rotationOrder = (binding: TypeTreeObject): number => {
+	const order = numberField(binding, 'customType');
+	if (ROTATION_ORDERS[order] === undefined) {
+		throw new FormatError(`unknown AnimationClip Euler rotation order ${order}`);
+	}
+	return order;
+};
+
+/**
+ * @param angles rotations about x, y and z, degrees
+ * @param order a Unity `RotationOrder`, naming the axes in the order they're applied
+ * @returns the rotation as a quaternion
+ */
+const eulerQuaternion = (
+	angles: readonly [number, number, number],
+	order: number,
+): [number, number, number, number] => {
+	let q: [number, number, number, number] = [0, 0, 0, 1];
+	for (const axis of ROTATION_ORDERS[order]) {
+		const half = angles[axis] * DEGREES * 0.5;
+		const r: [number, number, number, number] = [0, 0, 0, Math.cos(half)];
+		r[axis] = Math.sin(half);
+		// a later axis applies after: r · q
+		q = [
+			r[3] * q[0] + r[0] * q[3] + r[1] * q[2] - r[2] * q[1],
+			r[3] * q[1] - r[0] * q[2] + r[1] * q[3] + r[2] * q[0],
+			r[3] * q[2] + r[0] * q[1] - r[1] * q[0] + r[2] * q[3],
+			r[3] * q[3] - r[0] * q[0] - r[1] * q[1] - r[2] * q[2],
+		];
+	}
+	return q;
 };
 
 /**
  * reads the values a generic (non-humanoid) AnimationClip ends on. the muscle clip stores each animated
  * value's start and stop in binding order (`m_ValueArrayDelta`), so the end pose needs no curve sampling.
  * Transform bindings take three values (position, scale, Euler rotation) or four (rotation); other float
- * bindings one; PPtr bindings none. Euler rotations are taken in Unity's default order (z, x, y)
+ * bindings one; PPtr bindings none. Euler rotations apply in the rotation order their binding records
  *
  * @param clip AnimationClip type-tree object
  * @returns the end value of every animated Transform property, GameObject activity and renderer property
@@ -159,7 +187,10 @@ export const readClipEndPose = (clip: TypeTreeObject): ClipEndPose => {
 				break;
 			}
 			case 4: {
-				value = { kind: 'rotation', value: eulerQuaternion(next(), next(), next()) };
+				value = {
+					kind: 'rotation',
+					value: eulerQuaternion([next(), next(), next()], rotationOrder(binding)),
+				};
 				break;
 			}
 			default: {
@@ -312,7 +343,7 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 	// what each scalar animates, from the bindings
 	const kinds: number[] = [];
 	const paths: number[] = [];
-	const transformBindings: { path: number; attribute: number; at: number }[] = [];
+	const transformBindings: { path: number; attribute: number; order: number; at: number }[] = [];
 	for (const binding of arrayField(objectField(clip, 'm_ClipBindingConstant'), 'genericBindings')) {
 		if (!isObject(binding)) {
 			throw new FormatError('invalid AnimationClip binding');
@@ -332,7 +363,12 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 		if (!paths.includes(path)) {
 			paths.push(path);
 		}
-		transformBindings.push({ path, attribute, at: kinds.length });
+		transformBindings.push({
+			path,
+			attribute,
+			order: attribute === 4 ? rotationOrder(binding) : 0,
+			at: kinds.length,
+		});
 		for (let i = 0; i < (attribute === 2 ? 4 : 3); i++) {
 			kinds.push(attribute);
 		}
@@ -405,7 +441,7 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 			values[streamedCount + denseCount + i] = constants[i];
 		}
 		const out = new Map<number, ClipTransformValue[]>();
-		for (const { path, attribute, at } of transformBindings) {
+		for (const { path, attribute, order, at } of transformBindings) {
 			let value: ClipTransformValue;
 			switch (attribute) {
 				case 2: {
@@ -422,7 +458,10 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 					break;
 				}
 				case 4: {
-					value = { kind: 'rotation', value: eulerQuaternion(values[at], values[at + 1], values[at + 2]) };
+					value = {
+						kind: 'rotation',
+						value: eulerQuaternion([values[at], values[at + 1], values[at + 2]], order),
+					};
 					break;
 				}
 				default: {

@@ -98,10 +98,23 @@ test('a clip ends renderers on their material and renderer values', () => {
 	assert.throws(() => readClipEndPose(clip([material(5, 0x9000_0000)], [1])), /material property kind 9/);
 });
 
-test('Euler rotations follow Unity: z first, then x, then y', () => {
-	// x 90° then y 90°: Quaternion.Euler(90, 90, 0) = (0.5, 0.5, −0.5, 0.5)
-	const [rotation] = readClipEndPose(clip([binding(1, 4)], [90, 90, 0])).transforms.get(1)!;
-	[0.5, 0.5, -0.5, 0.5].forEach((value, i) => assert.ok(Math.abs(rotation.value[i] - value) < 1e-9));
+test('Euler rotations apply in the rotation order their binding records', () => {
+	const rotationOf = (order: number, angles: number[]) =>
+		readClipEndPose(clip([{ ...binding(1, 4), customType: order }], angles)).transforms.get(1)![0].value;
+	const near = (actual: number[], expected: number[]) => {
+		// q and −q are the same rotation
+		const sign = Math.sign(actual.reduce((sum, value, i) => sum + value * expected[i], 0)) || 1;
+		actual.forEach((value, i) =>
+			assert.ok(Math.abs(value * sign - expected[i]) < 1e-6, `${actual.join()} ≠ ${expected.join()}`),
+		);
+	};
+	// ZXY (4), Quaternion.Euler's: x 90° then y 90° gives (0.5, 0.5, −0.5, 0.5)
+	near(rotationOf(4, [90, 90, 0]), [0.5, 0.5, -0.5, 0.5]);
+	// XYZ (0): the locked chest's metal band B_jinshubaozhuang_L, saved +90° about x
+	near(rotationOf(0, [270, 180, -180]), [Math.SQRT1_2, 0, 0, Math.SQRT1_2]);
+	// read in ZXY instead it would turn −90°
+	near(rotationOf(4, [270, 180, -180]), [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]);
+	assert.throws(() => rotationOf(6, [0, 0, 0]), /rotation order 6/);
 });
 
 /** a clip with curves: streamed words, dense frames (16-bit when `packed`), constants */
