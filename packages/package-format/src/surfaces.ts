@@ -670,6 +670,11 @@ export interface EffectStackSurface {
 	vertexColor: boolean;
 	near: EffectNearFade;
 	brighten: { threshold: number; intensity: number };
+	/**
+	 * VFXBaseV2's `_USE_ANIM_BREATHING`: the alpha pulses between `minAlpha` and 1, by
+	 * `saturate(pow(cos(time · speed) · 0.5 + 0.5, power))`
+	 */
+	breathing: { minAlpha: number; speed: number; power: number } | null;
 	/** VFXDecal's fades: across x and z, their width, the height fade and its offset, the angle falloff */
 	decalFade: {
 		edge: [x: number, z: number];

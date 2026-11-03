@@ -208,10 +208,12 @@ packs or renders correctly.
   reflections). VFXRefract's blend, saturation, spread, Fresnel mask and trail aren't drawn, and its
   copy of the scene includes the water and fog, unchecked against the game's; Deep Dale Street's
   fog-wall haze and the balloons' glitch over their "connecting" sign aren't compared with an
-  in-game shot. undrawn: for the first two, additive blend states, `_BlendMode` 2 outside a
+  in-game shot. VFXBaseV2's breathing pulses every placement in step, without its per-draw time
+  scale and offset, and Dijiang's clue board is unchecked against an in-game shot. undrawn: for the
+  first two, additive blend states, `_BlendMode` 2 outside a
   multiplying blend state, the vertex-offset mask, particle-data terms, the sixth sample texture
   together with a vertex offset, screen UVs relative to the object, brightening that is a scan line
-  or centred on a fixed point (the player-centred one is left out), breathing, edge colour,
+  or centred on a fixed point (the player-centred one is left out), edge colour,
   rigid-body, fluid and particle vertex animation textures, soft bodies that are lit, take a Fresnel
   term or a vertex offset or play from particle data (the drawn Aurelyne blob is unchecked against
   an in-game shot), water blending (fragments below the authored height show the checker, and the

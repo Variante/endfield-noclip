@@ -429,6 +429,17 @@ describe('VFXBaseV2', () => {
 		assert.equal(ofKind(stackOf({ floats: { _WaterHeight: 0 } }), 'effectStack').waterBlendBelow, null);
 	});
 
+	it('pulses its alpha under _USE_ANIM_BREATHING, and not without the keyword', () => {
+		// Dijiang's clue board (`M_fxmap_base01_lv001_clue_wall_2515`), added over the board
+		const breathing = {
+			floats: { _BlendMode: 1, _BreathingMinAlpha: 0.2, _BreathingSpeed: 5, _BreathingPower: 1 },
+			blend: 'premultiplied' as const,
+		};
+		const pulsing = ofKind(stackOf({ ...breathing, keywords: ['_USE_ANIM_BREATHING'] }), 'effectStack');
+		assert.deepEqual(pulsing.breathing, { minAlpha: 0.2, speed: 5, power: 1 });
+		assert.equal(ofKind(stackOf(breathing), 'effectStack').breathing, null);
+	});
+
 	it('draws a soft body from its position texture, playing its frames on its own or holding one', () => {
 		// map01's Aurelyne blob (`M_erosionmud_core`), whose HDR offsets are stored as they are
 		const blob = {

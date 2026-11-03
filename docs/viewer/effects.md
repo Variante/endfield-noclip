@@ -22,6 +22,9 @@ meshes play through the [particles](particles.md#particles); what's left out is 
 - [`_BlendMode` 1](../game-data/effects.md#vfxbasev2-and-vfxdecal) materials draw into the
   transparent pass's glow, unfogged, as additive mist does; drawn over, the glare at the corroded
   planet's centre (seen from Dijiang's deck) was a dark square.
+- the [breathing](../game-data/effects.md#vfxbasev2-and-vfxdecal) runs on the viewer's clock, with
+  the per-draw time scale and offset left at none (their values aren't traced), so every placement
+  pulses in step. its values ride in the decal fade row, which only VFXDecal reads.
 - [water blending](../game-data/effects.md#vfxbasev2-and-vfxdecal) is left out, which matches the
   game above the authored `_WaterHeight`. fragments below it show the unsupported checker
   (`waterBlendBelow`), since neither the blend nor the water a `VFXWaterBlendConfig` finds is

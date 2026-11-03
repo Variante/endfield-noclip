@@ -81,6 +81,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	vertexColor: true,
 	near: { on: false, range: [0, 1, 1e5, 2e5] },
 	brighten: { threshold: 1, intensity: 0 },
+	breathing: null,
 	decalFade: null,
 	alphaPower: 1,
 	offset: null,
@@ -173,6 +174,20 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 	assert.deepEqual([...decal.params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
 	assert.equal(multiply.screen, 'multiply');
 	assert.equal(multiply.params[EffectRow.unfogged + 2], 2);
+});
+
+test('a breathing stack keeps its pulse in the decal fade row, which decals don’t share with it', () => {
+	const [breathing, still] = materialLooks({
+		entries: [
+			described(0, stack({ breathing: { minAlpha: 0.3, speed: 2, power: 1 } })),
+			described(1, stack()),
+		],
+	});
+	assert.deepEqual(
+		[...breathing.params.subarray(EffectRow.decalFade, EffectRow.decalFade + 4)],
+		[0.3, 2, 1, 1].map(Math.fround),
+	);
+	assert.equal(still.params[EffectRow.decalFade + 3], 0);
 });
 
 test('a stack’s vertex offset takes the offset slot and rows, and its stencil is tested under reversed-Z', () => {

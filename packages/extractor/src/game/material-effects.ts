@@ -340,6 +340,7 @@ const BASE_KEYWORDS = new Set([
 	'_USE_SOFTBLEND',
 	'_USE_FRESNEL',
 	'_USE_POLARUV',
+	'_USE_ANIM_BREATHING',
 ]);
 
 /**
@@ -611,6 +612,13 @@ export const describeVfxBase = (
 		vertexColor: float('_DisableVertColor', 0) === 0,
 		near: shared.near,
 		brighten: { threshold: float('_ExpThreshold', 1), intensity: float('_ExpIntensity', 0) },
+		breathing: has('_USE_ANIM_BREATHING')
+			? {
+					minAlpha: float('_BreathingMinAlpha', 0),
+					speed: float('_BreathingSpeed', 1),
+					power: float('_BreathingPower', 1),
+				}
+			: null,
 		decalFade: null,
 		alphaPower: 1,
 		offset:
@@ -774,6 +782,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		vertexColor: float('_DisableVertColor', 0) === 0,
 		near: shared.near,
 		brighten: { threshold: 1, intensity: 0 },
+		breathing: null,
 		decalFade: null,
 		// the depth pass tests the saturated alpha raised to this power, which sets the share of pixels that survive
 		alphaPower: float('_DitherAlphaExp', 1),
@@ -968,6 +977,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		vertexColor: false,
 		near: shared.near,
 		brighten: { threshold: 0, intensity: 0 },
+		breathing: null,
 		decalFade: {
 			edge: [float('_EdgeFadeX', 0), float('_EdgeFadeZ', 0)],
 			width: float('_EdgeFadeIntensity', 0),

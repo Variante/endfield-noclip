@@ -51,7 +51,10 @@ local lights, at the vertex normal turned towards the camera or at the world's u
 (`_RotateNormalToWorldUp`), and divided by the post exposure under `_IgnorePostExposure`. the mist
 cards rising at the foot of falls are lit so. the colour starts from
 `_TintColor · _TintColorIntensity` times the vertex colour, alpha from
-`_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`. a
+`_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`.
+`_USE_ANIM_BREATHING` pulses that alpha between `_BreathingMinAlpha` and 1, by
+`saturate((cos(t · _BreathingSpeed) · 0.5 + 0.5)^_BreathingPower)`, t the shader's time scaled and
+offset by two per-draw values; the panels of Dijiang's clue board breathe so. a
 material without a main texture samples the shader's default, white (the base ring of Origin
 Lodespring's crater column is one). alpha fades by a Fresnel term
 (`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by `_FresnelFlip`, applied by

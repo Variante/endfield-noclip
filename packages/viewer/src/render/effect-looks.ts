@@ -78,7 +78,10 @@ export const EffectRow = {
 	near: 96,
 	/** 1 with the near camera fade, brightening threshold, brightening intensity, 1 with distortion */
 	misc: 100,
-	/** decals: edge fade across x, across z, the fades' width, height fade */
+	/**
+	 * decals: edge fade across x, across z, the fades' width, height fade. the texture stack, which decals
+	 * don't draw through: the breathing's minimum alpha, speed and power, 1 when it breathes
+	 */
 	decalFade: 104,
 	/**
 	 * decals: height fade offset, angle falloff (0: no angle fade); the texture stack: 0, then the height
@@ -308,6 +311,9 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 		const fade = stack.decalFade;
 		params.set([...fade.edge, fade.width, fade.height], EffectRow.decalFade);
 		params.set([fade.heightOffset, fade.angle], EffectRow.decal);
+	} else if (stack.breathing !== null) {
+		const { breathing } = stack;
+		params.set([breathing.minAlpha, breathing.speed, breathing.power, 1], EffectRow.decalFade);
 	}
 	params[EffectRow.decal + 2] = stack.waterBlendBelow ?? NO_WATER_BLEND;
 	params[EffectRow.decal + 3] = stack.alphaPower;

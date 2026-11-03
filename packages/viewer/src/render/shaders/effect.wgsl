@@ -501,7 +501,14 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 	let id = in.draw;
 	let soft = fx_row(id, FX_SOFT);
 	let misc = fx_row(id, FX_MISC);
-	let tint = fx_row(id, FX_TINT) * select(vec4f(1.0), in.color, soft.w != 0.0);
+	var tint = fx_row(id, FX_TINT) * select(vec4f(1.0), in.color, soft.w != 0.0);
+	// `_USE_ANIM_BREATHING` pulses the tint's alpha (FX_DECAL_FADE holds it for stack layers, which decals don't
+	// draw through)
+	let breathing = fx_row(id, FX_DECAL_FADE);
+	if (breathing.w > 0.0) {
+		let wave = saturate(pow(cos(frame.eye.w * breathing.y) * 0.5 + 0.5, breathing.z));
+		tint.a *= mix(breathing.x, 1.0, wave);
+	}
 	let combined = fx_combine(id, bases, tint);
 	var color = combined.rgb;
 	color += max(color - vec3f(misc.y), vec3f(0.0)) * misc.z;
