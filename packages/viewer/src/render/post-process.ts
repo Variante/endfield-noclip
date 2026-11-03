@@ -22,7 +22,7 @@ import tonemapWgsl from './shaders/tonemap.wgsl?raw';
 import { TemporalAA } from './temporal-aa.ts';
 import { type TextureBinding, placeholderView } from './texture-store.ts';
 import type { VolumetricFog } from './volumetric-fog.ts';
-import type { WaterRenderer } from './water-renderer.ts';
+import type { WaterContext, WaterRenderer } from './water-renderer.ts';
 
 /** byte size of `Post` in post-common.wgsl */
 const POST_BYTES = 63 * 16;
@@ -976,6 +976,8 @@ export class PostProcess {
 			froxels: boolean;
 			/** drawn after compositing, when it has surfaces */
 			water: WaterRenderer;
+			/** draws the WaterDecal boxes into the water's foam (`WaterContext.foam`), `null` without any */
+			waterFoam: WaterContext['foam'];
 			/**
 			 * draws effects over the composited scene, after the water: `target` is the scene, and `copy` copies it
 			 * into the main pass's radiance target (which nothing reads after compositing) for effects that sample
@@ -1035,6 +1037,9 @@ export class PostProcess {
 				postUniforms: this.#skyLayoutGroups.uniforms,
 				sky: this.#skyLayoutGroups.sky,
 				version: sized.version,
+				width,
+				height,
+				foam: input.waterFoam,
 			});
 		}
 		input.screenEffects(encoder, sized.sceneView, () => {

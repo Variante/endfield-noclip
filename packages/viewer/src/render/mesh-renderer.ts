@@ -5,6 +5,7 @@ import {
 	HDR_FORMAT,
 	type MainPassFormat,
 	TRANSPARENT_TARGETS,
+	WATER_FOAM_FORMAT,
 } from '../gfx/render-targets.ts';
 import type { DecodedGeometry } from '../package/decode-protocol.ts';
 import type { MeshBucket } from '../streaming/mesh-selection.ts';
@@ -121,7 +122,9 @@ type DrawRange =
 	| 'mistVolume'
 	| 'decalRelight'
 	| 'screenMultiply'
-	| 'refract';
+	| 'refract'
+	| 'waterFoam'
+	| 'waterFoamBehind';
 
 /**
  * the vertex streams a phase's pipelines read, in buffer slot order: every stream, positions alone (opaque
@@ -183,6 +186,15 @@ const MULTIPLY_PHASES: readonly DrawPhase[] = [
  */
 const REFRACT_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/refract', range: 'refract', textured: true, shadow: false, streams: 'all' },
+];
+
+/**
+ * WaterDecal boxes (`MaterialLook.screen`), drawn into the water's foam before the water draws: those the
+ * game depth-tests in front of the scene, then those it tests behind it
+ */
+const WATER_FOAM_PHASES: readonly DrawPhase[] = [
+	{ key: 'mesh/water-foam', range: 'waterFoam', textured: true, shadow: false, streams: 'all' },
+	{ key: 'mesh/water-foam-behind', range: 'waterFoamBehind', textured: true, shadow: false, streams: 'all' },
 ];
 
 /** the shader stages that read an effect texture slot */
@@ -377,6 +389,8 @@ export class MeshRenderer {
 	#relightOrder: MeshBucket[] = [];
 	#multiplyOrder: MeshBucket[] = [];
 	#refractOrder: MeshBucket[] = [];
+	#foamOrder: MeshBucket[] = [];
+	#foamBehindOrder: MeshBucket[] = [];
 	/**
 	 * group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth, surfaces and
 	 * diffuse ambient, a 3D texture, and the composited scene's copy
@@ -391,6 +405,8 @@ export class MeshRenderer {
 	#relightStart = 0;
 	#multiplyStart = 0;
 	#refractStart = 0;
+	#foamStart = 0;
+	#foamBehindStart = 0;
 	/** prepared draws in {@link DrawRange} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
@@ -661,6 +677,34 @@ export class MeshRenderer {
 					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
 				}));
 			}
+			// WaterDecal boxes write the foam colour over the water's own: rgb adds the box's premultiplied colour
+			// to what's there times one minus its alpha, and alpha keeps the product of those factors, so the water
+			// pass can apply them over its own foam. the main pass's depth, attached read-only, tests them as the
+			// game's `_ZTest` does under reversed-Z
+			for (const [phase, depthCompare] of [
+				[WATER_FOAM_PHASES[0], 'greater-equal'],
+				[WATER_FOAM_PHASES[1], 'less'],
+			] as const) {
+				describe(phase.key, (cullMode, uvFormat) => ({
+					layout,
+					vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
+					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
+					fragment: {
+						module: effectModule,
+						entryPoint: 'fs_water_foam',
+						targets: [
+							{
+								format: WATER_FOAM_FORMAT,
+								blend: {
+									color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+									alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+								},
+							},
+						],
+					},
+					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare },
+				}));
+			}
 			// relit decals add the change in the surface's light to the radiance, leaving its alpha (the albedo's
 			// luminance) alone. they read the depth as a texture, so the pass has no depth attachment
 			describe(RELIGHT_PHASES[0].key, (cullMode, uvFormat) => ({
@@ -928,6 +972,8 @@ export class MeshRenderer {
 		const relit = this.#relightOrder;
 		const multiplies = this.#multiplyOrder;
 		const refracts = this.#refractOrder;
+		const foams = this.#foamOrder;
+		const foamsBehind = this.#foamBehindOrder;
 		opaque.length = 0;
 		cutout.length = 0;
 		stencilMasks.length = 0;
@@ -939,6 +985,8 @@ export class MeshRenderer {
 		relit.length = 0;
 		multiplies.length = 0;
 		refracts.length = 0;
+		foams.length = 0;
+		foamsBehind.length = 0;
 		for (const bucket of buckets) {
 			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
@@ -968,7 +1016,24 @@ export class MeshRenderer {
 					if ((look.flags & LookFlags.EffectMist) !== 0) {
 						(decal ? mistVolumes : mists).push(bucket);
 					} else if (look.screen !== null) {
-						(look.screen === 'multiply' ? multiplies : refracts).push(bucket);
+						switch (look.screen) {
+							case 'multiply': {
+								multiplies.push(bucket);
+								break;
+							}
+							case 'refract': {
+								refracts.push(bucket);
+								break;
+							}
+							case 'waterFoam': {
+								foams.push(bucket);
+								break;
+							}
+							case 'waterFoamBehind': {
+								foamsBehind.push(bucket);
+								break;
+							}
+						}
 					} else if (look.relight) {
 						relit.push(bucket);
 					} else {
@@ -997,6 +1062,8 @@ export class MeshRenderer {
 		relit.sort(byBindings);
 		multiplies.sort(byBindings);
 		refracts.sort(byBindings);
+		foams.sort(byBindings);
+		foamsBehind.sort(byBindings);
 		const cutoutFrom = opaque.length;
 		const stencilMaskFrom = cutoutFrom + cutout.length;
 		const transparentFrom = stencilMaskFrom + stencilMasks.length;
@@ -1007,7 +1074,9 @@ export class MeshRenderer {
 		const relightFrom = mistVolumeFrom + mistVolumes.length;
 		const multiplyFrom = relightFrom + relit.length;
 		const refractFrom = multiplyFrom + multiplies.length;
-		const bucketCount = refractFrom + refracts.length;
+		const foamFrom = refractFrom + refracts.length;
+		const foamBehindFrom = foamFrom + foams.length;
+		const bucketCount = foamBehindFrom + foamsBehind.length;
 		const bucketAt = (b: number): MeshBucket => {
 			if (b < cutoutFrom) {
 				return opaque[b];
@@ -1039,7 +1108,13 @@ export class MeshRenderer {
 			if (b < refractFrom) {
 				return multiplies[b - multiplyFrom];
 			}
-			return refracts[b - refractFrom];
+			if (b < foamFrom) {
+				return refracts[b - refractFrom];
+			}
+			if (b < foamBehindFrom) {
+				return foams[b - foamFrom];
+			}
+			return foamsBehind[b - foamBehindFrom];
 		};
 
 		const params = this.#paramData;
@@ -1062,6 +1137,8 @@ export class MeshRenderer {
 		this.#relightStart = 0;
 		this.#multiplyStart = 0;
 		this.#refractStart = 0;
+		this.#foamStart = 0;
+		this.#foamBehindStart = 0;
 		for (let b = 0; b < bucketCount; b++) {
 			if (b === cutoutFrom) {
 				this.#cutoutStart = d;
@@ -1092,6 +1169,12 @@ export class MeshRenderer {
 			}
 			if (b === refractFrom) {
 				this.#refractStart = d;
+			}
+			if (b === foamFrom) {
+				this.#foamStart = d;
+			}
+			if (b === foamBehindFrom) {
+				this.#foamBehindStart = d;
 			}
 			const bucket = bucketAt(b);
 			const resident = bucket.geometry.resident;
@@ -1223,6 +1306,12 @@ export class MeshRenderer {
 		if (refractFrom === bucketCount) {
 			this.#refractStart = d;
 		}
+		if (foamFrom === bucketCount) {
+			this.#foamStart = d;
+		}
+		if (foamBehindFrom === bucketCount) {
+			this.#foamBehindStart = d;
+		}
 		this.#cutoutCastersEnd = Math.max(this.#cutoutCastersEnd, this.#cutoutStart);
 		this.#cutoutCastOnlyEnd = Math.max(this.#cutoutCastOnlyEnd, this.#cutoutStart);
 		if (d > 0) {
@@ -1302,7 +1391,12 @@ export class MeshRenderer {
 
 	/** whether this frame has effects that refract the composited scene ({@link encodeRefract}) */
 	get hasRefract(): boolean {
-		return this.#drawCount > this.#refractStart;
+		return this.#foamStart > this.#refractStart;
+	}
+
+	/** whether this frame has WaterDecal boxes ({@link encodeWaterFoam}) */
+	get hasWaterFoam(): boolean {
+		return this.#drawCount > this.#foamStart;
 	}
 
 	/**
@@ -1326,8 +1420,21 @@ export class MeshRenderer {
 	 * @returns draw calls issued
 	 */
 	encodeRefract(pass: GPURenderPassEncoder, inputs: EffectInputs & { background: GPUTextureView }): number {
-		this.#bindEffects(this.#refractStart, this.#drawCount, inputs);
+		this.#bindEffects(this.#refractStart, this.#foamStart, inputs);
 		return this.#encode(pass, REFRACT_PHASES);
+	}
+
+	/**
+	 * draws the WaterDecal boxes into the water's foam.
+	 *
+	 * @param pass a pass whose only colour attachment is the foam target (`WATER_FOAM_FORMAT`), cleared to (0,
+	 *   0, 0, 1), with the main pass's depth attached read-only and group 0 bound
+	 * @param inputs the main pass's outputs, with the water surface's depth in place of the scene's
+	 * @returns draw calls issued
+	 */
+	encodeWaterFoam(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
+		this.#bindEffects(this.#foamStart, this.#drawCount, inputs);
+		return this.#encode(pass, WATER_FOAM_PHASES);
 	}
 
 	/** builds the effect groups of the draws in [from, to), which bind the main pass's outputs */
@@ -1425,6 +1532,16 @@ export class MeshRenderer {
 				}
 				case 'refract': {
 					from = this.#refractStart;
+					to = this.#foamStart;
+					break;
+				}
+				case 'waterFoam': {
+					from = this.#foamStart;
+					to = this.#foamBehindStart;
+					break;
+				}
+				case 'waterFoamBehind': {
+					from = this.#foamBehindStart;
 					to = this.#drawCount;
 					break;
 				}

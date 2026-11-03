@@ -261,8 +261,60 @@ height (some sit up to 0.5 m above the surface) is then what keeps them above it
 
 ## WaterProxy and WaterDecal
 
-no static InitChunkData renderer uses an `HGRP/WaterProxy` or `HGRP/WaterDecal` material, so water
-in static scenery is only the surfaces and volumes above. both arrive through prefab content.
-`HGRP/WaterProxy` has only the water pipeline's passes (top-down prepass, wetness mask, depth, the
-water G-buffer), none of which a scene renderer draws in the main view; ten map02 river meshes carry
-it (`M_river_proxy_22`). WaterDecal boxes put foam on pools and channels at the foot of waterfalls.
+no static InitChunkData renderer uses an `HGRP/WaterProxy` or `HGRP/WaterDecal` material; both
+arrive through prefab content, and WaterDecal boxes also through InitChunkData component 31
+([world](world.md#initchunkdata-layout)), which isn't read. `HGRP/WaterProxy` has only the water
+pipeline's passes (top-down prepass, wetness mask, depth, the water G-buffer), none of which a scene
+renderer draws in the main view; ten map02 river meshes carry it (`M_river_proxy_22`).
+
+### WaterDecal
+
+WaterDecal boxes put foam on the pools and channels at the foot and lip of waterfalls: a `Cube`
+`MeshRenderer` with the material and an `HGWaterDecalRenderer` component beside it. they don't draw
+into the scene. after the water's G-buffer, the pipeline draws them (pass `WaterDecalDeferred`) into
+the water's 8-bit foam colour target (`R8G8B8A8_UNorm`, rgb the foam colour, a the config index),
+which the water lighting then lights as its foam: diffuse sun and ambient, transmission and
+`emissiveStrength` ([shading](#shading)). a box therefore shows only where water is, and the foam
+colour, its own and the boxes', saturates at 1.
+
+per covered pixel, the box takes the water surface's depth (the water prepass's, which the pipeline
+binds just before), reconstructs the world position there and moves it into the box's frame:
+
+- **UVs.** `local.xz + 0.5`, through `_UVScaleOffset`. each texture picks its source by a switch
+  (`_BaseColorSwitchUV`, `_DisturbSwitchUV`, `_MaskUVSet`, `_DissolveSwitchUV`): 0 those box UVs, 1
+  polar coordinates about their centre (the angle as a fraction of a turn, twice the distance), 2
+  the world's x and z over 10 m, 3 the mesh's UV0. fractional values blend between neighbours.
+- **distortion.** `_USE_DISTURB`: `_DisturbTex1`'s red (UVs scrolled by `_DisturbUVSpeed1.xy`, then
+  its `_ST`), remapped by `_Bi_Disturb`, times `_DisturbU/VIntensity1`, shifts the base, mask and
+  dissolve UVs by their `_…UseDisturb` fractions.
+- **colour.** `_BaseColorMap` at its UVs through `_ST` (scaled by the placement's tiling), then
+  scrolled by `_BaseColorSpeed.xy` (times the placement's speed).
+  `a' = _UseAChannelAsAlpha ? a : 1`; colour `= _BaseColor + rgb · a' · _BaseColorTint` (`[HDR]`),
+  times `_MaskTex` (`_USE_MASK`; its UVs turned about 0.5 by `_MaskTexUVRotateMatrix`, then `_ST`,
+  then scrolled), and its alpha with `_UseMaskTexAsAlpha`. the output is that times `1 + a'`, the
+  edge fade, `_OverallOpacity`, and the placement's opacity, brightness and tint.
+- **dissolve.** `_USE_DISSOLVE`: `_DissolveTex`'s red at the top mip (UVs scrolled, then `_ST`) less
+  `_DissolveScheduleOffset · 2.02 − 1.01`, as in VFXBaseV2, scales colour and alpha, with
+  `_DissolveEmissiveColor` on the edge.
+- **fades.** `_UseEdgeFade`: `saturate(1 − |abs(uv − 0.5) + _EdgeFadeRange.xy| · √2)`, radial, 0 at
+  the corners. `_USE_SOFTBLEND`: `saturate((saturate(water − face) + _SoftBias) / _SoftDistance)`,
+  both reversed-Z device depths, the face being the box's fragment. `_MeshType` ≠ 0 drops positions
+  outside the box; otherwise only the edge fade bounds it.
+- **blending.** fixed by the pass, not the material: premultiplied (One, OneMinusSrcAlpha) into rgb
+  alone, alpha `(1 + a') · (1 − _BlendMode)`; every map02 material is `_BlendMode` 1, adding its
+  foam. the pass also draws only where stencil bit 0 is set (compare Equal, reference 1), which the
+  water presumably sets on its pixels. the box is culled by `_CullMode` and depth-tested by `_ZTest`
+  (4, LessEqual, for most; 5, Greater, with front faces culled, for
+  `M_fx_map02_lv001_waterfall_2105_05`), and writes no depth. which depth it's tested against isn't
+  confirmed: the camera's depth buffer holds the scene without water, since the water writes its
+  depth into a copy (`depthWithWater`).
+
+the placement's `HGWaterDecalRenderer` holds `tilling`, `speed`, `opacity`, `brightness`,
+`tintColor` (the values above), `displacement` (the WaterDecalDisplacement pass, for the water's
+tessellated displacement), `enableMovement`, `renderType`, `heightLayer`, `sortingOrder` and
+`waterStreamingType`. every map02 prefab's renderer has tiling, speed, opacity and brightness 1 and
+a white tint; only `displacement` and `enableMovement` vary.
+
+map02's prefab WaterDecal materials use `_BLEND_BASECOLOR` with `_USE_DISTURB` and `_USE_MASK`, plus
+`_USE_SOFTBLEND` or `_USE_DISSOLVE`; the shader also has `_USE_SEQUENCE_FRAME`,
+`_USE_TWO_LAYER_FLOATING_MAP`, `_BLEND_BASECOLOR2`, `_USE_WATER_EROSION` and `_USE_BUBBLE` variants.

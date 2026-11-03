@@ -19,6 +19,12 @@ export const DEPTH_COMPARE: GPUCompareFunction = 'greater';
 /** HDR colour format of the main pass and the post chain */
 export const HDR_FORMAT: GPUTextureFormat = 'rgba16float';
 
+/**
+ * the water's foam colour that WaterDecal boxes draw into, rgb, with alpha what's left of the water's own
+ * foam. 8-bit like the game's target, so the foam saturates at 1 as the game's does
+ */
+export const WATER_FOAM_FORMAT: GPUTextureFormat = 'rgba8unorm';
+
 /** what lit surfaces hand the screen-space reflections, packed (`pack_reflection_surface` in frame.wgsl) */
 export const REFLECTION_SURFACE_FORMAT: GPUTextureFormat = 'rg32uint';
 

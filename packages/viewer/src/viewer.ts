@@ -1735,6 +1735,21 @@ export class Viewer {
 			frame: this.#frame,
 			froxels,
 			water: this.#water,
+			waterFoam:
+				hasScene && this.#meshes.hasWaterFoam
+					? (foamEncoder, { waterDepth, target }) => {
+							const foamPass = foamEncoder.beginRenderPass({
+								label: 'water foam',
+								colorAttachments: [
+									{ view: target, clearValue: [0, 0, 0, 1], loadOp: 'clear', storeOp: 'store' },
+								],
+								depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
+							});
+							foamPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+							draws += this.#meshes.encodeWaterFoam(foamPass, { ...this.#targets.scene, depth: waterDepth });
+							foamPass.end();
+						}
+					: null,
 			screenEffects: (screenEncoder, target, copy) => {
 				if (!hasScene) {
 					return;

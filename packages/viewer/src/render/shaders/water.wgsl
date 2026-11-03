@@ -57,13 +57,16 @@ struct Config {
 @group(2) @binding(5) var flow_map: texture_2d<f32>;
 @group(2) @binding(6) var repeat_sampler: sampler;
 // [0]: x = 1 with wave normals, y = 1 with a flow map, z = flow map size (m), w = 1 with a caustic map;
-// [1]: the flow map's centre (world xz), zw unused; [2]: the sun as the atmosphere fog takes it (raw colour,
+// [1]: the flow map's centre (world xz), z = 1 with foam boxes drawn into `foam_texture`, w unused; [2]: the sun as the atmosphere fog takes it (raw colour,
 // pre-exposed), w unused
 @group(2) @binding(7) var<uniform> water: array<vec4f, 3>;
 @group(2) @binding(8) var caustic_map: texture_2d<f32>;
 // the transparent pass's additive light, which the composite added to the background. the game draws its
 // effects after the water, so the water takes it back out of what it refracts and adds it over itself
 @group(2) @binding(9) var glow_texture: texture_2d<f32>;
+// the foam the WaterDecal boxes leave on the surface (`fs_water_foam` in effect.wgsl): rgb to add, alpha what's
+// left of the water's own foam
+@group(2) @binding(10) var foam_texture: texture_2d<f32>;
 
 fn glow_at(px: vec2i) -> vec3f {
 	return max(textureLoad(glow_texture, px, 0).rgb, vec3f(0.0));
@@ -120,6 +123,17 @@ fn vs_water(@location(0) position: vec4f, @location(1) normal: vec2f, @builtin(i
 	out.normal = n;
 	out.config = bitcast<u32>(s.offset.w);
 	return out;
+}
+
+// the water surface's depth, for the foam boxes: the surfaces' fragments, less those behind the scene as
+// `fs_water` drops them
+@fragment
+fn fs_water_depth(in: VertexOut) {
+	let size = vec2f(textureDimensions(background));
+	let depth = textureLoad(depth_texture, vec2i(in.position.xy), 0);
+	if (depth > 0.0 && length(view_ray(in.position.xy / size) * view_depth(depth)) < length(in.rel) - 0.02) {
+		discard;
+	}
 }
 
 // where one layer of waves samples the normal array: two phases of the flow cross-fading (with a flow map), or
@@ -200,7 +214,13 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 	// foam where the flow map marks it, shaped by the small waves' alpha
 	let foam = flow.b * clamp(small.a - c.foam_shape.x, 0.0, 1.0) * c.foam.w *
 		(1.0 - clamp(surface_distance * c.foam_shape.y, 0.0, 1.0)) * max(0.5, clamp(geo_n_dot_v, 0.0, 1.0));
-	let foam_albedo = c.foam.rgb * foam;
+	// the game keeps the foam colour in an 8-bit target, which saturates it, and its foam boxes draw over it there
+	var foam_albedo = c.foam.rgb * foam;
+	if (water[1].z > 0.5) {
+		let boxes = textureLoad(foam_texture, px, 0);
+		foam_albedo = boxes.rgb + saturate(foam_albedo) * boxes.a;
+	}
+	foam_albedo = saturate(foam_albedo);
 	// a mirror near the camera, the configured roughness where the waves have faded, foam's own roughness
 	let roughness = clamp(mix(mix(c.surface.x, 0.01, near), c.fade.w, foam), 0.0, 1.0);
 

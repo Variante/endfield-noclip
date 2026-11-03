@@ -16,6 +16,7 @@ import {
 	describeRefract,
 	describeVfxBase,
 	describeVfxDecal,
+	describeWaterFoam,
 	describeWaterSheet,
 	isDitherEffect,
 } from './material-effects.ts';
@@ -107,6 +108,9 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 		case 'vfxRefract': {
 			return shader.name === 'HGRP/Effect/VFXRefract' ? describeRefract(reader) : noLook;
 		}
+		case 'waterDecal': {
+			return describeWaterFoam(reader);
+		}
 		case 'decal': {
 			switch (shader.name) {
 				case 'HGRP/Effect/VFXDecal': {
@@ -121,7 +125,7 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 			}
 		}
 		default: {
-			// the other effect families (VFXAdvance, WaterDecal, …) have no look
+			// the other effect families (VFXAdvance, …) have no look
 			return LIT_FAMILIES.has(shader.family) ? describeLit(reader) : noLook;
 		}
 	}

@@ -12,6 +12,7 @@ import type {
 	MistVolumeSurface,
 	RefractSurface,
 	StackLayer,
+	WaterFoamSurface,
 	WaterSheetSurface,
 } from '@endfield-noclip/package-format/surfaces';
 
@@ -29,6 +30,8 @@ import {
 	SLOT_NO_BASE,
 	SlotSource,
 	VertexMotion,
+	WaterFoamFlags,
+	WaterFoamRow,
 	WaterSheetFlags,
 	WaterSheetRow,
 } from './effect-looks.ts';
@@ -579,4 +582,50 @@ test('a light beam is a shadowless effect with its cone, falloff and colour in t
 	assert.ok(Math.abs(look.params[BeamRow.cone + 1] - 1.00087571) < 1e-6);
 	assert.equal(look.params[BeamRow.clip + 1], 22);
 	assert.deepEqual([fogged.params[EffectRow.unfogged], fogged.params[EffectRow.unfogged + 2]], [0, 0]);
+});
+
+test('a water foam box draws into the water’s foam, by the depth test its material names', () => {
+	const foam: WaterFoamSurface = {
+		kind: 'waterFoam',
+		textures: {
+			base: texture(1, { scroll: [0, -1.3] }),
+			disturb: texture(2),
+			mask: texture(3),
+			dissolve: null,
+		},
+		sources: { base: 1, disturb: 0, mask: 0, dissolve: 0 },
+		maskMatrix: [1, 0, 0, 1],
+		boxUv: [1, 1, 0, 0],
+		baseColor: [0, 0, 0],
+		tint: [3.4, 4.2, 4.2],
+		baseAlpha: 1,
+		maskAsAlpha: 1,
+		disturbBias: 0,
+		disturb: [0.1, 0.1],
+		disturbUse: [1, 1, 0],
+		edgeFade: [0, 0],
+		clipToBox: false,
+		depthTest: 'lessEqual',
+		blendMode: 1,
+		opacity: 0.5,
+		soft: { bias: 0.6, distance: 0.001 },
+		dissolve: null,
+	};
+	const [front, behind] = materialLooks({
+		entries: [described(0, foam), described(1, { ...foam, depthTest: 'greater', clipToBox: true }, 'front')],
+	});
+	assert.deepEqual([front.screen, behind.screen], ['waterFoam', 'waterFoamBehind']);
+	assert.deepEqual([front.cull, behind.cull], ['back', 'front']);
+	assert.deepEqual(front.textures, [1, 2, 3, -1, -1, -1, -1]);
+	assert.equal(front.params[EffectRow.unfogged + 1], EffectKind.WaterFoam);
+	assert.equal(front.params[WaterFoamRow.base + 3], 0.5);
+	assert.equal(
+		front.params[WaterFoamRow.tint + 3],
+		WaterFoamFlags.Disturb | WaterFoamFlags.Mask | WaterFoamFlags.EdgeFade | WaterFoamFlags.Soft,
+	);
+	assert.equal(behind.params[WaterFoamRow.tint + 3] & WaterFoamFlags.ClipToBox, WaterFoamFlags.ClipToBox);
+	assert.deepEqual([...front.params.subarray(WaterFoamRow.sources, WaterFoamRow.sources + 4)], [1, 0, 0, 0]);
+	assert.equal(front.params[WaterFoamRow.disturb + 3], 1);
+	assert.ok(Math.abs(front.params[WaterFoamRow.fade + 2] - 0.6) < 1e-6);
+	assert.equal(front.params[EffectRow.anim + 1], Math.fround(-1.3));
 });

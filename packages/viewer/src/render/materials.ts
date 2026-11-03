@@ -24,6 +24,7 @@ import {
 	multipliesScene,
 	refractLook,
 	stackLook,
+	waterFoamLook,
 	waterSheetLook,
 } from './effect-looks.ts';
 
@@ -163,14 +164,15 @@ export interface MaterialLook {
 	relight: boolean;
 	/**
 	 * with {@link LookFlags.Effect}: an effect drawn over the composited scene rather than in the transparent
-	 * pass, because it multiplies what lies behind (`'multiply'`) or samples it (`'refract'`); `null` for the
-	 * rest
+	 * pass, because it multiplies what lies behind (`'multiply'`) or samples it (`'refract'`), or a WaterDecal
+	 * box drawn into the water's foam before the water draws (`'waterFoam'`, depth-tested in front of the
+	 * scene, or `'waterFoamBehind'`, behind it); `null` for the rest
 	 */
 	screen: ScreenEffect | null;
 }
 
-/** how an effect drawn over the composited scene ({@link MaterialLook.screen}) blends with it */
-export type ScreenEffect = 'multiply' | 'refract';
+/** how an effect drawn after compositing ({@link MaterialLook.screen}) reaches the image */
+export type ScreenEffect = 'multiply' | 'refract' | 'waterFoam' | 'waterFoamBehind';
 
 /**
  * a draw's stencil state and the depth test that goes with it, from its material's `_Stencil*` and `_ZTest`
@@ -448,6 +450,14 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 					flags: LookFlags.Effect,
 					cull: entry.cull,
 					screen: 'refract',
+				});
+				break;
+			}
+			case 'waterFoam': {
+				looks[entry.id] = effectMaterialLook(waterFoamLook(surface), {
+					flags: LookFlags.Effect,
+					cull: entry.cull,
+					screen: surface.depthTest === 'lessEqual' ? 'waterFoam' : 'waterFoamBehind',
 				});
 				break;
 			}

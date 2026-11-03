@@ -26,7 +26,8 @@ export type MaterialSurface =
 	| StencilMaskSurface
 	| WaterSheetSurface
 	| LitDecalSurface
-	| RefractSurface;
+	| RefractSurface
+	| WaterFoamSurface;
 
 /** an RGBA colour */
 export type Rgba = [r: number, g: number, b: number, a: number];
@@ -846,6 +847,69 @@ export interface RefractSurface {
 	} | null;
 	softDistance: number;
 	near: EffectNearFade;
+}
+
+/**
+ * where a WaterDecal texture's UVs start (`_BaseColorSwitchUV`, `_DisturbSwitchUV`, `_MaskUVSet`,
+ * `_DissolveSwitchUV`): 0 the box's x and z, 1 polar coordinates about the box's centre, 2 the world's x and
+ * z over 10 m, 3 the mesh's UV set 0. fractional values blend between neighbours, as the game's do
+ */
+export type WaterFoamSource = number;
+
+/**
+ * `HGRP/WaterDecal`, a box of foam projected onto the water surface inside it, which the water then lights
+ * (`docs/game-data/water.md#waterdecal`). every placement map02 uses takes the neutral per-placement values
+ * (`HGWaterDecalRenderer`), so the material is the whole look
+ */
+export interface WaterFoamSurface {
+	kind: 'waterFoam';
+	textures: {
+		base: EffectTexture;
+		disturb: EffectTexture | null;
+		mask: EffectTexture | null;
+		dissolve: EffectTexture | null;
+	};
+	sources: {
+		base: WaterFoamSource;
+		disturb: WaterFoamSource;
+		mask: WaterFoamSource;
+		dissolve: WaterFoamSource;
+	};
+	/** the mask's UV matrix about the texture's centre, by columns (`_MaskTexUVRotateMatrix`) */
+	maskMatrix: Rgba;
+	/** the box's UV scale and offset (`_UVScaleOffset`) */
+	boxUv: Rgba;
+	/** added to the tinted base colour, as stored */
+	baseColor: Rgb;
+	/** `[HDR]`, as stored */
+	tint: Rgb;
+	/** the base colour's alpha weighs it and the output (`_UseAChannelAsAlpha`) */
+	baseAlpha: number;
+	maskAsAlpha: number;
+	disturbBias: number;
+	disturb: [u: number, v: number];
+	/** how far the distortion moves the base, mask and dissolve UVs (`*UseDisturb`) */
+	disturbUse: [base: number, mask: number, dissolve: number];
+	/**
+	 * `_UseEdgeFade`'s fade towards the box's sides, with `_EdgeFadeRange`'s xy; `null` without. the fade is
+	 * radial, reaching 0 at the corners
+	 */
+	edgeFade: [x: number, y: number] | null;
+	/** fragments outside the box are dropped (`_MeshType` ≠ 0); otherwise only the edge fade bounds it */
+	clipToBox: boolean;
+	/** the game's `_ZTest` against the scene's depth: `lessEqual` draws the faces in front, `greater` behind */
+	depthTest: 'lessEqual' | 'greater';
+	/** 1 adds the foam over what's there; 0 blends it over */
+	blendMode: number;
+	/** `_OverallOpacity` */
+	opacity: number;
+	/**
+	 * `_USE_SOFTBLEND`: the foam fades by `saturate((saturate(water − face) + bias) / distance)`, both depths
+	 * in the reversed-Z device depth; `null` without
+	 */
+	soft: { bias: number; distance: number } | null;
+	/** `_USE_DISSOLVE`, as {@link EffectDissolve}, its edge colour `[HDR]` as stored; `null` without */
+	dissolve: { threshold: number; sharpness: number; edgeWidth: number; edgeColor: Rgb } | null;
 }
 
 // #endregion

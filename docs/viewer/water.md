@@ -71,3 +71,26 @@ it differs from the game in that:
 the mesh renderer skips the map02 river meshes that carry
 [`HGRP/WaterProxy`](../game-data/water.md#waterproxy-and-waterdecal), since none of its passes draws
 in the main view.
+
+### foam boxes
+
+[WaterDecal](../game-data/water.md#waterdecal) boxes are packed as `waterFoam` surfaces and drawn by
+the mesh renderer's effect family (`fs_water_foam` in
+[effect.wgsl](../../packages/viewer/src/render/shaders/effect.wgsl)), inside the water pass, when
+the frame has any:
+
+1. **water depth.** the water's surfaces lay down their depth (`fs_water_depth`), less the fragments
+   the shading drops behind the scene. where surfaces overlap the nearest wins, while the shading
+   draws them all.
+2. **foam.** the boxes draw into an `rgba8unorm` target cleared to (0, 0, 0, 1), with the main
+   pass's depth attached read-only for the game's `_ZTest` (`waterFoam` and `waterFoamBehind` looks,
+   one phase each), each covered pixel projecting the box onto the water depth. rgb takes the box's
+   premultiplied foam plus what's there times one minus its alpha, and alpha the product of those
+   factors.
+3. **shading.** the water reads the target at its pixel: foam colour `= rgb + saturate(own) · a`,
+   saturated, the game's 8-bit clamp. the water's own foam is saturated too, with boxes or without.
+
+it differs from the game in that the per-placement `HGWaterDecalRenderer` values aren't packed
+(every map02 prefab has the neutral ones), the static boxes of InitChunkData component 31 aren't
+packed, the soft blend's device depths use the viewer's near plane, and the game's mip bias
+(`_MinMipLevel`, `_Bias`) is left out (0 on every map02 material).

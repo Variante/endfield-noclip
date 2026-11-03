@@ -940,3 +940,74 @@ describe('VFXWater', () => {
 		assert.equal(describeMaterial(material({ keywords: ['VFX_WATER_REFRACT'] }), water).kind, 'unsupported');
 	});
 });
+
+describe('WaterDecal', () => {
+	const waterDecal = shader('HGRP/WaterDecal', 'waterDecal');
+
+	it('draws the foam of the Wuling falls from its base, disturb and mask, as stored', () => {
+		// the slab at the foot of Wuling City's falls (`M_fx_map_water_hongshan_splashes_2503`)
+		const foam = ofKind(
+			describeMaterial(
+				material({
+					keywords: ['_BLEND_BASECOLOR', '_USE_DISTURB', '_USE_MASK', '_USE_SOFTBLEND'],
+					slots: { _BaseColorMap: slot(1, [1.5, 3]), _DisturbTex1: slot(2), _MaskTex: slot(3) },
+					floats: {
+						_BlendMode: 1,
+						_UseEdgeFade: 1,
+						_UseAChannelAsAlpha: 1,
+						_UseMaskTexAsAlpha: 1,
+						_MainTexUseDisturb: 1,
+						_MaskTexUseDisturb: 1,
+						_DisturbUIntensity1: 0.1,
+						_DisturbVIntensity1: 0.1,
+						_SoftBias: 0.6,
+						_SoftDistance: 0.001,
+						_ZTest: 4,
+						_MeshType: 0,
+					},
+					colors: { _BaseColorTint: [3.394, 4.237, 4.229, 1], _BaseColor: [0, 0, 0, 0] },
+					vectors: { _BaseColorSpeed: [0, -1.3, 0, 0], _DisturbUVSpeed1: [0, 0, 1.2, 0.8] },
+				}),
+				waterDecal,
+			),
+			'waterFoam',
+		);
+		assert.deepEqual(
+			[foam.textures.base.texture, foam.textures.base.scale, foam.textures.base.scroll],
+			[1, [1.5, 3], [0, -1.3]],
+		);
+		assert.deepEqual([foam.textures.disturb?.texture, foam.textures.disturb?.scroll], [2, [0, 0]]);
+		assert.equal(foam.textures.mask?.texture, 3);
+		assert.equal(foam.textures.dissolve, null);
+		assert.deepEqual(foam.tint, [3.394, 4.237, 4.229]);
+		assert.deepEqual([foam.blendMode, foam.depthTest, foam.clipToBox], [1, 'lessEqual', false]);
+		assert.deepEqual([foam.edgeFade, foam.soft], [[0, 0], { bias: 0.6, distance: 0.001 }]);
+		assert.deepEqual(foam.disturbUse, [1, 1, 0]);
+	});
+
+	it('dissolves with its edge colour as stored, and tests behind the scene under _ZTest 5', () => {
+		const foam = ofKind(
+			describeMaterial(
+				material({
+					keywords: ['_BLEND_BASECOLOR', '_USE_DISSOLVE'],
+					slots: { _BaseColorMap: slot(1), _DissolveTex: slot(4) },
+					floats: { _DissolveScheduleOffset: 0.5, _DissolveEdgeSharp: 3, _ZTest: 5, _MeshType: 1 },
+					colors: { _DissolveEmissiveColor: [2, 1, 0, 1] },
+				}),
+				waterDecal,
+			),
+			'waterFoam',
+		);
+		assert.ok(foam.dissolve !== null);
+		assert.ok(Math.abs(foam.dissolve.threshold - (0.5 * 2.02 - 1.01)) < 1e-9);
+		assert.deepEqual([foam.dissolve.sharpness, foam.dissolve.edgeColor], [3, [2, 1, 0]]);
+		assert.deepEqual([foam.textures.dissolve?.texture, foam.depthTest, foam.clipToBox], [4, 'greater', true]);
+	});
+
+	it('leaves variants without the base colour blend, or with other keywords, unsupported', () => {
+		for (const keywords of [['_USE_DISTURB'], ['_BLEND_BASECOLOR', '_USE_BUBBLE']]) {
+			const surface = describeMaterial(material({ keywords, slots: { _BaseColorMap: slot(1) } }), waterDecal);
+			assert.equal(surface.kind, 'unsupported');
+		}
+	});
+});

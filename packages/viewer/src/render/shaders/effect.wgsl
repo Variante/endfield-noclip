@@ -870,6 +870,140 @@ fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, 
 
 // #endregion
 
+// #region water foam
+
+// rows of a WaterDecal look (`WaterFoamRow` in effect-looks.ts, in vec4s)
+const WF_TINT = 17u;
+const WF_DISTURB = 18u;
+const WF_USE = 19u;
+const WF_SOURCES = 20u;
+const WF_MASK_MATRIX = 21u;
+const WF_DISSOLVE = 22u;
+const WF_DISSOLVE_COLOR = 23u;
+const WF_BOX_UV = 24u;
+const WF_FADE = 25u;
+
+// `WaterFoamFlags`
+const WF_DISTURB_ON = 1u;
+const WF_MASK_ON = 2u;
+const WF_DISSOLVE_ON = 4u;
+const WF_EDGE_FADE = 8u;
+const WF_CLIP_TO_BOX = 16u;
+const WF_SOFT = 32u;
+
+// a UV source picked by the game's switch value (`WaterFoamSource` in package-format): the box, polar, the world
+// over 10 m, UV set 0, with fractional values blending between neighbours
+fn wf_pick(s: f32, a: vec2f, b: vec2f, c: vec2f, d: vec2f) -> vec2f {
+	return mix(mix(mix(a, b, s), c, saturate(s - 1.0)), d, saturate(s - 2.0));
+}
+
+// WaterDecal boxes (`waterFoamLook`): each covered pixel finds the water surface along its view ray (the water
+// pass's depth in `fx_depth`) and writes the foam the box projects there, down its y. the water pass then lights
+// it as its foam (docs/viewer/water.md#foam-boxes). rgb is the premultiplied foam, alpha how much of what's
+// there it covers (0 with `_BlendMode` 1), clamped as the game's 8-bit target clamps it
+@fragment
+fn fs_water_foam(in: EffectOut) -> @location(0) vec4f {
+	let id = in.draw;
+	let px = vec2i(in.position.xy);
+	let water_device = textureLoad(fx_depth, px, 0);
+	let water_depth = select(1e9, frame.local_lights.w / water_device, water_device > 0.0);
+	let rel = in.rel * (water_depth / dot(in.rel, frame.view_forward.xyz));
+	let p = vec4f(rel, 1.0);
+	let object_p = vec3f(dot(in.to_object0, p), dot(in.to_object1, p), dot(in.to_object2, p));
+	let box_uv_row = fx_row(id, WF_BOX_UV);
+	let box = (object_p.xz + 0.5) * box_uv_row.xy + box_uv_row.zw;
+	let centred = box - 0.5;
+	let polar = fx_polar(centred);
+	let world = (rel.xz + frame.eye.xz) * 0.1;
+	let mesh = in.uv.xy;
+	// gradients before anything branches; the polar angle's wraps at its seam
+	let bias = exp2(frame.params.y);
+	var polar_dx = dpdx(polar);
+	var polar_dy = dpdy(polar);
+	polar_dx.x -= round(polar_dx.x);
+	polar_dy.x -= round(polar_dy.x);
+	let box_dx = dpdx(box);
+	let box_dy = dpdy(box);
+	let world_dx = dpdx(world);
+	let world_dy = dpdy(world);
+	let mesh_dx = dpdx(mesh);
+	let mesh_dy = dpdy(mesh);
+	let sources = fx_row(id, WF_SOURCES);
+	let base_src = wf_pick(sources.x, box, polar, world, mesh);
+	let base_dx = wf_pick(sources.x, box_dx, polar_dx, world_dx, mesh_dx) * bias;
+	let base_dy = wf_pick(sources.x, box_dy, polar_dy, world_dy, mesh_dy) * bias;
+	let disturb_src = wf_pick(sources.y, box, polar, world, mesh);
+	let disturb_dx = wf_pick(sources.y, box_dx, polar_dx, world_dx, mesh_dx) * bias;
+	let disturb_dy = wf_pick(sources.y, box_dy, polar_dy, world_dy, mesh_dy) * bias;
+	let mask_src = wf_pick(sources.z, box, polar, world, mesh);
+	let mask_dx = wf_pick(sources.z, box_dx, polar_dx, world_dx, mesh_dx) * bias;
+	let mask_dy = wf_pick(sources.z, box_dy, polar_dy, world_dy, mesh_dy) * bias;
+	let dissolve_src = wf_pick(sources.w, box, polar, world, mesh);
+
+	let tint = fx_row(id, WF_TINT);
+	let flags = u32(tint.w);
+	if (water_device <= 0.0 || ((flags & WF_CLIP_TO_BOX) != 0u && any(abs(object_p) >= vec3f(0.5)))) {
+		return vec4f(0.0);
+	}
+	let t = frame.eye.w;
+	let use_disturb = fx_row(id, WF_USE);
+	let disturb_row = fx_row(id, WF_DISTURB);
+
+	// the distortion: scrolled, then the disturb texture's `_ST`
+	var offset = vec2f(0.0);
+	if ((flags & WF_DISTURB_ON) != 0u) {
+		let st = fx_row(id, FX_UV + 1u);
+		let uv = (disturb_src + fx_row(id, FX_ANIM + 1u).xy * t) * st.xy + st.zw;
+		let d = fx_sample(1u, uv, disturb_dx * st.xy, disturb_dy * st.xy).r * (disturb_row.x + 1.0) - disturb_row.x;
+		offset = d * disturb_row.yz;
+	}
+	// the base colour: its `_ST`, then its scroll
+	var base = vec4f(1.0);
+	{
+		let st = fx_row(id, FX_UV);
+		let uv = (base_src + offset * use_disturb.x) * st.xy + st.zw + fx_row(id, FX_ANIM).xy * t;
+		base = fx_sample(0u, uv, base_dx * st.xy, base_dy * st.xy);
+	}
+	let base_alpha = mix(1.0, base.a, use_disturb.w);
+	var color = fx_row(id, FX_TINT).rgb + base.rgb * base_alpha * tint.rgb;
+	var cover = 1.0 + base_alpha;
+	// the dissolve, read at the top mip as the game does: scrolled, then its `_ST`
+	if ((flags & WF_DISSOLVE_ON) != 0u) {
+		let st = fx_row(id, FX_UV + 3u);
+		let row = fx_row(id, WF_DISSOLVE);
+		let uv = (dissolve_src + offset * use_disturb.z + fx_row(id, FX_ANIM + 3u).xy * t) * st.xy + st.zw;
+		let v = fx_sample(3u, uv, vec2f(0.0), vec2f(0.0)).r - row.x;
+		let kept = saturate(v * row.y);
+		let edge = saturate((row.z - v) * row.y);
+		color = mix(color, fx_row(id, WF_DISSOLVE_COLOR).rgb * edge, edge) * kept;
+		cover *= kept;
+	}
+	// the mask: turned about its centre, then its `_ST`, then its scroll
+	if ((flags & WF_MASK_ON) != 0u) {
+		let st = fx_row(id, FX_UV + 2u);
+		let m = fx_row(id, WF_MASK_MATRIX);
+		let turn = mat2x2f(m.xy, m.zw);
+		let uv = (turn * (mask_src - 0.5) + 0.5 + offset * use_disturb.y) * st.xy + st.zw + fx_row(id, FX_ANIM + 2u).xy * t;
+		let mask = fx_sample(2u, uv, (turn * mask_dx) * st.xy, (turn * mask_dy) * st.xy);
+		color *= mask.rgb;
+		color = mix(color, color * mask.a, fx_row(id, WF_DISSOLVE).w);
+	}
+	let fade = fx_row(id, WF_FADE);
+	var edge_fade = 1.0;
+	if ((flags & WF_EDGE_FADE) != 0u) {
+		edge_fade = saturate(1.0 - length(abs(centred) + fade.xy) * 1.4142);
+	}
+	// the soft blend, in reversed-Z device depth like the game's: the box's face against the water's surface
+	var soft = 1.0;
+	if ((flags & WF_SOFT) != 0u) {
+		soft = saturate((saturate(water_device - in.position.z) + fade.z) / fade.w);
+	}
+	let out_color = max(color, vec3f(0.0)) * soft * cover * edge_fade * fx_row(id, FX_TINT).w;
+	return vec4f(out_color, saturate(cover * (1.0 - disturb_row.w)));
+}
+
+// #endregion
+
 // unpacks the normal of `pack_reflection_surface` (frame.wgsl), or returns zero where nothing lit was drawn
 fn fx_surface_normal(px: vec2i) -> vec3f {
 	let packed = textureLoad(fx_surface, px, 0).xy;

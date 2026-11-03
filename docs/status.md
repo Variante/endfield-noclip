@@ -171,10 +171,13 @@ packs or renders correctly.
   wetness around water; `FlowmapOption` 1's coverage is read as plain amplitude, the sun highlight
   isn't aimed at the nearest point of the sun's disc and has no multiple scattering, additive
   effects below the surface show over it ([viewer](viewer/water.md#shading)), and water entities'
-  render-object column 7 isn't read. `HGRP/WaterDecal` foam at the foot of waterfalls shows as
-  [unsupported](viewer/materials.md#unsupported-materials) (it most likely feeds the water's own
-  foam rather than adding to the scene, and its per-placement `HGWaterDecalRenderer` values aren't
-  packed); map02's 248 `P_waterdecal_01` chunk entities (InitChunkData component 31,
+  render-object column 7 isn't read. [foam boxes](viewer/water.md#foam-boxes) (`HGRP/WaterDecal`)
+  ignore their per-placement `HGWaterDecalRenderer` values (neutral on every map02 prefab) and their
+  displacement; which depth the game tests them against is unconfirmed, their WaterDecal variants
+  beyond `_USE_DISTURB`, `_USE_MASK`, `_USE_SOFTBLEND` and `_USE_DISSOLVE`, and those with a
+  `_ZTest` other than 4 or 5, show as [unsupported](viewer/materials.md#unsupported-materials) (2 of
+  map02's 22), and the Wuling falls' foam is unchecked against an in-game shot; map02's 248
+  `P_waterdecal_01` chunk entities (InitChunkData component 31,
   [world](game-data/world.md#initchunkdata-layout)) aren't packed at all, listed in
   `debug/skipped-entities.json`; other fluid types are unverified
 - water volumes ([viewer](viewer/water.md#water-volumes)): volumes that don't name a `WaterConfig`

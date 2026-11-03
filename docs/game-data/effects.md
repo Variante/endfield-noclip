@@ -226,10 +226,10 @@ one-particle system that emits a mesh every 6 s and grows it over its life, so t
 ## waterfalls
 
 a falls is a stack of prefab placements: the river surface running down the cliff behind it, one or
-two VFXWater sheets (a flipbook sheet and a frothier outer one), WaterDecal foam boxes at its foot,
-particle mist and splashes, and FogSimple cards around it. the sheets of falling water are
-`HGRP/Effect/VFXWater` meshes (about 1800 placements on map02, in `P_fxmap_*waterfall*` prefabs).
-per pixel:
+two VFXWater sheets (a flipbook sheet and a frothier outer one), [WaterDecal](water.md#waterdecal)
+foam boxes at its foot, particle mist and splashes, and FogSimple cards around it. the sheets of
+falling water are `HGRP/Effect/VFXWater` meshes (about 1800 placements on map02, in
+`P_fxmap_*waterfall*` prefabs). per pixel:
 
 - **colour and opacity.** `_TintColor · _TintColorIntensity` (alpha `· _TintColorAlpha`) times the
   vertex colour (unless `_DisableVertColor`), `_MainTex` and `_MaskTex` (`_USE_MASK`), each taking

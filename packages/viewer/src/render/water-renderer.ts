@@ -1,7 +1,7 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
-import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
+import { HDR_FORMAT, type SceneTextures, WATER_FOAM_FORMAT } from '../gfx/render-targets.ts';
 import { type Plane, type Vec3, boxInFrustum } from '../scene/camera.ts';
 import { streamWholeTexture } from '../streaming/mesh-selection.ts';
 import type { ResidentGeometry, StreamManager } from '../streaming/stream-manager.ts';
@@ -21,6 +21,8 @@ const CONFIG_FLOATS = 56;
 /** floats of the `water` uniform in water.wgsl */
 const PARAM_FLOATS = 12;
 const MAX_SURFACES = 4096;
+/** the water surface's depth, which the foam boxes project onto (reversed-Z like the main pass's) */
+const WATER_DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
 /** priority of the surfaces' geometry at 1 m, and of their textures */
 const PRIORITY = 1e5;
 
@@ -46,6 +48,16 @@ export interface WaterContext {
 	sky: GPUBindGroup;
 	/** bumped whenever the scene textures change */
 	version: number;
+	/** the main pass's size, px */
+	width: number;
+	height: number;
+	/**
+	 * draws the WaterDecal boxes into `target` (cleared to (0, 0, 0, 1) by the callee) over the water surface's
+	 * depth, or `null` when there are none this frame
+	 */
+	foam:
+		| ((encoder: GPUCommandEncoder, input: { waterDepth: GPUTextureView; target: GPUTextureView }) => void)
+		| null;
 }
 
 /**
@@ -60,6 +72,16 @@ const waterShaderSource = (): string => {
 	const common = commonWgsl.replace(binding, '@group(3) @binding(0) var<uniform> post');
 	return [FRAME_WGSL, common, atmosphereWgsl, skyWgsl, ssrTraceWgsl, waterWgsl].join('\n');
 };
+
+/** the water surface's depth and the foam the boxes leave on it */
+interface FoamTargets {
+	/** the scene textures' version they were made at */
+	version: number;
+	depth: GPUTexture;
+	depthView: GPUTextureView;
+	foam: GPUTexture;
+	foamView: GPUTextureView;
+}
 
 interface Draw {
 	geometry: ResidentGeometry;
@@ -93,6 +115,12 @@ export class WaterRenderer {
 	#device: GPUDevice;
 	#layout: GPUBindGroupLayout;
 	#pipeline: GPURenderPipeline;
+	/** lays down the nearest water surface's depth, which the foam boxes project onto */
+	#depthPipeline: GPURenderPipeline;
+	/** the water surface's depth and the foam the boxes leave on it, at the main pass's size */
+	#foamTargets: FoamTargets | null = null;
+	/** bound in place of the foam while there are no foam targets */
+	#noFoam: GPUTextureView;
 	#surfaces: GPUBuffer;
 	#surfaceData = new Float32Array(MAX_SURFACES * SURFACE_FLOATS);
 	#surfaceWords = new Uint32Array(this.#surfaceData.buffer);
@@ -138,26 +166,38 @@ export class WaterRenderer {
 				{ binding: 7, visibility: fragment, buffer: { type: 'uniform' } },
 				texture(8, 'float'),
 				texture(9, 'unfilterable-float'),
+				texture(10, 'float'),
 			],
 		});
+		const layout = device.createPipelineLayout({
+			label: 'water',
+			bindGroupLayouts: [layouts.frame, layouts.sky, this.#layout, layouts.uniforms],
+		});
+		const vertex: GPUVertexState = {
+			module,
+			entryPoint: 'vs_water',
+			buffers: [
+				{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }] },
+				// octahedral normals; meshes without them bind their positions here, which the shader ignores
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }] },
+			],
+		};
+		// seen from below too
+		const primitive: GPUPrimitiveState = { topology: 'triangle-list', cullMode: 'none' };
 		this.#pipeline = device.createRenderPipeline({
 			label: 'water',
-			layout: device.createPipelineLayout({
-				label: 'water',
-				bindGroupLayouts: [layouts.frame, layouts.sky, this.#layout, layouts.uniforms],
-			}),
-			vertex: {
-				module,
-				entryPoint: 'vs_water',
-				buffers: [
-					{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }] },
-					// octahedral normals; meshes without them bind their positions here, which the shader ignores
-					{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }] },
-				],
-			},
+			layout,
+			vertex,
 			fragment: { module, entryPoint: 'fs_water', targets: [{ format: HDR_FORMAT }] },
-			// seen from below too
-			primitive: { topology: 'triangle-list', cullMode: 'none' },
+			primitive,
+		});
+		this.#depthPipeline = device.createRenderPipeline({
+			label: 'water depth',
+			layout,
+			vertex,
+			fragment: { module, entryPoint: 'fs_water_depth', targets: [] },
+			primitive,
+			depthStencil: { format: WATER_DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
 		});
 		this.#surfaces = device.createBuffer({
 			label: 'water surfaces',
@@ -180,6 +220,7 @@ export class WaterRenderer {
 		});
 		this.#noFlow = placeholderView(device, { label: 'no water flow map', dimension: '2d' });
 		this.#noNormals = placeholderView(device, { label: 'no water normals', dimension: '2d-array' });
+		this.#noFoam = placeholderView(device, { label: 'no water foam', dimension: '2d' });
 	}
 
 	/** @param table the package's water, or `null` */
@@ -300,7 +341,8 @@ export class WaterRenderer {
 		if (this.#configs === null) {
 			return null;
 		}
-		const key = [context.version, context.background, this.#normals, this.#flow, this.#caustics];
+		const foam = this.#foamTargets?.foamView ?? this.#noFoam;
+		const key = [context.version, context.background, this.#normals, this.#flow, this.#caustics, foam];
 		if (this.#group !== null && key.every((part, i) => part === this.#groupKey[i])) {
 			return this.#group;
 		}
@@ -319,6 +361,7 @@ export class WaterRenderer {
 				// the flow map's placeholder stands in; the shader skips caustics without the map
 				{ binding: 8, resource: this.#caustics?.view ?? this.#noFlow },
 				{ binding: 9, resource: context.scene.glow },
+				{ binding: 10, resource: foam },
 			],
 		});
 		this.#groupKey = key;
@@ -338,15 +381,81 @@ export class WaterRenderer {
 	 * @param context what the pass reads
 	 */
 	encode(encoder: GPUCommandEncoder, target: GPUTextureView, context: WaterContext): void {
+		if (this.#configs === null || this.#draws.length === 0) {
+			return;
+		}
+		// the foam boxes project onto the water's own depth, so it's laid down first
+		const foamed = context.foam !== null;
+		if (context.foam !== null) {
+			const targets = this.#ensureFoamTargets(context);
+			const group = this.#bindGroup(context);
+			if (group === null) {
+				return;
+			}
+			const depthPass = encoder.beginRenderPass({
+				label: 'water depth',
+				colorAttachments: [],
+				depthStencilAttachment: {
+					view: targets.depthView,
+					depthClearValue: 0,
+					depthLoadOp: 'clear',
+					depthStoreOp: 'store',
+				},
+			});
+			this.#drawSurfaces(depthPass, this.#depthPipeline, group, context);
+			depthPass.end();
+			context.foam(encoder, { waterDepth: targets.depthView, target: targets.foamView });
+		}
+		if (this.#paramData[6] !== (foamed ? 1 : 0)) {
+			this.#paramData[6] = foamed ? 1 : 0;
+			this.#device.queue.writeBuffer(this.#params, 0, this.#paramData);
+		}
 		const group = this.#bindGroup(context);
-		if (group === null || this.#draws.length === 0) {
+		if (group === null) {
 			return;
 		}
 		const pass = encoder.beginRenderPass({
 			label: 'water',
 			colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
 		});
-		pass.setPipeline(this.#pipeline);
+		this.#drawSurfaces(pass, this.#pipeline, group, context);
+		pass.end();
+	}
+
+	/** the foam targets at the main pass's size, made again when the scene textures change */
+	#ensureFoamTargets(context: WaterContext): FoamTargets {
+		const current = this.#foamTargets;
+		if (current !== null && current.version === context.version) {
+			return current;
+		}
+		current?.depth.destroy();
+		current?.foam.destroy();
+		const size = [context.width, context.height];
+		const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+		const depth = this.#device.createTexture({
+			label: 'water depth',
+			size,
+			format: WATER_DEPTH_FORMAT,
+			usage,
+		});
+		const foam = this.#device.createTexture({ label: 'water foam', size, format: WATER_FOAM_FORMAT, usage });
+		this.#foamTargets = {
+			version: context.version,
+			depth,
+			depthView: depth.createView(),
+			foam,
+			foamView: foam.createView(),
+		};
+		return this.#foamTargets;
+	}
+
+	#drawSurfaces(
+		pass: GPURenderPassEncoder,
+		pipeline: GPURenderPipeline,
+		group: GPUBindGroup,
+		context: WaterContext,
+	): void {
+		pass.setPipeline(pipeline);
 		pass.setBindGroup(0, context.frame.group, [context.frame.offset]);
 		pass.setBindGroup(1, context.sky);
 		pass.setBindGroup(2, group);
@@ -359,7 +468,6 @@ export class WaterRenderer {
 				pass.drawIndexed(submesh.indexCount, 1, submesh.firstIndex, submesh.baseVertex, slot);
 			}
 		}
-		pass.end();
 	}
 
 	/** frees the buffers */
@@ -367,5 +475,7 @@ export class WaterRenderer {
 		this.#surfaces.destroy();
 		this.#configs?.destroy();
 		this.#params.destroy();
+		this.#foamTargets?.depth.destroy();
+		this.#foamTargets?.foam.destroy();
 	}
 }
