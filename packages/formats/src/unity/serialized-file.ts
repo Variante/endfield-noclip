@@ -126,7 +126,16 @@ export const UnityClass = {
 	CubemapArray: 188,
 	ParticleSystem: 198,
 	ParticleSystemRenderer: 199,
+	RectTransform: 224,
 } as const;
+
+/**
+ * @param classId a component's Unity class id
+ * @returns whether the component is a GameObject's transform: a Transform, or the RectTransform a UI
+ *   GameObject has instead, which keeps the same local TRS and hierarchy fields
+ */
+export const isTransformClass = (classId: number): boolean =>
+	classId === UnityClass.Transform || classId === UnityClass.RectTransform;
 
 /**
  * @param prefix at least the first {@link SERIALIZED_FILE_HEADER_SIZE} bytes

@@ -1,7 +1,7 @@
 /* oxlint-disable no-await-in-loop -- walks a small subtree in authored order */
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import { readClipActivity } from '@endfield-noclip/formats/unity/animation-clip';
-import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
+import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
 	arrayField,
@@ -249,7 +249,7 @@ export const isOneShotEffect = async (resolver: AssetResolver, go: ObjectRef): P
 			if (ref === null) {
 				continue;
 			}
-			if (ref.info.classId === UnityClass.Transform) {
+			if (isTransformClass(ref.info.classId)) {
 				transform = ref;
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isEffectSettingType(ref)) {
 				settings++;

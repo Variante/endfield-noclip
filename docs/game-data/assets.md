@@ -107,6 +107,10 @@ Unity Euler angles (degrees) apply Z, then X, then Y; dynamic model rows store r
 
 a prefab is a GameObject hierarchy reached through PPtrs, placed by its root.
 
+- a UI GameObject, such as a world-space `Canvas` (class 223, `m_RenderMode` 2) and the Images and
+  Text under it, has a `RectTransform` (class 224) in place of a `Transform`. it keeps the same
+  local position, rotation, scale and children, so it nests like any other node; a prefab can mix
+  both, as Dijiang's weapon wall displays do with their counter canvas.
 - a GameObject draws only if it and all its ancestors are active. an active skinned mesh can use
   bones under an inactive GameObject.
 - enabled `MeshRenderer`s (with a `MeshFilter`'s mesh) and enabled `SkinnedMeshRenderer`s draw, as

@@ -7,7 +7,7 @@ import {
 	type PolyLineShape,
 	yawRotation,
 } from '@endfield-noclip/formats/endfield/environment-volume';
-import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
+import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import {
 	multiplyQuaternions,
 	quaternionUnityEuler,
@@ -168,7 +168,7 @@ export const readPrefabEnvironmentVolumes = async (
 				throw new FormatError('prefab component is not an object');
 			}
 			const ref = await resolver.resolve(go, pptrField(item, 'component'));
-			if (ref?.info.classId === UnityClass.Transform) {
+			if (ref !== null && isTransformClass(ref.info.classId)) {
 				transform = { ref, data: await resolver.read(ref) };
 			} else if (ref?.info.classId === UnityClass.MonoBehaviour && isVolumeType(ref)) {
 				volumes.push(ref);

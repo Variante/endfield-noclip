@@ -365,7 +365,8 @@ packs or renders correctly.
   conditions may never be recoverable
 - control labels still show internal identifiers or representative mesh names in many places
 - runtime world-space UI, including Dijiang's cabin nameplates and assigned-operator panels, is not
-  drawn ([cabins](game-data/scene-states.md#dijiang-cabins))
+  drawn ([cabins](game-data/scene-states.md#dijiang-cabins)); neither are the Images and Text of
+  world-space canvases inside prefabs, such as the counters on Dijiang's weapon wall displays
 - skeletons the reader can't pose and nonzero blend shapes (meshes with them are stand-ins);
   skeletal animation outside a settled interactive view state (scenery Animators, characters) isn't
   played; vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw their rest pose

@@ -8,7 +8,7 @@ import type {
 	ClipTransformValue,
 } from '@endfield-noclip/formats/unity/animation-clip';
 import { parseMaterial } from '@endfield-noclip/formats/unity/material';
-import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
+import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import { multiplyMatrices, trsMatrix, transformBounds } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
@@ -333,19 +333,20 @@ export const readPrefabRenderers = async (
 			}
 		}
 		const standIn = off?.standIn ?? null;
-		const wanted =
-			off === null || standIn !== null
-				? [
-						UnityClass.Transform,
-						UnityClass.MeshFilter,
-						UnityClass.MeshRenderer,
-						UnityClass.SkinnedMeshRenderer,
-						UnityClass.ParticleSystem,
-						UnityClass.ParticleSystemRenderer,
-						// LODGroup
-						205,
-					]
-				: [UnityClass.Transform];
+		const drawn = off === null || standIn !== null;
+		const wanted = drawn
+			? [
+					UnityClass.Transform,
+					UnityClass.RectTransform,
+					UnityClass.MeshFilter,
+					UnityClass.MeshRenderer,
+					UnityClass.SkinnedMeshRenderer,
+					UnityClass.ParticleSystem,
+					UnityClass.ParticleSystemRenderer,
+					// LODGroup
+					205,
+				]
+			: [UnityClass.Transform, UnityClass.RectTransform];
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		const movers: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		let board: TypeTreeObject | null = null;
@@ -360,13 +361,9 @@ export const readPrefabRenderers = async (
 			}
 			if (wanted.includes(ref.info.classId)) {
 				components.push({ ref, data: await resolver.read(ref) });
-			} else if (wanted.length > 1 && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
+			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
 				board = await resolver.read(ref);
-			} else if (
-				wanted.length > 1 &&
-				ref.info.classId === UnityClass.MonoBehaviour &&
-				isSplineMoverType(ref)
-			) {
+			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isSplineMoverType(ref)) {
 				const moverData = await resolver.read(ref);
 				if (booleanField(moverData, 'm_Enabled')) {
 					movers.push({ ref, data: moverData });
@@ -395,7 +392,7 @@ export const readPrefabRenderers = async (
 				}
 			}
 		}
-		const transform = components.find((component) => component.ref.info.classId === UnityClass.Transform);
+		const transform = components.find((component) => isTransformClass(component.ref.info.classId));
 		if (transform === undefined) {
 			throw new FormatError(`prefab GameObject ${key} has no Transform`);
 		}

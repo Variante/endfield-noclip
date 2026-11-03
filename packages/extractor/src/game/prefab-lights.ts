@@ -69,7 +69,8 @@ export const readPrefabLights = async (resolver: AssetResolver, root: ObjectRef)
 			}
 			const ref = await resolver.resolve(go, pptrField(item, 'component'));
 			switch (ref?.info.classId) {
-				case UnityClass.Transform: {
+				case UnityClass.Transform:
+				case UnityClass.RectTransform: {
 					transform = { ref, data: await resolver.read(ref) };
 					break;
 				}
