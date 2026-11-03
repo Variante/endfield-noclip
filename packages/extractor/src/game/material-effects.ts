@@ -21,6 +21,9 @@ import type {
 	MistVolumeSurface,
 	RefractSurface,
 	Rgba,
+	DisturbLayer,
+	SixWaySmokeSurface,
+	SixWayTexture,
 	StackLayer,
 	StencilMaskSurface,
 	UndrawnSurface,
@@ -1532,6 +1535,140 @@ export const describeLightBeam = (reader: MaterialReader): LightBeamSurface | Un
 		tilt: [float('_TiltVectorX', 0), float('_TiltVectorY', 0)],
 		clippingPlaneTransition: Math.max(float('_ClippingPlaneTransition', 1), 1e-4),
 		unfogged: !has('VLB_USE_FOG'),
+	};
+};
+
+// #endregion
+
+// #region six-way smoke
+
+/** six-way smoke keywords that are drawn; it's drawn only with its lightmaps (`_USE_SIXWAY_LIGHTMAP`) */
+const SIX_WAY_KEYWORDS = new Set([
+	'_USE_SIXWAY_LIGHTMAP',
+	'_USE_DISTURB',
+	'_USE_DISTURB_TEX2',
+	'_USE_MASK',
+	'_USE_BLEND',
+	'_USE_DISSOLVE',
+	'_USE_SOFTBLEND',
+	'_USE_FOG',
+]);
+
+/**
+ * `HGRP/Effect/VFXSmoke_SixWay` (`docs/game-data/effects.md#six-way-smoke`)
+ *
+ * @param reader the material's properties
+ * @returns its surface, or `unsupported` for keywords, blending or UV sources the viewer doesn't draw
+ */
+export const describeSixWaySmoke = (reader: MaterialReader): SixWaySmokeSurface | UnsupportedSurface => {
+	const { float, colorOrVector: color, has, material } = reader;
+	if (material.blend !== 'alphaBlend') {
+		return unsupported(`${material.blend} blending`);
+	}
+	const keywords = undrawnKeywords(reader, SIX_WAY_KEYWORDS);
+	if (keywords !== null) {
+		return keywords;
+	}
+	if (!has('_USE_SIXWAY_LIGHTMAP')) {
+		return unsupported('no six-way lightmaps');
+	}
+	if (float('_BlendMode', 0) !== 0) {
+		return unsupported(`_BlendMode ${float('_BlendMode', 0)}`);
+	}
+	// the particle UV sets these pick carry custom data, which the viewer's particles don't
+	if (float('_MaskUVSet', 0) !== 0 || float('_DissolveUVSet', 0) !== 0) {
+		return unsupported('a mask or dissolve on the particles’ custom UVs');
+	}
+	/** a used slot; the shader samples every texture on UV set 0, or the default when none is bound */
+	const used = (name: string): TextureSlot | null | 'uv' => {
+		const slot = reader.slot(name);
+		if (slot === undefined) {
+			return reader.shader.textures[name] === 'white' ? UNSET_WHITE : null;
+		}
+		return slot.uv === 0 ? slot : 'uv';
+	};
+	/** the shader turns UVs by `-rotate` degrees about their centre, after the scroll and before the `_ST` */
+	const turned = (prefix: string): [cos: number, sin: number] => {
+		const radians = (float(`${prefix}UVRotate`, 0) * Math.PI) / 180;
+		return [Math.cos(radians), -Math.sin(radians)];
+	};
+	const positive = used('_PositiveAxesLightmap');
+	const negative = used('_NegativeAxesLightmap');
+	const mask = has('_USE_MASK') ? used('_MaskTex') : null;
+	const blend = has('_USE_BLEND') ? used('_BlendTex') : null;
+	const dissolve = has('_USE_DISSOLVE') ? used('_DissolveTex') : null;
+	const disturb1 = has('_USE_DISTURB') ? used('_DisturbTex1') : null;
+	const disturb2 = has('_USE_DISTURB') && has('_USE_DISTURB_TEX2') ? used('_DisturbTex2') : null;
+	if (
+		positive === 'uv' ||
+		negative === 'uv' ||
+		mask === 'uv' ||
+		blend === 'uv' ||
+		dissolve === 'uv' ||
+		disturb1 === 'uv' ||
+		disturb2 === 'uv'
+	) {
+		return unsupported('a texture on a UV set other than 0');
+	}
+	if (positive === null || negative === null) {
+		return unsupported('no lightmaps');
+	}
+	// the lightmaps take `_LightMapControls` in place of their `_ST`
+	const controls = color('_LightMapControls') ?? [1, 1, 0, 0];
+	const lightmap: SixWayTexture = {
+		...effectTexture(
+			{ texture: positive.texture, scale: [controls[0], controls[1]], offset: [controls[2], controls[3]] },
+			color('_LightMapUVSpeed') ?? [0, 0, 0, 0],
+			turned('_LightMap'),
+		),
+		disturbShare: float('_LightMapUseDisturb', 0),
+	};
+	const layer = (slot: TextureSlot, prefix: string, share: string): SixWayTexture => ({
+		...effectTexture(slot, color(`${prefix}UVSpeed`) ?? [0, 0, 0, 0], turned(prefix)),
+		disturbShare: float(share, 0),
+	});
+	const disturbLayer = (slot: TextureSlot | null, n: 1 | 2): DisturbLayer | null =>
+		slot === null
+			? null
+			: {
+					texture: effectTexture(slot, color(`_DisturbUVSpeed${n}`) ?? [0, 0, 0, 0]),
+					intensity: [float(`_DisturbUIntensity${n}`, 0), float(`_DisturbVIntensity${n}`, 0)],
+					normal: float(`_DisturbTex${n}Normal`, 0) !== 0,
+				};
+	const { tint, intensity } = stackTintOf(reader);
+	const shared = sharedOf(reader, intensity);
+	return {
+		kind: 'sixWaySmoke',
+		positive: lightmap,
+		negative: negative.texture,
+		disturb: [disturbLayer(disturb1, 1), disturbLayer(disturb2, 2)],
+		disturbBias: float('_Bi_Disturb', 0),
+		mask:
+			mask === null
+				? null
+				: {
+						texture: layer(mask, '_MaskTex', '_MaskTexUseDisturb'),
+						redAlpha: float('_UseMaskTexAsAlpha', 1) !== 0,
+					},
+		// the black default adds nothing
+		blend: blend === null ? null : layer(blend, '_BlendTex', '_BlendTexUseDisturb'),
+		blendTint: shared.blendTint,
+		dissolve:
+			dissolve === null
+				? null
+				: {
+						texture: layer(dissolve, '_Dissolve', '_DissolveTexUseDisturb'),
+						dissolve: { ...shared.dissolve, on: true },
+					},
+		tint,
+		vertexColor: float('_DisableVertColor', 0) === 0,
+		brighten: { threshold: float('_ExpThreshold', 1), intensity: float('_ExpIntensity', 0) },
+		// as the shader derives it
+		absorptionRange: (float('_AbsorptionRange', 1) + 1 / Math.PI) / (1 - 1 / Math.PI),
+		envSaturation: float('_EnvLightSaturation', 1),
+		soft: softBlendOf(reader),
+		near: shared.near,
+		unfogged: !has('_USE_FOG'),
 	};
 };
 

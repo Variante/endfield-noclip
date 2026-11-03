@@ -14,6 +14,7 @@ import {
 	describeMistCard,
 	describeMistVolume,
 	describeRefract,
+	describeSixWaySmoke,
 	describeVfxBase,
 	describeVfxDecal,
 	describeWaterFoam,
@@ -48,6 +49,7 @@ const EFFECT_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
 	'vfxAdvance',
 	'vfxRefract',
 	'vfxDitherAlpha',
+	'vfxSmokeSixWay',
 	'waterDecal',
 	'water',
 ]);
@@ -107,6 +109,9 @@ export const describeMaterial = (material: MaterialValues, shader: ShaderEntry):
 		}
 		case 'vfxRefract': {
 			return shader.name === 'HGRP/Effect/VFXRefract' ? describeRefract(reader) : noLook;
+		}
+		case 'vfxSmokeSixWay': {
+			return describeSixWaySmoke(reader);
 		}
 		case 'waterDecal': {
 			return describeWaterFoam(reader);

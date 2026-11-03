@@ -263,6 +263,44 @@ falling water are `HGRP/Effect/VFXWater` meshes (about 1800 placements on map02,
 
 under `_IgnorePostExposure` the colour, lit share included, is divided by the post exposure.
 
+## six-way smoke
+
+`HGRP/Effect/VFXSmoke_SixWay` is Unity's six-way smoke lighting: billboard particles whose two
+lightmaps store how much light the smoke lets through from each axis of the particle's frame.
+`_PositiveAxesLightmap` holds light from its right, up and the side away from the camera in rgb and
+the opacity in alpha; `_NegativeAxesLightmap` holds left, down and the camera's side. Valley's
+Aberrants' black smoke columns (`p_fxmap_common_smokeblack_large_01`, `M_fx_damagesmoke_06`, 18–25 m
+particles) are drawn with it; dung01_wrdg001 has six such materials. with `_USE_SIXWAY_LIGHTMAP`,
+per pixel:
+
+- **UVs.** the lightmaps share one transform: `_LightMapUVSpeed` scroll, a turn of
+  −`_LightMapUVRotate` degrees about 0.5, then `_LightMapControls` as their scale and offset (their
+  own `_ST` is unused). the mask, blend and dissolve textures take their `_…UVSpeed`, `_…UVRotate`
+  (degrees) and `_ST` the same way; the blend texture's `_ST` is applied a second time after the
+  distortion. every texture reads UV set 0; `_MaskUVSet` and `_DissolveUVSet` switch to the
+  particles' custom data.
+- **distortion.** `_USE_DISTURB` (and `_USE_DISTURB_TEX2` for the second texture): each texture's
+  red, remapped by `_Bi_Disturb`, times `_DisturbU/VIntensityN` (or its normal with
+  `_DisturbTexNNormal`), summed, shifts the lightmap, mask, blend and dissolve UVs by their
+  `_…UseDisturb` fractions.
+- **colour and opacity.** as VFXBaseV2's stack without a main texture: `_TintColor` (LDR) times
+  `_TintColorIntensity`, alpha times `_TintColorAlpha`, times the vertex colour and `_MaskTex`
+  (`_USE_MASK`, red as alpha under `_UseMaskTexAsAlpha`), plus the blend layer (`_USE_BLEND`, its
+  tint `_BlendTint` always times the vertex colour), eaten by the dissolve (`_USE_DISSOLVE`), then
+  brightened above `_ExpThreshold`. the opacity is that alpha, faded by `_USE_SOFTBLEND` and the
+  near camera fade, times the positive lightmap's alpha.
+- **absorption.** the colour isn't multiplied in; it sets how strongly each channel is absorbed. a
+  lightmap value t lets through `min(R, (saturate(t / R))^k · R)` per channel, with
+  `k = 1 − log2(colour) / log2(0.2)` and `R = (_AbsorptionRange + 1/π) / (1 − 1/π)`, so dark tints
+  thin the light that passes and white leaves it as stored.
+- **lighting.** the main light's direction, in the particle's frame (its x axis, up, and away from
+  the camera), weights each lightmap channel by its squared component, picking the positive or
+  negative map by its sign; the sum passes through the absorption and takes the light's colour and
+  shadow (the shadow is sampled per vertex and tinted by a ramp texture). the irradiance volume at
+  the normal takes the sum of all six absorbed channels, desaturated by `_EnvLightSaturation`. the
+  game's global scene-effect colour adjustment applies to both.
+- `_USE_FOG` fogs the smoke at its own distance. the materials blend `SrcAlpha, OneMinusSrcAlpha`.
+
 ## mist
 
 the drifting mist banks are effects too: `HGRP/FogSimple` cards (841 on map02, `SimpleFogCard*`) and

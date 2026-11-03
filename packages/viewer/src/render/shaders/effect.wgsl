@@ -465,6 +465,9 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	if (kind.y == FX_KIND_BEAM) {
 		return light_beam(in);
 	}
+	if (kind.y == FX_KIND_SIX_WAY) {
+		return six_way_smoke(in, dx.xy, dy.xy);
+	}
 	let layer = fx_stack_layer(in, bases);
 	let color = layer.rgb;
 	let alpha = layer.a;
@@ -873,6 +876,146 @@ fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, 
 		return out;
 	}
 	return fx_accumulate(shaded * alpha, alpha, length(in.rel), 0.0);
+}
+
+// #endregion
+
+// #region six-way smoke
+
+// `EffectKind.SixWaySmoke` (effect-looks.ts), in FX_UNFOGGED's y
+const FX_KIND_SIX_WAY = 6.0;
+
+// rows of a six-way smoke look (`SixWayRow` in effect-looks.ts, in vec4s)
+const SW_FLAGS = 17u;
+const SW_DISTURB = 18u;
+const SW_DISTURB_USE = 19u;
+const SW_DISSOLVE = 20u;
+const SW_DISSOLVE_COLOR = 21u;
+const SW_BLEND_TINT = 22u;
+
+// `SixWayFlags`
+const SW_DISTURB1 = 1u;
+const SW_DISTURB2 = 2u;
+const SW_DISTURB1_NORMAL = 4u;
+const SW_DISTURB2_NORMAL = 8u;
+const SW_MASK = 16u;
+const SW_MASK_RED_ALPHA = 32u;
+const SW_BLEND = 64u;
+const SW_DISSOLVE_ON = 128u;
+const SW_VERTEX_COLOR = 256u;
+
+// one distortion texture's offset: its red remapped by `_Bi_Disturb` times the u and v strengths, or with a
+// normal its (a·r, g) remapped to [-1, 1] times the u strength
+fn sw_disturb(id: u32, slot: u32, uv: vec2f, dx: vec2f, dy: vec2f, strength: vec2f, normal: bool) -> vec2f {
+	let t = ws_sample(id, slot, uv, vec2f(0.0), dx, dy);
+	let bias = fx_row(id, SW_FLAGS).y;
+	let centred = t.r * (bias + 1.0) - bias;
+	if (normal) {
+		return (vec2f(t.a * centred, t.g) * 2.0 - 1.0) * strength.x;
+	}
+	return centred * strength;
+}
+
+// the light a lightmap value lets through once the smoke absorbs `exponent`'s colour: Unity's six-way
+// absorption, the value raised per channel within `range`
+fn sw_absorb(t: f32, exponent: vec3f, range: f32) -> vec3f {
+	return min(vec3f(range), pow(vec3f(saturate(t / range)), exponent) * range);
+}
+
+// six-way lit smoke (`sixWaySmokeLook`): the texture stack (distortion, mask, blend, dissolve) makes the colour
+// the smoke absorbs and its opacity; two lightmaps hold how much light passes from each axis of the
+// particle's frame (right, up, away from the camera, and their opposites). the sun takes the lightmaps
+// weighted by its direction's squared components in that frame, the irradiance volume all six. sun units
+// follow the viewer's convention for the game's light colour (docs/viewer/lighting.md#sun)
+fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
+	let id = in.draw;
+	let row = fx_row(id, SW_FLAGS);
+	let flags = u32(row.x);
+	let uv = in.uv.xy;
+	let bias = exp2(frame.params.y);
+
+	var offset = vec2f(0.0);
+	let strength = fx_row(id, SW_DISTURB);
+	if ((flags & SW_DISTURB1) != 0u) {
+		offset += sw_disturb(id, 1u, uv, dx, dy, strength.xy, (flags & SW_DISTURB1_NORMAL) != 0u);
+	}
+	if ((flags & SW_DISTURB2) != 0u) {
+		offset += sw_disturb(id, 2u, uv, dx, dy, strength.zw, (flags & SW_DISTURB2_NORMAL) != 0u);
+	}
+	let use_disturb = fx_row(id, SW_DISTURB_USE);
+
+	// the lightmaps share slot 0's UVs
+	let lightmap_uv = fx_slot_coords(id, 0u, uv) + offset * use_disturb.x;
+	let gx = fx_slot_gradient(id, 0u, dx) * bias;
+	let gy = fx_slot_gradient(id, 0u, dy) * bias;
+	let positive = fx_sample(0u, lightmap_uv, gx, gy);
+	let negative = fx_sample(6u, lightmap_uv, gx, gy).rgb;
+
+	var mask = vec4f(1.0);
+	if ((flags & SW_MASK) != 0u) {
+		mask = ws_sample(id, 3u, uv, offset * use_disturb.y, dx, dy);
+		if ((flags & SW_MASK_RED_ALPHA) != 0u) {
+			mask = vec4f(1.0, 1.0, 1.0, mask.r);
+		}
+	}
+	let tint = fx_row(id, FX_TINT) * select(vec4f(1.0), in.color, (flags & SW_VERTEX_COLOR) != 0u);
+	let c = tint * mask;
+	var color = c.rgb;
+	if ((flags & SW_BLEND) != 0u) {
+		// the game applies the blend texture's `_ST` again after the distortion; its tint takes the vertex colour
+		// whatever `_DisableVertColor` says
+		let st = fx_row(id, FX_UV + 4u);
+		let blend_uv = (fx_slot_coords(id, 4u, uv) + offset * use_disturb.z) * st.xy + st.zw;
+		let blend = fx_sample(4u, blend_uv, fx_slot_gradient(id, 4u, dx) * st.xy * bias,
+			fx_slot_gradient(id, 4u, dy) * st.xy * bias);
+		let blend_tint = fx_row(id, SW_BLEND_TINT) * in.color;
+		color += blend.rgb * saturate((c.a + blend.a) * blend_tint.a) * blend_tint.rgb;
+	}
+	var alpha = c.a;
+	if ((flags & SW_DISSOLVE_ON) != 0u) {
+		let dissolve = fx_row(id, SW_DISSOLVE);
+		let v = ws_sample(id, 5u, uv, offset * use_disturb.w, dx, dy).r - dissolve.x;
+		let edge = saturate((dissolve.z - v) * dissolve.y);
+		alpha *= saturate(v * dissolve.y);
+		color = mix(color, fx_row(id, SW_DISSOLVE_COLOR).rgb * edge, edge);
+	}
+	let depth = dot(in.rel, frame.view_forward.xyz);
+	let soft = fx_row(id, FX_SOFT);
+	if (soft.x > 0.0) {
+		alpha *= saturate((fx_scene_depth(vec2i(in.position.xy)) - depth + soft.y) / soft.x);
+	}
+	alpha = positive.a * saturate(alpha * fx_near_fade(id, depth));
+	let misc = fx_row(id, FX_MISC);
+	color = clamp(color + max(color - vec3f(misc.y), vec3f(0.0)) * misc.z, vec3f(0.0), vec3f(1000.0));
+
+	// the colour sets how strongly each channel is absorbed: 1 − log2(colour) / log2(0.2)
+	let exponent = 1.0 + log2(max(color, vec3f(1e-5))) * -0.43067657;
+	let range = row.z;
+
+	// the particle's frame: right (its x axis, made square to the normal), up, and away from the camera
+	var n = normalize(in.normal);
+	n = select(-n, n, dot(n, in.rel) <= 0.0);
+	let away = -n;
+	let x_axis = normalize(in.to_object0.xyz);
+	let right = normalize(x_axis - away * dot(x_axis, away));
+	let up = cross(away, right);
+
+	let world = in.rel + frame.eye.xyz;
+	let all_axes = sw_absorb(positive.r, exponent, range) + sw_absorb(positive.g, exponent, range) +
+		sw_absorb(positive.b, exponent, range) + sw_absorb(negative.r, exponent, range) +
+		sw_absorb(negative.g, exponent, range) + sw_absorb(negative.b, exponent, range);
+	var ambient = ambient_irradiance(world, n) * all_axes;
+	{
+		let grey = dot(ambient, vec3f(0.2126729, 0.7151522, 0.0721750));
+		ambient = mix(vec3f(grey), ambient, row.w);
+	}
+	let l = frame.sun.xyz;
+	let lt = vec3f(dot(l, right), dot(l, up), dot(l, away));
+	let through = dot(lt * lt, select(negative, positive.rgb, lt >= vec3f(0.0)));
+	let sun = frame.sun_color.rgb * (frame.sun.w / PI) * sw_absorb(through, exponent, range) *
+		sun_visibility(in.rel, n, in.position.xy);
+	let shaded = ambient + sun;
+	return fx_accumulate(shaded * alpha, alpha, length(in.rel), fx_row(id, FX_UNFOGGED).x);
 }
 
 // #endregion

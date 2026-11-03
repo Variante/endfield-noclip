@@ -1022,3 +1022,92 @@ describe('WaterDecal', () => {
 		}
 	});
 });
+
+describe('VFXSmoke_SixWay', () => {
+	const sixWay = shader('HGRP/Effect/VFXSmoke_SixWay', 'vfxSmokeSixWay', {
+		textures: {
+			_PositiveAxesLightmap: 'white',
+			_NegativeAxesLightmap: 'white',
+			_MaskTex: 'white',
+			_BlendTex: 'black',
+		},
+	});
+	// Valley's Aberrants' black smoke (`M_fx_damagesmoke_06`)
+	const smoke = (overrides: Partial<MaterialValues> = {}) =>
+		describeMaterial(
+			material({
+				blend: 'alphaBlend',
+				blendFactors: [5, 10],
+				keywords: [
+					'_USE_BLEND',
+					'_USE_DISSOLVE',
+					'_USE_DISTURB',
+					'_USE_DISTURB_TEX2',
+					'_USE_FOG',
+					'_USE_MASK',
+					'_USE_SIXWAY_LIGHTMAP',
+					'_USE_SOFTBLEND',
+				],
+				slots: {
+					_PositiveAxesLightmap: slot(1, [3, 3]),
+					_NegativeAxesLightmap: slot(2),
+					_MaskTex: slot(3),
+					_BlendTex: slot(4, [2, 2]),
+					_DissolveTex: slot(5),
+					_DisturbTex1: slot(6, [0.5, 0.5]),
+					_DisturbTex2: slot(7),
+				},
+				floats: {
+					_AbsorptionRange: 1,
+					_DisturbUIntensity1: 0.11,
+					_DisturbVIntensity1: 0.09,
+					_DisturbUIntensity2: 0.11,
+					_DisturbVIntensity2: 0.06,
+					_LightMapUseDisturb: 1,
+					_LightMapUVRotate: 90,
+					_MaskTexUseDisturb: 1,
+					_DissolveTexUseDisturb: 1,
+					_TintColorAlpha: 3,
+					_SoftDistance: 0.5,
+					_UseNearCameraFade: 1,
+				},
+				colors: { _TintColor: [1, 1, 1, 1], _BlendTint: [0.678, 0.678, 0.678, 1] },
+				vectors: { _LightMapControls: [1, 1, 0, 0], _DisturbUVSpeed1: [0.1, 0, 0, 0] },
+				...overrides,
+			}),
+			sixWay,
+		);
+
+	it('takes the lightmaps’ transform from `_LightMapControls`, turned by −`_LightMapUVRotate`', () => {
+		const surface = ofKind(smoke(), 'sixWaySmoke');
+		assert.deepEqual([surface.positive.texture, surface.negative], [1, 2]);
+		assert.deepEqual(surface.positive.scale, [1, 1]);
+		assert.ok(Math.abs(surface.positive.rotation[0]) < 1e-9);
+		assert.equal(surface.positive.rotation[1], -1);
+		assert.equal(surface.positive.disturbShare, 1);
+		assert.deepEqual(surface.disturb[0]?.intensity, [0.11, 0.09]);
+		assert.deepEqual(surface.disturb[0]?.texture.scroll, [0.1, 0]);
+		assert.deepEqual(surface.disturb[1]?.intensity, [0.11, 0.06]);
+		assert.deepEqual(surface.blend?.scale, [2, 2]);
+		assert.deepEqual(surface.blendTint, [0.678, 0.678, 0.678, 1]);
+		assert.equal(surface.mask?.redAlpha, true);
+		assert.deepEqual(surface.tint, [1, 1, 1, 3]);
+		assert.ok(Math.abs(surface.absorptionRange - 1.934) < 1e-3);
+		assert.deepEqual(surface.soft, { distance: 0.5, bias: 0 });
+		assert.equal(surface.unfogged, false);
+	});
+
+	it('leaves the distortion’s second texture out without `_USE_DISTURB_TEX2`', () => {
+		const keywords = ['_USE_DISTURB', '_USE_SIXWAY_LIGHTMAP'];
+		const surface = ofKind(smoke({ keywords }), 'sixWaySmoke');
+		assert.equal(surface.disturb[1], null);
+		assert.deepEqual([surface.mask, surface.blend, surface.dissolve], [null, null, null]);
+	});
+
+	it('marks main textures, particle custom UVs and other blending unsupported', () => {
+		assert.equal(smoke({ keywords: ['_USE_SIXWAY_LIGHTMAP', '_USE_MAINTEX'] }).kind, 'unsupported');
+		assert.equal(smoke({ keywords: ['_USE_MASK'] }).kind, 'unsupported');
+		assert.equal(smoke({ floats: { _MaskUVSet: 1 } }).kind, 'unsupported');
+		assert.equal(smoke({ blend: 'premultiplied', blendFactors: [1, 10] }).kind, 'unsupported');
+	});
+});

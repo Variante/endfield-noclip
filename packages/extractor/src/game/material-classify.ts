@@ -27,6 +27,7 @@ const FAMILIES: [RegExp, ShaderFamily][] = [
 	[/^HGRP\/Effect\/VFXAdvance/i, 'vfxAdvance'],
 	[/^HGRP\/Effect\/VFXRefract/i, 'vfxRefract'],
 	[/^HGRP\/Effect\/VFXDitherAlpha/i, 'vfxDitherAlpha'],
+	[/^HGRP\/Effect\/VFXSmoke_SixWay$/i, 'vfxSmokeSixWay'],
 	[/FakeVolumeFog/i, 'vfxFakeVolumeFog'],
 	[/^Hidden\/VLB_/i, 'volumetricBeam'],
 	[/terrain/i, 'terrain'],

@@ -23,6 +23,7 @@ import {
 	mistVolumeLook,
 	multipliesScene,
 	refractLook,
+	sixWaySmokeLook,
 	stackLook,
 	waterFoamLook,
 	waterSheetLook,
@@ -432,6 +433,13 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			}
 			case 'waterSheet': {
 				looks[entry.id] = effectMaterialLook(waterSheetLook(surface), {
+					flags: LookFlags.Effect,
+					cull: entry.cull,
+				});
+				break;
+			}
+			case 'sixWaySmoke': {
+				looks[entry.id] = effectMaterialLook(sixWaySmokeLook(surface), {
 					flags: LookFlags.Effect,
 					cull: entry.cull,
 				});

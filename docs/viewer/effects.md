@@ -95,6 +95,18 @@ unlit share only, since on the lit share it darkens sheets in dark places, such 
 falls, far below the game's. the normal map's frame comes from the UVs' screen derivatives rather
 than mesh tangents.
 
+## six-way smoke
+
+[six-way smoke](../game-data/effects.md#six-way-smoke) draws through `fs_effect`, which hands it to
+`six_way_smoke` in `shaders/effect.wgsl` (`sixWaySmokeLook` in
+[`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). the positive lightmap takes
+slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask, blend and
+dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and its object
+x axis made square to it. the sun takes the viewer's light colour over π, as Lit's diffuse does, and
+the shadow is sampled per pixel without the game's ramp texture. the particles' custom data never
+reaches the shader (as for every effect), so the dissolve schedule and custom UV scrolls stay at
+their material values, and materials whose mask or dissolve read custom UVs stay unsupported.
+
 ## mist
 
 the [mist](../game-data/effects.md#mist) cards and boxes draw by their own entry points in

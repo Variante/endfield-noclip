@@ -156,10 +156,10 @@ packs or renders correctly.
   and sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own inputs (467
   materials, shaded as plain alpha-tested foliage)
 - shaders without a look, shown as [unsupported](viewer/materials.md#unsupported-materials) and
-  counted per shader by `pack`: on map02 `HGRP/Effect/VFXSmoke_SixWay`,
-  `Hidden/HGRP/Effect/VFXInkWashPaint`, `HGRP/Effect/VFXRadialBlur`, `HGRP/CharacterNPR` and
-  `…_VFX`, `Hidden/HGRP/LitEffectBlend`, `HGRP/Effect/VFXTransparentDepthOnly`, `HGRP/Foliage/Glow`,
-  `HGRP/LitForward` and the factory placement and outline shaders (28 materials)
+  counted per shader by `pack`: on map02 `Hidden/HGRP/Effect/VFXInkWashPaint`,
+  `HGRP/Effect/VFXRadialBlur`, `HGRP/CharacterNPR` and `…_VFX`, `Hidden/HGRP/LitEffectBlend`,
+  `HGRP/Effect/VFXTransparentDepthOnly`, `HGRP/Foliage/Glow`, `HGRP/LitForward` and the factory
+  placement and outline shaders (28 materials)
 - matte paintings ([matte paintings](game-data/materials.md#matte-paintings)): `_UseMainTexAsAlpha`
   isn't read (no map01 material sets it)
 - erosion rock ([erosion](game-data/materials.md#erosion)): the soft blend into what lies behind
@@ -201,33 +201,36 @@ packs or renders correctly.
   (FogSimple, VFXFakeVolumeFog), VFXWater's waterfall sheets, VFXDitherAlpha's plain variant and its
   unlit distortion, dissolve, red mask and polar or screen UV variants, with or without a vertex
   offset (blended rather than dithered, and writing no depth; the Very Large Rift's escaping trails
-  are unchecked against an in-game shot), and VFXRefract's mask, polar UV, colour offset, soft blend
-  and dissolve variants draw; other effect shaders (VFXAdvance, …) and materials in these shaders'
-  undrawn variants show as [unsupported](viewer/materials.md#unsupported-materials); reflection-only
-  effects aren't drawn, as in the game (their part in the reflections is under screen-space
-  reflections). VFXRefract's blend, saturation, spread, Fresnel mask and trail aren't drawn, and its
-  copy of the scene includes the water and fog, unchecked against the game's; Deep Dale Street's
-  fog-wall haze and the balloons' glitch over their "connecting" sign aren't compared with an
-  in-game shot. VFXBaseV2's breathing pulses every placement in step, without its per-draw time
-  scale and offset, and Dijiang's clue board is unchecked against an in-game shot. undrawn: for the
-  first two, additive blend states, `_BlendMode` 2 outside a
-  multiplying blend state, the vertex-offset mask, particle-data terms, the sixth sample texture
-  together with a vertex offset, screen UVs relative to the object, brightening that is a scan line
-  or centred on a fixed point (the player-centred one is left out), edge colour,
-  rigid-body, fluid and particle vertex animation textures, soft bodies that are lit, take a Fresnel
-  term or a vertex offset or play from particle data (the drawn Aurelyne blob is unchecked against
-  an in-game shot), water blending (fragments below the authored height show the checker, and the
-  height a water surface would set isn't followed), flipbook and particle inputs, and VFXDecal's
-  lighting, parallax, 3D-texture and particle variants; local lights and the post-exposure division
-  on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`, punctual lights, matcaps and
-  the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword variants, and in its dither the
-  vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge mode. across effects: their own fog
-  (`_USE_FOG`), the mist boxes' depth prepass and vertex colour, and the game's global scene-effect
-  colour adjustment (`_VFXParams1`, set by native code; the Jingyu blight reads less saturated than
-  in game, and Suiming's [cave-exit light card](game-data/effects.md#mist) is unchecked against an
-  in-game shot). stencil [portals](game-data/effects.md#portals) draw without their masks' own
-  colour and depth, stencil operations other than keep and replace are unsupported, and none draw
-  unless the GPU has `depth32float-stencil8`
+  are unchecked against an in-game shot), VFXRefract's mask, polar UV, colour offset, soft blend and
+  dissolve variants, and [six-way smoke](game-data/effects.md#six-way-smoke) with its lightmaps
+  (without the shadow's ramp texture, local lights or a main texture, and unchecked against an
+  in-game shot) draw; other effect shaders (VFXAdvance, …) and materials in these shaders' undrawn
+  variants show as [unsupported](viewer/materials.md#unsupported-materials); reflection-only effects
+  aren't drawn, as in the game (their part in the reflections is under screen-space reflections).
+  VFXRefract's blend, saturation, spread, Fresnel mask and trail aren't drawn, and its copy of the
+  scene includes the water and fog, unchecked against the game's; Deep Dale Street's fog-wall haze
+  and the balloons' glitch over their "connecting" sign aren't compared with an in-game shot.
+  VFXBaseV2's breathing pulses every placement in step, without its per-draw time scale and offset,
+  and Dijiang's clue board is unchecked against an in-game shot, as is its edge colour, not yet
+  looked at in the viewer. undrawn: for the first two,
+  additive blend states, `_BlendMode` 2 outside a multiplying blend state, the vertex-offset mask,
+  particle-data terms, the sixth sample texture together with a vertex offset, screen UVs relative
+  to the object, brightening that is a scan line or centred on a fixed point (the player-centred one
+  is left out), edge colour, rigid-body, fluid and particle vertex animation textures, soft bodies
+  that are lit, take a Fresnel term or a vertex offset or play from particle data (the drawn
+  Aurelyne blob is unchecked against an in-game shot), water blending (fragments below the authored
+  height show the checker, and the height a water surface would set isn't followed), flipbook and
+  particle inputs, and VFXDecal's lighting, parallax, 3D-texture and particle variants; local lights
+  and the post-exposure division on lit effects; for VFXWater, `VFX_WATER_REFRACT`, `_VAT_SOFTBODY`,
+  punctual lights, matcaps and the `VFX_WATER_SIMPLE_LIGHT` probe; VFXDitherAlpha's other keyword
+  variants, and in its dither the vertex alpha, the near-camera fade, `_USE_MAIN2` and the edge
+  mode. across effects: their own fog (`_USE_FOG`), the mist boxes' depth prepass and vertex colour,
+  and the game's global scene-effect colour adjustment (`_VFXParams1`, set by native code; the
+  Jingyu blight reads less saturated than in game, and Suiming's
+  [cave-exit light card](game-data/effects.md#mist) is unchecked against an in-game shot). stencil
+  [portals](game-data/effects.md#portals) draw without their masks' own colour and depth, stencil
+  operations other than keep and replace are unsupported, and none draw unless the GPU has
+  `depth32float-stencil8`
 - effect distance bands ([effect LOD tables](game-data/assets.md#effect-lod-tables)) switch without
   the game's fade, and a billboarded renderer's offset from the effect's origin doesn't turn with
   the camera; only prefab renderers take them (whether static scenery has distance-banded effects is

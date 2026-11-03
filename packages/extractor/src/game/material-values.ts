@@ -31,6 +31,7 @@ export type ShaderFamily =
 	| 'vfxAdvance'
 	| 'vfxRefract'
 	| 'vfxDitherAlpha'
+	| 'vfxSmokeSixWay'
 	| 'vfxFakeVolumeFog'
 	| 'volumetricBeam'
 	| 'terrain'

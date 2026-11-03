@@ -25,6 +25,7 @@ export type MaterialSurface =
 	| EffectStackSurface
 	| StencilMaskSurface
 	| WaterSheetSurface
+	| SixWaySmokeSurface
 	| LitDecalSurface
 	| RefractSurface
 	| WaterFoamSurface;
@@ -764,6 +765,53 @@ export interface WaterSheetSurface {
 	soft: { distance: number; bias: number } | null;
 	ignorePostExposure: number;
 	near: EffectNearFade;
+}
+
+/** a texture of a six-way smoke layer, with the share of the distortion its UVs take */
+export interface SixWayTexture extends EffectTexture {
+	disturbShare: number;
+}
+
+/**
+ * `HGRP/Effect/VFXSmoke_SixWay`, smoke lit through two lightmaps that hold how much light it lets through
+ * from each axis of its own frame (`docs/game-data/effects.md#six-way-smoke`)
+ */
+export interface SixWaySmokeSurface {
+	kind: 'sixWaySmoke';
+	/** rgb: light from +x (the texture's right), +y (its up), +z (away from the camera); a: opacity */
+	positive: SixWayTexture;
+	/** rgb: light from −x, −y, −z; sampled at the positive map's UVs */
+	negative: number;
+	/** the distortion's textures, both read from red: u, v per unit, or a normal in (a·r, g) when `normal` */
+	disturb: [first: DisturbLayer | null, second: DisturbLayer | null];
+	/** `_Bi_Disturb` */
+	disturbBias: number;
+	/** red is the alpha (`_UseMaskTexAsAlpha`) */
+	mask: { texture: SixWayTexture; redAlpha: boolean } | null;
+	/** its scale and offset are `_BlendTex_ST`, which the game applies again after the distortion */
+	blend: SixWayTexture | null;
+	/** the blend layer's tint (HDR, times the vertex colour) and how strongly it covers */
+	blendTint: Rgba;
+	dissolve: { texture: SixWayTexture; dissolve: EffectDissolve } | null;
+	/** linear rgb times its intensity, alpha: with the mask, blend and dissolve, the colour the smoke absorbs */
+	tint: Rgba;
+	vertexColor: boolean;
+	brighten: { threshold: number; intensity: number };
+	/** the most light a lightmap passes after absorption, as the game derives it from `_AbsorptionRange` */
+	absorptionRange: number;
+	/** `_EnvLightSaturation`: the ambient light's saturation */
+	envSaturation: number;
+	soft: { distance: number; bias: number } | null;
+	near: EffectNearFade;
+	/** drawn after the fog (no `_USE_FOG`) */
+	unfogged: boolean;
+}
+
+/** a six-way smoke distortion texture */
+export interface DisturbLayer {
+	texture: EffectTexture;
+	intensity: [u: number, v: number];
+	normal: boolean;
 }
 
 /**
