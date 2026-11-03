@@ -249,8 +249,13 @@ interface PathStart {
 	direction: Vec3;
 	/** m/s along {@link direction} */
 	speed: number;
-	/** the velocity module's speed modifier */
+	/** the velocity module's speed modifier, 1 when it's a curve ({@link modifierAt}) */
 	modifier: number;
+	/**
+	 * a speed modifier curve at an age, s, which `speed` leaves out; `null` when it's constant. the packer
+	 * leaves such systems without a speed limit or drag
+	 */
+	modifierAt: ((age: number) => number) | null;
 	/** m/s² along {@link down} */
 	gravity: number;
 	/** seconds */
@@ -333,29 +338,46 @@ export const limitedPath = (path: {
 	};
 };
 
-/** sample pairs {@link travelled} integrates a velocity curve over */
+/** sample pairs {@link integrateAge} takes */
 const TRAVEL_STEPS = 8;
+
+/**
+ * @param f a rate at an age, s
+ * @param age the age to integrate it up to, s
+ * @returns its integral from birth to `age` (Simpson's rule)
+ */
+export const integrateAge = (f: (age: number) => number, age: number): number => {
+	const n = TRAVEL_STEPS * 2;
+	const h = age / n;
+	let sum = f(0) + f(age);
+	for (let i = 1; i < n; i++) {
+		sum += f(i * h) * (i % 2 === 1 ? 4 : 2);
+	}
+	return (sum * h) / 3;
+};
 
 /**
  * @param curve a velocity, m/s, read at the particle's age over its lifetime
  * @param age the particle's age, s
  * @param life its lifetime, s
  * @param r its random value for the velocity
+ * @param scale a factor on the velocity at an age, s, such as a speed modifier curve; none when omitted
  * @returns how far the velocity has carried it, m
  */
-export const travelled = (curve: MinMaxCurveInfo, age: number, life: number, r: number): number => {
-	if (curve.mode === CurveMode.Constant || curve.mode === CurveMode.TwoConstants) {
+export const travelled = (
+	curve: MinMaxCurveInfo,
+	age: number,
+	life: number,
+	r: number,
+	scale?: (age: number) => number,
+): number => {
+	if (scale === undefined && (curve.mode === CurveMode.Constant || curve.mode === CurveMode.TwoConstants)) {
 		return evaluateMinMax(curve, 0, r) * age;
 	}
-	// Simpson's rule over the age
-	const at = (a: number) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r);
-	const n = TRAVEL_STEPS * 2;
-	const h = age / n;
-	let sum = at(0) + at(age);
-	for (let i = 1; i < n; i++) {
-		sum += at(i * h) * (i % 2 === 1 ? 4 : 2);
-	}
-	return (sum * h) / 3;
+	return integrateAge(
+		(a) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r) * (scale?.(a) ?? 1),
+		age,
+	);
 };
 
 /**
@@ -972,12 +994,28 @@ export class ParticleSimulation {
 		motion: PathStart & { startSize: number[] },
 	): { position: Vec3; moving: Vec3 } {
 		const seed = this.#seed;
-		const { id, start, direction, speed, modifier, gravity, startSize, age, life, down, worldToLocal } =
-			motion;
+		const {
+			id,
+			start,
+			direction,
+			speed,
+			modifier,
+			modifierAt,
+			gravity,
+			startSize,
+			age,
+			life,
+			down,
+			worldToLocal,
+		} = motion;
 		const lived = life > 0 ? age / life : 0;
+		// the game moves a particle by its whole velocity times the speed modifier: `scaledAge` is the modifier's
+		// integral over the age, which a constant velocity moves by, and `scaleNow` its value now
+		const scaledAge = modifierAt === null ? age : integrateAge(modifierAt, age);
+		const scaleNow = modifierAt === null ? 1 : modifierAt(age);
 		const [launch, launchSpeed] =
 			drag === null
-				? [speed * age, speed]
+				? [speed * scaledAge, speed * scaleNow]
 				: dragged(drag, speed, Math.max(...startSize), age, random(seed, id, Channel.Drag));
 		const [fall, fallSpeed] =
 			drag === null
@@ -999,16 +1037,17 @@ export class ParticleSimulation {
 			let linearNow: Vec3 = [0, 0, 0];
 			for (let axis = 0; axis < 3; axis++) {
 				const r = random(seed, id, channels[axis]);
-				linear[axis] = travelled(velocity.linear[axis], age, life, r);
-				linearNow[axis] = evaluateMinMax(velocity.linear[axis], lived, r);
+				linear[axis] = travelled(velocity.linear[axis], age, life, r, modifierAt ?? undefined);
+				linearNow[axis] = evaluateMinMax(velocity.linear[axis], lived, r) * scaleNow;
 			}
 			if (velocity.linearInWorld) {
 				linear = worldToLocal(linear);
 				linearNow = worldToLocal(linearNow);
 			}
 			const offset = velocity.orbitalOffset;
-			const radialSpeed = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
-			const radial = radialSpeed * age;
+			const radialRate = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
+			const radialSpeed = radialRate * scaleNow;
+			const radial = radialRate * scaledAge;
 			const outward = normalize([start[0] - offset[0], start[1] - offset[1], start[2] - offset[2]]);
 			position = [
 				position[0] + linear[0] * modifier + outward[0] * radial,
@@ -1023,9 +1062,9 @@ export class ParticleSimulation {
 			// the orbit turns the particle about the offset at a constant rate; applied to the whole path, which is
 			// exact when the other motion runs along the orbit's axis (the crater rocks rise along theirs)
 			const turn: Vec3 = [
-				evaluateMinMax(velocity.orbital[0], 0, random(seed, id, Channel.OrbitalX)) * modifier * age,
-				evaluateMinMax(velocity.orbital[1], 0, random(seed, id, Channel.OrbitalY)) * modifier * age,
-				evaluateMinMax(velocity.orbital[2], 0, random(seed, id, Channel.OrbitalZ)) * modifier * age,
+				evaluateMinMax(velocity.orbital[0], 0, random(seed, id, Channel.OrbitalX)) * modifier * scaledAge,
+				evaluateMinMax(velocity.orbital[1], 0, random(seed, id, Channel.OrbitalY)) * modifier * scaledAge,
+				evaluateMinMax(velocity.orbital[2], 0, random(seed, id, Channel.OrbitalZ)) * modifier * scaledAge,
 			];
 			const turned = rotateBy(turn, [
 				position[0] - offset[0],
@@ -1136,16 +1175,25 @@ export class ParticleSimulation {
 			};
 		} else {
 			const { velocity, clamp } = motion;
-			const modifier =
-				velocity === null
-					? 1
-					: evaluateMinMax(velocity.speedModifier, 0, random(seed, id, Channel.SpeedModifier));
+			let modifier = 1;
+			let modifierAt: ((age: number) => number) | null = null;
+			if (velocity !== null) {
+				const curve = velocity.speedModifier;
+				const r = random(seed, id, Channel.SpeedModifier);
+				if (curve.mode === CurveMode.Constant || curve.mode === CurveMode.TwoConstants) {
+					modifier = evaluateMinMax(curve, 0, r);
+				} else {
+					// the game reads it each step at the particle's age over its lifetime, as linear velocities
+					modifierAt = (a) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r);
+				}
+			}
 			const begin: PathStart = {
 				id,
 				start,
 				direction,
 				speed: evaluateMinMax(motion.startSpeed, u, random(seed, id, Channel.Speed)) * modifier,
 				modifier,
+				modifierAt,
 				// gravity, which Unity always pulls down the world's y
 				gravity: GRAVITY * evaluateMinMax(motion.gravityModifier, u, random(seed, id, Channel.Gravity)),
 				age,

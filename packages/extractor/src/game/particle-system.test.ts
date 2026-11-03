@@ -292,6 +292,23 @@ test('systems the viewer cannot play say why', () => {
 		reason(system({ VelocityModule: { ...(system().VelocityModule as object), radial: turning } })),
 		'velocity curves',
 	);
+	// a speed modifier curve plays (the floating stones of Valley's Aberrants ramp theirs up), but not under
+	// drag or a speed limit
+	const ramping = { VelocityModule: { ...(system().VelocityModule as object), speedModifier: turning } };
+	assert.equal(reason(system(ramping)), null);
+	const dragged = {
+		enabled: true,
+		dampen: 0,
+		separateAxis: false,
+		magnitude: constant(1),
+		drag: constant(0.5),
+		multiplyDragByParticleSize: false,
+		multiplyDragByParticleVelocity: false,
+	};
+	assert.equal(
+		reason(system({ ...ramping, ClampVelocityModule: dragged })),
+		'speed modifier curve with a velocity limit or drag',
+	);
 	assert.equal(
 		reason(system({ EmissionModule: { enabled: true, rateOverTime: curve([[0, 1]]), m_Bursts: [] } })),
 		'rate curve',

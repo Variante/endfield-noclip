@@ -154,6 +154,13 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   opposing velocity of its own and settles at the limit. the challenge start point's rising rock
   cards (`stone` in `int_challenge_start_point_once_postmodel`) start still, are pushed up at 0.2–1
   m/s and limited to 0.1–1 m/s with a dampen of 0.1.
+- **speed modifier.** each frame the engine reads Velocity over Lifetime's `speedModifier` at the
+  particle's age over its lifetime (the time the linear velocity curves are read at; two constants
+  pick a random value per particle) and moves the particle by its whole velocity, its own plus the
+  velocity-over-lifetime part, times that value. a curve thus scales the start speed as much as the
+  module's own terms. the floating stones of Valley's Aberrants (`floatstone01` in
+  `p_fxmap_map01_lv001_floatstone_*`) rise at 0.5–1.5 m/s under a modifier ramping from 0.39 to 1
+  over their 5–10 s. whether gravity's part of the velocity is scaled too isn't traced.
 - **ring buffer.** `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
   replays `ringBufferLoopRange`.
 - **texture sheet.** `UVModule` in grid mode plays the whole sheet or one row (fixed, random or by

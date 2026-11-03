@@ -546,6 +546,36 @@ describe('ParticleSimulation', () => {
 		assert.equal(spinning.length, 1);
 		assert.ok(Math.abs(spinning[0].rotation[2] - Math.sin(0.25 / 2)) < 1e-4);
 	});
+
+	it('moves particles by their velocity times a speed modifier curve integrated over their age', () => {
+		// the floating stones of Valley's Aberrants (`floatstone01`) rise at a constant speed that their speed
+		// modifier ramps up over their lifetime
+		const rising = (speedModifier: MinMaxCurveInfo) =>
+			run(
+				system({
+					gravityModifier: constant(0),
+					looping: false,
+					rate: constant(0),
+					startLifetime: constant(1),
+					shape: null,
+					bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+					velocity: {
+						linear: [constant(0), constant(0), constant(1)],
+						linearInWorld: false,
+						orbital: [constant(0), constant(0), constant(0)],
+						orbitalOffset: [0, 0, 0],
+						radial: constant(0),
+						speedModifier,
+					},
+				}),
+				0.5,
+			);
+		// 0 at birth to 2 at death: ∫₀^½ 2a da = ¼ m by halfway
+		const [ramped] = rising(line(0, 2));
+		assert.ok(Math.abs(ramped.position[2] - 0.25) < 1e-6, `${ramped.position[2]}`);
+		const [steady] = rising(constant(2));
+		assert.ok(Math.abs(steady.position[2] - 1) < 1e-6, `${steady.position[2]}`);
+	});
 });
 
 describe('turnFromZ', () => {

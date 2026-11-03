@@ -255,8 +255,9 @@ const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo | string =
 	const linear = curves(['x', 'y', 'z']);
 	const orbital = curves(['orbitalX', 'orbitalY', 'orbitalZ']);
 	const [radial, speedModifier] = curves(['radial', 'speedModifier']);
-	// linear velocities integrate over a particle's age; the others turn or push along paths that don't
-	if (![...orbital, radial, speedModifier].every(isConstant)) {
+	// linear velocities and the speed modifier integrate over a particle's age; the others turn or push along
+	// paths that don't
+	if (![...orbital, radial].every(isConstant)) {
 		return 'velocity curves';
 	}
 	return {
@@ -408,9 +409,10 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
- *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
- *   ones, a per-axis speed limit or one alongside drag, a drag or rate curve, or no mesh. `null` for a system
- *   that doesn't play on awake, which shows nothing until a script starts it
+ *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, orbital or radial velocity curves,
+ *   a speed modifier curve alongside a speed limit or drag, a per-axis speed limit or one alongside drag, a
+ *   drag or rate curve, or no mesh. `null` for a system that doesn't play on awake, which shows nothing until
+ *   a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -526,6 +528,10 @@ export const readParticleSystem = (
 			return { reason: 'velocity limit with drag' };
 		}
 		clamp = limit ?? drag;
+		// the viewer's stepped and dragged paths take the speed modifier as a constant
+		if (clamp !== null && velocity !== null && !isConstant(velocity.speedModifier)) {
+			return { reason: 'speed modifier curve with a velocity limit or drag' };
+		}
 	}
 
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));

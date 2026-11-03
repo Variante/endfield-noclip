@@ -64,6 +64,10 @@ system and its index, so any moment can be evaluated on its own:
   modifier) and the radial push times `m`, then turned about the orbit's centre by `ω · m · a`.
   turning the whole path is exact when the rest of the motion runs along the orbit's axis. the mesh
   is then offset by the system's pivot, scaled by the particle's size and turned with it.
+- a speed modifier curve (`modifierAt`) takes the place of `m · a` with its integral over the age,
+  and the linear velocity curves are integrated times it, as the game
+  [scales every step](../game-data/assets.md#particle-systems); the fall isn't scaled. the packer
+  leaves such systems without drag or a speed limit.
 - size is the start size times the size over lifetime at `a / lifetime`; rotation is the start Euler
   angles (Unity's Z, X, Y order) plus the angular velocity integrated over the age (as linear
   velocity curves are), applied in the emitter's frame (Local), the world's (World), the camera's
