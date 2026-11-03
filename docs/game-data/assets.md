@@ -157,6 +157,20 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   `startFrame`, on the UV sets of `uvChannelMask`.
 - **meshes.** each particle draws one of up to four meshes (`m_Mesh` … `m_Mesh3`), evenly or by
   `m_MeshWeighting*` when `m_MeshDistribution` is 1.
+- **render alignment.** `m_RenderAlignment` is Unity's: View 0, World 1, Local 2, Facing 3 and
+  Velocity 4, which points a particle's +z along its motion. the accelerate mushroom's arrows
+  (`dajiantou02`/`03` in `int_acceleratemushroom_postmodel`) are flat arrow meshes pointing along
+  their +z, launched straight up a cone of angle 0 and lifted by a slightly negative gravity, so
+  Velocity alignment stands them upright as they rise, spun about the vertical by their rotation
+  over lifetime. how Unity rolls a velocity-aligned particle about its motion isn't traced.
+- **rotation over lifetime.** `RotationModule`'s rates (`curve` about z, and `x`, `y` with
+  `separateAxes`) are angular velocities read at the particle's age over its lifetime, so curves
+  speed up or slow the spin. the mushroom's wind sheets (`wind01`/`wind02`) start spinning at up to
+  60°/s either way, between two curves, and slow to a stop.
+- **donut shape.** `ShapeModule.type` 17 emits from a torus: `radius` around the shape's z,
+  `donutRadius` the tube's, `radiusThickness` the tube's outer part used, each particle leaving
+  outwards from the tube's centre line, as Unity documents it (not checked against the engine). the
+  mushroom's coin motes (`lizi1`) burst from one stretched tall by the shape's scale.
 
 examples:
 

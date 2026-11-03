@@ -22,7 +22,7 @@ import {
 	ParticleShapeKind,
 } from '@endfield-noclip/package-format/particles';
 
-import { ALIGNMENT_VELOCITY, constantMidpoint, readStartPose, ScalingMode } from './particle-system.ts';
+import { constantMidpoint, readStartPose, ScalingMode } from './particle-system.ts';
 
 /** a Transform's local placement */
 export interface LocalTransform {
@@ -146,7 +146,7 @@ export const frozenParticleMatrix = (
 			frame = sizing;
 			break;
 		}
-		case ALIGNMENT_VELOCITY: {
+		case ParticleAlignment.Velocity: {
 			// a box sends its particles along the emitter's forward axis, so they face where the emitter does
 			if (!booleanField(shape, 'enabled') || numberField(shape, 'type') !== ParticleShapeKind.Box) {
 				return null;

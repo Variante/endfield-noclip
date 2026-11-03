@@ -107,6 +107,8 @@ export const ParticleShapeKind = {
 	/** from anywhere inside the cone, up to its length */
 	ConeVolume: 8,
 	Circle: 10,
+	/** from inside a torus around the circle, outwards from its tube's centre line */
+	Donut: 17,
 } as const;
 
 export type ParticleShapeKind = (typeof ParticleShapeKind)[keyof typeof ParticleShapeKind];
@@ -116,8 +118,13 @@ export interface ParticleShapeInfo {
 	kind: ParticleShapeKind;
 	/** m */
 	radius: number;
-	/** the outer fraction of the radius particles start in: 0 on the edge only, 1 anywhere inside */
+	/**
+	 * the outer fraction of the radius particles start in: 0 on the edge only, 1 anywhere inside. a donut
+	 * applies it to its tube's radius
+	 */
 	radiusThickness: number;
+	/** the donut's tube radius, m */
+	donutRadius: number;
 	/** the cone's half angle, degrees */
 	angle: number;
 	/** the cone volume's length, m */
@@ -162,6 +169,8 @@ export const ParticleAlignment = {
 	World: 1,
 	/** the emitter's */
 	Local: 2,
+	/** the emitter's, turned the shortest way from its +z onto the particle's velocity */
+	Velocity: 4,
 } as const;
 
 export type ParticleAlignment = (typeof ParticleAlignment)[keyof typeof ParticleAlignment];
@@ -217,7 +226,10 @@ export interface ParticleSystemInfo {
 	motion: ParticleMotionInfo;
 	/** a multiplier of the start size over each particle's lifetime, per axis; `null` without */
 	sizeOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
-	/** angular velocity about x, y and z, radians per second; `null` without */
+	/**
+	 * angular velocity about x, y and z, radians per second, read at each particle's age over its lifetime; the
+	 * angle is its integral over the age. `null` without
+	 */
 	rotationOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
 	alignment: ParticleAlignment;
 	/** the mesh's offset from the particle's position, in units of its size */

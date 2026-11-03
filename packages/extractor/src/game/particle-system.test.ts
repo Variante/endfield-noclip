@@ -284,7 +284,8 @@ test('systems the viewer cannot play say why', () => {
 	assert.equal(reason(system({ UVModule: sheet({ mode: 1 }) })), 'sprite sheet');
 	assert.equal(reason(system({ UVModule: sheet({ timeMode: 1 }) })), 'sheet time mode 1');
 	assert.equal(reason(system({ UVModule: sheet({ tilesX: 65 }) })), 'sheet of 65×8 tiles');
-	assert.equal(reason(system(), renderer({ m_RenderAlignment: 4 })), 'alignment 4');
+	assert.equal(reason(system(), renderer({ m_RenderAlignment: 5 })), 'alignment 5');
+	assert.equal(reason(system({ ShapeModule: { ...(system().ShapeModule as object), type: 6 } })), 'shape 6');
 	assert.equal(reason(system(), renderer({ m_Mesh: pointer(0n) })), 'no mesh');
 	const turning = { ...curve([[0, 1]]), minMaxState: 1 };
 	assert.equal(
@@ -297,6 +298,42 @@ test('systems the viewer cannot play say why', () => {
 	);
 	// one a script starts shows nothing until then, so it's neither played nor unsupported
 	assert.equal(readParticleSystem(system({ playOnAwake: false }), renderer()), null);
+});
+
+test('the accelerate mushroom plays its velocity-aligned arrows, spin curves and donut', () => {
+	// the arrows (dajiantou02) rise along their velocity; the wind meshes (wind01) slow their spin by curves
+	const twoCurves = (scalar: number) => ({
+		...curve([
+			[0, -1],
+			[1, 0],
+		]),
+		minMaxState: 2,
+		scalar,
+		minCurve: {
+			m_Curve: [{ time: 0, value: 1, inSlope: 0, outSlope: 0 }],
+			m_PreInfinity: 2,
+			m_PostInfinity: 2,
+		},
+	});
+	const read = readParticleSystem(
+		system({
+			RotationModule: {
+				enabled: true,
+				separateAxes: false,
+				x: constant(0),
+				y: constant(0),
+				curve: twoCurves(1.05),
+			},
+			ShapeModule: { ...(system().ShapeModule as object), type: 17, radius: { value: 1 }, donutRadius: 0.2 },
+		}),
+		renderer({ m_RenderAlignment: 4 }),
+	);
+	assert.ok(read !== null && 'info' in read);
+	assert.equal(read.info.alignment, ParticleAlignment.Velocity);
+	assert.equal(read.info.rotationOverLifetime?.[2].mode, CurveMode.TwoCurves);
+	assert.equal(read.info.rotationOverLifetime?.[2].scalar, 1.05);
+	assert.equal(read.info.shape?.kind, ParticleShapeKind.Donut);
+	assert.equal(read.info.shape?.donutRadius, 0.2);
 });
 
 test('billboards draw one quad, stretched ones keep how they lengthen', () => {

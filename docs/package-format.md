@@ -605,16 +605,16 @@ unless the mode is Shape. the entry keeps:
   their curves and gradients are the `AnimationCurve` and `Gradient` of
   [`curves.ts`](../packages/package-format/src/curves.ts), which lens flares use too, with key times
   over 0–1 (the game stores gradient key times as 0–65535)
-- the shape (sphere, hemisphere, cone, cone volume, box or circle, with its radius, thickness,
-  angle, length, arc, placement and random-direction and -position amounts)
+- the shape (sphere, hemisphere, cone, cone volume, box, circle or donut, with its radius,
+  thickness, donut radius, angle, length, arc, placement and random-direction and -position amounts)
 - the velocity module (linear, as curves too; orbital about an offset, radial and speed modifier as
-  constants), and size and rotation over lifetime
+  constants), and size and rotation over lifetime (curves too)
 - the Limit Velocity module as the free motion's `clamp`: its drag when its `dampen` is 0 (the
   amount and whether it scales with the particle's size and its speed squared), or its speed limit
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
   rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz,
   applying the limit as [the game does](game-data/assets.md#particle-systems)
-- the render alignment (Facing is kept as View) and pivot
+- the render alignment (Facing is kept as View; Velocity too) and pivot
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
   random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by

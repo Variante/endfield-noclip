@@ -31,6 +31,7 @@ import {
 	sheetTile,
 	splinePoint,
 	travelled,
+	turnFromZ,
 } from './particles.ts';
 
 const constant = (value: number): MinMaxCurveInfo => ({
@@ -108,6 +109,7 @@ const fields = (
 		kind: ParticleShapeKind.Cone,
 		radius: 65,
 		radiusThickness: 0.5,
+		donutRadius: 0,
 		angle: 2,
 		length: 5,
 		arc: 360,
@@ -178,6 +180,7 @@ const run = (info: ParticleSystemInfo, time: number, seed = 7) => {
 	const count = new ParticleSimulation(info, seed).evaluate(time, DOWN, same, out);
 	return Array.from({ length: count }, (_, i) => ({
 		position: Array.from(out.subarray(i * PARTICLE_FLOATS, i * PARTICLE_FLOATS + 3)),
+		rotation: Array.from(out.subarray(i * PARTICLE_FLOATS + 3, i * PARTICLE_FLOATS + 7)),
 		size: Array.from(out.subarray(i * PARTICLE_FLOATS + 7, i * PARTICLE_FLOATS + 10)),
 		tile: out[i * PARTICLE_FLOATS + 10],
 	}));
@@ -498,5 +501,77 @@ describe('ParticleSimulation', () => {
 			moved += Math.hypot(position[0] - before[0], position[1] - before[1]);
 		}
 		assert.ok(moved > 1);
+	});
+
+	it('starts donut particles inside its tube, the outer part its thickness allows', () => {
+		const donut = run(
+			system({
+				gravityModifier: constant(0),
+				looping: false,
+				rate: constant(0),
+				startLifetime: constant(10),
+				bursts: [{ time: 0, count: constant(100), cycles: 1, interval: 0.01, probability: 1 }],
+				shape: {
+					...system().shape!,
+					kind: ParticleShapeKind.Donut,
+					radius: 1,
+					donutRadius: 0.2,
+					radiusThickness: 0.4,
+				},
+			}),
+			0.5,
+		);
+		assert.equal(donut.length, 100);
+		for (const { position } of donut) {
+			// distance from the circle of radius 1 in the xy plane
+			const tube = Math.hypot(Math.hypot(position[0], position[1]) - 1, position[2]);
+			assert.ok(tube >= 0.2 * 0.6 - 1e-4 && tube <= 0.2 + 1e-4, `${tube}`);
+		}
+	});
+
+	it('turns particles by the integral of a rotation curve over their age', () => {
+		const spinning = run(
+			system({
+				gravityModifier: constant(0),
+				looping: false,
+				rate: constant(0),
+				startLifetime: constant(1),
+				startRotation: [constant(0), constant(0), constant(0)],
+				bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+				// 0 rad/s at birth to 2 rad/s at death: 1 rad by the end, a quarter of that halfway
+				rotationOverLifetime: [constant(0), constant(0), line(0, 2)],
+			}),
+			0.5,
+		);
+		assert.equal(spinning.length, 1);
+		assert.ok(Math.abs(spinning[0].rotation[2] - Math.sin(0.25 / 2)) < 1e-4);
+	});
+});
+
+describe('turnFromZ', () => {
+	const rotateZ = (q: number[]): number[] => {
+		// +z rotated by q
+		const [x, y, z, w] = q;
+		return [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)];
+	};
+
+	it('turns +z onto a direction, and leaves it for a zero or +z vector', () => {
+		for (const to of [
+			[0, 1, 0],
+			[1, 1, 1],
+			[0.3, -2, -0.5],
+			[0, 0, -4],
+		]) {
+			const length = Math.hypot(to[0], to[1], to[2]);
+			const turned = rotateZ(turnFromZ(to));
+			for (let axis = 0; axis < 3; axis++) {
+				assert.ok(Math.abs(turned[axis] - to[axis] / length) < 1e-6, `${to.join()} → ${turned.join()}`);
+			}
+		}
+		assert.deepEqual(turnFromZ([0, 0, 0]), [0, 0, 0, 1]);
+		assert.deepEqual(
+			turnFromZ([0, 0, 2]).map((value) => value + 0),
+			[0, 0, 0, 1],
+		);
 	});
 });

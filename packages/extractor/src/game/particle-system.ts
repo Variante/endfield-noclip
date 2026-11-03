@@ -49,9 +49,6 @@ const MESH_DISTRIBUTION_WEIGHTED = 1;
 /** `ParticleSystemRenderer.m_RenderAlignment` of Unity's `Facing`, which the viewer orients like `View` */
 const ALIGNMENT_FACING = 3;
 
-/** `ParticleSystemRenderer.m_RenderAlignment` of Unity's `Velocity`, along each particle's motion */
-export const ALIGNMENT_VELOCITY = 4;
-
 /** `ParticleSystem.scalingMode` values */
 export const ScalingMode = {
 	/** the whole hierarchy's scale sizes and moves particles */
@@ -239,6 +236,7 @@ const readShape = (shape: TypeTreeObject): ParticleShapeInfo | string => {
 		kind,
 		radius: numberField(radius, 'value'),
 		radiusThickness: numberField(shape, 'radiusThickness'),
+		donutRadius: optionalNumberField(shape, 'donutRadius') ?? 0,
 		angle: numberField(shape, 'angle'),
 		length: numberField(shape, 'length'),
 		arc: numberField(arc, 'value'),
@@ -411,8 +409,8 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
  *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, velocity curves other than linear
- *   ones, a per-axis speed limit or one alongside drag, a drag or rate curve, no mesh, or velocity alignment.
- *   `null` for a system that doesn't play on awake, which shows nothing until a script starts it
+ *   ones, a per-axis speed limit or one alongside drag, a drag or rate curve, or no mesh. `null` for a system
+ *   that doesn't play on awake, which shows nothing until a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -469,7 +467,8 @@ export const readParticleSystem = (
 			break;
 		}
 		case ParticleAlignment.World:
-		case ParticleAlignment.Local: {
+		case ParticleAlignment.Local:
+		case ParticleAlignment.Velocity: {
 			alignment = renderAlignment;
 			break;
 		}
@@ -545,13 +544,9 @@ export const readParticleSystem = (
 	if (enabled(system, 'RotationModule')) {
 		const rotation = objectField(system, 'RotationModule');
 		const z = curve(rotation, 'curve');
-		const axes: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] = booleanField(rotation, 'separateAxes')
+		rotationOverLifetime = booleanField(rotation, 'separateAxes')
 			? [curve(rotation, 'x'), curve(rotation, 'y'), z]
 			: [zero, zero, z];
-		if (!axes.every(isConstant)) {
-			return { reason: 'rotation curves' };
-		}
-		rotationOverLifetime = axes;
 	}
 	let textureSheet: ParticleTextureSheetInfo | null = null;
 	if (enabled(system, 'UVModule')) {
@@ -726,7 +721,8 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 	if (info.shape !== null) {
 		const s = info.shape;
 		const along = s.kind === ParticleShapeKind.ConeVolume ? s.length : 0;
-		const spread = s.radius + along * Math.tan((Math.min(Math.abs(s.angle), 89) * Math.PI) / 180);
+		const tube = s.kind === ParticleShapeKind.Donut ? s.donutRadius : 0;
+		const spread = s.radius + tube + along * Math.tan((Math.min(Math.abs(s.angle), 89) * Math.PI) / 180);
 		shape =
 			Math.hypot(...s.position) +
 			Math.max(...s.scale.map(Math.abs)) * Math.hypot(spread, along) +

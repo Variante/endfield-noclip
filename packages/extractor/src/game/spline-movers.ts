@@ -329,6 +329,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 				kind: ParticleShapeKind.Box,
 				radius: 0,
 				radiusThickness: 1,
+				donutRadius: 0,
 				angle: 0,
 				length: 0,
 				arc: 360,

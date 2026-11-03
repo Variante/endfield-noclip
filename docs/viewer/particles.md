@@ -57,7 +57,7 @@ system and its index, so any moment can be evaluated on its own:
   a 1×1 sheet, which leaves UVs alone.
 - start values read their curves at the emission's place in its loop. the shape gives the start
   position and direction (cones towards the matching point of their far end, volumes anywhere up to
-  their length), placed by the shape's own transform.
+  their length, donuts outwards from the tube's centre line), placed by the shape's own transform.
 - at age `a` a particle has moved `(start speed + linear velocity) · m · a`, where `m` is the
   velocity module's speed modifier and a world-space linear velocity is first turned into the
   emitter's frame, plus `½ g a²` down the world's y (Unity's gravity, 9.81 m/s² times the gravity
@@ -65,9 +65,11 @@ system and its index, so any moment can be evaluated on its own:
   turning the whole path is exact when the rest of the motion runs along the orbit's axis. the mesh
   is then offset by the system's pivot, scaled by the particle's size and turned with it.
 - size is the start size times the size over lifetime at `a / lifetime`; rotation is the start Euler
-  angles (Unity's Z, X, Y order) plus the angular velocity times `a`, applied in the emitter's frame
-  (Local), the world's (World) or the camera's (View, so the meshes turn with the camera, as the
-  game's do).
+  angles (Unity's Z, X, Y order) plus the angular velocity integrated over the age (as linear
+  velocity curves are), applied in the emitter's frame (Local), the world's (World), the camera's
+  (View, so the meshes turn with the camera, as the game's do) or the emitter's turned the shortest
+  way from its +z onto the particle's velocity (Velocity; `turnFromZ`). that turn is the viewer's
+  choice of roll about the motion, which the game's isn't known to match.
 - a renderer with several meshes is several emitters at one place; they share their random values,
   so each draws the particles that picked its mesh.
 - a linear velocity curve is integrated over the age (Simpson's rule). drag slows the start velocity
@@ -90,12 +92,12 @@ system and its index, so any moment can be evaluated on its own:
 - colour is the start colour (read at the emission's place in its loop) times the colour over
   lifetime, blended in the authored colour space, then made linear into the row's colour word.
 - quads turn by the render mode: billboards by their render alignment, like meshes (with the camera,
-  where their rotation rolls them, or along the world's or the emitter's axes), vertical ones with
-  its heading, horizontal ones lie flat facing up, and stretched ones lie in the view plane along
-  the velocity as the camera sees it, their length the size times the length scale plus the speed
-  times the velocity scale, centred on the particle. the transform's scale sizes the particles only
-  when the system is `sizedByScale`. rows that turn with the camera (view-aligned meshes and
-  billboards) or its heading (vertical quads) keep their own rotation and set the
+  where their rotation rolls them, or along the world's, the emitter's or the velocity's axes),
+  vertical ones with its heading, horizontal ones lie flat facing up, and stretched ones lie in the
+  view plane along the velocity as the camera sees it, their length the size times the length scale
+  plus the speed times the velocity scale, centred on the particle. the transform's scale sizes the
+  particles only when the system is `sizedByScale`. rows that turn with the camera (view-aligned
+  meshes and billboards) or its heading (vertical quads) keep their own rotation and set the
   [billboard](#billboards) bits, so `row_basis` turns them on the GPU as it does billboard chains;
   the others are turned on the CPU.
 

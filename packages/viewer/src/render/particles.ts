@@ -523,6 +523,28 @@ const rotateBy = (omega: Vec3, v: Vec3): Vec3 => {
 	return rotate([omega[0] * s, omega[1] * s, omega[2] * s, Math.cos(angle / 2)], v);
 };
 
+/**
+ * @param to a direction, any length
+ * @returns the xyzw quaternion turning +z onto it the shortest way: none for a zero vector, half a turn about
+ *   x for −z
+ */
+export const turnFromZ = (to: ArrayLike<number>): [number, number, number, number] => {
+	const length = Math.hypot(to[0], to[1], to[2]);
+	if (length < 1e-12) {
+		return [0, 0, 0, 1];
+	}
+	const z = to[2] / length;
+	if (z < -1 + 1e-9) {
+		return [1, 0, 0, 0];
+	}
+	// half the angle via the halfway vector: q = (z × v, 1 + z · v), normalized
+	const x = -to[1] / length;
+	const y = to[0] / length;
+	const w = 1 + z;
+	const n = Math.hypot(x, y, w);
+	return [x / n, y / n, 0, w / n];
+};
+
 const normalize = (v: Vec3): Vec3 => {
 	const length = Math.hypot(v[0], v[1], v[2]);
 	return length > 1e-12 ? [v[0] / length, v[1] / length, v[2] / length] : [0, 0, 1];
@@ -875,6 +897,20 @@ export class ParticleSimulation {
 				direction = [0, 0, 1];
 				break;
 			}
+			case ParticleShapeKind.Donut: {
+				// a point of the circle, then one of the tube's cross-section around it, uniform in its area
+				const phi = (r0 * shape.arc * Math.PI) / 180;
+				const theta = 2 * Math.PI * r1;
+				const rho = shape.donutRadius * Math.sqrt(inner * inner + (1 - inner * inner) * r2);
+				const out: Vec3 = [Math.cos(phi), Math.sin(phi), 0];
+				direction = [out[0] * Math.cos(theta), out[1] * Math.cos(theta), Math.sin(theta)];
+				position = [
+					out[0] * shape.radius + direction[0] * rho,
+					out[1] * shape.radius + direction[1] * rho,
+					direction[2] * rho,
+				];
+				break;
+			}
 		}
 		position = rotate(this.#shapeRotation, [
 			position[0] * shape.scale[0],
@@ -1136,7 +1172,7 @@ export class ParticleSimulation {
 		const spin = info.rotationOverLifetime;
 		if (spin !== null) {
 			for (let axis = 0; axis < 3; axis++) {
-				angles[axis] += evaluateMinMax(spin[axis], lived, random(seed, id, Channel.SpinX + axis)) * age;
+				angles[axis] += travelled(spin[axis], age, life, random(seed, id, Channel.SpinX + axis));
 			}
 		}
 		const rotation = eulerQuaternion(angles[0], angles[1], angles[2]);
@@ -1346,7 +1382,8 @@ export class ParticleField {
 					case ParticleAlignment.World: {
 						break;
 					}
-					case ParticleAlignment.Local: {
+					case ParticleAlignment.Local:
+					case ParticleAlignment.Velocity: {
 						frame = columns.map(normalize);
 						break;
 					}
@@ -1380,8 +1417,13 @@ export class ParticleField {
 			const s = scratch.subarray(base + At.size, base + At.size + 3);
 			const offset = toWorld(p);
 			const center: Vec3 = [offset[0] + m[3], offset[1] + m[7], offset[2] + m[11]];
-			// the rotation's axes, then the frame they turn in: the emitter's (local), the world's, or the camera's
+			// the rotation's axes, then the frame they turn in: the emitter's (local, or turned onto the velocity),
+			// the world's, or the camera's
 			let axes: Vec3[] = [rotate(q, [1, 0, 0]), rotate(q, [0, 1, 0]), rotate(q, [0, 0, 1])];
+			if (info.alignment === ParticleAlignment.Velocity) {
+				const onto = turnFromZ(scratch.subarray(base + At.velocity, base + At.velocity + 3));
+				axes = axes.map((axis) => rotate(onto, axis));
+			}
 			let sizes = [s[0] * sizing[0], s[1] * sizing[1], s[2] * sizing[2]];
 			const turn = (basis: readonly Vec3[]) => {
 				axes = axes.map((axis) => [
@@ -1420,7 +1462,8 @@ export class ParticleField {
 				}
 			} else {
 				switch (info.alignment) {
-					case ParticleAlignment.Local: {
+					case ParticleAlignment.Local:
+					case ParticleAlignment.Velocity: {
 						axes = axes.map(toWorld);
 						sizes = info.sizedByScale
 							? [s[0], s[1], s[2]]
