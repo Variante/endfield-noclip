@@ -672,10 +672,17 @@ export interface EffectStackSurface {
 	near: EffectNearFade;
 	brighten: { threshold: number; intensity: number };
 	/**
-	 * VFXBaseV2's `_USE_ANIM_BREATHING`: the alpha pulses between `minAlpha` and 1, by
-	 * `saturate(pow(cos(time · speed) · 0.5 + 0.5, power))`
+	 * VFXBaseV2's `_USE_ANIM_BREATHING`: the alpha pulses between `minAlpha` and 1, by `saturate(pow(cos(time ·
+	 * speed) · 0.5 + 0.5, power))`
 	 */
 	breathing: { minAlpha: number; speed: number; power: number } | null;
+	/**
+	 * VFXBaseV2's `_USE_EDGECOLOR`: where the surface nears what lies behind it, by `color.a ·
+	 * saturate(distance / max(d, 0.001) − offset)` for d the view depth between them. `mode` 1 adds the colour
+	 * (HDR, as stored) and `alpha` (`_TintColorAlpha`) by it; 0 multiplies the colour by it and the alpha by
+	 * the edge; between, a blend of the two
+	 */
+	edge: { color: Rgba; alpha: number; mode: number; distance: number; offset: number } | null;
 	/** VFXDecal's fades: across x and z, their width, the height fade and its offset, the angle falloff */
 	decalFade: {
 		edge: [x: number, z: number];

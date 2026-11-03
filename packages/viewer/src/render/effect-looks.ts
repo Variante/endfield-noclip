@@ -114,6 +114,12 @@ export const EffectRow = {
 	 * 2 to take v from the world height (`_UsePosYAsScreenV`)
 	 */
 	unfogged: 124,
+	/** rows past the mesh looks' 32. the texture stack's edge colour (`_USE_EDGECOLOR`): rgb (HDR), strength */
+	edgeColor: 128,
+	/** the edge's distance, offset, mode (0: multiply, 1: add), 1 with `_USE_EDGECOLOR` */
+	edge: 132,
+	/** the alpha the edge adds in mode 1 (`_TintColorAlpha`) */
+	edgeAlpha: 136,
 } as const;
 
 /**
@@ -321,6 +327,12 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 	} else if (stack.breathing !== null) {
 		const { breathing } = stack;
 		params.set([breathing.minAlpha, breathing.speed, breathing.power, 1], EffectRow.decalFade);
+	}
+	if (stack.edge !== null) {
+		const { edge } = stack;
+		params.set(edge.color, EffectRow.edgeColor);
+		params.set([edge.distance, edge.offset, edge.mode, 1], EffectRow.edge);
+		params[EffectRow.edgeAlpha] = edge.alpha;
 	}
 	params[EffectRow.decal + 2] = stack.waterBlendBelow ?? NO_WATER_BLEND;
 	params[EffectRow.decal + 3] = stack.alphaPower;

@@ -344,6 +344,7 @@ const BASE_KEYWORDS = new Set([
 	'_USE_FRESNEL',
 	'_USE_POLARUV',
 	'_USE_ANIM_BREATHING',
+	'_USE_EDGECOLOR',
 ]);
 
 /**
@@ -622,6 +623,15 @@ export const describeVfxBase = (
 					power: float('_BreathingPower', 1),
 				}
 			: null,
+		edge: has('_USE_EDGECOLOR')
+			? {
+					color: color('_EdgeColor') ?? [1, 1, 1, 1],
+					alpha: float('_TintColorAlpha', 1),
+					mode: float('_EdgeColorMode', 0),
+					distance: float('_EdgeDistance', 0),
+					offset: float('_EdgeDistanceOffset', 0),
+				}
+			: null,
 		decalFade: null,
 		alphaPower: 1,
 		offset:
@@ -786,6 +796,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		near: shared.near,
 		brighten: { threshold: 1, intensity: 0 },
 		breathing: null,
+		edge: null,
 		decalFade: null,
 		// the depth pass tests the saturated alpha raised to this power, which sets the share of pixels that survive
 		alphaPower: float('_DitherAlphaExp', 1),
@@ -981,6 +992,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		near: shared.near,
 		brighten: { threshold: 0, intensity: 0 },
 		breathing: null,
+		edge: null,
 		decalFade: {
 			edge: [float('_EdgeFadeX', 0), float('_EdgeFadeZ', 0)],
 			width: float('_EdgeFadeIntensity', 0),

@@ -54,16 +54,25 @@ cards rising at the foot of falls are lit so. the colour starts from
 `_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`.
 `_USE_ANIM_BREATHING` pulses that alpha between `_BreathingMinAlpha` and 1, by
 `saturate((cos(t · _BreathingSpeed) · 0.5 + 0.5)^_BreathingPower)`, t the shader's time scaled and
-offset by two per-draw values; the panels of Dijiang's clue board breathe so. a
-material without a main texture samples the shader's default, white (the base ring of Origin
-Lodespring's crater column is one). alpha fades by a Fresnel term
-(`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by `_FresnelFlip`, applied by
-`_FresnelAffectOpacity`) and, with `_USE_SOFTBLEND`, where the surface comes within `_SoftDistance`
-metres of what lies behind it. the shader writes its alpha times `1 − _BlendMode`, so under
-`_BlendMode` 1, the shader's default, the premultiplied colour adds to what lies behind instead of
-covering it; about a quarter of the scenery's VFXBaseV2 materials are such, among them the glare at
-the corroded planet's centre seen from Dijiang's deck. `_BlendMode` 2 writes
-`lerp(1, colour, alpha)` for a `Blend DstColor Zero` state, which multiplies what lies behind by it.
+offset by two per-draw values; the panels of Dijiang's clue board breathe so. a material without a
+main texture samples the shader's default, white (the base ring of Origin Lodespring's crater column
+is one). alpha fades by a Fresnel term (`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by
+`_FresnelFlip`, applied by `_FresnelAffectOpacity`) and, with `_USE_SOFTBLEND`, where the surface
+comes within `_SoftDistance` metres of what lies behind it. the shader writes its alpha times
+`1 − _BlendMode`, so under `_BlendMode` 1, the shader's default, the premultiplied colour adds to
+what lies behind instead of covering it; about a quarter of the scenery's VFXBaseV2 materials are
+such, among them the glare at the corroded planet's centre seen from Dijiang's deck. `_BlendMode` 2
+writes `lerp(1, colour, alpha)` for a `Blend DstColor Zero` state, which multiplies what lies behind
+by it.
+
+`_USE_EDGECOLOR` marks where the surface meets what lies behind it, after the dissolve and before
+the brightening: `e = _EdgeColor.a · saturate(_EdgeDistance / max(d, 0.001) − _EdgeDistanceOffset)`,
+d the view depth from the surface to the main pass's depth behind it. `_EdgeColorMode` 1 adds
+`(_EdgeColor.rgb, _TintColorAlpha) · e` to the colour and alpha; 0 multiplies the colour by
+`_EdgeColor.rgb` and the alpha by e, so only the contact shows; the shader blends the two by the
+mode. the frames of Dijiang's aisle-guide panels (`M_fxmap_base01_lv001_ship_aisle_guide_01_fj_05`,
+mode 1, `_EdgeDistance` 0.002) glow only within millimetres of a contact, so they draw almost as
+without the keyword.
 
 `_USE_VERTOFFSET` moves each vertex along `_OffsetDir` (`_OffsetSwitchDir` 0: object space, 1: world
 space, 2: the vertex normal) by `_OffsetIntensity · (r · (1 + _Bi_Offset) − _Bi_Offset)`, where r is

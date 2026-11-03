@@ -35,6 +35,9 @@ meshes play through the [particles](particles.md#particles); what's left out is 
   bounds, frame count and camera pull (`VertexMotion` in `effect-looks.ts`). the rotation texture
   isn't read: materials with lighting or a Fresnel term, which would read the turned normals, stay
   unsupported, as do those with a vertex offset, a sixth sample texture or particle-driven playback.
+- the [edge colour](../game-data/effects.md#vfxbasev2-and-vfxdecal) compares the fragment's view
+  depth with the main pass's depth, as the soft blend does; it takes three of the four rows effect
+  looks have past the mesh looks' 32 (`EffectRow.edgeColor`, `edge`, `edgeAlpha`).
 - VFXDecal boxes draw their back faces without a depth test, so they still show with the camera
   inside. each covered pixel reconstructs the main pass's surface from the depth buffer, and
   `_USE_NORMALBLEND` reads its normal from the main pass's packed surface normal.

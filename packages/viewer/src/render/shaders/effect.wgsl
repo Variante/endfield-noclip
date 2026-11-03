@@ -70,6 +70,9 @@ const FX_OFFSET_DIR = 28u;
 const FX_OFFSET = 29u;
 const FX_OFFSET_MODE = 30u;
 const FX_UNFOGGED = 31u;
+const FX_EDGE_COLOR = 32u;
+const FX_EDGE = 33u;
+const FX_EDGE_ALPHA = 34u;
 // the slot of the vertex offset's texture (`OFFSET_SLOT` in effect-looks.ts)
 const FX_OFFSET_SLOT = 6u;
 // how the vertex stage moves vertices (`VertexMotion` in effect-looks.ts)
@@ -512,7 +515,19 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 		let wave = saturate(pow(cos(frame.eye.w * breathing.y) * 0.5 + 0.5, breathing.z));
 		tint.a *= mix(breathing.x, 1.0, wave);
 	}
-	let combined = fx_combine(id, bases, tint);
+	var combined = fx_combine(id, bases, tint);
+	let depth = dot(in.rel, frame.view_forward.xyz);
+	// `_USE_EDGECOLOR` marks where the surface nears what lies behind it: mode 1 adds the edge colour and the tint
+	// alpha by its strength, 0 multiplies the colour by the edge colour and the alpha by the strength
+	let edge_row = fx_row(id, FX_EDGE);
+	if (edge_row.w > 0.0) {
+		let edge_color = fx_row(id, FX_EDGE_COLOR);
+		let gap = max(fx_scene_depth(vec2i(in.position.xy)) - depth, 0.001);
+		let e = edge_color.w * saturate(edge_row.x / gap - edge_row.y);
+		let added = combined + vec4f(edge_color.rgb, fx_row(id, FX_EDGE_ALPHA).x) * e;
+		let multiplied = combined * vec4f(edge_color.rgb, e);
+		combined = mix(multiplied, added, edge_row.z);
+	}
 	var color = combined.rgb;
 	color += max(color - vec3f(misc.y), vec3f(0.0)) * misc.z;
 	let lighting = fx_row(id, FX_OFFSET_MODE);
@@ -537,7 +552,6 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 		let f = pow(saturate(dot(normalize(-in.rel), n) + fresnel_row.y), fresnel_row.x);
 		fresnel = mix(1.0 - f, f, fresnel_row.z);
 	}
-	let depth = dot(in.rel, frame.view_forward.xyz);
 	var soft_fade = 1.0;
 	if (soft.x > 0.0) {
 		soft_fade = saturate((fx_scene_depth(vec2i(in.position.xy)) - depth + soft.y) / soft.x);

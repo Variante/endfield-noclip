@@ -440,6 +440,23 @@ describe('VFXBaseV2', () => {
 		assert.equal(ofKind(stackOf(breathing), 'effectStack').breathing, null);
 	});
 
+	it('marks where it meets what lies behind under _USE_EDGECOLOR, its colour as stored', () => {
+		// the frames of Dijiang's aisle-guide panels (`M_fxmap_base01_lv001_ship_aisle_guide_01_fj_05`)
+		const edged = {
+			floats: { _EdgeColorMode: 1, _EdgeDistance: 0.002, _EdgeDistanceOffset: 0.0001, _TintColorAlpha: 0.5 },
+			colors: { _EdgeColor: [1.5, 1.5, 1.5, 1] satisfies [number, number, number, number] },
+		};
+		const surface = ofKind(stackOf({ ...edged, keywords: ['_USE_EDGECOLOR'] }), 'effectStack');
+		assert.deepEqual(surface.edge, {
+			color: [1.5, 1.5, 1.5, 1],
+			alpha: 0.5,
+			mode: 1,
+			distance: 0.002,
+			offset: 0.0001,
+		});
+		assert.equal(ofKind(stackOf(edged), 'effectStack').edge, null);
+	});
+
 	it('draws a soft body from its position texture, playing its frames on its own or holding one', () => {
 		// map01's Aurelyne blob (`M_erosionmud_core`), whose HDR offsets are stored as they are
 		const blob = {

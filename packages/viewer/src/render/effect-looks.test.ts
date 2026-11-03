@@ -86,6 +86,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	near: { on: false, range: [0, 1, 1e5, 2e5] },
 	brighten: { threshold: 1, intensity: 0 },
 	breathing: null,
+	edge: null,
 	decalFade: null,
 	alphaPower: 1,
 	offset: null,
@@ -192,6 +193,29 @@ test('a breathing stack keeps its pulse in the decal fade row, which decals don�
 		[0.3, 2, 1, 1].map(Math.fround),
 	);
 	assert.equal(still.params[EffectRow.decalFade + 3], 0);
+});
+
+test('a stack’s edge colour fills the rows past the mesh looks’ 32, marked on even at zero distance', () => {
+	const [edged, plain] = materialLooks({
+		entries: [
+			described(
+				0,
+				stack({ edge: { color: [1.5, 1.5, 1.5, 1], alpha: 0.8, mode: 0, distance: 0, offset: 0.1 } }),
+			),
+			described(1, stack()),
+		],
+	});
+	assert.equal(edged.params.length, 144);
+	assert.deepEqual(
+		[...edged.params.subarray(EffectRow.edgeColor, EffectRow.edgeColor + 4)],
+		[1.5, 1.5, 1.5, 1],
+	);
+	assert.deepEqual(
+		[...edged.params.subarray(EffectRow.edge, EffectRow.edge + 4)],
+		[0, 0.1, 0, 1].map(Math.fround),
+	);
+	assert.equal(edged.params[EffectRow.edgeAlpha], Math.fround(0.8));
+	assert.equal(plain.params[EffectRow.edge + 3], 0);
 });
 
 test('a stack’s vertex offset takes the offset slot and rows, and its stencil is tested under reversed-Z', () => {
