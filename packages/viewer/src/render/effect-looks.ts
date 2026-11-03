@@ -116,6 +116,12 @@ export const EffectRow = {
 } as const;
 
 /**
+ * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: the mesh looks' 32 rows, then 4 only
+ * effect looks use
+ */
+const EFFECT_FLOATS = 144;
+
+/**
  * how the vertex stage moves an effect's vertices ({@link EffectRow.offsetMode} x). with the soft body, the
  * {@link OFFSET_SLOT} holds the position texture, its UV row UV1's u scale and the frame rows' scale, its
  * scroll row the cycles per second and the phase; {@link EffectRow.offsetDir} holds the offset's minimum and
@@ -204,7 +210,7 @@ const still = (texture: number): EffectTexture => ({
 
 /** an effect look with no textures */
 const emptyEffect = (slots: number): EffectLook => {
-	const params = new Float32Array(128);
+	const params = new Float32Array(EFFECT_FLOATS);
 	for (let i = 0; i < slots; i++) {
 		params[EffectRow.slotBits + i] = ROLE_NONE;
 		params.set([1, 1, 0, 0], EffectRow.uv + i * 4);

@@ -121,7 +121,7 @@ export const SLOT_FLAGS = [
  * floats of a material's draw parameters (`Draw` in mesh.wgsl after the dequantization); rows in
  * {@link LookRow}
  */
-export const LOOK_FLOATS = 128;
+export const LOOK_FLOATS = 144;
 
 /** one material as the mesh shader draws it */
 export interface MaterialLook {

@@ -75,6 +75,8 @@ struct Draw {
 	canopy: vec4f,
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
+	// rows only effect looks use (`EffectRow` in effect-looks.ts)
+	effect_only: array<vec4f, 4>,
 }
 
 const BASE_MAP = 1u;

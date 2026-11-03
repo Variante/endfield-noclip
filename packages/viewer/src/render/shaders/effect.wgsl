@@ -20,9 +20,9 @@ struct EffectRow {
 @group(1) @binding(2) var<storage, read> effect_list: array<u32>;
 // rect decal placements (`DecalPlacements` in package-format): colour, then UV scale and offset
 @group(1) @binding(3) var<storage, read> effect_placements: array<array<vec4f, 2>>;
-// mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 32 rows (`EffectRow`, `WaterSheetRow` or
+// mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 36 rows (`EffectRow`, `WaterSheetRow` or
 // `MistRow` in effect-looks.ts)
-@group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 36>>;
+@group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 40>>;
 @group(2) @binding(1) var<storage, read> effect_draw_ids: array<u32>;
 @group(3) @binding(0) var fx_tex0: texture_2d<f32>;
 @group(3) @binding(1) var fx_tex1: texture_2d<f32>;
