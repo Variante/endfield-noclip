@@ -491,6 +491,7 @@ export class PostProcess {
 				{ binding: 9, resource: scene.reflection },
 				{ binding: 10, resource: scene.glow },
 				{ binding: 11, resource: scene.layerDistance },
+				{ binding: 12, resource: scene.waterDepth },
 			],
 		});
 	}
@@ -1022,16 +1023,10 @@ export class PostProcess {
 			celestial.groups[1] = this.celestial.group(celestial.pipeline.getBindGroupLayout(1));
 			this.#run(encoder, 'celestial', celestial);
 		}
-		this.#run(encoder, 'composite', sized.passes.composite);
 		const water = input.water;
+		let waterContext: WaterContext | null = null;
 		if (settings.debugView === 'lit' && water.active) {
-			// the water refracts a copy of the composited scene, kept in the main pass's radiance target, which
-			// nothing reads after compositing
-			encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [
-				width,
-				height,
-			]);
-			water.encode(encoder, sized.sceneView, {
+			waterContext = {
 				scene,
 				background: scene.radiance,
 				frame: input.frameGroup,
@@ -1041,7 +1036,23 @@ export class PostProcess {
 				width,
 				height,
 				foam: input.waterFoam,
-			});
+			};
+		}
+		// the composite keeps back the transparent layers where there's water, which the water lays over itself
+		if (waterContext !== null) {
+			water.encodeDepth(encoder, waterContext);
+		} else {
+			water.clearDepth(encoder, scene);
+		}
+		this.#run(encoder, 'composite', sized.passes.composite);
+		if (waterContext !== null) {
+			// the water refracts a copy of the composited scene, kept in the main pass's radiance target, which
+			// nothing reads after compositing
+			encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [
+				width,
+				height,
+			]);
+			water.encode(encoder, sized.sceneView, waterContext);
 		}
 		input.screenEffects(encoder, sized.sceneView, () => {
 			encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [

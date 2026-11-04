@@ -140,6 +140,61 @@ fn sky_radiance(direction: vec3f) -> vec3f {
 	return sky_view(direction) * sky_scale() * clamp(1.0 + direction.y * 10.0, 0.0, 1.0);
 }
 
+// #region transparent layers
+
+// the transparent pass's layers at a pixel (`TRANSPARENT_TARGETS` in render-targets.ts), as the composite and
+// water passes lay them over the fogged scene behind
+struct Layers {
+	// 1 − revealage: how much of the scene behind they hide
+	coverage: f32,
+	// their weighted mean colour
+	mean: vec3f,
+	// the share of `mean` that belongs to layers kept out of the fog (effects without fog of their own)
+	unfogged: f32,
+	// their weighted mean distance (m)
+	distance: f32,
+}
+
+const NO_LAYERS = Layers(0.0, vec3f(0.0), 0.0, 0.0);
+
+// the layers from the transparent pass's targets: the weighted sum, the revealage, the unfogged layers' weight
+// (the glow's alpha) and the weighted distance code
+fn resolve_layers(sum: vec4f, revealage: f32, unfogged_weight: f32, distance_sum: f32) -> Layers {
+	if (revealage >= 1.0) {
+		return NO_LAYERS;
+	}
+	let weight = max(sum.a, 1e-5);
+	// the inverse of `layer_distance_code` in frame.wgsl: d / (d + 1 km)
+	let code = clamp(distance_sum / weight, 0.0, 0.999);
+	return Layers(1.0 - revealage, sum.rgb / weight, saturate(unfogged_weight / weight), 1000.0 * code / (1.0 - code));
+}
+
+// whether the water pass lays the layers over itself rather than the composite under it: wherever there's water
+// (its reversed-Z depth `water_depth` isn't 0). the game lights its water before drawing transparent things,
+// tested against the depth without water, so they lie over the water even where they're under its surface
+fn water_takes_layers(layers: Layers, water_depth: f32) -> bool {
+	return layers.coverage > 0.0 && water_depth > 0.0;
+}
+
+// the layers over the fogged scene behind them, `behind`, seen along unit `direction` from `uv`. a weighted
+// blend keeps no order, so the fogged layers take the fog at their weighted mean distance, which is exact for
+// one layer and close for layers near each other; the fog reaches the scene behind through them as it would
+// per layer
+fn over_layers(behind: vec3f, layers: Layers, uv: vec2f, direction: vec3f) -> vec3f {
+	if (layers.coverage <= 0.0) {
+		return behind;
+	}
+	var fogged = layers.mean;
+	if (layers.unfogged < 1.0) {
+		let fog = fog_over(direction, layers.distance,
+			froxels_at(uv, layers.distance * dot(direction, post.forward.xyz)));
+		fogged = layers.mean * fog.transmittance + fog.inscatter;
+	}
+	return mix(behind, mix(fogged, layers.mean, layers.unfogged), layers.coverage);
+}
+
+// #endregion
+
 // the fog over something `distance` metres away
 fn atmosphere_over(color: vec3f, direction: vec3f, distance: f32, froxels: Froxels) -> vec3f {
 	let fog = fog_over(direction, distance, froxels);

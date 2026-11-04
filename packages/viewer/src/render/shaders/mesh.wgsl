@@ -425,7 +425,7 @@ struct Accumulated {
 	@location(1) revealage: vec4f,
 	// additive light, none for glass
 	@location(2) glow: vec4f,
-	// the fogged layers' `layer_distance_code` times their weight in the sum
+	// the layer's `layer_distance_code` times its weight in the sum
 	@location(3) distance: vec4f,
 }
 

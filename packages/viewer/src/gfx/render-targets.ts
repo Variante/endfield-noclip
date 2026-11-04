@@ -10,6 +10,9 @@ export const DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
  */
 export const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth32float-stencil8';
 
+/** the nearest water surface's depth (reversed-Z like the main pass's) */
+export const WATER_DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
+
 /** the depth clear value under reversed-Z */
 export const DEPTH_CLEAR = 0;
 
@@ -45,9 +48,9 @@ export const MAIN_TARGETS: GPUColorTargetState[] = [
  * 2013): the weighted sum of premultiplied colours with the weights' sum in alpha, and the revealage, the
  * product of `1 − alpha` over the layers. the composite resolves them over the opaque scene. a third target,
  * the glow, sums additively blended light, which the other two can't hold; the composite adds it after the
- * fog. the glow's alpha sums the weights of the layers that stay out of the fog. the fourth sums the fogged
- * layers' distances, weighted as their colours and compressed (`layer_distance_code` in frame.wgsl), so the
- * composite can fog them at about their own distance
+ * fog. the glow's alpha sums the weights of the layers that stay out of the fog. the fourth sums the layers'
+ * distances, weighted as their colours and compressed (`layer_distance_code` in frame.wgsl), so the composite
+ * can fog them at about their own distance
  */
 export const TRANSPARENT_TARGETS: GPUColorTargetState[] = [
 	{
@@ -110,8 +113,13 @@ export interface SceneTextures {
 	revealage: GPUTextureView;
 	/** the transparent pass's additive light ({@link TRANSPARENT_TARGETS}) */
 	glow: GPUTextureView;
-	/** the fogged transparent layers' weighted, compressed distances ({@link TRANSPARENT_TARGETS}) */
+	/** the transparent layers' weighted, compressed distances ({@link TRANSPARENT_TARGETS}) */
 	layerDistance: GPUTextureView;
+	/**
+	 * the nearest water surface's depth in front of the scene, {@link WATER_DEPTH_FORMAT}; 0 where there's
+	 * none. drawn before the composite, which leaves the transparent layers over water to the water pass
+	 */
+	waterDepth: GPUTextureView;
 	/** bumped whenever the views or the output size change (resize, render scale) */
 	version: number;
 }
@@ -141,6 +149,7 @@ export class RenderTargets {
 	#depth: GPUTexture | null = null;
 	#colors: GPUTexture[] | null = null;
 	#transparent: GPUTexture[] | null = null;
+	#waterDepth: GPUTexture | null = null;
 	#scene: SceneTextures | null = null;
 	#version = 0;
 
@@ -244,6 +253,12 @@ export class RenderTargets {
 			create({ label: 'glow', size: [width, height], format: HDR_FORMAT, usage }),
 			create({ label: 'layer distance', size: [width, height], format: 'r16float', usage }),
 		];
+		this.#waterDepth = create({
+			label: 'water depth',
+			size: [width, height],
+			format: WATER_DEPTH_FORMAT,
+			usage,
+		});
 		this.#version++;
 		this.#scene = {
 			radiance: this.#colors[0].createView(),
@@ -256,6 +271,7 @@ export class RenderTargets {
 			revealage: this.#transparent[1].createView(),
 			glow: this.#transparent[2].createView(),
 			layerDistance: this.#transparent[3].createView(),
+			waterDepth: this.#waterDepth.createView(),
 			version: this.#version,
 		};
 		return true;
@@ -266,7 +282,7 @@ export class RenderTargets {
 		// depth with stencil is commonly stored as 8 bytes
 		const depth = this.format.stencil ? 8 : 4;
 		return (
-			this.width * this.height * (depth + 8 * 4 + 8 + 1 + 8 + 2) +
+			this.width * this.height * (depth + 8 * 4 + 8 + 1 + 8 + 2 + 4) +
 			this.outputWidth * this.outputHeight * 4 * 2
 		);
 	}

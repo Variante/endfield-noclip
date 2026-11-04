@@ -31,10 +31,15 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
 
 - **pass**: drawn in the post chain after compositing, over a copy of the HDR scene, and only in the
   `lit` debug view. both faces are drawn so water reads from below.
-- **effects over it**: the composite has already added the transparent pass's glow (additive effects
-  such as the mist) to the copy. the game draws effects after its water, so the water takes the glow
-  back out of what it refracts and adds the glow over its own colour. the glow has no depth, so
-  additive effects below the surface also show over it, unattenuated.
+- **effects over it**: the game lights its water before drawing transparent things, and its camera
+  depth holds the scene without the water ([game data](../game-data/water.md#waterdecal)), so they
+  presumably show over the water even below its surface (unchecked against an in-game shot). before
+  the composite, the water's surfaces lay down the nearest one's depth (`SceneTextures.waterDepth`,
+  from `fs_water_depth`, less the fragments the shading drops behind the scene; where surfaces
+  overlap the nearest wins, while the shading draws them all). the composite leaves the transparent
+  layers out wherever that depth holds water, and the water lays them over its own colour, fogged as
+  the composite would. the glow (additive effects such as the mist) is in the copy already, so the
+  water takes it back out of what it refracts and adds it over itself.
 - **lighting**: the pass binds the main pass's frame group, so water is lit like the rest of the
   scene: the sun through its shadow maps, the irradiance volume, and the level's sky reflection.
 - **reflection**: the game reflects water through its screen-space reflection pass, with water
@@ -79,9 +84,7 @@ the mesh renderer's effect family (`fs_water_foam` in
 [effect.wgsl](../../packages/viewer/src/render/shaders/effect.wgsl)), inside the water pass, when
 the frame has any:
 
-1. **water depth.** the water's surfaces lay down their depth (`fs_water_depth`), less the fragments
-   the shading drops behind the scene. where surfaces overlap the nearest wins, while the shading
-   draws them all.
+1. **water depth.** the nearest surface's depth, laid down before the composite (above).
 2. **foam.** the boxes draw into an `rgba8unorm` target cleared to (0, 0, 0, 1), with the main
    pass's depth attached read-only for the game's `_ZTest` (`waterFoam` and `waterFoamBehind` looks,
    one phase each), each covered pixel projecting the box onto the water depth. rgb takes the box's

@@ -67,6 +67,12 @@ struct Config {
 // the foam the WaterDecal boxes leave on the surface (`fs_water_foam` in effect.wgsl): rgb to add, alpha what's
 // left of the water's own foam
 @group(2) @binding(10) var foam_texture: texture_2d<f32>;
+// the transparent pass's weighted sum, revealage and weighted distance code, and the nearest water surface's
+// depth: the composite keeps back the layers where there's water, which this pass lays over itself
+@group(2) @binding(11) var transparent_texture: texture_2d<f32>;
+@group(2) @binding(12) var revealage_texture: texture_2d<f32>;
+@group(2) @binding(13) var layer_distance_texture: texture_2d<f32>;
+@group(2) @binding(14) var water_depth_texture: texture_depth_2d;
 
 fn glow_at(px: vec2i) -> vec3f {
 	return max(textureLoad(glow_texture, px, 0).rgb, vec3f(0.0));
@@ -125,8 +131,8 @@ fn vs_water(@location(0) position: vec4f, @location(1) normal: vec2f, @builtin(i
 	return out;
 }
 
-// the water surface's depth, for the foam boxes: the surfaces' fragments, less those behind the scene as
-// `fs_water` drops them
+// the nearest water surface's depth, for the composite and the foam boxes: the surfaces' fragments, less those
+// behind the scene as `fs_water` drops them
 @fragment
 fn fs_water_depth(in: VertexOut) {
 	let size = vec2f(textureDimensions(background));
@@ -373,5 +379,12 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 	color += c.foam.rgb * c.foam_shape.w * foam_albedo;
 	// the shore: shallow water fades into what's under it, more so at a distance seen from the side
 	let edge = thickness * mix(1.0, abs(dot(v, n)), clamp(surface_distance * 0.05, 0.0, 1.0));
-	return vec4f(mix(behind, color, clamp(edge * c.optics.z, 0.0, 1.0)) + glow_at(vec2i(in.position.xy)), 1.0);
+	var out = mix(behind, color, clamp(edge * c.optics.z, 0.0, 1.0));
+	// the transparent layers the composite kept back, as in `layers_at` in composite.wgsl
+	let layers = resolve_layers(textureLoad(transparent_texture, px, 0), textureLoad(revealage_texture, px, 0).r,
+		textureLoad(glow_texture, px, 0).a, textureLoad(layer_distance_texture, px, 0).r);
+	if (water_takes_layers(layers, textureLoad(water_depth_texture, px, 0))) {
+		out = over_layers(out, layers, uv_straight, -v);
+	}
+	return vec4f(out + glow_at(px), 1.0);
 }

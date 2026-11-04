@@ -28,49 +28,19 @@ fn multi_bounce(ao: f32, albedo: f32) -> f32 {
 	return max(ao, ((a * ao + b) * ao + c) * ao);
 }
 
-// the fogged transparent layers' weighted, compressed distances (`layer_distance_code` in frame.wgsl)
+// the transparent layers' weighted, compressed distances (`layer_distance_code` in frame.wgsl)
 @group(2) @binding(11) var layer_distance_texture: texture_2d<f32>;
+// the nearest water surface's depth in front of the scene, 0 where there's none (`fs_water_depth` in water.wgsl)
+@group(2) @binding(12) var water_depth_texture: texture_depth_2d;
 
-// the transparent layers, as the composite lays them over the fogged scene behind
-struct Layers {
-	// 1 − revealage: how much of the scene behind they hide
-	coverage: f32,
-	// their weighted mean colour
-	mean: vec3f,
-	// the share of `mean` that belongs to layers kept out of the fog (effects without fog of their own)
-	unfogged: f32,
-	// the fogged layers' weighted mean distance (m)
-	distance: f32,
-}
-
+// the transparent layers to lay over the scene here: none where there's water, which lays them over itself
 fn layers_at(px: vec2i) -> Layers {
-	let revealage = textureLoad(revealage_texture, px, 0).r;
-	if (revealage >= 1.0) {
-		return Layers(0.0, vec3f(0.0), 0.0, 0.0);
+	let layers = resolve_layers(textureLoad(transparent_texture, px, 0), textureLoad(revealage_texture, px, 0).r,
+		textureLoad(glow_texture, px, 0).a, textureLoad(layer_distance_texture, px, 0).r);
+	if (water_takes_layers(layers, textureLoad(water_depth_texture, px, 0))) {
+		return NO_LAYERS;
 	}
-	let sum = textureLoad(transparent_texture, px, 0);
-	let weight = max(sum.a, 1e-5);
-	let unfogged_weight = textureLoad(glow_texture, px, 0).a;
-	// the inverse of `layer_distance_code`: d / (d + 1 km)
-	let code = clamp(textureLoad(layer_distance_texture, px, 0).r / max(sum.a - unfogged_weight, 1e-5), 0.0,
-		0.999);
-	return Layers(1.0 - revealage, sum.rgb / weight, saturate(unfogged_weight / weight), 1000.0 * code / (1.0 - code));
-}
-
-// the transparent layers over the fogged scene behind them, `behind`. a weighted blend keeps no order, so the
-// fogged layers take the fog at their weighted mean distance, which is exact for one layer and close for layers
-// near each other; the fog then reaches the scene behind through them as it would per layer
-fn over_layers(behind: vec3f, layers: Layers, uv: vec2f, direction: vec3f) -> vec3f {
-	if (layers.coverage <= 0.0) {
-		return behind;
-	}
-	var fogged = layers.mean;
-	if (layers.unfogged < 1.0) {
-		let fog = fog_over(direction, layers.distance,
-			froxels_at(uv, layers.distance * dot(direction, post.forward.xyz)));
-		fogged = layers.mean * fog.transmittance + fog.inscatter;
-	}
-	return mix(behind, mix(fogged, layers.mean, layers.unfogged), layers.coverage);
+	return layers;
 }
 
 // the height fog's flow noise (one channel, in red) and its repeating sampler
