@@ -45,10 +45,11 @@ read from the blend state, unchecked against the game's shader.
 the transparent pass draws it after the main pass, tested against its depth, with weighted blended
 order-independent transparency (McGuire and Bavoil 2013): one target sums each layer's premultiplied
 radiance and alpha, both times a weight that falls off gently with distance so nearer panes show
-more, and another multiplies `1 − alpha` into the revealage. the composite lays the layers' mean
-colour over the opaque scene by `1 − revealage` before the atmosphere and height fog, which treat
-the glass as if it lay at the opaque surface behind it, and doesn't fog glass in front of the sky. a
-single layer resolves exactly; overlapping panes blend without sorting.
+more, and another multiplies `1 − alpha` into the revealage. a fourth sums each layer's distance,
+compressed to `d / (d + 1 km)` and weighted like its colour. the composite fogs the opaque scene,
+then lays the layers' mean colour over it by `1 − revealage`, fogged at their weighted mean
+distance, in front of the sky too. a single layer resolves exactly; overlapping panes blend without
+sorting, and layers far apart in depth share one fog distance.
 
 ## decals
 

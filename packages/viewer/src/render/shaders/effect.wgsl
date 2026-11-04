@@ -135,6 +135,7 @@ struct EffectAccumulated {
 	@location(1) revealage: vec4f,
 	// additive light, which the composite adds after the fog
 	@location(2) glow: vec4f,
+	@location(3) distance: vec4f,
 }
 
 fn fx_row(id: u32, r: u32) -> vec4f {
@@ -424,7 +425,7 @@ fn fx_scene_depth(px: vec2i) -> f32 {
 
 // a premultiplied layer into the weighted sum and revealage. an unfogged layer also adds its weight to the
 // glow's alpha, which nothing else writes, so the composite knows which share of the weighted sum to keep out
-// of the fog
+// of the fog; a fogged one adds its weighted distance, which the composite fogs it at
 fn fx_accumulate(premultiplied: vec3f, alpha: f32, distance: f32, unfogged: f32) -> EffectAccumulated {
 	// mesh.wgsl's weighting
 	let x = distance / 20.0;
@@ -433,6 +434,7 @@ fn fx_accumulate(premultiplied: vec3f, alpha: f32, distance: f32, unfogged: f32)
 	out.sum = vec4f(premultiplied * weight, alpha * weight);
 	out.revealage = vec4f(alpha);
 	out.glow = vec4f(0.0, 0.0, 0.0, alpha * weight * unfogged);
+	out.distance = vec4f(layer_distance_code(distance) * alpha * weight * (1.0 - unfogged));
 	return out;
 }
 

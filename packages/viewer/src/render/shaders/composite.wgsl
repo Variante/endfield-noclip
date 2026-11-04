@@ -28,35 +28,49 @@ fn multi_bounce(ao: f32, albedo: f32) -> f32 {
 	return max(ao, ((a * ao + b) * ao + c) * ao);
 }
 
-// the transparent layers over `color`: their weighted mean colour covers 1 − revealage of it
-fn over_transparent(color: vec3f, px: vec2i) -> vec3f {
-	let revealage = textureLoad(revealage_texture, px, 0).r;
-	if (revealage >= 1.0) {
-		return color;
-	}
-	let sum = textureLoad(transparent_texture, px, 0);
-	return mix(sum.rgb / max(sum.a, 1e-5), color, revealage);
+// the fogged transparent layers' weighted, compressed distances (`layer_distance_code` in frame.wgsl)
+@group(2) @binding(11) var layer_distance_texture: texture_2d<f32>;
+
+// the transparent layers, as the composite lays them over the fogged scene behind
+struct Layers {
+	// 1 − revealage: how much of the scene behind they hide
+	coverage: f32,
+	// their weighted mean colour
+	mean: vec3f,
+	// the share of `mean` that belongs to layers kept out of the fog (effects without fog of their own)
+	unfogged: f32,
+	// the fogged layers' weighted mean distance (m)
+	distance: f32,
 }
 
-// the transparent layers over an opaque surface's `color`, split by the fog: `fogged` is what the fog covers
-// next, and `unfogged` the part of the layers' mean that belongs to layers drawn after the fog (effects
-// without their own fog), which also hide `cover` of the fog's inscatter
-struct Layered {
-	fogged: vec3f,
-	unfogged: vec3f,
-	cover: f32,
-}
-
-fn layered(color: vec3f, px: vec2i) -> Layered {
+fn layers_at(px: vec2i) -> Layers {
 	let revealage = textureLoad(revealage_texture, px, 0).r;
 	if (revealage >= 1.0) {
-		return Layered(color, vec3f(0.0), 0.0);
+		return Layers(0.0, vec3f(0.0), 0.0, 0.0);
 	}
 	let sum = textureLoad(transparent_texture, px, 0);
-	let mean = sum.rgb / max(sum.a, 1e-5);
-	let share = saturate(textureLoad(glow_texture, px, 0).a / max(sum.a, 1e-5));
-	let coverage = 1.0 - revealage;
-	return Layered(color * revealage + mean * coverage * (1.0 - share), mean * coverage * share, coverage * share);
+	let weight = max(sum.a, 1e-5);
+	let unfogged_weight = textureLoad(glow_texture, px, 0).a;
+	// the inverse of `layer_distance_code`: d / (d + 1 km)
+	let code = clamp(textureLoad(layer_distance_texture, px, 0).r / max(sum.a - unfogged_weight, 1e-5), 0.0,
+		0.999);
+	return Layers(1.0 - revealage, sum.rgb / weight, saturate(unfogged_weight / weight), 1000.0 * code / (1.0 - code));
+}
+
+// the transparent layers over the fogged scene behind them, `behind`. a weighted blend keeps no order, so the
+// fogged layers take the fog at their weighted mean distance, which is exact for one layer and close for layers
+// near each other; the fog then reaches the scene behind through them as it would per layer
+fn over_layers(behind: vec3f, layers: Layers, uv: vec2f, direction: vec3f) -> vec3f {
+	if (layers.coverage <= 0.0) {
+		return behind;
+	}
+	var fogged = layers.mean;
+	if (layers.unfogged < 1.0) {
+		let fog = fog_over(direction, layers.distance,
+			froxels_at(uv, layers.distance * dot(direction, post.forward.xyz)));
+		fogged = layers.mean * fog.transmittance + fog.inscatter;
+	}
+	return mix(behind, mix(fogged, layers.mean, layers.unfogged), layers.coverage);
 }
 
 // the height fog's flow noise (one channel, in red) and its repeating sampler
@@ -87,17 +101,17 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4f {
 	let depth = textureLoad(depth_texture, px, 0);
 	let ray = view_ray(in.uv);
 	let direction = normalize(ray);
+	let layers = layers_at(px);
 	if (depth <= 0.0) {
-		// transparent layers in front of the sky aren't fogged: their distance isn't kept
-		let layers = textureLoad(celestial_texture, px, 0);
+		let celestial = textureLoad(celestial_texture, px, 0);
 		// the `clouds` debug view: the raw panorama, unfogged
 		if (post.cloud.w > 0.5 && post.cloud_shape.w > 0.5) {
-			return vec4f(over_transparent(layers.rgb, px) + glow(px), 1.0);
+			return vec4f(mix(celestial.rgb, layers.mean, layers.coverage) + glow(px), 1.0);
 		}
 		let froxels = froxels_at(in.uv, post.sky_fog.x * dot(direction, post.forward.xyz));
-		let sky = sky_radiance(direction) * (1.0 - layers.a) + layers.rgb;
+		let sky = sky_radiance(direction) * (1.0 - celestial.a) + celestial.rgb;
 		let fog = fog_over(direction, post.sky_fog.x, froxels);
-		return vec4f(over_transparent(sky * fog.transmittance + fog.inscatter, px) + glow(px), 1.0);
+		return vec4f(over_layers(sky * fog.transmittance + fog.inscatter, layers, in.uv, direction) + glow(px), 1.0);
 	}
 	let radiance = textureLoad(radiance_texture, px, 0);
 	var color = max(radiance.rgb + textureLoad(ssr_texture, px, 0).rgb, vec3f(0.0));
@@ -107,14 +121,10 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4f {
 		let ao = min(textureLoad(ao_texture, px, 0).r, ambient.a);
 		color = max(color + ambient.rgb * (multi_bounce(ao, radiance.a) - ambient.a), vec3f(0.0));
 	}
-	// transparent layers are fogged as if they lay at the opaque surface behind them, which is near for most
-	// glass; effects without fog of their own lie over the fogged scene instead
-	let layers = layered(color, px);
 	let eye_depth = view_depth(depth);
 	let distance = length(ray * eye_depth);
 	let fog = fog_over(direction, distance, froxels_at(in.uv, eye_depth));
-	let fogged = drift_fog(layers.fogged,
-		layers.fogged * fog.transmittance + fog.inscatter * (1.0 - layers.cover), fog.transmittance,
+	let fogged = drift_fog(color, color * fog.transmittance + fog.inscatter, fog.transmittance,
 		post.eye.xyz + ray * eye_depth, distance);
-	return vec4f(fogged + layers.unfogged + glow(px), 1.0);
+	return vec4f(over_layers(fogged, layers, in.uv, direction) + glow(px), 1.0);
 }

@@ -122,8 +122,8 @@ packs or renders correctly.
   portal's `quan_ad_01_pass` in dung02_dg005, `zhuangfangyi_shu_04_03_pass` in indie_dg005). next:
   compare the reflections behind the rift's portal ring with an in-game shot before drawing them
 - glass ([glass](game-data/materials.md#glass)): refraction, Fresnel opacity and subsurface
-  scattering aren't drawn, glass in front of water is lost, glass against the sky isn't fogged, and
-  nothing checks whether the game lets glass cast shadows
+  scattering aren't drawn, glass in front of water is lost, overlapping transparent layers share one
+  fog distance (their weighted mean), and nothing checks whether the game lets glass cast shadows
 - emission ([emission](game-data/materials.md#emission)): `_EMISSIVE_NOMAP` (the sweep animation)
   isn't drawn, `_EMISSIVE_ANIM`'s flicker variant and the emissive map's scrolling are drawn still,
   and `_EmissiveType`'s extra G/B/A colours and the emission Fresnel term are left out

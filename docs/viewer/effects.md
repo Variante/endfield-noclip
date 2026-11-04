@@ -135,8 +135,7 @@ by exposure, which the game's shader doesn't do either (unverified against an in
 ## blending
 
 effects join the transparent pass's weighted blend ([glass](materials.md#glass)). those the game
-[fogs](../game-data/effects.md#blending) the composite fogs like glass, as if at the surface behind.
-the rest add their weight to the glow target's alpha too, which nothing else writes, and the
-composite keeps that share of the layers' mean colour out of the fog, laid over the fogged scene and
-hiding as much of the fog's inscatter as it covers. effects cast no shadows and wait until all their
-textures are resident.
+[fogs](../game-data/effects.md#blending) the composite fogs like glass, at the layers' weighted mean
+distance. the rest add their weight to the glow target's alpha too, which nothing else writes, and
+the composite keeps that share of the layers' mean colour out of the fog. effects cast no shadows
+and wait until all their textures are resident.

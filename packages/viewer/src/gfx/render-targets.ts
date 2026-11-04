@@ -45,7 +45,9 @@ export const MAIN_TARGETS: GPUColorTargetState[] = [
  * 2013): the weighted sum of premultiplied colours with the weights' sum in alpha, and the revealage, the
  * product of `1 − alpha` over the layers. the composite resolves them over the opaque scene. a third target,
  * the glow, sums additively blended light, which the other two can't hold; the composite adds it after the
- * fog. the glow's alpha sums the weights of the layers that stay out of the fog
+ * fog. the glow's alpha sums the weights of the layers that stay out of the fog. the fourth sums the fogged
+ * layers' distances, weighted as their colours and compressed (`layer_distance_code` in frame.wgsl), so the
+ * composite can fog them at about their own distance
  */
 export const TRANSPARENT_TARGETS: GPUColorTargetState[] = [
 	{
@@ -64,6 +66,13 @@ export const TRANSPARENT_TARGETS: GPUColorTargetState[] = [
 	},
 	{
 		format: HDR_FORMAT,
+		blend: {
+			color: { srcFactor: 'one', dstFactor: 'one' },
+			alpha: { srcFactor: 'one', dstFactor: 'one' },
+		},
+	},
+	{
+		format: 'r16float',
 		blend: {
 			color: { srcFactor: 'one', dstFactor: 'one' },
 			alpha: { srcFactor: 'one', dstFactor: 'one' },
@@ -101,6 +110,8 @@ export interface SceneTextures {
 	revealage: GPUTextureView;
 	/** the transparent pass's additive light ({@link TRANSPARENT_TARGETS}) */
 	glow: GPUTextureView;
+	/** the fogged transparent layers' weighted, compressed distances ({@link TRANSPARENT_TARGETS}) */
+	layerDistance: GPUTextureView;
 	/** bumped whenever the views or the output size change (resize, render scale) */
 	version: number;
 }
@@ -231,6 +242,7 @@ export class RenderTargets {
 			create({ label: 'transparent', size: [width, height], format: HDR_FORMAT, usage }),
 			create({ label: 'revealage', size: [width, height], format: 'r8unorm', usage }),
 			create({ label: 'glow', size: [width, height], format: HDR_FORMAT, usage }),
+			create({ label: 'layer distance', size: [width, height], format: 'r16float', usage }),
 		];
 		this.#version++;
 		this.#scene = {
@@ -243,6 +255,7 @@ export class RenderTargets {
 			transparent: this.#transparent[0].createView(),
 			revealage: this.#transparent[1].createView(),
 			glow: this.#transparent[2].createView(),
+			layerDistance: this.#transparent[3].createView(),
 			version: this.#version,
 		};
 		return true;
@@ -253,7 +266,8 @@ export class RenderTargets {
 		// depth with stencil is commonly stored as 8 bytes
 		const depth = this.format.stencil ? 8 : 4;
 		return (
-			this.width * this.height * (depth + 8 * 4 + 8 + 1 + 8) + this.outputWidth * this.outputHeight * 4 * 2
+			this.width * this.height * (depth + 8 * 4 + 8 + 1 + 8 + 2) +
+			this.outputWidth * this.outputHeight * 4 * 2
 		);
 	}
 
@@ -306,7 +320,7 @@ export class RenderTargets {
 		if (this.#depth === null || this.#transparent === null) {
 			throw new Error('render targets used before update()');
 		}
-		const [sum, revealage, glow] = this.#transparent;
+		const [sum, revealage, glow, layerDistance] = this.#transparent;
 		const depth: GPURenderPassDepthStencilAttachment = {
 			view: this.#depth.createView(),
 			depthReadOnly: true,
@@ -326,6 +340,12 @@ export class RenderTargets {
 				},
 				{
 					view: glow.createView(),
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: 'clear',
+					storeOp: 'store',
+				},
+				{
+					view: layerDistance.createView(),
 					clearValue: { r: 0, g: 0, b: 0, a: 0 },
 					loadOp: 'clear',
 					storeOp: 'store',

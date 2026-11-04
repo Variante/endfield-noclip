@@ -425,6 +425,8 @@ struct Accumulated {
 	@location(1) revealage: vec4f,
 	// additive light, none for glass
 	@location(2) glow: vec4f,
+	// the fogged layers' `layer_distance_code` times their weight in the sum
+	@location(3) distance: vec4f,
 }
 
 // alpha-blended materials (`transparent` in materials.ts), shaded like opaque ones. the opacity is the alpha
@@ -453,6 +455,7 @@ fn fs_transparent(in: VertexOut) -> Accumulated {
 	// premultiplied glass (detail2.z) adds its whole radiance: the alpha-weighted share above, the rest as glow
 	let premultiplied = select(0.0, 1.0, draw.detail2.z > 0.5);
 	out.glow = vec4f(shaded.radiance.rgb * (1.0 - alpha) * premultiplied, 0.0);
+	out.distance = vec4f(layer_distance_code(length(in.rel)) * weight);
 	return out;
 }
 

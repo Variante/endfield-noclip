@@ -490,6 +490,7 @@ export class PostProcess {
 				{ binding: 8, resource: scene.revealage },
 				{ binding: 9, resource: scene.reflection },
 				{ binding: 10, resource: scene.glow },
+				{ binding: 11, resource: scene.layerDistance },
 			],
 		});
 	}
