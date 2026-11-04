@@ -289,6 +289,11 @@ fn fs_water(in: VertexOut) -> @location(0) vec4f {
 	if (ground_straight < surface_distance - 0.02) {
 		discard;
 	}
+	// only the nearest surface shades, as in the game's water G-buffer: a surface under another (a stream's
+	// slope running beneath a river's plane) stays hidden. reversed-Z, with slack for the depth pass's rounding
+	if (in.position.z < textureLoad(water_depth_texture, px, 0) * 0.9999) {
+		discard;
+	}
 
 	let froxels = froxels_at(uv_straight, surface_distance * dot(-v, post.forward.xyz));
 	let fog = fog_over(-v, surface_distance, froxels);
