@@ -1253,6 +1253,8 @@ export class ParticleSimulation {
 export interface ParticleView {
 	/** seconds of the viewer's clock */
 	time: number;
+	/** the camera's position (Unity world, f64), which stretched particles turn their width by */
+	eye: Vec3;
 	/** the camera's right, up and forward axes (Unity frame), which view-aligned particles turn with */
 	right: Vec3;
 	up: Vec3;
@@ -1505,29 +1507,35 @@ export class ParticleField {
 				]);
 			};
 			if (info.renderMode === ParticleRenderMode.Stretched) {
-				// along the velocity as the camera sees it, lengthened by the length scale and the speed
+				// a streak from the particle back along its velocity, lengthened by the length scale and the speed.
+				// its width runs across the velocity as seen from the camera's position, flattened onto the view
+				// plane, so turning the camera in place leaves it be
 				const velocity = toWorld(scratch.subarray(base + At.velocity, base + At.velocity + 3));
+				const speed = Math.hypot(...velocity);
+				const streak: Vec3 =
+					speed > 1e-6 ? [velocity[0] / speed, velocity[1] / speed, velocity[2] / speed] : view.up;
 				const f = view.forward;
-				const ahead = velocity[0] * f[0] + velocity[1] * f[1] + velocity[2] * f[2];
+				const sight: Vec3 = [
+					instances.origin[0] + center[0] - view.eye[0],
+					instances.origin[1] + center[1] - view.eye[1],
+					instances.origin[2] + center[2] - view.eye[2],
+				];
 				const across: Vec3 = [
-					velocity[0] - f[0] * ahead,
-					velocity[1] - f[1] * ahead,
-					velocity[2] - f[2] * ahead,
+					streak[1] * sight[2] - streak[2] * sight[1],
+					streak[2] * sight[0] - streak[0] * sight[2],
+					streak[0] * sight[1] - streak[1] * sight[0],
 				];
-				const length = Math.hypot(...across);
-				const up = length > 1e-6 ? normalize(across) : view.up;
-				const right: Vec3 = normalize([
-					up[1] * f[2] - up[2] * f[1],
-					up[2] * f[0] - up[0] * f[2],
-					up[0] * f[1] - up[1] * f[0],
-				]);
-				axes = [right, up, [f[0], f[1], f[2]]];
+				const ahead = across[0] * f[0] + across[1] * f[1] + across[2] * f[2];
+				const flat: Vec3 = [across[0] - f[0] * ahead, across[1] - f[1] * ahead, across[2] - f[2] * ahead];
+				const right: Vec3 = Math.hypot(...flat) > 1e-9 ? normalize(flat) : view.right;
+				axes = [right, streak, [f[0], f[1], f[2]]];
 				const stretch = info.stretch ?? { lengthScale: 1, velocityScale: 0 };
-				sizes = [
-					sizes[0],
-					sizes[1] * stretch.lengthScale + Math.hypot(...velocity) * stretch.velocityScale,
-					sizes[2],
-				];
+				const length = sizes[1] * stretch.lengthScale + speed * stretch.velocityScale;
+				sizes = [sizes[0], length, sizes[2]];
+				// the unit quad is centred, and the particle sits at the streak's head
+				for (let r = 0; r < 3; r++) {
+					center[r] -= streak[r] * length * 0.5;
+				}
 			} else if (info.renderMode !== ParticleRenderMode.Mesh) {
 				if (frame !== null) {
 					turn(frame);

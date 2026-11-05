@@ -584,24 +584,67 @@ describe('ParticleSimulation', () => {
 });
 
 describe('ParticleField', () => {
-	/** @returns the centre the field writes for one particle of a system on an identity emitter at the origin */
-	const center = (info: ParticleSystemInfo, view: Omit<ParticleView, 'time'>): number[] => {
-		let written = new Float32Array(0);
+	/** @returns the row the field writes for one particle of a system on an identity emitter at the origin */
+	const written = (info: ParticleSystemInfo, view: Omit<ParticleView, 'time'>): Float32Array => {
+		let rows = new Float32Array(0);
 		const store: ParticleRowStore = {
 			allocateRows: (count) => ({ start: 0, count }),
 			freeRows: () => {},
-			writeRows: (_start, rows) => {
-				written = new Float32Array(rows.buffer.slice(0));
+			writeRows: (_start, words) => {
+				rows = new Float32Array(words.buffer.slice(0, ROW_WORDS * 4));
 			},
 		};
 		const rowsF32 = new Float32Array(ROW_WORDS);
 		rowsF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-		// the field reads only the emitter row and the block's slot
-		const instances = { rowsF32, blockSlot: 0 } as unknown as ResidentInstances;
+		// the field reads only the emitter row, the block's origin and its slot
+		const instances = { rowsF32, origin: [0, 0, 0], blockSlot: 0 } as unknown as ResidentInstances;
 		const field = new ParticleField({ systems: [info] }, store);
 		assert.equal(field.rows(instances, 0, 0, 0, { time: 0, ...view }).length, 1);
-		return [written[3], written[7], written[11]];
+		return rows;
 	};
+	const center = (info: ParticleSystemInfo, view: Omit<ParticleView, 'time'>): number[] => {
+		const row = written(info, view);
+		return [row[3], row[7], row[11]];
+	};
+	const eye: Vec3 = [0, 0, -10];
+
+	it('lays a stretched particle back from its head, its width set by where the camera is, not how it turns', () => {
+		// Suiming's rising fog (`smoke` in p_fxmap_map02_lv007_windice01): legacy stretched quads
+		const fog = system({
+			renderMode: ParticleRenderMode.Stretched,
+			stretch: { lengthScale: 2, velocityScale: 0 },
+			looping: false,
+			startLifetime: constant(5),
+			rate: constant(0),
+			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: null,
+			startSize: [constant(1), constant(1), constant(1)],
+			startRotation: [constant(0), constant(0), constant(0)],
+			gravityModifier: constant(0),
+			velocity: {
+				linear: [constant(0), constant(1), constant(0)],
+				linearInWorld: false,
+				orbital: [constant(0), constant(0), constant(0)],
+				orbitalOffset: [0, 0, 0],
+				radial: constant(0),
+				speedModifier: constant(1),
+			},
+		});
+		const level = written(fog, { eye, right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
+		// looking 30° down from the same place
+		const pitched = written(fog, {
+			eye,
+			right: [1, 0, 0],
+			up: [0, Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)],
+			forward: [0, -Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)],
+		});
+		const near = (a: Float32Array, b: number[]) =>
+			b.every((value, i) => Math.abs(a[[0, 4, 8, 1, 5, 9, 3, 7, 11][i]] - value) < 1e-5);
+		// width along x, 2 m up the rise, the particle at the top end
+		const expected = [1, 0, 0, 0, 2, 0, 0, -1, 0];
+		assert.ok(near(level, expected), [...level.subarray(0, 12)].join());
+		assert.ok(near(pitched, expected), [...pitched.subarray(0, 12)].join());
+	});
 
 	it('offsets a view-aligned mesh by its pivot in the camera-turned frame it is drawn in', () => {
 		// the blue talosite's shards: one mesh particle each, pivoted off centre, facing the camera
@@ -616,15 +659,16 @@ describe('ParticleField', () => {
 			gravityModifier: constant(0),
 			pivot: [0, 0.5, 0],
 		});
-		const level = center(shard, { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
+		const level = center(shard, { eye, right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
 		assert.deepEqual(level, [0, 1, 0]);
 		// looking straight down, the camera's up is the world's +z, so the offset goes there
-		const down = center(shard, { right: [1, 0, 0], up: [0, 0, 1], forward: [0, -1, 0] });
+		const down = center(shard, { eye, right: [1, 0, 0], up: [0, 0, 1], forward: [0, -1, 0] });
 		assert.deepEqual(down, [0, 0, 1]);
 		// a world-aligned one keeps it in the world's frame
 		const world = center(
 			{ ...shard, alignment: ParticleAlignment.World },
 			{
+				eye,
 				right: [1, 0, 0],
 				up: [0, 0, 1],
 				forward: [0, -1, 0],
@@ -638,6 +682,7 @@ describe('turnedByBillboard', () => {
 	it('turns as row_basis turns a billboard row', () => {
 		const view = {
 			time: 0,
+			eye: [0, 0, 0],
 			right: [0, 0, -1],
 			up: [0.6, 0.8, 0],
 			forward: [0.8, -0.6, 0],

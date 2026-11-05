@@ -1598,6 +1598,7 @@ export class Viewer {
 				// particles move by the clock the effects' shaders scroll by
 				particles: {
 					time: this.#time,
+					eye: this.camera.position,
 					right: this.camera.right(),
 					up: this.camera.up(),
 					forward: this.camera.forward(),

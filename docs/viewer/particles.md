@@ -100,10 +100,11 @@ system and its index, so any moment can be evaluated on its own:
   lifetime, blended in the authored colour space, then made linear into the row's colour word.
 - quads turn by the render mode: billboards by their render alignment, like meshes (with the camera,
   where their rotation rolls them, or along the world's, the emitter's or the velocity's axes),
-  vertical ones with its heading, horizontal ones lie flat facing up, and stretched ones lie in the
-  view plane along the velocity as the camera sees it, their length the size times the length scale
-  plus the speed times the velocity scale, centred on the particle. the transform's scale sizes the
-  particles only when the system is `sizedByScale`. rows that turn with the camera (view-aligned
+  vertical ones with its heading, horizontal ones lie flat facing up, and stretched ones run back
+  from the particle along its velocity, as the game's legacy
+  [stretching](../game-data/assets.md#particle-systems) does, their width across it as seen from the
+  camera's position (`ParticleView.eye`), flattened onto the view plane. the transform's scale sizes
+  the particles only when the system is `sizedByScale`. rows that turn with the camera (view-aligned
   meshes and billboards) or its heading (vertical quads) keep their own rotation and set the
   [billboard](#billboards) bits, so `row_basis` turns them on the GPU as it does billboard chains;
   the others are turned on the CPU.
