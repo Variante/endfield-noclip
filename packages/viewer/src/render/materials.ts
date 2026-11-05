@@ -9,6 +9,7 @@ import type {
 	LitEmission,
 	LitLayer,
 	LitSurface,
+	LitSway,
 	MattePaintingSurface,
 	ParallaxGlow,
 	StencilMaskSurface,
@@ -644,7 +645,31 @@ const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook => {
 	if (surface.keepsLitDecalsOff) {
 		params[LookRow.detail2 + 3] = 1;
 	}
+	if (surface.sway !== null && surface.foliage === null) {
+		swayParams(look, surface.sway);
+	}
 	return look;
+};
+
+/**
+ * where `_SIMPLE_VERTEXANIM_CLOTH`'s sway keeps its inputs: rows only leaves and grass use otherwise.
+ * mesh.wgsl sways a vertex of a look that isn't foliage, erosion, unlit or an effect when the frequency or
+ * intensity is non-zero and the geometry's position W (the sway weight) is
+ */
+export const SwayRow = {
+	/** `_SimpleVertexAnimationWindIntensity`, `_SimpleVertexAnimationWindFreq`, the soft factor, `_Kite` */
+	sway: LookRow.foliage2,
+	/** `_DirectionTendency`, 1 for the material's own direction (0: the wind's), that direction's X and Z */
+	direction: LookRow.canopyColor,
+} as const;
+
+/** `_SIMPLE_VERTEXANIM_CLOTH`'s sway in the wind (docs/game-data/materials.md#swaying-cloth) */
+const swayParams = (look: MaterialLook, sway: LitSway): void => {
+	look.params.set([sway.intensity, sway.frequency, sway.softness, sway.kite], SwayRow.sway);
+	look.params.set(
+		[sway.tendency, sway.direction === null ? 0 : 1, ...(sway.direction ?? [0, 0])],
+		SwayRow.direction,
+	);
 };
 
 /**

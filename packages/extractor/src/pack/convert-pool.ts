@@ -7,6 +7,7 @@ import type { Keys } from '../config.ts';
 import type { AssetRef, ObjectLocator } from '../game/assets.ts';
 
 import type { BlobMeta } from './blob-file.ts';
+import type { SwayReach } from './geometry.ts';
 
 // mesh and texture conversion is CPU-bound (LZ4, meshopt, zstd, SHA-256), so it runs on worker threads
 // (`convert-worker.ts`). each worker opens the install itself and writes blobs straight to the blob directory.
@@ -28,6 +29,8 @@ export type ConvertJob =
 			asset: AssetRef;
 			/** UV set to generate tangents from; see `convertMesh` */
 			tangentUv: number | null;
+			/** the farthest sway of the materials drawing it, `null` when none sways; see `convertMesh` */
+			sway: SwayReach | null;
 			zstdLevel: number;
 	  }
 	| { kind: 'texture'; locator: ObjectLocator; zstdLevel: number };

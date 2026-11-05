@@ -52,12 +52,13 @@ packs or renders correctly.
   range, and has no jittered coverage edges, water running down walls or flooding of normal-mapped
   dips ([environment](game-data/environment.md#wetness)). the weather-script activation and property
   initialization are unknown, so weather stays a manual preview
-- environment phases ([environment](game-data/environment.md#environment-phases)): `windConfig` is
-  packed but unused, and `snowConfig`, `volumetricCloudConfig` and other sections aren't extracted;
-  blending is a generic per-section lerp without the game's special cases (precipitation
-  transitions), and its rules for directions, integers and the fog's deferred Rayleigh scale are the
-  viewer's ([blending](viewer/environment.md#blending-at-the-camera)). fields set in shipped phases
-  but unread: the cloud flow (`cloudFlowType`, `cloudFlowMap`, `flowSpeed`, so the panorama never
+- environment phases ([environment](game-data/environment.md#environment-phases)): `windConfig`
+  drives only the [wind clock](viewer/materials.md#swaying-cloth) (wind motors aren't read), and
+  `snowConfig`, `volumetricCloudConfig` and other sections aren't extracted; blending is a generic
+  per-section lerp without the game's special cases (precipitation transitions), and its rules for
+  directions, integers and the fog's deferred Rayleigh scale are the viewer's
+  ([blending](viewer/environment.md#blending-at-the-camera)). fields set in shipped phases but
+  unread: the cloud flow (`cloudFlowType`, `cloudFlowMap`, `flowSpeed`, so the panorama never
   moves), `skyMaterialType` 1 and its `skyboxCubeMap` (three boss phases), `reflectionType`,
   `useCustomIVDefaultSH` and `heightFogConfig.enableVolumetricFog` (the viewer switches the PC fog
   path on `volumetricFogConfig.enable` alone)
@@ -150,10 +151,13 @@ packs or renders correctly.
   ([unsupported materials](viewer/materials.md#unsupported-materials)). besides those named above,
   on map02: Lit's macro normal map (`_MACRO_NORMAL_MAP`, 92 materials), subsurface profiles and
   thickness maps (`_SUBSURFACE*`), fake glints, cracks, dust, volume and refraction (`_FAKE*`),
-  interior parallax and mapping, matcaps, `_ZWRITE_OFF`, and vertex animation of every kind
-  (`_SIMPLE_VERTEXANIM*`, `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`, `_MOVING_BAMBOO`); glass's
-  refraction, planar and high reflections; the card LODs' view culling, height culling, trunk cover
-  and sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own inputs (467
+  interior parallax and mapping, matcaps, `_ZWRITE_OFF`, and vertex animation other than
+  `HGRP/Lit`'s [swaying cloth](viewer/materials.md#swaying-cloth) (`_SIMPLE_VERTEXANIM_PENDULUM`,
+  `_SIMPLE_VERTEXANIM_ROPE`, `HGRP/LitTransparent`'s cloth, `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`,
+  `_MOVING_BAMBOO`). the cloth sway is unchecked against an in-game shot, each pass's
+  `_DisableAnimateVert` is taken as 0, and no environment means still air; glass's refraction,
+  planar and high reflections; the card LODs' view culling, height culling, trunk cover and
+  sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own inputs (467
   materials, shaded as plain alpha-tested foliage)
 - shaders without a look, shown as [unsupported](viewer/materials.md#unsupported-materials) and
   counted per shader by `pack`: on map02 `Hidden/HGRP/Effect/VFXInkWashPaint`,

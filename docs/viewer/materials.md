@@ -33,6 +33,19 @@ the viewer evaluates the game's [foliage model](../game-data/materials.md#foliag
 ([game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts)), packed by
 `leafParams` and `grassParams`; the grass takes `h` as the vertex's object-space height.
 
+## swaying cloth
+
+[swaying cloth](../game-data/materials.md#swaying-cloth) is the surface's `sway`, packed by
+`swayParams` into rows only foliage uses otherwise (no look flag bit is free), and offset in
+`instance_rel`, which the shading, depth, alpha-tested depth and shadow passes share, so the passes
+agree on the swayed position. the vertex colour's alpha arrives as the position stream's W
+([geometry blob](../package-format.md#geometry-blob-mesh-efgm)), so the depth passes read no extra
+stream. the wind clock is `Frame.wind.x`, advanced with the animation clock at the blended
+environment's [wind](../game-data/environment.md#wind) rate, so the sway moves only while frames
+render, and every placement swings from one clock rather than the game's running one. the viewer
+draws no motion vectors, so the previous frame's offset isn't needed. skinned geometry drops the
+weight, so a swaying material on an animated mesh keeps still.
+
 ## glass
 
 [glass](../game-data/materials.md#glass) is shaded like Lit, with the opacity taken from the alpha

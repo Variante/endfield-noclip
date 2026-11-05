@@ -457,6 +457,57 @@ describe('the Lit model', () => {
 		assert.equal(noise.overlay, null);
 	});
 
+	it("sways HGRP/Lit cloth by its own direction or the wind's, but not GPU cloth or other shaders", () => {
+		// M_prop_map02_kite+1_001_01a's values
+		const shader = shaderEntry({
+			name: 'HGRP/Lit',
+			family: 'lit',
+			floats: {
+				_SimpleVertexAnimationWindIntensity: 0,
+				_SimpleVertexAnimationWindFreq: 1,
+				_SimpleVertexAnimationWindSoftFactor: 0,
+				_NoiseOffsetIntensity: 0,
+				_Use_Custom_WindDir: 0,
+				_MainDirectionAngle: 0,
+				_DirectionTendency: 0,
+				_Kite: 0,
+			},
+		});
+		const kite = {
+			_SimpleVertexAnimationWindIntensity: 1.5,
+			_SimpleVertexAnimationWindFreq: 7.4,
+			_SimpleVertexAnimationWindSoftFactor: 0.12,
+			_Use_Custom_WindDir: 1,
+			_MainDirectionAngle: 90,
+			_Kite: 1,
+		};
+		const cloth = ['_SIMPLE_VERTEXANIM', '_SIMPLE_VERTEXANIM_CLOTH'];
+		const sway = (keywords: string[], floats: Record<string, number>, entry = shader) =>
+			lit(describeMaterial(values({ keywords, floats }), entry)).sway;
+		const swung = sway(cloth, kite);
+		assert.ok(swung !== null && swung.direction !== null);
+		assert.deepEqual(
+			{ ...swung, direction: null },
+			{
+				intensity: 1.5,
+				frequency: 7.4,
+				softness: 0.12,
+				kite: 1,
+				tendency: 0,
+				direction: null,
+			},
+		);
+		assert.ok(Math.abs(swung.direction[0]) < 1e-9 && swung.direction[1] === 1);
+		assert.equal(sway(cloth, { ...kite, _Use_Custom_WindDir: 0 })?.direction, null);
+		assert.equal(sway(cloth, { ...kite, _SimpleVertexAnimationWindIntensity: 0 }), null);
+		assert.equal(sway([...cloth, '_GPU_CLOTH'], kite), null);
+		assert.equal(sway(['_SIMPLE_VERTEXANIM', '_SIMPLE_VERTEXANIM_PENDULUM'], kite), null);
+		assert.equal(
+			sway(cloth, kite, { ...shader, name: 'HGRP/LitTransparent', family: 'litTransparent' }),
+			null,
+		);
+	});
+
 	it("keeps lit decals off surfaces whose shader writes a _StencilRef with the decals' bit; HLODs write 0", () => {
 		const keepsOff = (name: string, family: ShaderEntry['family'], stencilRef: number) =>
 			lit(describeMaterial(values(), shaderEntry({ name, family, floats: { _StencilRef: stencilRef } })))

@@ -231,6 +231,39 @@ describe('convertMesh', () => {
 		}
 	});
 
+	it('carries the sway weight in position W and grows the bounds horizontally by the sway', () => {
+		// alpha v / 5 on vertex v; the third vertex, at height 2, sways farthest
+		const colors = attribute(
+			4,
+			Array.from({ length: 24 }, (_, i) => (i % 4 === 3 ? Math.floor(i / 4) / 5 : 1)),
+		);
+		const positions = Float32Array.from(POSITIONS);
+		positions[2 * 3 + 1] = 2;
+		const { blob, entry } = convertMesh(testMesh({ colors, positions }), null, {
+			sway: { flat: 0.5, perHeight: 2 },
+		});
+		// vertex 2: 0.4 · (0.5 + 2 · 2)
+		const reach = 0.4 * 4.5;
+		for (const [k, expected] of [
+			[0, -reach],
+			[1, 0],
+			[2, -reach],
+		] as const) {
+			assert.ok(Math.abs(entry.bounds.min[k] - expected) < 1e-6);
+		}
+		assert.ok(Math.abs(entry.bounds.max[0] - (2 + reach)) < 1e-6);
+		assert.equal(entry.bounds.max[1], 2);
+		const { read } = decodeAll(blob);
+		const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-3;
+		for (const [x, y, z, w] of read(VertexAttribute.Position)) {
+			const v = [0, 1, 2, 3, 4, 5].find((i) => near(POSITIONS[i * 3], x) && near(POSITIONS[i * 3 + 2], z));
+			assert.ok(v !== undefined && near(w, v / 5), `vertex ${v} at y ${y}: weight ${w}`);
+		}
+		// without a sway, W stays 0
+		const still = decodeAll(convertMesh(testMesh({ colors }), null).blob);
+		assert.ok(still.read(VertexAttribute.Position).every(([, , , w]) => w === 0));
+	});
+
 	it('quantizes attributes into the documented formats', () => {
 		const { blob, entry } = convertMesh(testMesh(), null);
 		const { geometry, streams, read } = decodeAll(blob);
@@ -332,7 +365,7 @@ describe('convertMesh', () => {
 			// frame 1 lifts bone 1 by 3 m
 			matrices: Float32Array.from([...identity, ...identity, ...identity, ...raised]),
 		};
-		const { blob, entry } = convertMesh(testMesh({ skin }), null, motion);
+		const { blob, entry } = convertMesh(testMesh({ skin }), null, { motion });
 		const { geometry, streams, read } = decodeAll(blob);
 		assert.equal(entry.animationFrames, 2);
 		assert.deepEqual(entry.bounds, { min: [0, 0, 0], max: [2, 3, 1] });
@@ -347,8 +380,11 @@ describe('convertMesh', () => {
 			assert.deepEqual(weights[v], [1, 0, 0, 0]);
 			assert.equal(boneBytes[v * 4], x === 2 ? 1 : 0);
 		}
-		assert.throws(() => convertMesh(testMesh(), null, motion), /no bone weights/);
-		assert.throws(() => convertMesh(testMesh({ skin }), null, { ...motion, boneCount: 1 }), /bone 1 of 1/);
+		assert.throws(() => convertMesh(testMesh(), null, { motion }), /no bone weights/);
+		assert.throws(
+			() => convertMesh(testMesh({ skin }), null, { motion: { ...motion, boneCount: 1 } }),
+			/bone 1 of 1/,
+		);
 	});
 
 	it('animates a rigid mesh as one bone every vertex follows, ignoring its own bone weights', () => {
@@ -370,7 +406,7 @@ describe('convertMesh', () => {
 			indices: attribute(1, [1, 1, 1, 1, 1, 1], VertexAttributeFormat.UInt8),
 		};
 		for (const mesh of [testMesh(), testMesh({ skin })]) {
-			const { blob, entry } = convertMesh(rigidSkin(mesh), null, motion);
+			const { blob, entry } = convertMesh(rigidSkin(mesh), null, { motion });
 			const { geometry, streams, read } = decodeAll(blob);
 			// x in [0, 2] turns to y in [0, 2]
 			assert.deepEqual(entry.bounds, { min: [0, 0, 0], max: [2, 2, 1] });

@@ -62,7 +62,9 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 		case 'geometry': {
 			await geometryReady;
 			if (job.asset.synthetic !== undefined) {
-				const converted = convertMesh(syntheticMesh(job.asset.synthetic), job.tangentUv);
+				const converted = convertMesh(syntheticMesh(job.asset.synthetic), job.tangentUv, {
+					sway: job.sway ?? undefined,
+				});
 				return {
 					kind: 'geometry',
 					object: syntheticMeshKey(job.asset.synthetic),
@@ -80,7 +82,10 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 			if (motion?.kind === 'rigid') {
 				source = rigidSkin(source);
 			}
-			const converted = convertMesh(source, job.tangentUv, motion?.skin);
+			const converted = convertMesh(source, job.tangentUv, {
+				sway: job.sway ?? undefined,
+				motion: motion?.skin,
+			});
 			return {
 				kind: 'geometry',
 				object: objectKey(ref),

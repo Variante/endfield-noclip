@@ -13,6 +13,7 @@ import {
 	LookFlags,
 	LookRow,
 	materialLooks,
+	SwayRow,
 	UV1_SHIFT,
 } from './materials.ts';
 
@@ -81,8 +82,35 @@ const litSurface = (overrides: Partial<LitSurface> = {}): LitSurface => ({
 	detail: null,
 	overlay: null,
 	foliage: null,
+	sway: null,
 	keepsLitDecalsOff: false,
 	...overrides,
+});
+
+test('a swaying Lit surface keeps its sway in the sway rows', () => {
+	// M_prop_map02_kite+1_001_01a: a kite swinging along its own direction, and a wave along the wind's
+	const [look, wind] = materialLooks({
+		entries: [
+			described(
+				0,
+				litSurface({
+					sway: { intensity: 1.5, frequency: 7.4, softness: 0.12, kite: 1, tendency: 0, direction: [1, 0] },
+				}),
+			),
+			described(
+				1,
+				litSurface({
+					sway: { intensity: 1, frequency: 1, softness: 0, kite: 0, tendency: 0.5, direction: null },
+				}),
+			),
+		],
+	});
+	assert.deepEqual(
+		[...look.params.subarray(SwayRow.sway, SwayRow.sway + 4)],
+		[1.5, 7.4, 0.12, 1].map(Math.fround),
+	);
+	assert.deepEqual([...look.params.subarray(SwayRow.direction, SwayRow.direction + 4)], [0, 1, 1, 0]);
+	assert.deepEqual([...wind.params.subarray(SwayRow.direction, SwayRow.direction + 4)], [0.5, 0, 0, 0]);
 });
 
 test('matte paintings are unlit, cast no shadows and test the texture alpha against their threshold', () => {

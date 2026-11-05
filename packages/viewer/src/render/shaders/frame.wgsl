@@ -61,6 +61,9 @@ struct Frame {
 	// [1] = far distance factor, far wetness, sheltered wetness, vertical wetness; [2] = x: the standing water's
 	// mask threshold (0: none), yzw unused
 	wetness: array<vec4f, 3>,
+	// the wind (`_WindGlobalParams0`, wind.ts): x = the wind clock, y = the main intensity, zw = the unit XZ
+	// direction it blows toward
+	wind: vec4f,
 	// #endregion
 }
 

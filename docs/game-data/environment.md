@@ -155,6 +155,18 @@ flow noise has its own rule ([flow noise](sky-and-fog.md#flow-noise)), as does t
 flare on one side fades in by the factor with that side's settings, and two flares cross through
 nothing at ½ without blending (unverified). the precipitation transitions are special cases too.
 
+## wind
+
+the blended phase's `windConfig` drives the shaders' main wind (`_WindGlobalParams0`), set per
+camera from the renderer's wind manager: x is the main intensity, `speed · 0.25` (speed in m/s, 5–30
+in map02's phases); y is the wind clock; z and w are `direction`'s X and Z, as stored. `direction`
+is the unit vector `horizontalDirectionAngle` (degrees from +Z toward +X) and
+`verticalDirectionAngle` give. each gameplay update advances the clock by the previous frame's
+intensity times 0.08 times the frame time, so at a steady speed it runs at `speed · 0.02` per
+second, and keeps the previous frame's values (`_LastWindGlobalParams0`) for motion vectors.
+[swaying cloth](materials.md#swaying-cloth) reads it. wind motors (local wind sources the player and
+scripts register) feed other parameters, not described here.
+
 ## activation
 
 nothing in the default chunk data says whether a volume starts enabled; the stored rows carry no

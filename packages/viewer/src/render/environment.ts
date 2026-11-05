@@ -22,6 +22,7 @@ import type {
 	ShadowConfig,
 	SkyConfig,
 	VignetteSettings,
+	WindConfig,
 } from '@endfield-noclip/package-format/environment';
 import type { Color, Vec2 } from '@endfield-noclip/package-format/values';
 
@@ -233,8 +234,12 @@ export interface EnvironmentInput {
 	colorGrading: ColorGradingInput;
 	autoExposure: AutoExposureInput;
 	lightShaft: LightShaftInput;
+	wind: WindInput;
 	post: PostInput | null;
 }
+
+/** the parts of the game's wind config the viewer reads */
+export type WindInput = Pick<WindConfig, 'speed' | 'direction'>;
 
 // #endregion
 
@@ -475,7 +480,23 @@ export interface Environment {
 	autoExposure: AutoExposureSettings;
 	/** screen-space sun shafts, or `null` when off */
 	lightShaft: LightShaftLook | null;
+	/** the main wind, which sways cloth ({@link windClockRate}) */
+	wind: {
+		/** `_WindGlobalParams0.x` */
+		intensity: number;
+		/** the XZ components of the unit direction it blows toward */
+		direction: Vec2;
+	};
 }
+
+/**
+ * how fast the wind clock (`_WindGlobalParams0.y`) runs: the game advances it by the main intensity times
+ * 0.08 per second (`docs/game-data/environment.md#wind`)
+ *
+ * @param wind the derived wind
+ * @returns wind clock units per second
+ */
+export const windClockRate = (wind: Environment['wind']): number => wind.intensity * 0.08;
 
 /** the game's screen-space sun shafts (`HGLightShaftConfig`) as the light shaft passes take them */
 export interface LightShaftLook {
@@ -682,6 +703,8 @@ const DEFAULT_PROFILE: EnvironmentInput = {
 	},
 	cloud: null,
 	colorGrading: NEUTRAL_GRADING,
+	// still air: the game's default wind isn't known
+	wind: { speed: 0, direction: [0, 0, 1] },
 	lightShaft: {
 		enable: false,
 		bloomScale: 0,
@@ -1037,7 +1060,14 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 		cloudShadow: cloudShadowLook(source.cloud, light),
 		autoExposure: autoExposureLook(source.autoExposure),
 		lightShaft: lightShaftLook(source.lightShaft, light),
+		wind: windLook(source.wind),
 	};
 };
+
+/** the main wind as the game sets its shader globals: a quarter of the speed, and the direction's X and Z */
+const windLook = ({ speed, direction }: WindInput): Environment['wind'] => ({
+	intensity: speed * 0.25,
+	direction: [direction[0], direction[2]],
+});
 
 // #endregion

@@ -115,8 +115,30 @@ export interface LitSurface {
 	/** the parallax glow or the second layer, which share their textures' slots */
 	overlay: ParallaxGlow | LitLayer | null;
 	foliage: LeafInputs | GrassInputs | CardInputs | null;
+	/** `_SIMPLE_VERTEXANIM_CLOTH`'s sway in the wind, `null` when still */
+	sway: LitSway | null;
 	/** the surface keeps `HGRP/DecalLit` decals off (`docs/game-data/materials.md#decals`) */
 	keepsLitDecalsOff: boolean;
+}
+
+/**
+ * `_SIMPLE_VERTEXANIM_CLOTH`'s sway (`docs/game-data/materials.md#swaying-cloth`): each vertex moves along a
+ * horizontal direction by a sine of the wind clock, weighted by its colour's alpha, which the geometry's
+ * position W carries
+ */
+export interface LitSway {
+	/** `_SimpleVertexAnimationWindIntensity` */
+	intensity: number;
+	/** radians per unit of the wind clock (`_SimpleVertexAnimationWindFreq`) */
+	frequency: number;
+	/** `_SimpleVertexAnimationWindSoftFactor`: phase per metre along the wave */
+	softness: number;
+	/** `_Kite`, 0–1: kites swing by their object-space height rather than as a wave along world Z */
+	kite: number;
+	/** `_DirectionTendency`: added to the sine, biasing the sway downwind */
+	tendency: number;
+	/** the unit XZ direction the vertices move along (`_MainDirectionAngle`), or `null` for the wind's own */
+	direction: [x: number, z: number] | null;
 }
 
 /** a Lit surface's emission (`docs/game-data/materials.md#emission`) */

@@ -220,9 +220,11 @@ them as is; for packed-normal meshes the packer generates MikkTSpace tangents fr
 normal-mapped material draws the mesh with
 ([geometry blob](package-format.md#geometry-blob-mesh-efgm)), the lowest when its materials
 disagree; the report counts those meshes and `debug/assets.json` lists their sets (`tangentUvs`).
-channels whose packing nibble the decoder hasn't seen, and submeshes whose index count leaves a
-partial triangle or quad, fail the mesh. skinned meshes expose weights, bone indices and bind pose
-counts in `skin`.
+likewise a mesh any swaying material draws is converted with the strongest of their sways, which
+puts the sway weights in position W and grows its bounds
+([swaying geometry](package-format.md#geometry-blob-mesh-efgm)). channels whose packing nibble the
+decoder hasn't seen, and submeshes whose index count leaves a partial triangle or quad, fail the
+mesh. skinned meshes expose weights, bone indices and bind pose counts in `skin`.
 
 **skin pose.** [skin-pose.ts](../packages/formats/src/unity/skin-pose.ts) bakes linear blend
 skinning into a new static mesh: positions, normals, tangents and bounds move into the space of the

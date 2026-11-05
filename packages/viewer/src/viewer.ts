@@ -40,7 +40,7 @@ import {
 	eyeInLevelVolume,
 	volumeLevelTag,
 } from './render/environment-blend.ts';
-import { type Environment, deriveEnvironment } from './render/environment.ts';
+import { type Environment, deriveEnvironment, windClockRate } from './render/environment.ts';
 import { DEBUG_VIEWS, type DebugView, FRAME_UNIFORM_BYTES, FrameOffsets } from './render/frame-uniforms.ts';
 import { InstanceRenderer } from './render/instance-renderer.ts';
 import {
@@ -418,6 +418,8 @@ export class Viewer {
 	 * `animate` is on, so animation pauses when the view idles and resumes where it stopped
 	 */
 	#time = 0;
+	/** the wind clock (`Frame.wind.x`), which advances with {@link #time} at the wind's rate */
+	#windClock = 0;
 
 	private constructor(gfx: GfxDevice, canvas: HTMLCanvasElement) {
 		this.#gfx = gfx;
@@ -1475,6 +1477,7 @@ export class Viewer {
 		const render = changed || settling || adapting;
 		if (render && options.animate) {
 			this.#time += dt;
+			this.#windClock += windClockRate(this.#environment.wind) * dt;
 		}
 		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
 		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
@@ -1942,6 +1945,10 @@ export class Viewer {
 			}
 		}
 		f32.set(this.#wetness, FrameOffsets.wetness);
+		{
+			const { wind } = this.#environment;
+			f32.set([this.#windClock, wind.intensity, ...wind.direction], FrameOffsets.wind);
+		}
 		this.#irradiance.centers().forEach((center, i) => {
 			const at = FrameOffsets.irradiance + i * 4;
 			f32.set(center ?? [0, 0, 0], at);

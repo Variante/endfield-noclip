@@ -298,6 +298,31 @@ blends softly into whatever lies behind (`_ObjectBlend*`, which reads the scene 
 the erosion patches the player clears. their load gate shows them while a map variable is not 2,
 that is until their core is destroyed ([blight and its cores](scene-states.md#dynamic-load-gates)).
 
+## swaying cloth
+
+`HGRP/Lit` materials with `_SIMPLE_VERTEXANIM` and `_SIMPLE_VERTEXANIM_CLOTH` (map02's kites, flags,
+canvases and logos; 26 materials across the shipped packages) sway in the wind in the vertex stage
+of every pass. the offset is added in world space after the object-to-world transform, and only when
+`_SimpleVertexAnimationWindIntensity + _NoiseOffsetIntensity` is non-zero and the vertex colour's
+alpha `a` is. with `I` the intensity, `F` `_SimpleVertexAnimationWindFreq`, `S` the soft factor, `T`
+`_DirectionTendency`, `t` [the wind clock](environment.md#wind) and `x₀` the object's world X:
+
+- `_Kite` non-zero: `s = sin(t · F + lerp(0, y · S − a · π, _Kite) + x₀) · y` with `y` the
+  object-space height, and amplitude `I · 0.05`
+- otherwise: `s = sin(t · F − z · S − a · 3.14 + x₀)` with `z` the vertex's world Z, and amplitude
+  `I · 0.5`
+
+the offset is `direction · (s + 1 + T) · amplitude · a`, where `direction` is horizontal: the
+material's own (`cos, 0, sin` of `_MainDirectionAngle` in degrees, through truncated Taylor series)
+when `_Use_Custom_WindDir` is set, otherwise the wind's. the previous frame's offset, for motion
+vectors, uses the previous wind clock. a per-pass `_DisableAnimateVert` scales the offset by
+`1 − value`; what each pass sets it to isn't known. `_NoiseOffsetIntensity` enters only the gate in
+this variant.
+
+`_SIMPLE_VERTEXANIM_PENDULUM`, `_SIMPLE_VERTEXANIM_ROPE` and `_GPU_CLOTH` are other branches of the
+same family, not described here; the cloth materials that also enable `_GPU_CLOTH` are simulated
+rather than swayed.
+
 ## clock
 
 the animated surface terms share one rate, `T` = seconds / 20: the emission pulse reads Unity's

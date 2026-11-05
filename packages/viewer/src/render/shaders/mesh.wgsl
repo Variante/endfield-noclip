@@ -99,6 +99,8 @@ const PARALLAX_NOISE_MAP = 131072u;
 const EROSION = 33554432u;
 // `HGRP/Foliage/Leaf` (`leafParams` in materials.ts)
 const FOLIAGE_LEAF = 134217728u;
+// a scene effect, drawn by effect.wgsl; its rows are laid out by effect-looks.ts
+const EFFECT = 268435456u;
 // `_LAYERBLEND_TOP` or `_LAYERBLEND_MASK` (`layerBlendParams` in materials.ts): the parallax slots and rows hold
 // the layer, and a mask map sits in the emissive slot
 const LAYER_BLEND = 2147483648u;
@@ -177,7 +179,7 @@ fn vs_main(v: VertexIn, @builtin(instance_index) ii: u32) -> VertexOut {
 	let p = draw.offset.xyz + v.position.xyz * draw.scale.xyz;
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row_block(row.block)].xyz;
 	// as vs_cutout_depth computes it, so alpha-tested depth matches exactly where they're shaded
-	let rel = instance_rel(v.position.xyz, ii, draw);
+	let rel = instance_rel(v.position, ii, draw);
 	let m = row_basis(row.t0, row.t1, row.t2, row.info);
 	let flags = bitcast<u32>(draw.offset.w);
 	// no normals in the mesh: zero here, faceted in the fragment shader
@@ -219,12 +221,42 @@ struct CutoutDepthIn {
 	@location(4) uv1: vec2f,
 }
 
-// the camera-relative position of a vertex of list entry `ii`
-fn instance_rel(position: vec3f, ii: u32, draw: Draw) -> vec3f {
+// the camera-relative position of a vertex of list entry `ii`; `position.w` is the geometry's sway weight
+fn instance_rel(position: vec4f, ii: u32, draw: Draw) -> vec3f {
 	let row = rows[list[ii]];
-	let p = draw.offset.xyz + position * draw.scale.xyz;
+	let p = draw.offset.xyz + position.xyz * draw.scale.xyz;
 	let origin = vec3f(row.t0.w, row.t1.w, row.t2.w) + blocks[row_block(row.block)].xyz;
-	return row_basis(row.t0, row.t1, row.t2, row.info) * p + origin + grass_lean(draw, p.y);
+	let rel = row_basis(row.t0, row.t1, row.t2, row.info) * p + origin;
+	return rel + grass_lean(draw, p.y) + sway(draw, p, position.w, rel, origin);
+}
+
+// `_SIMPLE_VERTEXANIM_CLOTH` (`swayParams` in materials.ts, docs/game-data/materials.md#swaying-cloth): a
+// horizontal world-space offset by a sine of the wind clock, phased by the object's world X and weighted by
+// the vertex colour's alpha, which the geometry carries in position W. kites swing by their object-space
+// height; other cloth runs as a wave along world Z
+fn sway(draw: Draw, p: vec3f, weight: f32, rel: vec3f, origin: vec3f) -> vec3f {
+	let flags = bitcast<u32>(draw.offset.w);
+	let intensity = draw.foliage2.x;
+	if (weight == 0.0 || intensity == 0.0 || (flags & (FOLIAGE | EROSION | UNLIT | EFFECT)) != 0u) {
+		return vec3f(0.0);
+	}
+	let frequency = draw.foliage2.y;
+	let softness = draw.foliage2.z;
+	let kite = draw.foliage2.w;
+	let tendency = draw.canopy_color.x;
+	let along = select(frame.wind.zw, draw.canopy_color.zw, draw.canopy_color.y > 0.5);
+	let phase = frame.wind.x * frequency + origin.x + frame.eye.x;
+	var s: f32;
+	var amplitude: f32;
+	if (kite != 0.0) {
+		amplitude = intensity * 0.05;
+		s = sin(phase + mix(0.0, p.y * softness - weight * PI, kite)) * p.y;
+	} else {
+		amplitude = intensity * 0.5;
+		s = sin(phase - (rel.z + frame.eye.z) * softness - weight * 3.14);
+	}
+	let offset = (s + 1.0 + tendency) * amplitude * weight;
+	return vec3f(along.x, 0.0, along.y) * offset;
 }
 
 // `_USE_CAMERA_BASED_TILLING` (`grassParams` in materials.ts): grass leans away from the camera along its up
@@ -240,7 +272,7 @@ fn grass_lean(draw: Draw, height: f32) -> vec3f {
 @vertex
 fn vs_depth(v: DepthIn, @builtin(instance_index) ii: u32) -> @builtin(position) @invariant vec4f {
 	let draw = draws[draw_ids[ii]];
-	return frame.view_proj * vec4f(instance_rel(v.position.xyz, ii, draw), 1.0);
+	return frame.view_proj * vec4f(instance_rel(v.position, ii, draw), 1.0);
 }
 
 // the opaque depth prepass writes depth alone; the targets' write masks are 0
@@ -265,7 +297,7 @@ fn vs_cutout_depth(v: CutoutDepthIn, @builtin(instance_index) ii: u32) -> Cutout
 	let draw_id = draw_ids[ii];
 	let draw = draws[draw_id];
 	var out: CutoutDepthOut;
-	out.position = frame.view_proj * vec4f(instance_rel(v.position.xyz, ii, draw), 1.0);
+	out.position = frame.view_proj * vec4f(instance_rel(v.position, ii, draw), 1.0);
 	let row = rows[list[ii]];
 	out.uv = sheet_uv(row.info, vec4f(v.uv0 * draw.uv0.xy + draw.uv0.zw, v.uv1 * draw.uv1.xy + draw.uv1.zw));
 	out.draw = draw_id;

@@ -5,7 +5,7 @@
  * reason, which the pack lists in `debug/assets.json`. stays out of the conversion worker's imports.
  */
 
-import type { MaterialSurface } from '@endfield-noclip/package-format/surfaces';
+import type { LitSway, MaterialSurface } from '@endfield-noclip/package-format/surfaces';
 
 import {
 	describeDitherEffect,
@@ -27,6 +27,7 @@ import {
 	describeLit,
 	describeMattePainting,
 	LIT_FAMILIES,
+	swayOf,
 } from './material-surfaces.ts';
 import {
 	type MaterialValues,
@@ -59,6 +60,17 @@ const EFFECT_FAMILIES: ReadonlySet<ShaderFamily> = new Set([
  * normal and roughness (`docs/game-data/effects.md#reflection-only-effects`)
  */
 const UNDRAWN_SHADERS = new Set(['HGRP/Effect/VFXReflectionPass']);
+
+/**
+ * the sway a material's surface will carry, for converting the meshes it draws before the surfaces are
+ * described
+ *
+ * @param material a converted material
+ * @param shader its shader's entry
+ * @returns its sway, or `null` when it keeps still
+ */
+export const materialSway = (material: MaterialValues, shader: ShaderEntry): LitSway | null =>
+	shader.name === 'HGRP/Lit' && material.blend !== 'additive' ? swayOf(readerOf(material, shader)) : null;
 
 /**
  * @param material a converted material

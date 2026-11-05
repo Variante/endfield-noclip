@@ -6,6 +6,7 @@ import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { Chain } from '@endfield-noclip/package-format/instances';
 import type { MaterialEntry, MaterialTable } from '@endfield-noclip/package-format/materials';
+import type { LitSway } from '@endfield-noclip/package-format/surfaces';
 import { type TextureEntry, textureLevelLayout } from '@endfield-noclip/package-format/textures';
 
 import { failureReason } from '../errors.ts';
@@ -17,7 +18,7 @@ import {
 	objectKey,
 	type ObjectRef,
 } from '../game/assets.ts';
-import { describeMaterial } from '../game/material-describe.ts';
+import { describeMaterial, materialSway } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 import { keywordsNotDrawn } from '../game/material-surfaces.ts';
 import type { MaterialValues as ConvertedMaterial } from '../game/material-values.ts';
@@ -36,6 +37,7 @@ import {
 	type ConvertResultOf,
 	resultMatches,
 } from './convert-pool.ts';
+import type { SwayReach } from './geometry.ts';
 import { convertMaterial, ShaderTable } from './materials.ts';
 import type { PackCache } from './pack-cache.ts';
 import { PhaseTimer } from './phase-timer.ts';
@@ -450,6 +452,29 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		}
 	}
 	const tangentUv = tangentUvs.map((uvs) => (uvs.size === 0 ? null : Math.min(...uvs)));
+	// a mesh any swaying material draws carries sway weights, and bounds that hold the farthest sway
+	const sway: (SwayReach | null)[] = Array.from({ length: input.geometries.length }, () => null);
+	{
+		const reaches = convertedMaterials.map((material) => {
+			const swayed = material === null ? null : materialSway(material, shaders.shaders[material.shader]);
+			return swayed === null ? null : swayReach(swayed);
+		});
+		for (const chain of input.chains) {
+			for (const draw of chain.draws) {
+				const reach = reaches[draw.material] ?? null;
+				const held = sway[draw.geometry];
+				if (reach !== null) {
+					sway[draw.geometry] =
+						held === null
+							? reach
+							: {
+									flat: Math.max(held.flat, reach.flat),
+									perHeight: Math.max(held.perHeight, reach.perHeight),
+								};
+				}
+			}
+		}
+	}
 	const geometryEntries: GeometryEntry[] = [];
 	const geometryDebug: AssetConversion['debug']['geometries'] = [];
 	const geometry = {
@@ -466,7 +491,13 @@ export const convertAssets = async (input: AssetConversionInput): Promise<AssetC
 		input.geometries,
 		CONVERSIONS_IN_FLIGHT,
 		(asset, id) =>
-			convert({ kind: 'geometry', asset, tangentUv: tangentUv[id], zstdLevel: input.geometryZstdLevel }),
+			convert({
+				kind: 'geometry',
+				asset,
+				tangentUv: tangentUv[id],
+				sway: sway[id],
+				zstdLevel: input.geometryZstdLevel,
+			}),
 		(result, _asset, id) => {
 			if (result instanceof Error) {
 				geometryEntries.push({ id, status: 'failed' });
@@ -683,6 +714,20 @@ const withSavedValues = (record: MaterialRecord, saved: MaterialValues | null): 
 		}
 	}
 	return { ...record, floats, ints, colors: { ...record.colors, ...saved.colors } };
+};
+
+/**
+ * how far a sway moves a vertex of full weight (`docs/game-data/materials.md#swaying-cloth`): the offset is
+ * `(s + 1 + tendency) · amplitude`, where a kite's sine `s` is scaled by the object-space height and its
+ * amplitude is `intensity · 0.05`, and a wave's amplitude is `intensity · 0.5`
+ */
+const swayReach = ({ intensity, kite, tendency }: LitSway): SwayReach => {
+	const offset = Math.abs(1 + tendency);
+	if (kite !== 0) {
+		const amplitude = Math.abs(intensity) * 0.05;
+		return { flat: amplitude * offset, perHeight: amplitude };
+	}
+	return { flat: Math.abs(intensity) * 0.5 * (1 + offset), perHeight: 0 };
 };
 
 /** rewrites a material's slots from per-object ids to texture-table ids, in place (the entry is ours) */
