@@ -141,6 +141,12 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   their size. effects stretch a spawn box this way: Jingyu Valley's bird flock
   (`p_fxmap_map_bird_03`) sits under a parent scaled 363 × 150 × 148 m, in Shape mode, so its birds
   stay their start size.
+- **pivot.** the renderer's `m_Pivot` offsets each particle's mesh from the particle's position, in
+  the particle's turned frame, in multiples of the particle's size. in mesh mode it is also measured
+  in the mesh's own size, per axis twice the farthest its bounds reach from the origin
+  (`2·(|centre| + extent)`), as the renderer's bounds code sizes it. Dijiang's robot lamps
+  (`P_fxmap_common_robot_lamp_802`) offset their eyes, a 0.1 m plane, by ±0.95 of it: each eye sits
+  7 cm off centre under the eyes' 30× scaled parent, not 70 cm.
 - **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its
   drag: an amount, optionally scaled by the particle's size and by its speed squared. the splashes
   at the foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on

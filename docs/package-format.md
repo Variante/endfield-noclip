@@ -598,9 +598,10 @@ looks up once per scene.
 particle and keeps it past its lifetime (`ringBufferMode` not 0), without a texture sheet. the
 particle takes the renderer's `m_Mesh` and materials at the shape's centre, oriented by world, local
 or (for a box shape, which emits along the emitter's forward axis) velocity alignment, then its
-start rotation (Euler, Z then X then Y) and start size, scaled and placed as its scaling mode sizes
-and moves played particles (below). random ranges between two constants take their midpoint, since
-the game's draws can't be reproduced; curves and camera-facing alignments disqualify a system.
+start rotation (Euler, Z then X then Y) and start size, offset by its
+[pivot](game-data/assets.md#particle-systems) and scaled and placed as its scaling mode sizes and
+moves played particles (below). random ranges between two constants take their midpoint, since the
+game's draws can't be reproduced; curves and camera-facing alignments disqualify a system.
 
 **a played system**, mesh or quad, when a viewer can play it from the package alone
 ([particle-system.ts](../packages/extractor/src/game/particle-system.ts)): the renderer becomes an
@@ -632,7 +633,9 @@ unless the mode is Shape. the entry keeps:
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
   rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz,
   applying the limit as [the game does](game-data/assets.md#particle-systems)
-- the render alignment (Facing is kept as View; Velocity too) and pivot
+- the render alignment (Facing is kept as View; Velocity too) and pivot, in multiples of the
+  particle's size: a mesh particle's pivot is first multiplied by the mesh's size
+  ([pivot](game-data/assets.md#particle-systems))
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
   random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by

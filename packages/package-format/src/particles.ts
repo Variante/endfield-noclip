@@ -232,7 +232,10 @@ export interface ParticleSystemInfo {
 	 */
 	rotationOverLifetime: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo] | null;
 	alignment: ParticleAlignment;
-	/** the mesh's offset from the particle's position, in units of its size */
+	/**
+	 * the mesh's offset from the particle's position, in units of its size; for mesh particles the packer has
+	 * already multiplied the renderer's pivot by the mesh's size
+	 */
 	pivot: Vec3;
 	/**
 	 * the relative chance of each of the system's meshes (up to four); each particle draws one. a renderer with

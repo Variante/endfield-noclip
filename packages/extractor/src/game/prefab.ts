@@ -32,6 +32,8 @@ import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import {
 	frozenParticleMatrix,
+	meshParticlePivot,
+	particleMeshSize,
 	type LocalTransform,
 	particleEmitterMatrix,
 	particleStandInMatrix,
@@ -562,23 +564,27 @@ export const readPrefabRenderers = async (
 				rendererData = { ...rendererData, m_Pivot: { x, y, z } };
 			}
 			// a switched-off system stands in at its emitter whatever it would play
-			const particle =
-				standIn === null ? frozenParticleMatrix(system.data, rendererData, parent, local) : null;
-			if (particle !== null) {
+			let frozen: { matrix: Float32Array; mesh: ObjectRef } | null = null;
+			if (standIn === null && numberField(rendererData, 'm_RenderMode') === ParticleRenderMode.Mesh) {
 				const mesh = await resolver.resolve(particles.ref, pptrField(particles.data, 'm_Mesh'));
 				if (mesh !== null) {
-					candidates.push({
-						...particles,
-						matrix: particle,
-						name,
-						mesh,
-						particles: null,
-						unsupported: null,
-						billboard: null,
-						posedMaterials,
-						distances,
-					});
+					const meshSize = particleMeshSize(aabbField(await resolver.read(mesh), 'm_LocalAABB'));
+					const placed = frozenParticleMatrix(system.data, rendererData, parent, local, meshSize);
+					frozen = placed === null ? null : { matrix: placed, mesh };
 				}
+			}
+			if (frozen !== null) {
+				candidates.push({
+					...particles,
+					matrix: frozen.matrix,
+					name,
+					mesh: frozen.mesh,
+					particles: null,
+					unsupported: null,
+					billboard: null,
+					posedMaterials,
+					distances,
+				});
 			} else {
 				const read = readParticleSystem(system.data, rendererData);
 				const emitter = particleEmitterMatrix(parent, local, numberField(system.data, 'scalingMode'));
@@ -621,12 +627,18 @@ export const readPrefabRenderers = async (
 							: await Promise.all(read.meshes.map((pointer) => resolver.resolve(particles.ref, pointer)));
 					for (const [i, mesh] of meshes.entries()) {
 						if (mesh !== null) {
+							let pivot = read.info.pivot;
+							if (read.info.renderMode === ParticleRenderMode.Mesh) {
+								// oxlint-disable-next-line no-await-in-loop -- mesh headers are cached by the resolver
+								const bounds = aabbField(await resolver.read(mesh), 'm_LocalAABB');
+								pivot = meshParticlePivot(pivot, particleMeshSize(bounds));
+							}
 							candidates.push({
 								...particles,
 								matrix: emitter,
 								name,
 								mesh,
-								particles: { ...read.info, mesh: i },
+								particles: { ...read.info, pivot, mesh: i },
 								unsupported: null,
 								billboard: null,
 								posedMaterials,

@@ -735,11 +735,11 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 			s.randomPosition * Math.sqrt(3);
 	}
 	const gravity = 0.5 * GRAVITY * curveReach(motion.gravityModifier) * life * life;
+	// the pivot moves the mesh by multiples of the particle's size
 	let size =
-		meshRadius *
+		(meshRadius + Math.hypot(...info.pivot)) *
 		Math.max(...info.startSize.map(curveReach)) *
-		Math.max(1, ...(info.sizeOverLifetime ?? []).map(curveReach)) *
-		Math.max(1, Math.hypot(...info.pivot));
+		Math.max(1, ...(info.sizeOverLifetime ?? []).map(curveReach));
 	if (info.stretch !== null) {
 		// a stretched quad lengthens by its length scale and its speed
 		const fastest = speed * speedScale + GRAVITY * curveReach(motion.gravityModifier) * life;
