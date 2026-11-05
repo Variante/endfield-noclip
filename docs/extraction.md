@@ -584,9 +584,14 @@ mesh renderers, at 1500 frames each.
 a prefab drawn without a view-state pose (every model placement but posed interactives) is drawn in
 what its own Animators play ([scenery animators](game-data/assets.md#scenery-animators)):
 `animatorDefaultPose` walks the hierarchy's active GameObjects for enabled Animators with a plain
-AnimatorController and takes, per showing layer, the default state's single clip, as a pose clip
-like a view state's (its end pose, or its motion at the state's speed when it loops). layers that
-blend, blend-tree states and override controllers are left out.
+AnimatorController and takes, per showing layer, the single clip of the state the layer settles in
+under the controller's saved parameters, as a pose clip like a view state's (its end pose, or its
+motion at the state's speed when it loops). layers that blend, blend-tree states, transitions into
+sub-machines and override controllers are left out. an interactive whose template sets Animator
+bools on load ([scenery animators](game-data/assets.md#scenery-animators)) is posed by
+`animatorPose` with those values on every Animator in the prefab (which Animators the game's
+component reaches isn't checked); one bool read from a saved property places the model once per
+value under an `activation:<row id>` control, set by default, as in a finished save.
 
 `readClipMotion` plays an [ACL-compressed clip](game-data/assets.md#acl-compressed-clips) through
 [acl.ts](../packages/formats/src/unity/acl.ts), a TypeScript port of ACL 2.1's transform-track

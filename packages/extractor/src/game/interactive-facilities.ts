@@ -24,6 +24,7 @@ import type {
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
+import { animatorParameterId, animatorPose } from './animator-defaults.ts';
 import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
@@ -262,6 +263,123 @@ const hasComponent = (template: MemoryPackValue, suffixes: readonly string[]): b
 	);
 };
 
+/** the Animator bools an interactive sets on load: fixed ones, and at most one that follows a saved property */
+interface AnimatorStart {
+	/** values from constants and the template's config properties, by parameter name */
+	fixed: Map<string, boolean>;
+	/** the parameter set from a saved property, `null` without one */
+	saved: { parameter: string; property: string } | null;
+}
+
+/** `paramSource` of an action value read from a constant, a config property and a saved property */
+const PARAM_CONSTANT = 0;
+const PARAM_CONFIG = 200;
+const PARAM_SAVED = 300;
+
+/**
+ * @param properties a template's keyed property list
+ * @param key the property's key
+ * @returns its first atom as a bool, or `null` when it's absent
+ */
+const boolProperty = (properties: MemoryPackValue | undefined, key: string): boolean | null => {
+	for (const property of Array.isArray(properties) ? properties : []) {
+		if (
+			property === null ||
+			typeof property !== 'object' ||
+			Array.isArray(property) ||
+			property.key !== key
+		) {
+			continue;
+		}
+		const value = property.value;
+		const [atom] =
+			value !== null && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.valueArray)
+				? value.valueArray
+				: [];
+		const bits =
+			atom !== null && typeof atom === 'object' && !Array.isArray(atom) ? atom.valueBit64 : undefined;
+		return typeof bits === 'string' || typeof bits === 'number' ? BigInt(bits) !== 0n : null;
+	}
+	return null;
+};
+
+const isRecord = (value: MemoryPackValue): value is { [key: string]: MemoryPackValue } =>
+	value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * @param template a decoded interactive template
+ * @returns the Animator bools its simple-animator component gets from the template's on-load action chain, or
+ *   `null` when it has no such component or chain, or sets more than one bool from saved properties
+ */
+const animatorStart = (template: MemoryPackValue): AnimatorStart | null => {
+	if (
+		template === null ||
+		typeof template !== 'object' ||
+		Array.isArray(template) ||
+		!hasComponent(template, ['_SimpleAnimatorComponentDataForMemoryPack'])
+	) {
+		return null;
+	}
+	const map = template.dataMap;
+	if (map === null || typeof map !== 'object' || Array.isArray(map)) {
+		return null;
+	}
+	const headers = Array.isArray(map.headerList) ? map.headerList.filter(isRecord) : [];
+	const actions = new Map(
+		(Array.isArray(map.actionList) ? map.actionList.filter(isRecord) : []).map((action) => [
+			action.ID,
+			action,
+		]),
+	);
+	const start = headers.find(
+		(header) => typeof header.$type === 'string' && header.$type.endsWith('_OnEntityStartForMemoryPack'),
+	);
+	if (start === undefined) {
+		return null;
+	}
+	const fixed = new Map<string, boolean>();
+	let saved: AnimatorStart['saved'] = null;
+	const visited = new Set<MemoryPackValue>();
+	for (let id = start.nextID; !visited.has(id);) {
+		visited.add(id);
+		const action = actions.get(id);
+		if (action === undefined) {
+			break;
+		}
+		id = action.nextID;
+		if (typeof action.$type !== 'string' || !action.$type.endsWith('_SetAnimatorBoolForMemoryPack')) {
+			continue;
+		}
+		const parameter = isRecord(action.key) ? action.key.constValue : null;
+		const value = isRecord(action.value) ? action.value : null;
+		if (typeof parameter !== 'string' || value === null) {
+			continue;
+		}
+		const path = typeof value.path === 'string' ? value.path : '';
+		switch (value.paramSource) {
+			case PARAM_CONSTANT: {
+				fixed.set(parameter, value.constValue === true);
+				break;
+			}
+			case PARAM_CONFIG: {
+				fixed.set(parameter, boolProperty(template.configProperties, path) ?? false);
+				break;
+			}
+			case PARAM_SAVED: {
+				if (saved !== null && (saved.parameter !== parameter || saved.property !== path)) {
+					return null;
+				}
+				saved = { parameter, property: path };
+				break;
+			}
+			default: {
+				break;
+			}
+		}
+	}
+	return fixed.size === 0 && saved === null ? null : { fixed, saved };
+};
+
 /** the interactive logic type of telescopic bridges */
 const TELESCOPIC_LOGIC = 8;
 
@@ -375,8 +493,10 @@ export interface InteractiveStandIn {
  * always shown. a model that is a doodad-group shell also places its form models, one per group level, under
  * a per-level `doodadGroups:<level id>` control. a model with door poses is placed closed and open, under a
  * `door:<id>` control, closed by default. a telescopic bridge is placed retracted and extended, under a
- * `bridge:<id>` control, retracted by default. rows the game creates later (`createState` ≠ 0) are placed the
- * same way and also require their level's `created:<level id>` control, off by default
+ * `bridge:<id>` control, retracted by default. a model without view states whose template sets its own
+ * Animator's bools on load is posed in the states they settle; one bool from a saved property puts it under
+ * an `activation:<id>` control, set by default. rows the game creates later (`createState` ≠ 0) are placed
+ * the same way and also require their level's `created:<level id>` control, off by default
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
@@ -714,6 +834,8 @@ export const loadInteractiveFacilities = async (
 	// facility forms with view states drawn as they rest (an idle loop keeps playing), by ModelTable id
 	const formPoses = new Map<string, PrefabPose>();
 	const regionWalls = new Set<string>();
+	// interactives without view states whose template sets their own Animator's bools on load, by key
+	const animatorStarts = new Map<string, AnimatorStart>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	{
@@ -721,7 +843,7 @@ export const loadInteractiveFacilities = async (
 			string,
 			| { kind: 'door' | 'regionWall' }
 			| { kind: 'telescopic'; pieces: number }
-			| { kind: 'other'; campfire: boolean; keys: PlayerKey[] }
+			| { kind: 'other'; campfire: boolean; keys: PlayerKey[]; animator: AnimatorStart | null }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
 		const looksByModel = new Map<string, InteractiveLooks | null>();
@@ -777,10 +899,11 @@ export const loadInteractiveFacilities = async (
 							kind: 'other' as const,
 							campfire: hasComponent(decoded, CAMPFIRE_COMPONENTS),
 							keys: playerKeys(decoded),
+							animator: animatorStart(decoded),
 						};
 					},
 					// an unreadable template is drawn as saved
-					{ kind: 'other' as const, campfire: false, keys: [] },
+					{ kind: 'other' as const, campfire: false, keys: [], animator: null },
 				);
 				templateKinds.set(data, kind);
 			}
@@ -807,6 +930,8 @@ export const loadInteractiveFacilities = async (
 				if (looks !== null) {
 					const radius = looks.near === null ? null : Math.max(...kind.keys.map((entry) => entry.radius));
 					interactiveLooks.set(key, { looks, campfire: kind.campfire, radius });
+				} else if (kind.animator !== null) {
+					animatorStarts.set(key, kind.animator);
 				}
 				continue;
 			}
@@ -890,6 +1015,41 @@ export const loadInteractiveFacilities = async (
 				return null;
 			}
 		});
+	/** by prefab and parameter values; `null` when no Animator plays a clip (drawn as saved) */
+	const startPoses = new Map<string, Promise<PrefabPose | null>>();
+	/**
+	 * @param prefab the interactive's model prefab
+	 * @param start the Animator bools its template sets on load
+	 * @param saved the saved property's value, `null` without one
+	 * @returns what the prefab's Animators rest in under those bools
+	 */
+	const startPose = (
+		prefab: string,
+		start: AnimatorStart,
+		saved: boolean | null,
+	): Promise<PrefabPose | null> => {
+		const parameters = new Map<number, boolean>();
+		for (const [name, value] of start.fixed) {
+			parameters.set(animatorParameterId(name), value);
+		}
+		if (start.saved !== null && saved !== null) {
+			parameters.set(animatorParameterId(start.saved.parameter), saved);
+		}
+		const key = `${prefab}:${[...parameters].map(([id, value]) => `${id}=${Number(value)}`).join(',')}`;
+		return startPoses.getOrInsertComputed(key, async () => {
+			try {
+				const resolver = await context.resolver();
+				const root = await resolver.findUnique({ hash: hashOf(prefab), path: prefab }, UnityClass.GameObject);
+				return await animatorPose(resolver, root, parameters);
+			} catch (error) {
+				if (!(error instanceof FormatError)) {
+					throw error;
+				}
+				unsupported.push({ path: prefab, reason: error.message });
+				return null;
+			}
+		});
+	};
 	const scriptControls = new Map<string, ScriptControl>();
 	for (const { path, levelId, levelTag, row, created } of placed) {
 		// a row created later also needs its level's `created` control on, and one a level script shows and hides
@@ -1075,6 +1235,39 @@ export const loadInteractiveFacilities = async (
 					{ alternatives: [[...requirements, { control: nearness, mask: 2 }]] },
 					near.pose,
 				);
+			}
+			continue;
+		}
+		const start = animatorStarts.get(row.template);
+		if (start !== undefined) {
+			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
+			const [form] = template.forms;
+			if (start.saved === null) {
+				// oxlint-disable-next-line no-await-in-loop -- one pose per prefab and parameter set
+				place(form, { alternatives: [[]] }, await startPose(form.prefab, start, null));
+				continue;
+			}
+			const control = `activation:${row.id}`;
+			const { property } = start.saved;
+			progressions.push({
+				kind: 'activation',
+				id: control,
+				name: `${row.template} ${where}`,
+				rule: null,
+				assumption: `${property} set, as in a finished save: the server sets it during play`,
+				followsCamera: false,
+				levelTags: [],
+				values: [
+					{ value: 0, label: `${property} unset` },
+					{ value: 1, label: `${property} set` },
+				],
+				default: 1,
+				derived: null,
+			});
+			for (const [value, set] of [false, true].entries()) {
+				// oxlint-disable-next-line no-await-in-loop -- as above
+				const pose = await startPose(form.prefab, start, set);
+				place(form, { alternatives: [[{ control, mask: 1 << value }]] }, pose);
 			}
 			continue;
 		}

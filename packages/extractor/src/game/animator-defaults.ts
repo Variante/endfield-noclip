@@ -1,4 +1,6 @@
 /* oxlint-disable no-await-in-loop -- walks a prefab's hierarchy in authored order */
+import { crc32 } from 'node:zlib';
+
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import { type ClipMotion, readClipEndPose } from '@endfield-noclip/formats/unity/animation-clip';
 import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
@@ -39,16 +41,153 @@ const data = (value: unknown, what: string): TypeTreeObject => {
 	return objectField(value, 'data');
 };
 
+/** Animator parameter values by parameter id ({@link animatorParameterId}) */
+export type AnimatorParameters = ReadonlyMap<number, boolean | number>;
+
+/**
+ * @param name an Animator parameter's name
+ * @returns the id a controller keys it by
+ */
+export const animatorParameterId = (name: string): number => crc32(name);
+
+/** `AnimatorControllerParameterType` of triggers, which are never set at rest */
+const TRIGGER = 9;
+
+/**
+ * @param constant a controller's `m_Controller`
+ * @param parameters values that replace the controller's defaults
+ * @returns each parameter's value by id, and the ids of triggers
+ */
+const parameterValues = (
+	constant: TypeTreeObject,
+	parameters: AnimatorParameters,
+): { values: Map<number, number>; triggers: Set<number> } => {
+	const values = new Map<number, number>();
+	const triggers = new Set<number>();
+	const defaults = data(objectField(constant, 'm_DefaultValues'), 'default values');
+	// `AnimatorControllerParameterType`: 1 float, 3 int, 4 bool, 9 trigger; each indexes its own array
+	const arrays = new Map([
+		[1, 'm_FloatValues'],
+		[3, 'm_IntValues'],
+		[4, 'm_BoolValues'],
+	]);
+	for (const entry of arrayField(data(objectField(constant, 'm_Values'), 'values'), 'm_ValueArray')) {
+		if (!isObject(entry)) {
+			throw new FormatError('invalid animator parameter');
+		}
+		const id = numberField(entry, 'm_ID');
+		const type = numberField(entry, 'm_Type');
+		if (type === TRIGGER) {
+			triggers.add(id);
+			continue;
+		}
+		const array = arrays.get(type);
+		const saved =
+			array === undefined ? undefined : arrayField(defaults, array)[numberField(entry, 'm_Index')];
+		values.set(id, Number(parameters.get(id) ?? saved ?? 0));
+	}
+	return { values, triggers };
+};
+
+/**
+ * @returns whether a transition's conditions all hold at rest. one without conditions waits on its exit time
+ *   (a timed sequence), and one testing a trigger on a trigger that isn't set, so neither does
+ * @throws {FormatError} on an unknown condition mode
+ */
+const transitionHolds = (
+	transition: TypeTreeObject,
+	values: ReadonlyMap<number, number>,
+	triggers: ReadonlySet<number>,
+): boolean => {
+	const conditions = arrayField(transition, 'm_ConditionConstantArray');
+	if (conditions.length === 0) {
+		return false;
+	}
+	return conditions.every((entry) => {
+		const condition = data(entry, 'condition');
+		const id = numberField(condition, 'm_EventID');
+		if (triggers.has(id)) {
+			return false;
+		}
+		const value = values.get(id) ?? 0;
+		const threshold = numberField(condition, 'm_EventThreshold');
+		// `AnimatorConditionMode`: 1 if, 2 if not, 3 greater, 4 less, 5 exit time, 6 equals, 7 not equal
+		switch (numberField(condition, 'm_ConditionMode')) {
+			case 1: {
+				return value !== 0;
+			}
+			case 2: {
+				return value === 0;
+			}
+			case 3: {
+				return value > threshold;
+			}
+			case 4: {
+				return value < threshold;
+			}
+			case 5: {
+				return true;
+			}
+			case 6: {
+				return value === threshold;
+			}
+			case 7: {
+				return value !== threshold;
+			}
+			default: {
+				throw new FormatError(`unknown animator condition mode ${numberField(condition, 'm_ConditionMode')}`);
+			}
+		}
+	});
+};
+
+/**
+ * @param machine a layer's state machine
+ * @param values parameter values
+ * @param triggers trigger ids
+ * @returns the index of the state the machine rests in: from the default state, any-state transitions first,
+ *   then the state's own, the first that holds is taken until none does, a state repeats or a transition
+ *   leaves for a sub-machine's entry or exit
+ */
+const settledStateIndex = (
+	machine: TypeTreeObject,
+	values: ReadonlyMap<number, number>,
+	triggers: ReadonlySet<number>,
+): number => {
+	const states = arrayField(machine, 'm_StateConstantArray');
+	const anyState = arrayField(machine, 'm_AnyStateTransitionConstantArray');
+	let index = numberField(machine, 'm_DefaultState');
+	const visited = new Set<number>();
+	for (;;) {
+		visited.add(index);
+		const own = arrayField(data(states[index], 'state'), 'm_TransitionConstantArray');
+		const taken = [...anyState, ...own]
+			.map((entry) => data(entry, 'transition'))
+			.find((transition) => transitionHolds(transition, values, triggers));
+		const next = taken === undefined ? undefined : numberField(taken, 'm_DestinationState');
+		if (next === undefined || next < 0 || next >= states.length || visited.has(next)) {
+			return index;
+		}
+		index = next;
+	}
+};
+
 /**
  * @param controller an AnimatorController's fields
- * @returns per layer that shows, in layer order, the clip its default state plays. the base layer always
- *   shows; another shows when it overrides at full default weight. layers that blend (additive, partial
- *   weight) and states that play a blend tree, no clip or not forwards are left out
+ * @param parameters parameter values set on the Animator, replacing the controller's defaults
+ * @returns per layer that shows, in layer order, the clip of the state it rests in
+ *   ({@link settledStateIndex}). the base layer always shows; another shows when it overrides at full default
+ *   weight. layers that blend (additive, partial weight) and states that play a blend tree, no clip or not
+ *   forwards are left out
  * @throws {FormatError} on a malformed controller
  */
-export const defaultStateClips = (controller: TypeTreeObject): DefaultStateClip[] => {
+export const settledStateClips = (
+	controller: TypeTreeObject,
+	parameters: AnimatorParameters,
+): DefaultStateClip[] => {
 	const constant = objectField(controller, 'm_Controller');
 	const machines = arrayField(constant, 'm_StateMachineArray');
+	const { values, triggers } = parameterValues(constant, parameters);
 	const result: DefaultStateClip[] = [];
 	for (const [layer, entry] of arrayField(constant, 'm_LayerArray').entries()) {
 		const layerData = data(entry, 'layer');
@@ -60,7 +199,7 @@ export const defaultStateClips = (controller: TypeTreeObject): DefaultStateClip[
 		}
 		const machine = data(machines[numberField(layerData, 'm_StateMachineIndex')], 'state machine');
 		const state = data(
-			arrayField(machine, 'm_StateConstantArray')[numberField(machine, 'm_DefaultState')],
+			arrayField(machine, 'm_StateConstantArray')[settledStateIndex(machine, values, triggers)],
 			'state',
 		);
 		const speed = numberField(state, 'm_Speed');
@@ -99,17 +238,31 @@ const atSpeed = (motion: ClipMotion, speed: number): ClipMotion => {
 
 /**
  * reads what a prefab's own Animators play when no view state drives them: each enabled Animator on a
- * GameObject active as saved plays its AnimatorController's default states from load, holding a clip's end
- * pose once it ends or playing on while it loops
+ * GameObject active as saved plays the states its AnimatorController rests in under the controller's default
+ * parameters, holding a clip's end pose once it ends or playing on while it loops
  *
  * @param resolver bundle reader
  * @param root prefab GameObject
  * @returns the pose, or `null` when no Animator plays a clip
  * @throws {FormatError} on a malformed hierarchy or controller
  */
-export const animatorDefaultPose = async (
+export const animatorDefaultPose = (resolver: AssetResolver, root: ObjectRef): Promise<PrefabPose | null> =>
+	animatorPose(resolver, root, new Map());
+
+/**
+ * like {@link animatorDefaultPose}, with parameter values set on every Animator in the prefab, as a gameplay
+ * component sets them when the prefab loads
+ *
+ * @param resolver bundle reader
+ * @param root prefab GameObject
+ * @param parameters values replacing the controllers' defaults
+ * @returns the pose, or `null` when no Animator plays a clip
+ * @throws {FormatError} on a malformed hierarchy or controller
+ */
+export const animatorPose = async (
 	resolver: AssetResolver,
 	root: ObjectRef,
+	parameters: AnimatorParameters,
 ): Promise<PrefabPose | null> => {
 	const clips: PoseClip[] = [];
 	const visit = async (go: ObjectRef, isRoot: boolean): Promise<void> => {
@@ -144,7 +297,7 @@ export const animatorDefaultPose = async (
 			}
 			const controllerData = await resolver.read(controller);
 			const pointers = arrayField(controllerData, 'm_AnimationClips');
-			for (const { clip, speed } of defaultStateClips(controllerData)) {
+			for (const { clip, speed } of settledStateClips(controllerData, parameters)) {
 				const pointer = pointers[clip];
 				const clipRef = pointer === undefined ? null : await resolver.resolve(controller, asPPtr(pointer));
 				if (clipRef === null) {
@@ -174,5 +327,12 @@ export const animatorDefaultPose = async (
 		}
 	};
 	await visit(root, true);
-	return clips.length === 0 ? null : { key: 'animator-defaults', clips, active: new Map() };
+	if (clips.length === 0) {
+		return null;
+	}
+	const key =
+		parameters.size === 0
+			? 'animator-defaults'
+			: `animator:${[...parameters].map(([id, value]) => `${id}=${Number(value)}`).join(',')}`;
+	return { key, clips, active: new Map() };
 };

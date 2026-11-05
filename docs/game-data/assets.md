@@ -500,10 +500,29 @@ model's clips but for its own activation start.
 ### scenery animators
 
 a prefab placed without view states can carry its own Animator with an AnimatorController. Unity
-plays each layer's default state (`m_DefaultState`) from load: the base layer at full weight
-whatever its saved `m_DefaultWeight`, later layers at theirs. a state whose blend tree has one node
-plays the clip `m_ClipID` indexes in the controller's `m_AnimationClips`, at the state's `m_Speed`;
-a clip that doesn't loop then holds its end pose.
+starts each layer in its default state (`m_DefaultState`) on load: the base layer at full weight
+whatever its saved `m_DefaultWeight`, later layers at theirs. the layer then takes the first
+transition whose conditions all hold, any-state transitions (`m_AnyStateTransitionConstantArray`)
+before the state's own, and so on until none holds. conditions test parameters by id, the CRC32 of
+the parameter's name (`m_ConditionMode` 1 if, 2 if not, 3 greater, 4 less, 6 equals, 7 not equal
+against `m_EventThreshold`); a parameter's saved value is in `m_DefaultValues`, in the array of its
+type (`m_Values`: 1 float, 3 int, 4 bool, 9 trigger) at its `m_Index`. a trigger isn't set at rest,
+and a transition without conditions waits for its exit time, a timed sequence. a state whose blend
+tree has one node plays the clip `m_ClipID` indexes in the controller's `m_AnimationClips`, at the
+state's `m_Speed`; a clip that doesn't loop then holds its end pose.
+
+an interactive's template can set its model's Animator parameters as it loads: a simple-animator
+component (`SimpleAnimatorComponentData`) and, in the template's action map, an on-start chain
+(`OnEntityStart`) of `SetAnimatorBool` actions whose value is a constant (`paramSource` 0), a config
+property (200) or a saved property (300). The Hub's comm terminal (`int_001_comm_terminal`, row
+`2100130029` in `map01_lv001_lv_data_sub_e1m3`, under the hanging sculpture at −26.4, 98, −373.6) is
+one: it sets `seamless` from its config property (false) and `fixed` from its saved property (false
+in the template), then fires `switchState`, which plays a one-shot transition on the second layer.
+the base layer of `int_001_comm_terminal_controller` starts on `error_idle`, the red crosses on the
+pedestal, and rests on `normal_idle` while `fixed` holds (`seamless` selects a third pair). no
+mission, level script or table names the terminal or sets `fixed`, so the server sets it; the user
+reports it's fixed once the story is done. six templates have such a chain; the terminal is the only
+one with a saved bool placed in The Hub.
 
 Wuling City's spinning cube (`p_anm_map02_machine+1_002_01`, at -1442, 330, -336 in map02_lv002,
 placed by mission `e6m1`'s level data) is one: its controller `AC_anm_map02_machine+1_002_01` has
