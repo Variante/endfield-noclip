@@ -564,9 +564,14 @@ its bones' skinning matrices (prefab-space bone matrix × bind pose) per frame, 
 every frame. the packer interns it as an animated geometry, which keeps the mesh in its bind space
 with its weights, bone indices and frames
 ([geometry blob](package-format.md#geometry-blob-mesh-efgm)), rather than baking the end pose. a
-clip the sampler can't read holds its end pose as before. the balloon's tube
-(`int_balloon_postmodel`, 46 bones, 420 frames) and the regional upgrade terminal's robot
-(`int_system_fac_region_upgrade_postmodel`) play this way.
+mesh renderer (not billboarded) whose own Transform moves between those frames gets a `rigid` motion
+the same way, its Transform as the one bone with an identity bind pose: conversion gives every
+vertex bone 0 at full weight (`rigidSkin`), never reading the mesh's own bone weights. a clip the
+sampler can't read holds its end pose as before. the balloon's tube (`int_balloon_postmodel`, 46
+bones, 420 frames) and the regional upgrade terminal's robot
+(`int_system_fac_region_upgrade_postmodel`) play this way, and Qingbo Stockade's octagonal
+waterwheels ([scenery animators](game-data/assets.md#scenery-animators)) rigidly: 44 of their 49
+mesh renderers, at 1500 frames each.
 
 a prefab drawn without a view-state pose (every model placement but posed interactives) is drawn in
 what its own Animators play ([scenery animators](game-data/assets.md#scenery-animators)):

@@ -414,6 +414,32 @@ const splitByTangent = (
 /** the most bones a vertex's `uint8x4` indices can name */
 const MAX_BONES = 256;
 
+/**
+ * @param mesh a mesh a renderer draws rigidly
+ * @returns a copy whose every vertex follows bone 0 alone, replacing any bone weights it had, for a motion
+ *   that moves the renderer's own Transform as its one bone
+ */
+export const rigidSkin = (mesh: DecodedMesh): DecodedMesh => ({
+	...mesh,
+	skin: {
+		bonesPerVertex: 1,
+		bindPoseCount: 1,
+		boneNameHashCount: 0,
+		hasBlendWeights: true,
+		hasBlendIndices: true,
+		weights: {
+			dimension: 1,
+			format: VertexAttributeFormat.Float32,
+			data: new Float32Array(mesh.vertexCount).fill(1),
+		},
+		indices: {
+			dimension: 1,
+			format: VertexAttributeFormat.Float32,
+			data: new Float32Array(mesh.vertexCount),
+		},
+	},
+});
+
 /** per output vertex, four quantized weights summing to 65,535 and their bones */
 interface SkinStreams {
 	weights: Uint16Array;

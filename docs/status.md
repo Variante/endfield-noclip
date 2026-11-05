@@ -377,17 +377,20 @@ packs or renders correctly.
 - skeletons the reader can't pose and nonzero blend shapes (meshes with them are stand-ins);
   characters' skeletal animation isn't played. prefab
   [scenery animators](game-data/assets.md#scenery-animators) play their controllers' default states.
-  of [ACL-compressed clips](game-data/assets.md#acl-compressed-clips) only the Transform tracks
-  play: float tracks (material values, activity) and root motion aren't decoded, and buffers with a
+  a looping clip moves skinned and rigid renderers alike, but its material values and GameObject
+  switches hold their end values, and each moving renderer stores every frame of its own (Qingbo's
+  octagonal waterwheels: 44 renderers × 1500 frames). of
+  [ACL-compressed clips](game-data/assets.md#acl-compressed-clips) only the Transform tracks play:
+  float tracks (material values, activity) and root motion aren't decoded, and buffers with a
   database, non-trivial default values or Euler bindings hold their end pose. blend-tree states,
   additive or partial-weight layers, override controllers and the Animators of models with view
   states hold their saved pose. vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw
-  their rest pose. [spinning scenery](game-data/assets.md#spinning-scenery) (the Qingbo waterwheels)
-  turns from its stored pose at the viewer clock's zero rather than at the game's gameplay-clock
-  phase, and how the native system turns it is inferred from the data, not read. renderers under
-  MonoBehaviour rotators (`DynamicSceneSimpleRotate`, `TransformRotateAroundAxis`) in prefabs hold
-  still; whether any placed prefab has such renderers isn't surveyed (the waterwheels' rotators turn
-  only colliders and decals)
+  their rest pose. [spinning scenery](game-data/assets.md#spinning-scenery) (Qingbo's other
+  waterwheels) turns from its stored pose at the viewer clock's zero rather than at the game's
+  gameplay-clock phase, and how the native system turns it is inferred from the data, not read.
+  renderers under MonoBehaviour rotators (`DynamicSceneSimpleRotate`, `TransformRotateAroundAxis`)
+  in prefabs hold still; whether any placed prefab has such renderers isn't surveyed (the
+  waterwheels' rotators turn only colliders and decals)
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
 - HLOD clusters never stand in for Global chunk content, which always draws, so wherever a cluster

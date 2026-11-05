@@ -21,7 +21,7 @@ import { describeMaterial } from '../game/material-describe.ts';
 import { type LoadedMaterial, loadMaterial } from '../game/material-load.ts';
 import { keywordsNotDrawn } from '../game/material-surfaces.ts';
 import type { MaterialValues as ConvertedMaterial } from '../game/material-values.ts';
-import type { MaterialValues, SkinMotion } from '../game/prefab.ts';
+import type { MaterialValues, RendererMotion } from '../game/prefab.ts';
 import { type SyntheticMesh, syntheticMeshKey } from '../game/synthetic-mesh.ts';
 import { orderedPool } from '../pool.ts';
 
@@ -146,16 +146,17 @@ export class AssetIds {
 	}
 
 	/**
-	 * @param ref skinned mesh dependency
-	 * @param motion the looping skeletal animation it plays
+	 * @param ref mesh dependency
+	 * @param motion the looping animation it plays
 	 * @returns a geometry id distinct for each animation of the mesh
 	 */
-	internAnimatedObject(ref: ObjectRef, motion: SkinMotion): number {
+	internAnimatedObject(ref: ObjectRef, motion: RendererMotion): number {
 		const key = objectKey(ref);
-		const { matrices } = motion;
+		const { kind, skin } = motion;
+		const { matrices } = skin;
 		const digest = createHash('sha256')
 			.update(key)
-			.update(`motion ${motion.boneCount} ${motion.frameCount} ${motion.frameRate}`)
+			.update(`motion ${kind} ${skin.boneCount} ${skin.frameCount} ${skin.frameRate}`)
 			.update(new Uint8Array(matrices.buffer, matrices.byteOffset, matrices.byteLength));
 		const hash = -BigInt(`0x${digest.digest('hex')}`);
 		return this.#ids.getOrInsertComputed(
@@ -165,7 +166,7 @@ export class AssetIds {
 					hash,
 					path: key,
 					locator: locateObject(ref),
-					motion: { ...motion, matrices: matrices.slice() },
+					motion: { kind, skin: { ...skin, matrices: matrices.slice() } },
 				}) - 1,
 		);
 	}

@@ -22,7 +22,7 @@ import {
 
 import { MeshoptDecoder } from 'meshoptimizer/decoder';
 
-import { convertMesh, encodeOctahedral, geometryReady } from './geometry.ts';
+import { convertMesh, encodeOctahedral, geometryReady, rigidSkin } from './geometry.ts';
 
 // two quads in the XZ plane sharing the edge x = 1; the second mirrors U, so the shared vertices need two
 // tangent frames
@@ -349,6 +349,42 @@ describe('convertMesh', () => {
 		}
 		assert.throws(() => convertMesh(testMesh(), null, motion), /no bone weights/);
 		assert.throws(() => convertMesh(testMesh({ skin }), null, { ...motion, boneCount: 1 }), /bone 1 of 1/);
+	});
+
+	it('animates a rigid mesh as one bone every vertex follows, ignoring its own bone weights', () => {
+		// a waterwheel's rim turning a quarter turn about z between its two frames
+		const motion = {
+			boneCount: 1,
+			frameCount: 2,
+			frameRate: 60,
+			matrices: Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]),
+		};
+		// bone weights naming a bone the motion doesn't have would fail a skinned conversion
+		const skin = {
+			bonesPerVertex: 1,
+			bindPoseCount: 2,
+			boneNameHashCount: 0,
+			hasBlendWeights: false,
+			hasBlendIndices: true,
+			weights: null,
+			indices: attribute(1, [1, 1, 1, 1, 1, 1], VertexAttributeFormat.UInt8),
+		};
+		for (const mesh of [testMesh(), testMesh({ skin })]) {
+			const { blob, entry } = convertMesh(rigidSkin(mesh), null, motion);
+			const { geometry, streams, read } = decodeAll(blob);
+			// x in [0, 2] turns to y in [0, 2]
+			assert.deepEqual(entry.bounds, { min: [0, 0, 0], max: [2, 2, 1] });
+			assert.equal(geometry.animation?.boneCount, 1);
+			const boneBytes = new Uint8Array(geometry.vertexCount * 4);
+			MeshoptDecoder.decodeVertexBuffer(
+				boneBytes,
+				geometry.vertexCount,
+				4,
+				streams.get(VertexAttribute.BlendIndices)!.data,
+			);
+			assert.ok(boneBytes.every((bone) => bone === 0));
+			assert.ok(read(VertexAttribute.BlendWeight).every((weights) => weights[0] === 1));
+		}
 	});
 });
 

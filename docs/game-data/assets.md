@@ -485,6 +485,16 @@ one state, `idle_loop`, playing the looping 53.3 s clip `A_anm_map02_machine+1_0
 at 30 fps) on 15 Transforms of a skinned mesh: four of them turn a full circle over the loop. its
 curves are [ACL-compressed](#acl-compressed-clips).
 
+Qingbo Stockade's octagonal waterwheels (`p_igroup_map02_sfwaterwheel+2_004_01`, two in map02_lv003
+at -530.4, 246.9, -1074.6 and -551.8, 247.5, -1103.8, model rows of a dynamic structure gated by
+script group `23300000004`) are another, built of plain mesh renderers rather than a skinned one:
+the root's controller `AC_imod_map02_sfwaterwheel+2_004_01` has one state, `on_idle`, looping
+`A_imod_map02_sfwaterwheel+2_004_01_openidle_01` (25 s, streamed curves at 60 fps, no ACL). three
+Euler bindings (ZXY) turn the wheel's Transforms about their z: two from 0° to −360°, one from 45°
+to 360°, which wraps by an eighth of a turn and so looks seamless on the eight-sided wheel. the same
+clip also sets a value on two water-sheet MonoBehaviours, switches three GameObjects and sets
+renderer material properties.
+
 #### ACL-compressed clips
 
 many clips leave their muscle clip's streamed and dense blocks empty (`m_DenseClip.m_ACLType` 0) and

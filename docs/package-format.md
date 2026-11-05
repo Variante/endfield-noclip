@@ -384,8 +384,9 @@ v1, no filters), so the decoded bytes are the GPU buffers as they are; `package-
 as opaque and the viewer decodes with `meshoptimizer/decoder`. conversion is in
 [geometry.ts](../packages/extractor/src/pack/geometry.ts).
 
-an **animated geometry** (`SkinAnimation`) plays a looping skeletal clip: its streams hold the bind
-pose, with bone weights and indices, and the animation is a 32-byte header
+an **animated geometry** (`SkinAnimation`) plays a looping clip: its streams hold the bind pose,
+with bone weights and indices (a rigid renderer's mesh is its own bind pose, every vertex on bone 0
+at full weight), and the animation is a 32-byte header
 (`u16 boneCount, u16 frameCount, f32 frameRate, f32×3 offset, f32×3 scale`) and then
 `frameCount × boneCount` rows3x4 f32 matrices, frame-major, from the bind space to the space the
 geometry is drawn in. at time `t` the frame is `(t · frameRate) mod frameCount`, blended linearly
@@ -857,7 +858,6 @@ provenance lives there rather than in the manifest, which only identifies the bu
   levels would make a lite package.
 - **terrain cliffs**: the cliff-index pages and cone maps, which the game's cliff projection and
   parallax use, aren't packed.
-- **unsupported**: line and point topologies; skinned meshes are packed static or posed unless a
-  settled looping clip moves them, and clips that aren't skeletal (moving rigid renderers, material
-  values) hold their end pose; the game's packed tangent bits are undecoded (generated tangents
-  replace them); terrain decals are skipped.
+- **unsupported**: line and point topologies; a looping clip's material values hold their end value;
+  the game's packed tangent bits are undecoded (generated tangents replace them); terrain decals are
+  skipped.

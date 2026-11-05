@@ -62,10 +62,11 @@ export interface PrefabRenderer {
 	/** bone transforms including bind poses, when geometry must be baked into prefab space */
 	pose: Float32Array[] | null;
 	/**
-	 * the looping clip a skinned renderer's bones play, in prefab space, `null` when they hold still. the
-	 * geometry then plays it from its bind space instead of being baked into {@link pose}
+	 * the looping clip the renderer plays, in prefab space, `null` when it holds still. the geometry then plays
+	 * it from its bind space (a rigid renderer's mesh space) instead of being baked into {@link pose}, and
+	 * {@link matrix} is the identity
 	 */
-	motion: SkinMotion | null;
+	motion: RendererMotion | null;
 	/**
 	 * the particle system that draws the mesh once per particle, `null` for an ordinary renderer. the matrix is
 	 * then the system's frame and the bounds everywhere its particles reach
@@ -123,8 +124,20 @@ export interface MaterialValues {
 /** a skeletal animation for a geometry: {@link SkinAnimation} without the box its positions lie in */
 export type SkinMotion = Omit<SkinAnimation, 'offset' | 'scale'>;
 
+/** a looping animation a renderer plays */
+export interface RendererMotion {
+	/**
+	 * `skinned`: a skinned renderer's bones; `rigid`: a mesh renderer's own Transform, as the one bone every
+	 * vertex follows, so its mesh's own bone weights (if any) are never read
+	 */
+	kind: 'skinned' | 'rigid';
+	skin: SkinMotion;
+}
+
 /** bone matrices that move less than this between frames hold still */
 const STILL = 1e-5;
+
+const IDENTITY = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
 
 /** a ParticleSystemRenderer's `m_Pivot` components as clip bindings name them */
 const PIVOT_ATTRIBUTES = ['x', 'y', 'z'].map((axis) => crc32(`m_Pivot.${axis}`) >>> 0);
@@ -248,6 +261,8 @@ export const readPrefabRenderers = async (
 	const settingOrigins = new Map<string, [number, number, number]>();
 	// every Transform in walk order (parents first), for posing them at each frame of a looping clip
 	const nodes: PosedNode[] = [];
+	// by mesh renderer, its GameObject's Transform: what moves it when a looping clip turns that Transform
+	const rendererTransforms = new Map<string, string>();
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -514,6 +529,7 @@ export const readPrefabRenderers = async (
 						component.ref.info.classId === UnityClass.MeshRenderer &&
 						booleanField(component.data, 'm_Enabled')
 					) {
+						rendererTransforms.set(objectKey(component.ref), objectKey(transform.ref));
 						candidates.push({
 							...component,
 							matrix,
@@ -673,9 +689,18 @@ export const readPrefabRenderers = async (
 			);
 		}
 		let skin: Float32Array[] | null = null;
-		let motion: SkinMotion | null = null;
+		let motion: RendererMotion | null = null;
 		let unsupported = candidate.unsupported;
-		if (candidate.ref.info.classId === UnityClass.SkinnedMeshRenderer) {
+		const rigidTransform = rendererTransforms.get(key);
+		if (frames !== null && rigidTransform !== undefined && candidate.billboard === null) {
+			// a mesh renderer under a Transform the clip moves follows it as a one-bone skin in its mesh space
+			const moving = skinMotion(frames, { bones: [rigidTransform], binds: [IDENTITY] }, bounds);
+			if (moving !== null) {
+				motion = { kind: 'rigid', skin: moving.motion };
+				bounds = moving.bounds;
+				matrix = IDENTITY;
+			}
+		} else if (candidate.ref.info.classId === UnityClass.SkinnedMeshRenderer) {
 			// a skinned mesh the reader can't pose stands in unposed, at its renderer, rather than failing the prefab
 			const meshBounds = bounds;
 			const posed = await poseSkin(resolver, candidate, mesh, meshBounds, transforms);
@@ -687,7 +712,7 @@ export const readPrefabRenderers = async (
 				matrix = trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
 				const moving = frames === null ? null : skinMotion(frames, posed, meshBounds);
 				if (moving !== null) {
-					motion = moving.motion;
+					motion = { kind: 'skinned', skin: moving.motion };
 					bounds = moving.bounds;
 				}
 				// the mesh is baked without its blend shapes, so it isn't the shape the game draws
@@ -895,14 +920,14 @@ const poseFrames = (nodes: readonly PosedNode[], pose: PrefabPose): PoseFrames |
 
 /**
  * @param frames the prefab's Transforms at each frame of its looping clip
- * @param posed the renderer's skeleton
+ * @param posed the renderer's skeleton: per bone, its Transform's key and bind pose
  * @param meshBounds the mesh's own bounds
  * @returns the bones' skinning matrices at each frame and the bounds they keep the mesh in, or `null` when no
  *   bone moves
  */
 const skinMotion = (
 	frames: PoseFrames,
-	posed: PosedSkin,
+	posed: Pick<PosedSkin, 'bones' | 'binds'>,
 	meshBounds: Aabb,
 ): { motion: SkinMotion; bounds: Aabb } | null => {
 	const boneCount = posed.bones.length;

@@ -27,7 +27,7 @@ import type {
 	WorkerReply,
 	WorkerRequest,
 } from './convert-pool.ts';
-import { convertMesh, geometryReady } from './geometry.ts';
+import { convertMesh, geometryReady, rigidSkin } from './geometry.ts';
 import { convertTexture } from './textures.ts';
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- set by ConvertPool
@@ -75,8 +75,12 @@ const convertWith = async (resolver: AssetResolver, job: ConvertJob): Promise<Co
 			const ref = await resolver.findUnique(job.asset, UnityClass.Mesh);
 			const mesh = await loadMesh(resolver, ref);
 			// an animated mesh stays in its bind space; a posed one is baked into its pose
-			const posed = job.asset.pose ? bakeSkinPose(mesh, job.asset.pose) : mesh;
-			const converted = convertMesh(posed, job.tangentUv, job.asset.motion);
+			const { pose, motion } = job.asset;
+			let source = pose ? bakeSkinPose(mesh, pose) : mesh;
+			if (motion?.kind === 'rigid') {
+				source = rigidSkin(source);
+			}
+			const converted = convertMesh(source, job.tangentUv, motion?.skin);
 			return {
 				kind: 'geometry',
 				object: objectKey(ref),
