@@ -1,5 +1,6 @@
 import { FormatError } from '../binary/binary-reader.ts';
 
+import { ACL_TRANSFORM_STRIDE, decodeAclTransforms } from './acl.ts';
 import type { TypeTreeObject } from './type-tree.ts';
 import {
 	arrayField,
@@ -246,7 +247,12 @@ const DENSE_FACTORS = ['m_FloatFactor', 'm_PositionFactor', '', 'm_ScaleFactor',
 /** @returns a numeric array field as numbers, typed arrays read in place */
 const numbersField = (parent: TypeTreeObject, name: string): ArrayLike<number> => {
 	const value = parent[name];
-	if (value instanceof Float32Array || value instanceof Uint32Array || value instanceof Uint8Array) {
+	if (
+		ArrayBuffer.isView(value) &&
+		!(value instanceof DataView) &&
+		!(value instanceof BigInt64Array) &&
+		!(value instanceof BigUint64Array)
+	) {
 		return value;
 	}
 	return arrayField(parent, name).map((item) => {
@@ -332,8 +338,11 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 		throw new FormatError('legacy AnimationClip');
 	}
 	const acl = objectField(clip, 'm_AclCompressedBuffer');
-	if (numberField(acl, 'OutputTrackCount') !== 0 || numberField(acl, 'FloatCurveCount') !== 0) {
-		throw new FormatError('ACL-compressed AnimationClip');
+	if (numberField(acl, 'OutputTrackCount') !== 0) {
+		return readAclMotion(clip, acl);
+	}
+	if (numberField(acl, 'FloatCurveCount') !== 0) {
+		throw new FormatError('ACL-compressed AnimationClip without transform tracks');
 	}
 	const muscle = objectField(clip, 'm_MuscleClip');
 	const start = numberField(muscle, 'm_StartTime');
@@ -476,6 +485,152 @@ export const readClipMotion = (clip: TypeTreeObject): ClipMotion => {
 		return out;
 	};
 
+	return {
+		duration,
+		sampleRate: numberField(clip, 'm_SampleRate'),
+		loops: booleanField(muscle, 'm_LoopTime'),
+		paths,
+		sample,
+	};
+};
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+/**
+ * an ACL-compressed clip's Transform motion: one ACL transform track per animated Transform. the sub-track
+ * masks say which tracks take a position, rotation or scale binding: the k-th binding of a kind is the k-th
+ * track whose bit for that kind is set ([ACL-compressed
+ * clips](../../../../docs/game-data/assets.md#acl-compressed-clips))
+ *
+ * @throws {FormatError} for Euler bindings, masks that don't match the bindings, or a buffer
+ *   {@link decodeAclTransforms} can't read
+ */
+const readAclMotion = (clip: TypeTreeObject, acl: TypeTreeObject): ClipMotion => {
+	const muscle = objectField(clip, 'm_MuscleClip');
+	const duration = numberField(muscle, 'm_StopTime') - numberField(muscle, 'm_StartTime');
+	// bindings listed as constant take their values from the clip, in listing order, not from the ACL track
+	const constantIndices = new Set(Array.from(numbersField(acl, 'm_ConstantIndexs')));
+	const constantValues = numbersField(acl, 'm_ConstantValues');
+	let nextConstant = 0;
+	const trackCount = numberField(acl, 'OutputTrackCount');
+	const masks = bytesField(acl, 'TransformSubTrackMasks');
+	const maskBytes = Math.ceil(trackCount / 8);
+	if (masks.length < maskBytes * 3) {
+		throw new FormatError(`ACL AnimationClip has ${masks.length} mask bytes for ${trackCount} tracks`);
+	}
+	// per kind (position, rotation, scale), the tracks its bindings go to, in order
+	const targets = [0, 1, 2].map((kind) => {
+		const list: number[] = [];
+		for (let track = 0; track < trackCount; track++) {
+			if (((masks[kind * maskBytes + (track >> 3)] >> (7 - (track & 7))) & 1) === 1) {
+				list.push(track);
+			}
+		}
+		return list;
+	});
+	const taken = [0, 0, 0];
+	const paths: number[] = [];
+	const bindings: { path: number; attribute: number; track: number; constant: number[] | null }[] = [];
+	for (const [index, binding] of arrayField(
+		objectField(clip, 'm_ClipBindingConstant'),
+		'genericBindings',
+	).entries()) {
+		if (!isObject(binding)) {
+			throw new FormatError('invalid AnimationClip binding');
+		}
+		const transform = numberField(binding, 'typeID') === TRANSFORM;
+		const attribute = numberField(binding, 'attribute');
+		let constant: number[] | null = null;
+		if (constantIndices.has(index)) {
+			const count = transform ? (attribute === 2 ? 4 : 3) : 1;
+			constant = Array.from({ length: count }, (_, c) => constantValues[nextConstant + c]);
+			nextConstant += count;
+		}
+		if (!transform) {
+			continue;
+		}
+		if (attribute < 1 || attribute > 3) {
+			throw new FormatError(`unsupported ACL AnimationClip Transform attribute ${attribute}`);
+		}
+		const path = numberField(binding, 'path') >>> 0;
+		if (!paths.includes(path)) {
+			paths.push(path);
+		}
+		const track = targets[attribute - 1][taken[attribute - 1]++];
+		if (track === undefined) {
+			throw new FormatError(
+				`ACL AnimationClip has more Transform attribute ${attribute} bindings than masked tracks`,
+			);
+		}
+		bindings.push({ path, attribute, track, constant });
+	}
+	if (taken.some((count, kind) => count !== targets[kind].length)) {
+		throw new FormatError('ACL AnimationClip masks more tracks than it binds');
+	}
+	if (nextConstant !== constantValues.length) {
+		throw new FormatError(
+			`ACL AnimationClip has ${constantValues.length} constant values for ${nextConstant} bound`,
+		);
+	}
+	const tracks = decodeAclTransforms(bytesField(acl, 'TransformBufferData'));
+	if (tracks.trackCount !== trackCount) {
+		throw new FormatError(`ACL AnimationClip buffer has ${tracks.trackCount} tracks for ${trackCount}`);
+	}
+	const { values, sampleCount, sampleRate, wraps } = tracks;
+	const sample = (time: number): Map<number, ClipTransformValue[]> => {
+		const position = Math.max(time * sampleRate, 0);
+		let frame = Math.floor(position);
+		let next = frame + 1;
+		let blend = position - frame;
+		if (wraps) {
+			frame %= sampleCount;
+			next %= sampleCount;
+		} else if (next >= sampleCount) {
+			frame = Math.min(frame, sampleCount - 1);
+			next = frame;
+			blend = 0;
+		}
+		const out = new Map<number, ClipTransformValue[]>();
+		for (const { path, attribute, track, constant } of bindings) {
+			const a = (frame * trackCount + track) * ACL_TRANSFORM_STRIDE;
+			const b = (next * trackCount + track) * ACL_TRANSFORM_STRIDE;
+			let value: ClipTransformValue;
+			if (constant !== null) {
+				value =
+					attribute === 2
+						? { kind: 'rotation', value: [constant[0], constant[1], constant[2], constant[3]] }
+						: {
+								kind: attribute === 1 ? 'position' : 'scale',
+								value: [constant[0], constant[1], constant[2]],
+							};
+			} else if (attribute === 2) {
+				// normalized lerp along the shorter arc, as ACL interpolates
+				const sign =
+					values[a] * values[b] +
+						values[a + 1] * values[b + 1] +
+						values[a + 2] * values[b + 2] +
+						values[a + 3] * values[b + 3] <
+					0
+						? -1
+						: 1;
+				const q = [0, 1, 2, 3].map((c) => lerp(values[a + c], values[b + c] * sign, blend));
+				const length = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+				value = { kind: 'rotation', value: [q[0] / length, q[1] / length, q[2] / length, q[3] / length] };
+			} else {
+				const k = attribute === 1 ? 4 : 7;
+				value = {
+					kind: attribute === 1 ? 'position' : 'scale',
+					value: [
+						lerp(values[a + k], values[b + k], blend),
+						lerp(values[a + k + 1], values[b + k + 1], blend),
+						lerp(values[a + k + 2], values[b + k + 2], blend),
+					],
+				};
+			}
+			out.getOrInsertComputed(path, () => []).push(value);
+		}
+		return out;
+	};
 	return {
 		duration,
 		sampleRate: numberField(clip, 'm_SampleRate'),

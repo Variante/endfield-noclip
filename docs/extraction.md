@@ -571,6 +571,16 @@ AnimatorController and takes, per showing layer, the default state's single clip
 like a view state's (its end pose, or its motion at the state's speed when it loops). layers that
 blend, blend-tree states and override controllers are left out.
 
+`readClipMotion` plays an [ACL-compressed clip](game-data/assets.md#acl-compressed-clips) through
+[acl.ts](../packages/formats/src/unity/acl.ts), a TypeScript port of ACL 2.1's transform-track
+decompression (MIT; its notice is in the file) for the formats the game uses: full or w-dropping
+rotations, full or variable vectors, any number of segments, stripped keyframes. it decodes every
+stored sample, rebuilding w and range-reducing in float32 as ACL does (near w = 0 the rounding
+decides w), and interpolates stripped samples as ACL plays them; on the cube's buffer it agrees with
+upstream ACL's decompressor to 5e-6 in translations and 1.3e-4 in rotations. the clip then samples
+between frames like the dense block, wrapping when the buffer does, with tracks mapped to bindings
+through the sub-track masks and constant bindings held at their listed values.
+
 - a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
   `activation:<id>` control (0 not activated; 1 activated, the default), in the viewer's progression
   list.

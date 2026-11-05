@@ -409,7 +409,7 @@ decoding to `(u16 − 32767.5) / 32767.5` times the curve kind's factor (`m_Posi
 components). sampled at the clip's start and stop, this matches `m_ValueArrayDelta` to within one
 16-bit step on the balloon's clips (positions, rotations and scales). the balloon's clips leave the
 ACL buffer (`m_AclCompressedBuffer`) empty; other clips keep their curves there instead
-([scenery animators](#scenery-animators)).
+([ACL-compressed clips](#acl-compressed-clips)).
 
 clips also set renderer values (mesh renderer class 23, skinned 137, particle system renderer 199):
 
@@ -459,14 +459,35 @@ a clip that doesn't loop then holds its end pose.
 Wuling City's spinning cube (`p_anm_map02_machine+1_002_01`, at -1442, 330, -336 in map02_lv002,
 placed by mission `e6m1`'s level data) is one: its controller `AC_anm_map02_machine+1_002_01` has
 one state, `idle_loop`, playing the looping 53.3 s clip `A_anm_map02_machine+1_002_01` (1602 frames
-at 30 fps) on 15 Transforms of a skinned mesh. that clip's muscle clip has no streamed or dense
-curves (`m_DenseClip.m_ACLType` 0, empty arrays) and 119 compressed curves
-(`m_CompressedCurveCount`): they sit in `m_AclCompressedBuffer` (header `Version` 10), split into
-`TransformBufferData`, `RootMotionBufferData` and `FloatBufferData`, with `TransformSubTrackMasks`,
-`OutputTrackCount`, `RootTrackCount`, `FloatCurveCount` and constant tracks (`m_ConstantIndexs`,
-`m_ConstantValues`) mapping them to bindings. other Endfield tooling reads these buffers as stock
-ACL 2.1 `compressed_tracks`; unverified here, as is how the tracks map to bindings.
-`m_ValueArrayDelta` still gives the start and stop values.
+at 30 fps) on 15 Transforms of a skinned mesh: four of them turn a full circle over the loop. its
+curves are [ACL-compressed](#acl-compressed-clips).
+
+#### ACL-compressed clips
+
+many clips leave their muscle clip's streamed and dense blocks empty (`m_DenseClip.m_ACLType` 0) and
+keep their curves in `m_AclCompressedBuffer` instead: `TransformBufferData` holds the Transform
+curves, `FloatBufferData` other float curves (the cube's Animator parameters) and
+`RootMotionBufferData` root motion. each is a stock buffer of the
+[Animation Compression Library](https://github.com/nfrechette/acl) 2.1 (`compressed_tracks`, tag
+`0xac11ac11`, version 10, whose hash checks out; the record's `Header.Version` repeats the 10):
+upstream ACL decodes the cube's three buffers as 15 transform tracks (qvvf), 21 and 14 float tracks,
+1600 samples at 30 Hz, wrapping (the last sample interpolates into the first, so 1600 samples last
+the clip's 53.3 s). the game's buffers drop rotations' w (`quatf_drop_w_variable`), quantize
+translations (`vector3f_variable`), and strip keyframes, which playback interpolates.
+
+the buffer's tracks map to the clip's bindings through `TransformSubTrackMasks`: three bit sets, one
+each for position, rotation and scale, of `⌈OutputTrackCount / 8⌉` bytes, most significant bit first
+for track 0, the whole padded to 4 bytes. the k-th position binding (in `genericBindings` order) is
+the k-th track whose position bit is set, and likewise for rotations and scales; a Transform with
+only a rotation binding is a track without its position bit. bindings whose index `m_ConstantIndexs`
+lists take their values from `m_ConstantValues` instead (in listing order, three or four values per
+Transform binding, one per other float), and a track can disagree with them: four car clips
+(`A_actor_car_e2m5_1_007` and kin) hold a different position in the ACL track than the clip's start
+and stop. checked over the first 3000 ACL clips of the install: decoding every one and sampling it
+this way gives `m_ValueArrayDelta`'s start and stop values within 1e-2 for 2977 of them (most within
+3e-4), and 23 character run and sprint loops within 0.06 at their stop only, where wrapping replaces
+the last frame with the first. none had Euler bindings. what the root motion buffer and
+`RootPosIndex`, `RootRotIndex` and `RootTrackCount` add isn't traced.
 
 ### campfires
 
