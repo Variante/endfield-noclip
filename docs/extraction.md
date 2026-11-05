@@ -509,7 +509,11 @@ have no game entity id, so the packer gives them a synthetic one: the level tag 
 counted down from the top of the 27-bit id space, away from the game's ids. ECS entities already
 present in static chunks keep their static copy. the local lights in the selected ECS groups are
 kept the same way ([lights](package-format.md#lights)). rect decals take their material from the
-chunk's `fb_streaming` payload and draw the decal cube as static ones do.
+chunk's `fb_streaming` payload and draw the decal cube as static ones do. an entity with a spin
+component (column 54, [spinning scenery](game-data/assets.md#spinning-scenery); static or dynamic)
+becomes a spinning row of its block, and its tile and level bounds grow by the cylinder its box
+sweeps (`sweptBounds` in [bounds.ts](../packages/extractor/src/pack/bounds.ts)) so a turned row
+never leaves them.
 
 ### interactives
 

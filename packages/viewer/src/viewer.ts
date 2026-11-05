@@ -50,6 +50,7 @@ import {
 	RowKind,
 	type RowKinds,
 	type TierSpan,
+	turnRows,
 } from './render/instance-rows.ts';
 import { IrradianceVolume } from './render/irradiance-volume.ts';
 import { lensFlareLook } from './render/lens-flare-layout.ts';
@@ -70,8 +71,8 @@ import { Camera, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
 import { type MeshSelection, MeshSelector, streamWholeTexture } from './streaming/mesh-selection.ts';
-import { Selector } from './streaming/selection.ts';
-import { StreamManager } from './streaming/stream-manager.ts';
+import { type InstanceRange, Selector } from './streaming/selection.ts';
+import { type ResidentInstances, StreamManager } from './streaming/stream-manager.ts';
 
 // #region options and stats
 
@@ -404,6 +405,10 @@ export class Viewer {
 	#settleFrames = 0;
 	/** whether the last mesh selection drew particles, which frames of a still view re-evaluate */
 	#particlesShown = false;
+	/** whether the last selection held spinning rows, which turn by the clock while the view holds still */
+	#spinsShown = false;
+	/** the clock each resident block's spinning rows were last turned to */
+	#spinTimes = new WeakMap<ResidentInstances, number>();
 	/** whether the shadow layers need drawing: the casters changed, or they weren't drawn last frame */
 	#shadowsStale = true;
 	/** each shadow layer's render matrix when it was last drawn */
@@ -1474,7 +1479,9 @@ export class Viewer {
 		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
 		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
 		// traversal would repeat the last frame's
-		const traverse = scene !== null && ((render && (changed || this.#particlesShown)) || !scene.stream.idle);
+		const traverse =
+			scene !== null &&
+			((render && (changed || this.#particlesShown || this.#spinsShown)) || !scene.stream.idle);
 		if (scene !== null && traverse) {
 			this.#frame++;
 			this.#traverseAndPrepare(scene, { prepare: render });
@@ -1509,6 +1516,34 @@ export class Viewer {
 		this.#spanAt = now;
 	}
 
+	/**
+	 * turns the spinning rows of the selected blocks to the clock and rewrites them
+	 *
+	 * @param ranges the selected instance ranges
+	 * @returns whether any selected block has spinning rows
+	 */
+	#turnSpinningRows(ranges: readonly InstanceRange[]): boolean {
+		let shown = false;
+		for (const { item } of ranges) {
+			const resident = item.resident;
+			if (resident?.kind !== 'instances' || resident.spins === null) {
+				continue;
+			}
+			shown = true;
+			if (this.#spinTimes.get(resident) === this.#time) {
+				continue;
+			}
+			this.#spinTimes.set(resident, this.#time);
+			const [first, end] = turnRows(resident.rowsF32, resident.spins, this.#time);
+			this.#instances.writeRows(
+				resident.alloc.start + first,
+				new Uint32Array(resident.rowsF32.buffer, first * ROW_BYTES, (end - first) * ROW_WORDS),
+				end - first,
+			);
+		}
+		return shown;
+	}
+
 	/** selects and streams this frame's content, and when `prepare` is set, writes it for the renderers */
 	#traverseAndPrepare(scene: LoadedScene, { prepare }: { prepare: boolean }): void {
 		const options = this.options;
@@ -1535,6 +1570,8 @@ export class Viewer {
 			this.#focusCells,
 		);
 		this.#visited = selection.visited;
+		// spinning rows turn before instances are culled and listed by where they are
+		this.#spinsShown = this.#turnSpinningRows(selection.instances);
 		this.#span('tree');
 		// per-instance LOD selection also requests geometry, so it runs before the stream update
 		let meshSelection: MeshSelection | null = null;

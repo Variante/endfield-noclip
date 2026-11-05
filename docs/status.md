@@ -268,7 +268,8 @@ packs or renders correctly.
   metallic, and add their emission over the surface's instead of replacing it; under a laid-over
   decal that doesn't write them, the surface's own occlusion and metallic are taken as 1 and 0;
   terrain decals (`HGRP/TerrainDecalLit`, InitChunkData component 28) and `HGRP/DecalUnlit` aren't
-  packed
+  packed. prefabs' decal projectors (`HGDecalProjector`, such as the 20 and 18 on the Qingbo
+  waterwheels' prefabs) aren't read, and their drop isn't reported in `debug/`
 - temporal smoothing of effects
 - light shafts ([light shafts](game-data/post-processing.md#light-shafts)): the occlusion term and
   the cloud mask aren't drawn; unchecked against an in-game shot facing the sun. the
@@ -381,7 +382,12 @@ packs or renders correctly.
   database, non-trivial default values or Euler bindings hold their end pose. blend-tree states,
   additive or partial-weight layers, override controllers and the Animators of models with view
   states hold their saved pose. vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw
-  their rest pose
+  their rest pose. [spinning scenery](game-data/assets.md#spinning-scenery) (the Qingbo waterwheels)
+  turns from its stored pose at the viewer clock's zero rather than at the game's gameplay-clock
+  phase, and how the native system turns it is inferred from the data, not read. renderers under
+  MonoBehaviour rotators (`DynamicSceneSimpleRotate`, `TransformRotateAroundAxis`) in prefabs hold
+  still; whether any placed prefab has such renderers isn't surveyed (the waterwheels' rotators turn
+  only colliders and decals)
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
 - HLOD clusters never stand in for Global chunk content, which always draws, so wherever a cluster

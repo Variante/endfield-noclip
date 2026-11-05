@@ -5,7 +5,12 @@
  * @module
  */
 
-import { type Chain, ChainFlags, type InstanceBlock } from '@endfield-noclip/package-format/instances';
+import {
+	type Chain,
+	ChainFlags,
+	type InstanceBlock,
+	SPIN_FLOATS,
+} from '@endfield-noclip/package-format/instances';
 
 /** 32-bit words per row: transform (12), bounds centre + block word (4), half extents + info (4) */
 export const ROW_WORDS = 20;
@@ -129,6 +134,19 @@ export interface TierSpan {
 /** what an instance block's rows are: one kind for every row, or the tier spans of an HLOD block */
 export type RowKinds = RowKind | readonly TierSpan[];
 
+/** f32 per spinning row in {@link RowSpins.base}: its stored transform (12) and bounds centre (3) */
+export const SPIN_BASE_FLOATS = 15;
+
+/** a block's spinning rows, which {@link turnRows} turns by the clock */
+export interface RowSpins {
+	/** the rows, ascending */
+	rows: Uint32Array<ArrayBuffer>;
+	/** `SPIN_FLOATS` per row, as the package stores them: pivot (relative to the block origin), axis, speed */
+	values: Float32Array<ArrayBuffer>;
+	/** {@link SPIN_BASE_FLOATS} per row: what the rows hold at time 0 */
+	base: Float32Array<ArrayBuffer>;
+}
+
 /** an instance block laid out for the GPU */
 export interface InstanceRows {
 	count: number;
@@ -141,6 +159,8 @@ export interface InstanceRows {
 	runs: Uint32Array<ArrayBuffer>;
 	/** the block's rect decal placements, `DECAL_PLACEMENT_FLOATS` each, in the order rows index them */
 	placements: Float32Array<ArrayBuffer>;
+	/** the block's spinning rows, or `null` when every row holds still */
+	spins: RowSpins | null;
 }
 
 /**
@@ -208,6 +228,16 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		runs.push(chain, i, end - i);
 		i = end;
 	}
+	let spins: RowSpins | null = null;
+	if (block.spins.rows.length > 0) {
+		const spinRows = new Uint32Array(block.spins.rows);
+		const base = new Float32Array(spinRows.length * SPIN_BASE_FLOATS);
+		for (let s = 0; s < spinRows.length; s++) {
+			const at = spinRows[s] * ROW_WORDS;
+			base.set(f32.subarray(at, at + SPIN_BASE_FLOATS), s * SPIN_BASE_FLOATS);
+		}
+		spins = { rows: spinRows, values: new Float32Array(block.spins.values), base };
+	}
 	return {
 		count,
 		origin: block.origin,
@@ -215,6 +245,7 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		cull,
 		runs: new Uint32Array(runs),
 		placements: new Float32Array(values),
+		spins,
 	};
 };
 
@@ -229,4 +260,61 @@ export const assignBlockSlot = (rows: Uint32Array, slot: number): void => {
 	for (let at = 15; at < rows.length; at += ROW_WORDS) {
 		rows[at] = ((rows[at] & keep) | slot) >>> 0;
 	}
+};
+
+/**
+ * turns a block's spinning rows to where they are at `time`: each row's transform and bounds centre are its
+ * stored ones turned `speed · time` radians about its axis through its pivot. the half extents stay the
+ * stored ones, so a row's bounding sphere (centre, |extents|) still holds it
+ *
+ * @param rows the block's rows, as f32; the spinning rows' transform and centre words are overwritten
+ * @param spins the block's spinning rows
+ * @param time seconds of the viewer's clock
+ * @returns the first row and the end of the rows written
+ */
+export const turnRows = (rows: Float32Array, spins: RowSpins, time: number): [first: number, end: number] => {
+	const { rows: spinRows, values, base } = spins;
+	for (let s = 0; s < spinRows.length; s++) {
+		const v = s * SPIN_FLOATS;
+		const px = values[v];
+		const py = values[v + 1];
+		const pz = values[v + 2];
+		const ax = values[v + 3];
+		const ay = values[v + 4];
+		const az = values[v + 5];
+		const angle = values[v + 6] * time;
+		// Rodrigues' rotation, as Unity's Quaternion.AngleAxis turns: R = cos·I + sin·[a]× + (1 − cos)·aaᵀ
+		const c = Math.cos(angle);
+		const sn = Math.sin(angle);
+		const k = 1 - c;
+		const r = [
+			c + k * ax * ax,
+			k * ax * ay - sn * az,
+			k * ax * az + sn * ay,
+			k * ay * ax + sn * az,
+			c + k * ay * ay,
+			k * ay * az - sn * ax,
+			k * az * ax - sn * ay,
+			k * az * ay + sn * ax,
+			c + k * az * az,
+		];
+		const b = s * SPIN_BASE_FLOATS;
+		const at = spinRows[s] * ROW_WORDS;
+		const pivot = [px, py, pz];
+		for (let i = 0; i < 3; i++) {
+			for (let j = 0; j < 3; j++) {
+				rows[at + i * 4 + j] =
+					r[i * 3] * base[b + j] + r[i * 3 + 1] * base[b + 4 + j] + r[i * 3 + 2] * base[b + 8 + j];
+			}
+			let t = pivot[i];
+			let centre = pivot[i];
+			for (let j = 0; j < 3; j++) {
+				t += r[i * 3 + j] * (base[b + j * 4 + 3] - pivot[j]);
+				centre += r[i * 3 + j] * (base[b + 12 + j] - pivot[j]);
+			}
+			rows[at + i * 4 + 3] = t;
+			rows[at + 12 + i] = centre;
+		}
+	}
+	return [spinRows[0], spinRows[spinRows.length - 1] + 1];
 };

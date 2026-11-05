@@ -1,9 +1,13 @@
+import type { Rotator } from '@endfield-noclip/formats/endfield/init-chunk-data';
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import {
 	DECAL_PLACEMENT_FLOATS,
 	type InstanceBlock,
 	InstanceBlockFlags,
+	SPIN_FLOATS,
 } from '@endfield-noclip/package-format/instances';
+
+import { sweptBounds } from './bounds.ts';
 
 /** one placed instance, in world space */
 export interface InstanceInput {
@@ -15,7 +19,16 @@ export interface InstanceInput {
 	entityId: number;
 	/** a rect decal's placement, {@link DECAL_PLACEMENT_FLOATS} floats; absent on other rows */
 	decalPlacement?: readonly number[];
+	/** the spin the instance turns with, world space; absent on rows that hold still */
+	spin?: Rotator;
 }
+
+/**
+ * @param row an instance
+ * @returns the box it reaches while drawn: its bounds, swept about its spin's axis when it has one
+ */
+export const rowReach = (row: InstanceInput): Aabb =>
+	row.spin === undefined ? row.bounds : sweptBounds(row.bounds, row.spin);
 
 /** growable struct-of-arrays rows, encoded into an {@link InstanceBlock} at the end */
 export class InstanceBlockBuilder {
@@ -26,6 +39,8 @@ export class InstanceBlockBuilder {
 	readonly #entityIds: number[] = [];
 	/** by insertion index, the decal rows' placements */
 	readonly #placements = new Map<number, readonly number[]>();
+	/** by insertion index, the spinning rows' spins */
+	readonly #spins = new Map<number, Rotator>();
 
 	/** number of rows */
 	get length(): number {
@@ -55,6 +70,9 @@ export class InstanceBlockBuilder {
 			}
 			this.#placements.set(this.#chains.length - 1, row.decalPlacement);
 		}
+		if (row.spin !== undefined) {
+			this.#spins.set(this.#chains.length - 1, row.spin);
+		}
 		return this.#chains.length - 1;
 	}
 
@@ -75,7 +93,10 @@ export class InstanceBlockBuilder {
 		const entityIds = new Uint32Array(count);
 		const decalRows = new Uint32Array(this.#placements.size);
 		const placements = new Float32Array(this.#placements.size * DECAL_PLACEMENT_FLOATS);
+		const spinRows = new Uint32Array(this.#spins.size);
+		const spins = new Float32Array(this.#spins.size * SPIN_FLOATS);
 		let decals = 0;
+		let spinning = 0;
 		for (let out = 0; out < count; out++) {
 			const i = order[out];
 			chains[out] = this.#chains[i];
@@ -98,6 +119,16 @@ export class InstanceBlockBuilder {
 				placements.set(placement, decals * DECAL_PLACEMENT_FLOATS);
 				decals++;
 			}
+			const spin = this.#spins.get(i);
+			if (spin !== undefined) {
+				spinRows[spinning] = out;
+				const { pivot, axis, speed } = spin;
+				spins.set(
+					[pivot[0] - origin[0], pivot[1] - origin[1], pivot[2] - origin[2], ...axis, speed],
+					spinning * SPIN_FLOATS,
+				);
+				spinning++;
+			}
 		}
 		return {
 			block: {
@@ -108,6 +139,7 @@ export class InstanceBlockBuilder {
 				bounds,
 				entityIds,
 				decalPlacements: { rows: decalRows, values: placements },
+				spins: { rows: spinRows, values: spins },
 			},
 			order,
 		};

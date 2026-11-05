@@ -338,6 +338,29 @@ entity's logic state is `n`. how these masks, gates and scene-state lists decide
 one model or ECS group can be referenced by several resource groups, and some ECS entities also
 appear in static chunks.
 
+### spinning scenery
+
+Qingbo Stockade's waterwheels (map02_lv003) turn. each is a dynamic structure: its ECS renderers
+carry a spin component (InitChunkData column 54, [layout](world.md#initchunkdata-layout)) and a
+model row places a collider prefab at the wheel's hub whose GameObject has a
+`DynamicSceneSimpleRotate` (a `TickableMono` with one field, `angleSpeed`, in degrees per second).
+that component sets its transform's world rotation (`Transform.rotation`, so the row's own rotation
+is overridden) to `Euler(0, 0, TimeManager.gameplayTime · angleSpeed)` on enable and every tick: an
+absolute angle from the gameplay clock, so the wheel's phase doesn't depend on when it loaded. the
+renderers' column 54 holds the same spin as `|angleSpeed|` in radians per second about ±z, the axis
+taking the sign, through the hub:
+
+| wheel                                             | hub                                                                    | collider prefab `angleSpeed`                            | column 54               | renderers |
+| ------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------- | --------- |
+| `sfwaterwheel+1_002`, three (owner `23300000004`) | −278.5, 292.9, −1403.6; −233.4, 303.6, −1426.2; −237.2, 300.3, −1359.3 | −3 (`…sfwaterwheel_collider_effect+1_002_01_postmodel`) | 0.0524 about (0, 0, −1) | 151 each  |
+| the large wheel above them (`sfwaterwheel+1_001`) | −233.8, 438.9, −1408.0                                                 | 2 (`p_igroup_map02_sfwaterwheel+1_001_01_col`)          | 0.0349 about (0, 0, 1)  | 569       |
+
+no other scene's static or dynamic chunks have column 54. the native system that turns column 54
+entities isn't read: that it turns them `speed · gameplayTime` about the axis through the pivot,
+from their stored pose, is inferred from the data agreeing with the collider's script. the small
+wheels load with their owner's script group (default on,
+[script groups](scene-states.md#script-groups)).
+
 ## interactives
 
 interactives are the placed gameplay objects: switches, doors, chests, campfires, collectibles,

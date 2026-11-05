@@ -11,6 +11,7 @@ import {
 	ROW_WORDS,
 	RowBillboard,
 	RowKind,
+	turnRows,
 } from './instance-rows.ts';
 
 const block = (chains: number[], decalRows: number[] = []): InstanceBlock => ({
@@ -24,6 +25,7 @@ const block = (chains: number[], decalRows: number[] = []): InstanceBlock => ({
 		rows: Uint32Array.from(decalRows),
 		values: Float32Array.from({ length: decalRows.length * 8 }, (_, i) => i),
 	},
+	spins: { rows: new Uint32Array(0), values: new Float32Array(0) },
 });
 
 it('marks the rows of billboard chains, keeping the rest of their info words', () => {
@@ -55,5 +57,29 @@ it('indexes decal rows’ placements from 1 above the block slot, which a slot a
 	assert.deepEqual(
 		[...rows.placements],
 		Array.from({ length: 16 }, (_, i) => i),
+	);
+});
+
+it('turns spinning rows about their pivot as Unity turns, from their stored transform', () => {
+	const spinning = block([0, 0]);
+	// row 1: identity at (2, 0, 0), bounds centred there, spinning a quarter turn per second about +z through (1, 0, 0)
+	spinning.transforms.set([1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 0], 12);
+	spinning.bounds.set([2, 0, 0, 0.5, 0.5, 0.5], 6);
+	spinning.spins = { rows: Uint32Array.of(1), values: Float32Array.of(1, 0, 0, 0, 0, 1, Math.PI / 2) };
+	const built = buildInstanceRows(spinning, RowKind.Detail);
+	const f32 = new Float32Array(built.rows.buffer);
+	const row = (): number[] =>
+		Array.from(f32.subarray(ROW_WORDS, ROW_WORDS + 15), (v) => Math.round(v * 1e5) / 1e5 + 0);
+	// Quaternion.Euler(0, 0, 90) * Vector3.right is Vector3.up
+	assert.deepEqual(turnRows(f32, built.spins!, 1), [1, 2]);
+	assert.deepEqual(row(), [0, -1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0]);
+	// half extents stay, and turning again starts from the stored transform
+	assert.deepEqual(Array.from(f32.subarray(ROW_WORDS + 16, ROW_WORDS + 19)), [0.5, 0.5, 0.5]);
+	turnRows(f32, built.spins!, 4);
+	assert.deepEqual(row(), [1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0]);
+	// rows that don't spin are left alone
+	assert.deepEqual(
+		Array.from(f32.subarray(0, 12)),
+		Array.from({ length: 12 }, () => 0),
 	);
 });

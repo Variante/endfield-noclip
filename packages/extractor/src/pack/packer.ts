@@ -163,7 +163,7 @@ import {
 	layoutHlodGrid,
 	pickHlodTile,
 } from './hlod-cells.ts';
-import { type InstanceInput, InstanceBlockBuilder } from './instances.ts';
+import { type InstanceInput, InstanceBlockBuilder, rowReach } from './instances.ts';
 import {
 	type CabinRoomGroup,
 	type IrradianceReport,
@@ -1028,6 +1028,9 @@ const collectEntities = async (
 				if (entity.decal !== null) {
 					row.decalPlacement = decalPlacement(entity.decal);
 				}
+				if (entity.rotator !== null) {
+					row.spin = entity.rotator;
+				}
 
 				if (file.sceneState !== 0 || file.area !== 0) {
 					gatedRows.set(entity.id, {
@@ -1051,7 +1054,7 @@ const collectEntities = async (
 						stateGated: false,
 					});
 				}
-				collected.noteOwner(entity.levelTag, bounds);
+				collected.noteOwner(entity.levelTag, rowReach(row));
 			}
 			for (const foliage of content.foliage) {
 				if (seen.has(foliage.id)) {
@@ -1143,7 +1146,7 @@ const collectEntities = async (
 		const [x, , z] = row.bounds.center;
 		const key = tileAt(grid, grid.leafLevel, x, z);
 		collected.addConditional(tag, key, row, name, visibility, -1);
-		collected.noteOwner(tag, row.bounds);
+		collected.noteOwner(tag, rowReach(row));
 		pack.uses.note(row.chain, key);
 		counts.dynamicRenderers++;
 	};
@@ -1223,6 +1226,7 @@ const collectEntities = async (
 					bounds,
 					entityId: entity.id,
 					decalPlacement: decalPlacement(entity.decal),
+					spin: entity.rotator ?? undefined,
 				},
 				entity.levelTag,
 				entity.name,
@@ -1245,6 +1249,7 @@ const collectEntities = async (
 				matrix: entity.matrix,
 				bounds: entity.bounds,
 				entityId: entity.id,
+				spin: entity.rotator ?? undefined,
 			},
 			entity.levelTag,
 			entity.name,
@@ -2808,10 +2813,11 @@ const push = (group: Group, row: InstanceInput, sortKey: number, name: string, f
 	group.rows.add(row, sortKey);
 	group.names.push(name);
 	group.files.push(file);
+	const reach = rowReach(row);
 	if (group.bounds === null) {
-		group.bounds = aabbBounds(row.bounds);
+		group.bounds = aabbBounds(reach);
 	} else {
-		growBounds(group.bounds, row.bounds);
+		growBounds(group.bounds, reach);
 	}
 };
 

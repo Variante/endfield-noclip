@@ -125,6 +125,22 @@ export interface InstanceBlock {
 	entityIds: Uint32Array;
 	/** the placements of the block's rect decal rows */
 	decalPlacements: DecalPlacements;
+	/** the block's spinning rows and their spins */
+	spins: RowSpins;
+}
+
+/**
+ * f32 per spinning row: the pivot (relative to the block origin), the unit axis and the speed in radians per
+ * second. at time `t` the row's transform is turned `speed · t` radians about the axis through the pivot, as
+ * Unity's `Quaternion.AngleAxis` turns; its stored transform and bounds are those at `t = 0`
+ */
+export const SPIN_FLOATS = 7;
+
+/** the spinning rows of an instance block and their spins, the rows ascending */
+export interface RowSpins {
+	rows: Uint32Array;
+	/** {@link SPIN_FLOATS} per row in {@link rows} */
+	values: Float32Array;
 }
 
 /**
@@ -160,7 +176,7 @@ const CHAINS_HEADER: HeaderShape = {
 /** 'EFIN' */
 const INSTANCES_HEADER: HeaderShape = {
 	magic: 0x4e_49_46_45,
-	version: 3,
+	version: 4,
 	size: INSTANCE_HEADER_SIZE,
 	label: 'instance block',
 };
@@ -294,31 +310,35 @@ export const decodeChains = (data: Uint8Array): Chain[] => {
 
 /**
  * instance block: 32-byte header (`'EFIN'`, u16 version, u16 flags, u32 count, f32×3 origin, u32
- * placementCount, u32 0), then sections of `count` elements each: u32 chain, f32×12 transform, f32×6 bounds,
- * u32 entity id; then `placementCount` u32 decal rows, ascending, and their f32×8 placements.
+ * placementCount, u32 spinCount), then sections of `count` elements each: u32 chain, f32×12 transform, f32×6
+ * bounds, u32 entity id; then `placementCount` u32 decal rows, ascending, and their f32×8 placements; then
+ * `spinCount` u32 spinning rows, ascending, and their f32×7 spins.
  *
  * @param block rows
  * @returns the encoded block
- * @throws {RangeError} if the sections disagree in length, or the decal rows aren't ascending rows of the
- *   block
+ * @throws {RangeError} if the sections disagree in length, or the decal or spinning rows aren't ascending
+ *   rows of the block
  */
 export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 	const count = block.chains.length;
 	const { rows: decalRows, values: placements } = block.decalPlacements;
+	const { rows: spinRows, values: spins } = block.spins;
 	if (
 		block.transforms.length !== count * 12 ||
 		block.bounds.length !== count * 6 ||
 		block.entityIds.length !== count ||
-		placements.length !== decalRows.length * DECAL_PLACEMENT_FLOATS
+		placements.length !== decalRows.length * DECAL_PLACEMENT_FLOATS ||
+		spins.length !== spinRows.length * SPIN_FLOATS
 	) {
 		throw new RangeError('instance block sections differ in length');
 	}
-	for (let i = 0; i < decalRows.length; i++) {
-		if (decalRows[i] >= count || (i > 0 && decalRows[i] <= decalRows[i - 1])) {
-			throw new RangeError('decal rows must be ascending rows of the block');
-		}
+	if (!areAscendingRows(decalRows, count)) {
+		throw new RangeError('decal rows must be ascending rows of the block');
 	}
-	const out = new Uint8Array(instanceBlockSize(count, decalRows.length));
+	if (!areAscendingRows(spinRows, count)) {
+		throw new RangeError('spinning rows must be ascending rows of the block');
+	}
+	const out = new Uint8Array(instanceBlockSize(count, decalRows.length, spinRows.length));
 	const view = viewOf(out);
 	writeHeader(view, INSTANCES_HEADER);
 	view.setUint16(6, block.flags, true);
@@ -327,6 +347,7 @@ export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 		view.setFloat32(12 + i * 4, block.origin[i], true);
 	}
 	view.setUint32(24, decalRows.length, true);
+	view.setUint32(28, spinRows.length, true);
 	let at = INSTANCE_HEADER_SIZE;
 	for (const section of [
 		block.chains,
@@ -335,6 +356,8 @@ export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 		block.entityIds,
 		decalRows,
 		placements,
+		spinRows,
+		spins,
 	]) {
 		out.set(new Uint8Array(section.buffer, section.byteOffset, section.byteLength), at);
 		at += section.byteLength;
@@ -342,8 +365,14 @@ export const encodeInstanceBlock = (block: InstanceBlock): Uint8Array => {
 	return out;
 };
 
-const instanceBlockSize = (count: number, placements: number): number =>
-	INSTANCE_HEADER_SIZE + count * INSTANCE_ROW_SIZE + placements * (4 + DECAL_PLACEMENT_FLOATS * 4);
+const areAscendingRows = (rows: Uint32Array, count: number): boolean =>
+	rows.every((row, i) => row < count && (i === 0 || row > rows[i - 1]));
+
+const instanceBlockSize = (count: number, placements: number, spins: number): number =>
+	INSTANCE_HEADER_SIZE +
+	count * INSTANCE_ROW_SIZE +
+	placements * (4 + DECAL_PLACEMENT_FLOATS * 4) +
+	spins * (4 + SPIN_FLOATS * 4);
 
 /**
  * @param data an instance block
@@ -355,7 +384,8 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 	checkHeader(view, INSTANCES_HEADER);
 	const count = view.getUint32(8, true);
 	const placementCount = view.getUint32(24, true);
-	checkLength(data, instanceBlockSize(count, placementCount), 'instance block');
+	const spinCount = view.getUint32(28, true);
+	checkLength(data, instanceBlockSize(count, placementCount, spinCount), 'instance block');
 
 	let at = INSTANCE_HEADER_SIZE;
 	const chains = u32Section(data, at, count);
@@ -369,10 +399,15 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 	const decalRows = u32Section(data, at, placementCount);
 	at += placementCount * 4;
 	const placements = f32Section(data, at, placementCount * DECAL_PLACEMENT_FLOATS);
-	for (let i = 0; i < placementCount; i++) {
-		if (decalRows[i] >= count || (i > 0 && decalRows[i] <= decalRows[i - 1])) {
-			throw new PackageFormatError('instance block decal rows aren’t ascending rows of the block');
-		}
+	at += placementCount * DECAL_PLACEMENT_FLOATS * 4;
+	const spinRows = u32Section(data, at, spinCount);
+	at += spinCount * 4;
+	const spins = f32Section(data, at, spinCount * SPIN_FLOATS);
+	if (!areAscendingRows(decalRows, count)) {
+		throw new PackageFormatError('instance block decal rows aren’t ascending rows of the block');
+	}
+	if (!areAscendingRows(spinRows, count)) {
+		throw new PackageFormatError('instance block spinning rows aren’t ascending rows of the block');
 	}
 	return {
 		flags: view.getUint16(6, true),
@@ -382,5 +417,6 @@ export const decodeInstanceBlock = (data: Uint8Array): InstanceBlock => {
 		bounds,
 		entityIds,
 		decalPlacements: { rows: decalRows, values: placements },
+		spins: { rows: spinRows, values: spins },
 	};
 };

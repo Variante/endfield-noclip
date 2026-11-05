@@ -117,8 +117,23 @@ export interface ChunkEntity {
 	 * StreamingChunkData, not here
 	 */
 	decal: RectDecal | null;
+	/** a constant spin the entity turns with, or `null` for entities that hold still */
+	rotator: Rotator | null;
 	/** descriptor ids present on the entity */
 	components: number[];
+}
+
+/**
+ * a constant spin about a world axis (component 54). at time `t` the entity's stored transform is turned by
+ * `speed · t` radians about `axis` through `pivot`, as Unity's `Quaternion.AngleAxis` turns
+ */
+export interface Rotator {
+	/** radians per second, non-negative; the axis carries the direction */
+	speed: number;
+	/** unit axis, world space */
+	axis: [x: number, y: number, z: number];
+	/** a point on the axis, world space */
+	pivot: [x: number, y: number, z: number];
 }
 
 /**
@@ -159,6 +174,11 @@ export const Component = {
 	Name: 21,
 	/** 160-byte rect decal constants: matrix, inverse, params, packed color + flags */
 	RectDecal: 27,
+	/**
+	 * 92-byte spin: `f32 speed` (rad/s), `f32×3 axis`, `f32×3 pivot`, then f32×6 (a local box, unchecked) and
+	 * the stored position, rotation quaternion (xyzw) and scale
+	 */
+	Rotator: 54,
 	/** 24 bytes: `u8 lodCount`, …, at 16 `u8[8]` cumulative draw count per LOD */
 	LodRanges: 67,
 	/** 8 + 40·2ⁿ bytes for n = id − 68: `u64 count`, 2ⁿ × `(u64 material, u64 mesh, 24 bytes)` */
@@ -330,6 +350,7 @@ export const readChunkEntities = (chunk: InitChunk): ChunkEntity[] => {
 		const boundsOf = groupBounds(group);
 		const decalColumn = column(Component.RectDecal);
 		const matrixColumn = column(Component.InstanceData) ?? decalColumn;
+		const rotatorColumn = column(Component.Rotator);
 		const nameOf = groupNames(group, names);
 		const lodColumn = column(Component.LodRanges);
 		const refColumns = group.columns.filter(
@@ -375,11 +396,28 @@ export const readChunkEntities = (chunk: InitChunk): ChunkEntity[] => {
 				bounds,
 				renderer,
 				decal: decalColumn === undefined ? null : readRectDecal(blobView, decalColumn, i, id),
+				rotator: rotatorColumn === undefined ? null : readRotator(blobView, rotatorColumn, i, id),
 				components: ids,
 			});
 		}
 	}
 	return entities;
+};
+
+const ROTATOR_SIZE = 92;
+
+const readRotator = (view: DataView, column: ComponentColumn, index: number, entityId: number): Rotator => {
+	if (column.stride !== ROTATOR_SIZE) {
+		throw new FormatError(`entity ${entityId} has a ${column.stride}-byte rotator`);
+	}
+	const at = column.offset + index * column.stride;
+	const f = (k: number): number => view.getFloat32(at + k * 4, true);
+	const axis: Rotator['axis'] = [f(1), f(2), f(3)];
+	const speed = f(0);
+	if (!(speed >= 0) || Math.abs(Math.hypot(...axis) - 1) > 1e-3) {
+		throw new FormatError(`entity ${entityId} has a rotator of speed ${speed} about [${axis.join(', ')}]`);
+	}
+	return { speed, axis, pivot: [f(4), f(5), f(6)] };
 };
 
 const RECT_DECAL_SIZE = 160;
