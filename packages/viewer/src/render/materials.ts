@@ -271,6 +271,11 @@ export const LookRow = {
 	canopy: 120,
 	/** leaves: `_CanopyRampColor`, linear */
 	canopyColor: 124,
+	/**
+	 * three rows, the HDR colours the emissive map's G, B and A add ({@link LitEmission.channels}); effect
+	 * looks use these rows for their own (`EffectRow` in effect-looks.ts)
+	 */
+	emissiveChannels: 128,
 } as const;
 
 /**
@@ -610,6 +615,9 @@ const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook => {
 		}
 		params.set(emission.color, LookRow.emissive);
 		params.set([emission.albedoAffect, emission.maskChannel, emission.ignorePostExposure], LookRow.emissive2);
+		emission.channels?.forEach((rgb, i) => {
+			params.set(rgb, LookRow.emissiveChannels + i * 4);
+		});
 	}
 
 	if (triChannel !== null) {

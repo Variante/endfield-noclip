@@ -126,8 +126,9 @@ packs or renders correctly.
   scattering aren't drawn, overlapping transparent layers share one fog distance (their weighted
   mean), and nothing checks whether the game lets glass cast shadows
 - emission ([emission](game-data/materials.md#emission)): `_EMISSIVE_NOMAP` (the sweep animation)
-  isn't drawn, `_EMISSIVE_ANIM`'s flicker variant and the emissive map's scrolling are drawn still,
-  and `_EmissiveType`'s extra G/B/A colours and the emission Fresnel term are left out
+  isn't drawn, `_EMISSIVE_ANIM`'s flicker variant and the emissive map's scrolling
+  (`_EmissiveSpeed`; Dijiang's shaft cargo rings scroll theirs) are drawn still, and the emission
+  Fresnel term is left out
 - the white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`) glow
   green and red in the game (always, per level) but white in the viewer. the colour isn't in any
   client data we read: it's a per-draw emission override set at runtime

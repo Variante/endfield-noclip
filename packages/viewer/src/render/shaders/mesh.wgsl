@@ -75,8 +75,10 @@ struct Draw {
 	canopy: vec4f,
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
-	// rows only effect looks use (`EffectRow` in effect-looks.ts)
-	effect_only: array<vec4f, 4>,
+	// the HDR colours the emissive map's G, B and A add (rgb); effect looks use these rows and the next for
+	// their own (`EffectRow` in effect-looks.ts)
+	emissive_channels: array<vec4f, 3>,
+	effect_only: vec4f,
 }
 
 const BASE_MAP = 1u;
@@ -704,19 +706,23 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 		s = layer_surface(s, draw, cover, layer, layer_bump, layer_facing, layer_edge);
 	}
 
-	var emission = 0.0;
+	var emission = vec3f(0.0);
 	if ((flags & EMISSIVE_MAP) != 0u && !layer_mask_map) {
-		emission = glow.r;
+		// R scales the emissive colour; G, B and A add colours of their own (zero unless `_EmissiveType` is set)
+		let channels = draw.emissive_channels;
+		emission = draw.emissive.rgb * glow.r + channels[0].rgb * glow.g + channels[1].rgb * glow.b
+			+ channels[2].rgb * glow.a;
 	}
 	if ((flags & EMISSIVE_MASK) != 0u) {
 		// mask channel 1 is the base colour's alpha. in the two-basemap layout 2 is the normal map's B and 3 its
 		// alpha; with an MRO map 2 is the base alpha too and 3 the MRO map's alpha. a map still streaming reads 0
-		emission = saturate((map_channel(flags, draw.emissive2.y, base_a, packed, mask) - 0.05) / 0.9);
+		emission = draw.emissive.rgb
+			* saturate((map_channel(flags, draw.emissive2.y, base_a, packed, mask) - 0.05) / 0.9);
 	}
 	// emission is in the light's pre-exposed units already; emitters that ignore the post exposure divide it out
 	// (docs/game-data/materials.md#emission)
 	let tint = mix(s.albedo, vec3f(1.0), draw.emissive2.x);
-	s.emission = draw.emissive.rgb * emission * tint * mix(1.0, frame.ambient.y, draw.emissive2.z);
+	s.emission = emission * tint * mix(1.0, frame.ambient.y, draw.emissive2.z);
 	if ((flags & (PARALLAX_MAP | LAYER_BLEND)) == 0u && draw.parallax.z > 0.0) {
 		s.emission *= mix(1.0, emissive_pulse(draw), draw.parallax2.x);
 	}

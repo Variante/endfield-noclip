@@ -123,8 +123,8 @@ export const EffectRow = {
 } as const;
 
 /**
- * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: the mesh looks' 32 rows, then 4 only
- * effect looks use
+ * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: the mesh looks' 32 rows, then 4 that
+ * effect looks use for their own (mesh looks keep the emissive map's channel colours in the first 3)
  */
 const EFFECT_FLOATS = 144;
 

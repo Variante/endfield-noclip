@@ -44,9 +44,16 @@ grid still visible.
 
 | keyword           | emission                                                                                |
 | ----------------- | --------------------------------------------------------------------------------------- |
-| `_EMISSIVE_MAP`   | the colour times `_EmissiveMap`'s R channel                                             |
+| `_EMISSIVE_MAP`   | the colour times `_EmissiveMap`'s R channel, plus G, B and A as below                   |
 | `_EMISSIVE_MASK`  | the colour times a channel of the material's own maps, picked by `_EmissiveMaskChannel` |
 | `_EMISSIVE_NOMAP` | only ships with the sweep animation (`_EMISSIVE_ANIM_SWEEP`)                            |
+
+with `_EMISSIVE_MAP`, Lit and LitEffect also add the map's G, B and A channels times
+`_EmissiveColorG`, `_EmissiveColorB` and `_EmissiveColorA` (HDR, as stored), all scaled by
+`_EmissiveType`; at 0 only R emits. the stripe rings round the cargo in Dijiang's central shaft
+(`M_fx_base01_lv001_ship_line_1123` and `_1125`, `HGRP/LitEffect`) set the type to 1 with red, green
+and blue colours, so they glow in their emissive map's own colour bands rather than its red channel
+alone.
 
 `_EMISSIVE_ANIM` makes the emission pulse: each cycle it rises smoothly from
 `_EmissiveMinBrightness` to full and falls back, over the share of the cycle `_EmissiveAnimInterval`

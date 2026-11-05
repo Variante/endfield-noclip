@@ -212,11 +212,27 @@ export const describeLit = (reader: MaterialReader): LitSurface | UnsupportedSur
 			source = 'mask';
 		}
 		if (source !== null && emissive !== undefined) {
+			// the map's G, B and A add colours of their own, scaled by `_EmissiveType` (0 leaves them out)
+			let channels: LitEmission['channels'] = null;
+			const type = float('_EmissiveType', 0);
+			if (source === 'map' && type !== 0) {
+				// HDR like `_EmissiveColor`: as stored
+				const scaled = (name: string): Rgb => scaleRgb(color(name) ?? [0, 0, 0, 1], type);
+				const added: [Rgb, Rgb, Rgb] = [
+					scaled('_EmissiveColorG'),
+					scaled('_EmissiveColorB'),
+					scaled('_EmissiveColorA'),
+				];
+				if (added.some((rgb) => rgb.some((value) => value !== 0))) {
+					channels = added;
+				}
+			}
 			emission = {
 				// HDR, authored linear: as stored
 				color: [emissive[0], emissive[1], emissive[2]],
 				source,
 				maskChannel: channel,
+				channels,
 				albedoAffect: float('_AlbedoAffectEmissive', 1),
 				ignorePostExposure: float('_IgnorePostExposure', 1),
 				// `_EnableEmissiveAnimFlicker`'s noise isn't drawn: those emitters keep still

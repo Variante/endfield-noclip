@@ -282,6 +282,37 @@ describe('the Lit model', () => {
 		assert.equal(lamp(['_EMISSIVE_MAP', '_TWO_BASEMAP'], {}).emission?.pulse, null);
 	});
 
+	it("adds the emissive map's G, B and A colours by _EmissiveType", () => {
+		const shader = shaderEntry({
+			name: 'HGRP/LitEffect',
+			family: 'litEffect',
+			floats: { _EmissiveType: 0 },
+			colors: { _EmissiveColorG: [0, 1, 0, 1], _EmissiveColorB: [0, 0, 1, 1], _EmissiveColorA: [0, 0, 0, 1] },
+		});
+		// M_fx_base01_lv001_ship_line_1123, the stripe ring round Dijiang's shaft cargo
+		const ring = (keywords: string[], type: number) =>
+			lit(
+				describeMaterial(
+					values({
+						keywords,
+						slots: { _EmissiveMap: slot(1) },
+						floats: { _EmissiveType: type },
+						colors: { _EmissiveColor: [1, 0, 0, 1] },
+					}),
+					shader,
+				),
+			).emission;
+		assert.deepEqual(ring(['_EMISSIVE_MAP'], 1)?.channels, [
+			[0, 1, 0],
+			[0, 0, 1],
+			[0, 0, 0],
+		]);
+		assert.deepEqual(ring(['_EMISSIVE_MAP'], 2)?.channels?.[0], [0, 2, 0]);
+		// type 0 leaves the channels out, and a mask emits by its one channel
+		assert.equal(ring(['_EMISSIVE_MAP'], 0)?.channels, null);
+		assert.equal(ring(['_EMISSIVE_MASK'], 1)?.channels ?? null, null);
+	});
+
 	it('describes the originium crystals: tri-channel tint, detail and parallax glow', () => {
 		const shader = shaderEntry({
 			name: 'HGRP/Lit',

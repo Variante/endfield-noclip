@@ -149,6 +149,11 @@ export interface LitEmission {
 	source: 'map' | 'mask';
 	/** `_EmissiveMaskChannel` */
 	maskChannel: number;
+	/**
+	 * `map` only: the HDR colours the emissive map's G, B and A add, each times `_EmissiveType`, or `null` when
+	 * they add nothing
+	 */
+	channels: [g: Rgb, b: Rgb, a: Rgb] | null;
 	/** 1 when emission ignores the albedo (`_AlbedoAffectEmissive`) */
 	albedoAffect: number;
 	/** 1 when emission keeps its brightness whatever the exposure */

@@ -17,6 +17,10 @@ viewer's exposure option, so `_IgnorePostExposure` emitters divide out both.
 frames render. it keeps its inputs in the parallax rows, which a look without parallax or layer maps
 leaves free; an `_EMISSIVE_ANIM` look with parallax or layer maps doesn't pulse.
 
+the emissive map's G, B and A colours, already times `_EmissiveType` (null when they add nothing),
+ride in the three rows effect looks keep for their own parameters, which mesh looks don't otherwise
+use.
+
 ## lit layers
 
 - **`_PARALLAX_MAP`**: the [pulse](../game-data/materials.md#lit-layers) moves only while frames

@@ -193,6 +193,7 @@ test('pulsing emission takes the free parallax rows; a surface with a glow keeps
 		color: [23.97, 23.97, 23.97] as [number, number, number],
 		source: 'map' as const,
 		maskChannel: 0,
+		channels: null,
 		albedoAffect: 1,
 		ignorePostExposure: 1,
 		pulse: { rate: 1 / Math.PI, phase: 0, interval: 1, minimum: 0, depth: 1 },
@@ -239,6 +240,42 @@ test('pulsing emission takes the free parallax rows; a surface with a glow keeps
 	assert.equal(glowing.params[LookRow.parallax2 + 3], Math.fround(0.6));
 	assert.deepEqual(row(LookRow.parallaxColor), [2.8, 0.7, 0, 2].map(Math.fround));
 	assert.deepEqual(row(LookRow.parallaxBright).slice(0, 3), [25, 3, 20]);
+});
+
+test("the emissive map's G, B and A colours take the rows effect looks keep for themselves", () => {
+	const slot = (texture: number): TextureSlot => ({ texture, uv: 0, scale: [1, 1], offset: [0, 0] });
+	// M_fx_base01_lv001_ship_line_1123, the stripe ring round Dijiang's shaft cargo
+	const [ring] = materialLooks({
+		entries: [
+			described(
+				0,
+				litSurface({
+					textures: { base: null, normal: null, mro: null, emissive: slot(1) },
+					emission: {
+						color: [1, 0, 0],
+						source: 'map',
+						maskChannel: 0,
+						channels: [
+							[0, 1, 0],
+							[0, 0, 1],
+							[0, 0, 0],
+						],
+						albedoAffect: 1,
+						ignorePostExposure: 1,
+						pulse: null,
+					},
+				}),
+			),
+		],
+	});
+	const rows = [0, 1, 2].map((i) =>
+		Array.from(ring.params.subarray(LookRow.emissiveChannels + i * 4, LookRow.emissiveChannels + i * 4 + 3)),
+	);
+	assert.deepEqual(rows, [
+		[0, 1, 0],
+		[0, 0, 1],
+		[0, 0, 0],
+	]);
 });
 
 test('erosion rock: its maps tile by their own scales on UV set 0, the ramp streams whole', () => {
