@@ -548,6 +548,10 @@ switches), sets the bound local transforms and switches while walking the hierar
 leaves follow their bones. the placement is emitted once per pose, under a door control
 ([doors](#doors)).
 
+view states are read from the model's own file, or from the model its `ModelTable` row names in
+`dependModelViewDataId` ([interactive view states](game-data/assets.md#interactive-view-states)),
+for doors, rest looks and facility forms alike.
+
 every other interactive whose model has view states is drawn in its settled pose: every animator
 layer settled ([view states](game-data/assets.md#interactive-view-states)) with its keys false. a
 pose holds one clip end pose per animator, each with its GameObject switches, the material values it

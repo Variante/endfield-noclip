@@ -32,7 +32,7 @@ import type { PrefabPose } from './prefab.ts';
 import { SWITCH_VALUES } from './scene-conditions.ts';
 import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
-import { readViewStates, settledPose } from './view-state-poses.ts';
+import { type ModelViews, readViewStates, settledPose } from './view-state-poses.ts';
 
 // templates with the model-upgrade component have their visual forms as a progression control; every other
 // template draws its base model only. templates carry no display name, so these labels are ours; other
@@ -200,7 +200,7 @@ const playerKeys = (template: MemoryPackValue): PlayerKey[] =>
 
 /**
  * @param context install readers and the bundle resolver
- * @param model a ModelTable id
+ * @param model a ModelTable model and the model whose view states it uses
  * @param campfire whether the model's `Enabled` key is the player's activation
  * @param keys the player-set keys the template drives; one whose radius is largest counts
  * @returns the model's settled looks, or `null` when it has no view states
@@ -208,7 +208,7 @@ const playerKeys = (template: MemoryPackValue): PlayerKey[] =>
  */
 const readInteractiveLooks = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver' | 'memoryPack'>,
-	model: string,
+	model: ModelViews,
 	campfire: boolean,
 	keys: readonly PlayerKey[],
 ): Promise<InteractiveLooks | null> => {
@@ -428,6 +428,10 @@ export const loadInteractiveFacilities = async (
 		throw new FormatError('invalid model table');
 	}
 	const modelData = objectField(table, 'data');
+	const viewsOf = (model: string): ModelViews => {
+		const source = objectField(modelData, model).dependModelViewDataId;
+		return { model, source: typeof source === 'string' && source !== '' ? source : model };
+	};
 	const formOf = (modelId: string, scale: number): { model: string; prefab: string; scale: number } => {
 		const data = objectField(modelData, modelId);
 		return {
@@ -743,7 +747,7 @@ export const loadInteractiveFacilities = async (
 					// oxlint-disable-next-line no-await-in-loop -- one view state file and a clip per form
 					const looks = await attempt(
 						form.model,
-						() => readInteractiveLooks(context, form.model, false, []),
+						() => readInteractiveLooks(context, viewsOf(form.model), false, []),
 						null,
 					);
 					if (looks !== null) {
@@ -793,7 +797,11 @@ export const loadInteractiveFacilities = async (
 				let looks = looksByModel.get(lookKey);
 				if (looks === undefined) {
 					// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
-					looks = await attempt(model, () => readInteractiveLooks(context, model, campfire, keys), null);
+					looks = await attempt(
+						model,
+						() => readInteractiveLooks(context, viewsOf(model), campfire, keys),
+						null,
+					);
 					looksByModel.set(lookKey, looks);
 				}
 				if (looks !== null) {
@@ -808,7 +816,7 @@ export const loadInteractiveFacilities = async (
 			let poses = byModel.get(model);
 			if (poses === undefined) {
 				// oxlint-disable-next-line no-await-in-loop -- a few view state files and one-frame clips per map
-				poses = await attempt(model, () => readDoorPoses(context, model), null);
+				poses = await attempt(model, () => readDoorPoses(context, viewsOf(model)), null);
 				byModel.set(model, poses);
 			}
 			if (poses !== null) {

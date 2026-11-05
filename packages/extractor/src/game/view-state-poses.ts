@@ -30,6 +30,15 @@ export interface ViewStates {
 	data: ViewStateRecord;
 }
 
+/**
+ * a ModelTable model and the model whose view states it uses: its own id, or the one its row names in
+ * `dependModelViewDataId` (a resized copy borrows its original's)
+ */
+export interface ModelViews {
+	model: string;
+	source: string;
+}
+
 /** the values a model's state machines test, by key; keys left out are false or 0 */
 export type Blackboard = ReadonlyMap<string, boolean | number>;
 
@@ -52,15 +61,15 @@ export const text = (value: MemoryPackValue | undefined): string | null =>
 
 /**
  * @param context install readers
- * @param model a ModelTable id
+ * @param model the ModelTable id, and `source`, the id whose view-state file it uses ({@link ModelViews})
  * @returns the model's view states, or `null` when it has none
  * @throws {FormatError} if the file isn't a view-state controller
  */
 export const readViewStates = async (
 	context: Pick<Context, 'vfs' | 'memoryPack'>,
-	model: string,
+	{ model, source }: ModelViews,
 ): Promise<ViewStates | null> => {
-	const path = `Data/Json/Interactive/ModelViewStateControllerData/${model}.json`;
+	const path = `Data/Json/Interactive/ModelViewStateControllerData/${source}.json`;
 	const file = await context.vfs.find(VfsGroup.JsonData, path);
 	if (file === undefined) {
 		return null;

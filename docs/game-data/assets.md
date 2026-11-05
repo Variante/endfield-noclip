@@ -400,6 +400,15 @@ root) and layer, a state machine. each state names an AnimationClip, behaviours 
 switches a GameObject by name on or off; others play effects, audio or navmesh changes) and
 transitions that wait on blackboard keys. `clipAssetInfos` gives each clip's StringPathHash.
 
+a model whose `ModelTable` row sets `hasModelViewData` and names another model in
+`dependModelViewDataId` has no file of its own and uses that model's view states (the field sits on
+the table's `ModelData` and on the interactive model component). eight rows do: the small campfire
+(`int_campfire_smaller`, the full campfire's prefab at 0.8 scale, placed by the
+`int_campfire_v2_smaller` variant in Dijiang's central hall at 0, 0.9, 57.1), recycling station
+forms 2–4, the long erosion pops 2–4 and the common chest (`int_trchest_common_normal`, on
+`int_trchest_common_low`'s states). all but the campfire borrow states written for a different
+prefab.
+
 a layer starts in its `isStartingNode` state and takes the first transition whose conditions all
 hold (`comparison` 0 =, 1 >, 2 <, 3 ≥, 4 ≤ against a bool, float, int or trigger value, `isInvert`
 negating it); a transition without conditions is taken when its state's clip ends. a layer comes to

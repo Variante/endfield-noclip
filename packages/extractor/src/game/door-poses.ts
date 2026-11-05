@@ -3,7 +3,14 @@ import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
 import type { Context } from '../context.ts';
 
 import type { PrefabPose } from './prefab.ts';
-import { readViewStates, records, statesPose, text, type ViewStateRecord } from './view-state-poses.ts';
+import {
+	type ModelViews,
+	readViewStates,
+	records,
+	statesPose,
+	text,
+	type ViewStateRecord,
+} from './view-state-poses.ts';
 
 // derives settled open/closed poses from model view states: clip end pose plus GameObject switches.
 // state selection rules: docs/game-data/assets.md#interactive-doors.
@@ -32,14 +39,14 @@ const settled = (state: ViewStateRecord): boolean =>
 
 /**
  * @param context install readers and the bundle resolver
- * @param model a ModelTable id
+ * @param model a ModelTable model and the model whose view states it uses
  * @returns the model's door poses, or `null` when it has no view states or none is an open idle state
  * @throws {FormatError} if the view states are ambiguous (several open states, no way back to a closed one)
  *   or a clip can't be found or read
  */
 export const readDoorPoses = async (
 	context: Pick<Context, 'vfs' | 'world' | 'resolver' | 'memoryPack'>,
-	model: string,
+	model: ModelViews,
 ): Promise<DoorPoses | null> => {
 	const states = await readViewStates(context, model);
 	if (states === null) {
