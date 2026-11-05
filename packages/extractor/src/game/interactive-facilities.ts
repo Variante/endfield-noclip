@@ -428,9 +428,10 @@ export const loadInteractiveFacilities = async (
 		throw new FormatError('invalid model table');
 	}
 	const modelData = objectField(table, 'data');
-	const formOf = (modelId: string, scale: number): { prefab: string; scale: number } => {
+	const formOf = (modelId: string, scale: number): { model: string; prefab: string; scale: number } => {
 		const data = objectField(modelData, modelId);
 		return {
+			model: modelId,
 			prefab: stringField(data, 'path').toLowerCase(),
 			scale: scale * numberField(data, 'scaleFactor'),
 		};
@@ -522,7 +523,7 @@ export const loadInteractiveFacilities = async (
 		string,
 		{
 			name: string | null;
-			forms: { prefab: string; scale: number }[];
+			forms: { model: string; prefab: string; scale: number }[];
 			/** the ModelTable id of a single-model interactive, `null` for facilities */
 			model: string | null;
 			/** the template's data file */
@@ -706,6 +707,8 @@ export const loadInteractiveFacilities = async (
 		string,
 		{ looks: InteractiveLooks; campfire: boolean; radius: number | null }
 	>();
+	// facility forms with view states drawn as they rest (an idle loop keeps playing), by ModelTable id
+	const formPoses = new Map<string, PrefabPose>();
 	const regionWalls = new Set<string>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
@@ -732,6 +735,21 @@ export const loadInteractiveFacilities = async (
 		};
 		for (const [key, { model, data, forms }] of authored) {
 			if (model === null) {
+				// a facility: each visual form is its own model, settled with every key false
+				for (const form of forms) {
+					if (formPoses.has(form.model)) {
+						continue;
+					}
+					// oxlint-disable-next-line no-await-in-loop -- one view state file and a clip per form
+					const looks = await attempt(
+						form.model,
+						() => readInteractiveLooks(context, form.model, false, []),
+						null,
+					);
+					if (looks !== null) {
+						formPoses.set(form.model, looks.away[0].pose);
+					}
+				}
 				continue;
 			}
 			let kind = templateKinds.get(data);
@@ -1096,7 +1114,11 @@ export const loadInteractiveFacilities = async (
 			),
 		);
 		for (const [form, model] of template.forms.entries()) {
-			place(model, { alternatives: [[{ control: id, mask: (1 << form) >>> 0 }]] }, null);
+			place(
+				model,
+				{ alternatives: [[{ control: id, mask: (1 << form) >>> 0 }]] },
+				formPoses.get(model.model) ?? null,
+			);
 		}
 	}
 	for (const [id, set] of doodadLevels) {

@@ -553,7 +553,9 @@ sets on renderers and their particle pivots; inside a clip that switches GameObj
 off and left alone by the clip draws nothing rather than a stand-in. clips name material properties
 by a hash, resolved against the renderer's materials' saved property names (a property the material
 doesn't save is dropped); a renderer whose materials take posed values draws a material variant
-whose record carries them before conversion. doodad-group shells aren't posed.
+whose record carries them before conversion. each facility visual form with view states is posed the
+same way, under its own model id, with every key false (a facility's player-set keys aren't read).
+doodad-group shells aren't posed.
 
 a settled state whose clip loops keeps playing it
 ([playing a clip](game-data/assets.md#interactive-view-states)): its pose clip carries the curves

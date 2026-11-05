@@ -407,19 +407,21 @@ rest in a state none of whose transitions holds. later layers of one animator ov
 
 a settled state's look is its clip's end pose plus its `SetActive` switches, unless the clip loops
 (`m_MuscleClip.m_LoopTime`): then it keeps playing, as the balloon's tube sways through its 14 s
-idle (`A_interactive_balloon+1_001_01_idle_01`). when each placement's loop starts is unknown. a
-generic clip's muscle clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the
-order of its bindings (`m_ClipBindingConstant.genericBindings`): three values per position, scale or
-Euler-rotation binding (attributes 1, 3 and 4), four per rotation (2), one per other float, none per
-PPtr curve. Euler angles are in degrees, applied in the Unity `RotationOrder` the binding's
-`customType` holds: 0 XYZ (x first, then y, then z), 1 XZY, 2 YZX, 3 YXZ, 4 ZXY
-(`Quaternion.Euler`'s), 5 ZYX. the locked chest (`int_trchest_lock_postmodel`) rests in a clip whose
-35 Euler bindings are all XYZ; read as ZXY, a third of its bones turn wrong and the chest sinks into
-the floor. a binding's `path` is the CRC32 of the GameObject path below the Animator's own,
-`/`-joined (`Root/Bone001`), 0 for the Animator's GameObject. a GameObject binding (class 1) whose
-attribute is the CRC32 of `m_IsActive` switches that GameObject on (1) or off (0). effect clips
-switch whole groups of effects this way; in their subtree, what the clip leaves alone keeps its
-saved activity, so a node saved off stays off.
+idle (`A_interactive_balloon+1_001_01_idle_01`). a facility's visual forms are models with view
+states of their own: the monitoring terminal's forms 1–4 (`int_system_kiteStation_<n>_postmodel`)
+rest in an `Initial` state whose loop (`A_anm_fac_syspoikitestation+1_001_01a`…`01d`) flies the
+kites, and form 0 has no clip. when each placement's loop starts is unknown. a generic clip's muscle
+clip stores every animated value's start and stop (`m_ValueArrayDelta`) in the order of its bindings
+(`m_ClipBindingConstant.genericBindings`): three values per position, scale or Euler-rotation
+binding (attributes 1, 3 and 4), four per rotation (2), one per other float, none per PPtr curve.
+Euler angles are in degrees, applied in the Unity `RotationOrder` the binding's `customType` holds:
+0 XYZ (x first, then y, then z), 1 XZY, 2 YZX, 3 YXZ, 4 ZXY (`Quaternion.Euler`'s), 5 ZYX. the
+locked chest (`int_trchest_lock_postmodel`) rests in a clip whose 35 Euler bindings are all XYZ;
+read as ZXY, a third of its bones turn wrong and the chest sinks into the floor. a binding's `path`
+is the CRC32 of the GameObject path below the Animator's own, `/`-joined (`Root/Bone001`), 0 for the
+Animator's GameObject. a GameObject binding (class 1) whose attribute is the CRC32 of `m_IsActive`
+switches that GameObject on (1) or off (0). effect clips switch whole groups of effects this way; in
+their subtree, what the clip leaves alone keeps its saved activity, so a node saved off stays off.
 
 playing a clip needs its curves (`m_MuscleClip.m_Clip.data`), whose scalars follow the same binding
 order: the streamed block's first, then the dense block's, then the constant block's. the streamed

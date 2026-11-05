@@ -310,14 +310,16 @@ packs or renders correctly.
   ones parented to its bones, material values, activity) holds its last frame, every placement of a
   geometry plays in step from the viewer's clock (the game's start per placement is unknown), the
   animation moves only while frames render, each LOD stores its own frames, and the balloon's sway
-  is unchecked against an in-game shot. looks the player's presence changes follow the camera
-  ([keys the player sets](game-data/assets.md#keys-the-player-sets)); a campfire's `InZone` sphere
-  uses the template's 2.5 m radius, though the game swaps the trigger's radius for runtime values
-  once inside (unread), and the `Distance` measure is assumed to be a plain 3D distance (the helper
-  isn't decompiled). keys only fights or the server set (`InBattle`, `isDead`) stay false. doors
-  draw open or closed ([interactive doors](game-data/assets.md#interactive-doors)), closed by
-  default except a Dijiang cabin's, since what opens each in game (a level script reacting to a
-  mission's cutscene, the server) isn't followed. campfires draw not activated or activated
+  is unchecked against an in-game shot. facility visual forms settle with every key false, so a form
+  whose look the player's presence would change isn't followed. looks the player's presence changes
+  follow the camera ([keys the player sets](game-data/assets.md#keys-the-player-sets)); a campfire's
+  `InZone` sphere uses the template's 2.5 m radius, though the game swaps the trigger's radius for
+  runtime values once inside (unread), and the `Distance` measure is assumed to be a plain 3D
+  distance (the helper isn't decompiled). keys only fights or the server set (`InBattle`, `isDead`)
+  stay false. doors draw open or closed
+  ([interactive doors](game-data/assets.md#interactive-doors)), closed by default except a Dijiang
+  cabin's, since what opens each in game (a level script reacting to a mission's cutscene, the
+  server) isn't followed. campfires draw not activated or activated
   ([campfires](game-data/assets.md#campfires)), activated by default; their fight look and the color
   layer's VAT clips aren't drawn. telescopic bridges likewise draw retracted or extended
   ([telescopic bridges](game-data/assets.md#telescopic-bridges)), retracted by default. rows created
