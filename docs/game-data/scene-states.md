@@ -388,6 +388,7 @@ string, with `<@…>…</>` rich-text tags).
   client's mission type table groups them (main, side, discovery, events; the rest as other).
   internal flag missions (`hidden*`, `dm*`) have no name. `levelId` is where it takes place; its
   quests can switch scenery of other levels (Valley Pass's fort mission switches The Hub's states).
+  character missions carry their operator in `charId`.
 - **chapter**: `missionChapterBitmask` bit 1 is chapter one, 2 chapter two (texts `chapter<n>_num`,
   `chapter<n>_name`); 4 is indie, without text. prologue missions (`e0m…`) carry chapter one's bit,
   so only their id marks them as `chapter0`.

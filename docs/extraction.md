@@ -25,17 +25,17 @@ without a config or install, including `world find --help`. every command takes 
 through `withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the
 asset resolver on first use.
 
-| command    | what it does                                                                                                                                                                                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                                                                                                       |
-| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                                                                                             |
-| `world`    | the world index: client scenes (`scenes`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and search over everything placed in a scene (`find`) |
-| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                                                                                                         |
-| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                                                                                                 |
-| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                                        |
-| `asset`    | decodes one mesh, texture or material by bundle and path id or by asset path, follows an entity's draws, or exports a cell as glTF                                                                                                                                              |
-| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                                                   |
-| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                                                |
+| command    | what it does                                                                                                                                                                                                                                                                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`     | writes `endfield.local.json`: the `Endfield_Data` path and validated keys                                                                                                                                                                                                                                                                                                 |
+| `pack`     | writes a viewer package for one streaming scene, optionally one level (`--level`) or a world rectangle (`--bounds`)                                                                                                                                                                                                                                                       |
+| `world`    | the world index: client scenes (`scenes`), dungeon entries with the scene they stream and the missions that reach them (`dungeons`), a map's levels and their cells, a cell's entities, a level's members, the chosen base environment per level (`env`), path ↔ hash ↔ bundle resolution, catalog search (`paths`) and search over everything placed in a scene (`find`) |
+| `variants` | a scene's stream areas and progression controllers, and which chunk files a stream-area selection loads                                                                                                                                                                                                                                                                   |
+| `vfs`      | lists VFS groups and their files, and extracts one logical file                                                                                                                                                                                                                                                                                                           |
+| `bundle`   | inspects bundles: header and per-class counts, objects as JSON, an object's stream data, searching container paths and individually addressable class objects in main or initial bundles                                                                                                                                                                                  |
+| `asset`    | decodes one mesh, texture or material by bundle and path id or by asset path, follows an entity's draws, or exports a cell as glTF                                                                                                                                                                                                                                        |
+| `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                                                                                                                                             |
+| `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                                                                                                                                          |
 
 the inspection commands (`world`, `variants`, `vfs`, `bundle`, `asset`, `terrain`, `water`) are for
 research and debugging; only `init` and `pack` are needed to produce a package. their glTF/PNG/KTX2
@@ -393,12 +393,17 @@ how the cells are stored is in [package-format.md](package-format.md#irradiance-
 ## pack
 
 a package holds one scene ([scenes, maps and levels](game-data/world.md#scenes-maps-and-levels));
-`world scenes` lists the scenes the client ships. `pack <scene>`
-([pack/packer.ts](../packages/extractor/src/pack/packer.ts), `packScene`) writes one streaming scene
-to `out/<scene>` or `out/<scene>-<level>` at the repo root by default, or to `-o <dir>`. the output
-directory must be absent, empty, or hold a previous package (plus, at most, a `.DS_Store`); anything
-else there aborts the pack. the package is built in a hidden sibling and renamed into place when
-complete, so a failed pack leaves the previous package as it was (see
+`world scenes` lists the scenes the client ships. `world dungeons`
+([game/dungeons.ts](../packages/extractor/src/game/dungeons.ts)) lists every DungeonTable entry with
+its level, the scene that level streams (`=` for its own; pack that scene), its operator, and the
+missions whose definition names the level. an entry no mission names is entered from a menu
+(training, challenges), an NPC or interaction, or not at all yet. a level of another map, such as
+`dung02_rdg012` on `dung02_rdg008`'s scene, can't be selected with `--level` ([status](status.md)).
+`pack <scene>` ([pack/packer.ts](../packages/extractor/src/pack/packer.ts), `packScene`) writes one
+streaming scene to `out/<scene>` or `out/<scene>-<level>` at the repo root by default, or to
+`-o <dir>`. the output directory must be absent, empty, or hold a previous package (plus, at most, a
+`.DS_Store`); anything else there aborts the pack. the package is built in a hidden sibling and
+renamed into place when complete, so a failed pack leaves the previous package as it was (see
 [package-format.md](package-format.md#layout)). the full option list is in the command's usage text.
 
 `--level` keeps the content one level owns plus the terrain under its cells; `--bounds` keeps

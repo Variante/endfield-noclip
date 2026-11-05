@@ -60,6 +60,25 @@ send the party to a scene directly, and each mission's
 `e11m5` is how the main story reaches `dung02_rdg008`. a dungeon and a puzzle stage can share a
 display name with a quest (`dung02_cdg005` and quest `e11m7` are both "Homecoming").
 
+a dungeon's id names a level, not necessarily a scene: many operator-story levels stream another
+scene. Liino's six and Gilberta's stream `map01`, Typhoeus's `dung02_rdg009` and `rdg015` stream
+`map02`, Mi Fu's `rdg006`/`rdg007` stream `rdg004`, and Li Zhiyan's `dung02_rdg012` streams
+`rdg008`. so `rdg` numbers skipped in the scene list (`dung01_rdg002`, `rdg008`–`rdg014`) are still
+dungeons, and only `dung01_rdg006` and `rdg009` have no LevelConfig at all. the `rdg` rows leave
+`dungeonName` and `relatedCharId` empty; the operator comes from the character missions that lead
+there (`charId`, and the `c<n>` mission prefix matches `chr_00<n>`). a mission names a level in
+`levelId`, quests' `levelIdOverride`, tracking entries' `sceneId` and conditions' `_mapId`
+(`{ constValue }`). some entries no mission names: `dung02_rdg012` (`dung_lizhiyan_02`), and
+`dung02_rdg015`, which its mission (`c34m3d6`) spells `dung02_rdg0015`.
+
+`dung02_rdg012` is most likely Deep Dale Street's revisit, the version Arcane (Li Zhiyan) sends the
+player to after chapter 11 (inferred, not traced to the dialogue): it streams `dung02_rdg008`'s
+scene, spawns the player at (3.4, 63.1, 89.6) in the ruined plaza rather than at the story's start
+(-77, 103, 231), and its LevelData holds only a checkpoint, a rope-port pair from the plaza up to
+the street (-77, 64.7 → 82.5, 128) and a sub-file for `e11m8d5`, the post-story "keep exploring"
+mission. nothing in the plain JSON, tables or pooled files names `dung_lizhiyan_02` except its own
+rows, so whatever enters it isn't in those.
+
 ### LevelConfig
 
 `Data/Json/LevelConfig/<level>.json` is a binary MemoryPack-style payload with strings pooled in

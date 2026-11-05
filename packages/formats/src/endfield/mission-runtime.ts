@@ -3,7 +3,7 @@ import { isObject } from '../unity/values.ts';
 
 // mission definitions: `Data/Json/MissionRuntimeAsset/<missionId>.json`, plain JSON. a mission holds its quests
 // (`questDic`), each with objective texts, and lists its main flow in order (`mainPathQuests`). only what labels
-// a quest is read; objectives, actions and rewards are not.
+// a quest and the levels the mission names are read; objectives, actions and rewards are not.
 
 /** a mission and its quests, as far as labelling needs */
 export interface MissionRuntime {
@@ -19,6 +19,10 @@ export interface MissionRuntime {
 	chapters: number;
 	/** the level its quest log points to */
 	levelId: string | null;
+	/** every level or map it names: {@link levelId}, quests' level overrides, tracked scenes and other scene ids */
+	levels: string[];
+	/** the operator a character mission belongs to, e.g. `chr_0037_minghe`, or `null` */
+	charId: string | null;
 	/** quest ids of the main flow in order, hidden steps included */
 	mainPath: string[];
 	quests: MissionQuest[];
@@ -84,9 +88,40 @@ export const parseMissionRuntime = (text: string): MissionRuntime => {
 		type,
 		chapters,
 		levelId: typeof raw.levelId === 'string' && raw.levelId !== '' ? raw.levelId : null,
+		levels: [...namedLevels(raw, new Set())],
+		charId: typeof raw.charId === 'string' && raw.charId !== '' ? raw.charId : null,
 		mainPath: mainPathQuests,
 		quests,
 	};
+};
+
+/** fields that hold a level or map id wherever they appear: on the mission, quests, trackers and actions */
+const LEVEL_FIELDS = new Set(['levelId', 'levelIdOverride', 'sceneId', '_mapId']);
+
+/**
+ * @param value a JSON value
+ * @param found ids collected so far; added to
+ * @returns `found`
+ */
+const namedLevels = (value: unknown, found: Set<string>): Set<string> => {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			namedLevels(item, found);
+		}
+	} else if (isObject(value)) {
+		for (const [key, field] of Object.entries(value)) {
+			// conditions wrap their operands, `{ constValue: … }`
+			const id = isObject(field) && typeof field.constValue === 'string' ? field.constValue : field;
+			if (LEVEL_FIELDS.has(key) && typeof id === 'string') {
+				if (id !== '') {
+					found.add(id);
+				}
+			} else {
+				namedLevels(field, found);
+			}
+		}
+	}
+	return found;
 };
 
 /** @returns a `{ key }` text reference's key, or `null` when absent or empty */

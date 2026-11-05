@@ -33,7 +33,7 @@ import { isSparkBean, parseSparkTable, type SparkValue } from '@endfield-noclip/
 import { StringPathHashTable } from '@endfield-noclip/formats/hg/string-path-hash';
 import { parseStringPoolBlock, StringPool } from '@endfield-noclip/formats/hg/string-pool';
 
-import { mapDefined } from '@mary-ext/array-fns';
+import { definite, mapDefined } from '@mary-ext/array-fns';
 
 import { loadBundleManifest } from '../hg/bundles.ts';
 import { VfsGroup, type Vfs } from '../hg/vfs.ts';
@@ -45,6 +45,8 @@ const STRING_PATH_HASH = 'Data/ExtendData/Main/StringPathHash.bin';
 const INIT_STRING_PATH_HASH = 'Data/ExtendData/Initial/InitStringPathHash.bin';
 const STREAMING_ROOT = 'Data/Streaming/PC/';
 const DYNAMIC_SCENE_ROOT = 'Data/DynamicStreaming/PC/Scene/';
+/** a mission definition; `_meta` files beside them hold accept mode and reward */
+const MISSION_PATTERN = /^Data\/Json\/MissionRuntimeAsset\/(.+?)(?<!_meta)\.json$/;
 const CHUNK_PATTERN =
 	/^Data\/Streaming\/PC\/([^/]+)\/Streaming\/InitChunkData_(?:(-?\d+)_(-?\d+)|Global)_(-?\d+)_(-?\d+)\.bytes$/;
 
@@ -227,7 +229,7 @@ export class WorldIndex {
 	 */
 	names(): Promise<Map<string, string>> {
 		this.#names ??= (async () => {
-			const text = await this.#englishText();
+			const text = await this.englishText();
 			const tables = await Promise.all(
 				['MapIdTable', 'LevelDescTable'].map((table) =>
 					this.#read(VfsGroup.Table, `Data/TableCfg/${table}.bytes`),
@@ -248,7 +250,7 @@ export class WorldIndex {
 	}
 
 	/** @returns I18nTextTable_EN: text id → English string */
-	#englishText(): Promise<Map<bigint, string>> {
+	englishText(): Promise<Map<bigint, string>> {
 		this.#english ??= (async () => {
 			const text = new Map<bigint, string>();
 			for (const [key, value] of parseSparkTable(
@@ -270,7 +272,7 @@ export class WorldIndex {
 	 */
 	text(): Promise<(key: string) => string | undefined> {
 		this.#text ??= (async () => {
-			const english = await this.#englishText();
+			const english = await this.englishText();
 			const ids = new Map<string, bigint>();
 			for (const [key, value] of parseSparkTable(
 				await this.#read(VfsGroup.Table, 'Data/TableCfg/TextTable.bytes'),
@@ -297,6 +299,17 @@ export class WorldIndex {
 			const file = await this.vfs.find(VfsGroup.JsonData, `Data/Json/MissionRuntimeAsset/${id}.json`);
 			return file && parseMissionRuntime(new TextDecoder().decode(await this.vfs.readVerified(file)));
 		});
+	}
+
+	/**
+	 * @returns every mission the client defines, in id order
+	 * @throws {FormatError} if a mission file is malformed
+	 */
+	async missions(): Promise<MissionRuntime[]> {
+		const group = await this.vfs.group(VfsGroup.JsonData);
+		const ids = mapDefined([...group.files.keys()], (name) => MISSION_PATTERN.exec(name)?.[1]);
+		const missions = await mapPool(ids, READ_CONCURRENCY, (id) => this.mission(id));
+		return definite(missions).toSorted((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
 	}
 
 	/** @returns every InitChunkData file of every streaming scene */

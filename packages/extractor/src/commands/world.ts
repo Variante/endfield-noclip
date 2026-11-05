@@ -26,6 +26,7 @@ import {
 	separatePositionals,
 } from '../cli-args.ts';
 import { type Context, withContext } from '../context.ts';
+import { loadDungeonUses, readOperatorNames } from '../game/dungeons.ts';
 import {
 	type LoadedPhase,
 	loadEnvironmentPhase,
@@ -49,6 +50,7 @@ import {
 	loadSceneStates,
 	sceneStateControl,
 } from '../game/scene-conditions.ts';
+import { stripMarkup } from '../game/story.ts';
 import type { IndexedEntity, WorldIndex } from '../game/world-index.ts';
 
 export const summary = 'browse scenes and levels; search asset paths and everything placed in a scene';
@@ -68,6 +70,9 @@ export const usage = `usage:
                                           --max-size drops bounds longer than n m (HLOD clusters, volumes)
                                           --scene-state/--area filter static chunk files only
   world scenes                             streaming scenes, with level counts for open-world maps
+  world dungeons [--category re] [--json]  dungeon entries (operator stories are dungeon_char): their level, the
+                                          scene it streams, operator, and the missions that lead there ('-': none,
+                                          so reached from a menu or NPC, or not at all)
   world levels <map> [--verify]            levels with tag, cells and names; --verify votes tags against cells
   world cells <level>                      cells a level owns and their chunk files
   world entities <scene> <x> <z> [--json]  entities in one cell's chunks (or 'global'); --scene-state/--area filter
@@ -87,6 +92,7 @@ const OPTIONS = {
 	kind: { type: 'string' },
 	'max-size': { type: 'string' },
 	limit: { type: 'string' },
+	category: { type: 'string' },
 } as const;
 
 export const run = async (args: string[]): Promise<void> => {
@@ -134,6 +140,13 @@ export const run = async (args: string[]): Promise<void> => {
 			}
 			case 'scenes': {
 				await listScenes(world);
+				break;
+			}
+			case 'dungeons': {
+				await listDungeons(context, {
+					category: values.category === undefined ? undefined : new RegExp(values.category, 'i'),
+					json: values.json,
+				});
 				break;
 			}
 			case 'levels': {
@@ -570,6 +583,70 @@ const listScenes = async (world: WorldIndex): Promise<void> => {
 			`${scene.padEnd(20)} ${String(chunks.length).padStart(6)} init chunks  ${levels.padEnd(24)} ${names.get(scene) ?? ''}`,
 		);
 	}
+};
+
+const listDungeons = async (
+	context: Context,
+	options: {
+		/** keeps rows whose category matches */
+		category: RegExp | undefined;
+		json: boolean;
+	},
+): Promise<void> => {
+	const { vfs, world } = context;
+	const [uses, levelNames, operators, text] = await Promise.all([
+		loadDungeonUses(context),
+		world.names(),
+		world.englishText().then((english) => readOperatorNames(vfs, english)),
+		world.text(),
+	]);
+	const missionName = (key: string | null): string | null => {
+		const value = key === null ? undefined : text(key);
+		return value === undefined ? null : stripMarkup(value);
+	};
+	const rows = uses
+		.filter(({ dungeon }) => options.category === undefined || options.category.test(dungeon.category ?? ''))
+		.map(({ dungeon, scene, charId, missions }) => ({
+			id: dungeon.id,
+			name: dungeon.name ?? (dungeon.levelId === null ? null : levelNames.get(dungeon.levelId)) ?? null,
+			category: dungeon.category,
+			level: dungeon.levelId,
+			scene,
+			charId,
+			operator: charId === null ? null : (operators.get(charId) ?? null),
+			missions: missions.map((mission) => ({ id: mission.id, name: missionName(mission.nameKey) })),
+		}))
+		.toSorted(
+			(a, b) =>
+				(a.level ?? '').localeCompare(b.level ?? '', 'en', { numeric: true }) || a.id.localeCompare(b.id),
+		);
+	if (options.json) {
+		console.log(JSON.stringify(rows, null, '\t'));
+		return;
+	}
+	console.log(
+		'level                  scene                  category                dungeon                         operator          missions',
+	);
+	for (const row of rows) {
+		// a level streaming another scene is the case worth seeing at a glance
+		let scene = row.scene ?? '-';
+		if (row.level !== null && row.scene === row.level) {
+			scene = '=';
+		} else if (row.level !== null && row.scene === null) {
+			scene = '(not shipped)';
+		}
+		const missions =
+			row.missions
+				.map((mission) => (mission.name ? `${mission.id} ${mission.name}` : mission.id))
+				.join(', ') || '-';
+		console.log(
+			`${(row.level ?? '-').padEnd(22)} ${scene.padEnd(22)} ${(row.category ?? '-').padEnd(23)} ${row.id.padEnd(31)} ${(row.operator ?? '-').padEnd(17)} ${missions}`,
+		);
+	}
+	const unreached = rows.filter((row) => row.missions.length === 0).length;
+	console.error(
+		`${rows.length} dungeon entries, ${unreached} named by no mission; scene '=' is the level's own`,
+	);
 };
 
 const listLevels = async (world: WorldIndex, mapId: string, verify: boolean): Promise<void> => {

@@ -15,16 +15,26 @@ const quest = (fields: Record<string, unknown>) => ({
 	...fields,
 });
 
-test('reads a mission name, its main flow and per-quest text keys', () => {
+test('reads a mission name, operator, the levels it names, its main flow and per-quest text keys', () => {
 	const mission = parseMissionRuntime(
 		`﻿${JSON.stringify({
 			missionId: 'x1m1',
 			missionName: { key: 'x1m1_name' },
 			missionType: 0,
 			missionChapterBitmask: 1,
+			charId: 'chr_0001_x',
 			levelId: 'map01_lv002',
 			questDic: {
-				'x1m1_q#1': quest({}),
+				'x1m1_q#1': quest({
+					levelIdOverride: '',
+					objectiveList: [
+						{
+							description: { key: 'objective_x1m1_1_001' },
+							condition: { _mapId: { constValue: 'dung01_rdg002' } },
+							trackingInfoList: [{ sceneId: 'dung01_rdg001' }, { sceneId: 'map01_lv002' }],
+						},
+					],
+				}),
 				'x1m1_q#2': quest({
 					overrideMissionDesc: true,
 					descriptionOverride: { key: 'x1m1_desc_002' },
@@ -41,6 +51,8 @@ test('reads a mission name, its main flow and per-quest text keys', () => {
 		type: 0,
 		chapters: 1,
 		levelId: 'map01_lv002',
+		levels: ['map01_lv002', 'dung01_rdg002', 'dung01_rdg001'],
+		charId: 'chr_0001_x',
 		mainPath: ['x1m1_q#1', 'x1m1_q#2'],
 		quests: [
 			{

@@ -349,7 +349,9 @@ packs or renders correctly.
   its source in LevelData aren't read ([scene states](game-data/scene-states.md#doodad-groups))
 - interactive facilities are gathered from levels whose map is the packed scene, so a scene streamed
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
-  loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
+  loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead. for the
+  same reason `pack <scene> --level` only takes the scene's own map's levels, so such a level
+  (`dung02_rdg012` on `dung02_rdg008`) can't be packed with its own spawn and LevelData
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
   map variables map01's MapConfig doesn't name show as numbers, except each blight's, named after
   its core ([blight and its cores](game-data/scene-states.md#dynamic-load-gates); that the variable
