@@ -56,9 +56,9 @@ someone else's work. while others are active:
 | stream areas and progressions                   | `pnpm extract variants`                                                                          |
 
 write negative coordinates as `--near=-763,215,-1190`; with a space, the value parses as a flag. run
-any command without arguments for its usage. topic probes in `.research/<topic>/` cover prefab
-trees, particle modules, tables and level scripts; check the topic's notes before writing a new one.
-when a probe answers a question you expect to ask again, move it into the CLI.
+any command without arguments for its usage. for what the CLI doesn't answer, write a scratch probe
+on the `packages/formats` readers and delete it once the finding is recorded; when a probe answers a
+question you expect to ask again, move it into the CLI.
 
 the obvious material is often not the cause: check child objects, other submeshes and dynamic
 structures before concluding. a "no renderer" row lists its component ids; one the packer doesn't
@@ -79,7 +79,7 @@ progressions, view states or script groups
 
 ## 5. establish the game's behaviour
 
-read it from the source: the shader variant the material uses (`.research/lighting/dump.sh`, see
+read it from the source: the shader variant the material uses (`.research/shaders/dump.sh`, see
 `.research/tooling.md`), the IL2CPP dump and headless Ghidra for C# and native code, and the
 material's own properties. when notes disagree, read the source again. search GitHub for existing
 Endfield tooling before writing a decoder (CLAUDE.md).
@@ -116,8 +116,7 @@ pnpm run dev --port 0
 mise exec -- agent-browser --session <task> open 'http://localhost:<port>/?package=<scene>&level=<level>'
 ```
 
-helpers for bisecting materials on screen are named in `.research/README.md` ("investigating a
-view"). when done, turn off `continuous` and any debug view, then close the session
+how to bisect materials on screen is in `.research/README.md` ("investigating a view"). when done, turn off `continuous` and any debug view, then close the session
 (`agent-browser --session <task> close`) and stop the dev server you started.
 
 ## 9. record and finish
@@ -125,8 +124,9 @@ view"). when done, turn off `continuous` and any debug view, then close the sess
 - game behaviour goes in `docs/game-data/`, how our code does it in `docs/viewer/`, `extraction.md`
   or `package-format.md`, and whatever remains in `docs/status.md`, in the same commit. decompiled
   code, paraphrases of it and addresses stay in `.research/`.
-- leads that aren't settled, and probes worth rerunning, go in the topic's `.research/` note, with
-  the date and what's still unverified, so the next investigation starts from them.
+- leads that aren't settled go in the topic's `.research/` note, with the date, the ids and
+  coordinates involved and what's still unverified, so the next investigation starts from them.
+  delete scratch probes; the note records what they found.
 - one commit per logical change, per CLAUDE.md.
 - report what was verified and what wasn't. a gap that stays open is fine once status lists it.
 - send peers a completion message: commits, packages repacked (so they reload), files freed.
