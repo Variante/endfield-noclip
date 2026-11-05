@@ -610,7 +610,8 @@ only its own scale, not its parents', when `scalingMode` is Local) and its bound
 everywhere a particle can reach. the matrix's scale moves the particles in every mode and sizes them
 unless the mode is Shape. the entry keeps:
 
-- the render mode, a stretched quad's length scale and velocity scale, and whether the matrix's
+- the render mode, a stretched quad's length scale and velocity scale, a quad's on-screen size
+  limits (`screenSize`, fractions of the viewport's width at its depth), and whether the matrix's
   scale sizes the particles (`sizedByScale`, false in the `Shape` scaling mode), so a viewer reads
   no scaling mode
 - the duration, looping, start delay (a constant or two; a curve makes the system a stand-in),

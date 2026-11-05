@@ -1255,6 +1255,8 @@ export interface ParticleView {
 	time: number;
 	/** the camera's position (Unity world, f64), which stretched particles turn their width by */
 	eye: Vec3;
+	/** the viewport's width per metre of view depth, which quads' on-screen size limits are fractions of */
+	widthPerDepth: number;
 	/** the camera's right, up and forward axes (Unity frame), which view-aligned particles turn with */
 	right: Vec3;
 	up: Vec3;
@@ -1292,6 +1294,33 @@ export const turnedByBillboard = (
 	}
 	const row = (r: number) => basis[0][r] * v[0] + basis[1][r] * v[1] + basis[2][r] * v[2];
 	return [row(0), row(1), row(2)];
+};
+
+/**
+ * holds a quad's larger side between its on-screen limits, as the engine does before building quads
+ *
+ * @param sizes the quad's sizes along its x, y and z, m
+ * @param limits the smallest and largest it may be, as fractions of the viewport's width at its depth
+ * @param view the camera
+ * @param at the particle's world position
+ * @returns the sizes scaled together to fit, or zero behind the camera
+ */
+export const screenLimited = (
+	sizes: readonly number[],
+	limits: { min: number; max: number },
+	view: ParticleView,
+	at: Vec3,
+): number[] => {
+	const f = view.forward;
+	const depth = (at[0] - view.eye[0]) * f[0] + (at[1] - view.eye[1]) * f[1] + (at[2] - view.eye[2]) * f[2];
+	const half = 0.5 * Math.max(sizes[0], sizes[1]);
+	if (depth <= 0 || half <= 0) {
+		return [0, 0, 0];
+	}
+	const width = view.widthPerDepth * depth;
+	const held = Math.min(Math.max(half, 0.5 * limits.min * width), 0.5 * limits.max * width);
+	const ratio = held / half;
+	return [sizes[0] * ratio, sizes[1] * ratio, sizes[2]];
 };
 
 /** one emitter's particles: its rows in the instance buffer and its clock */
@@ -1499,6 +1528,15 @@ export class ParticleField {
 				axes = axes.map((axis) => rotate(onto, axis));
 			}
 			let sizes = [s[0] * sizing[0], s[1] * sizing[1], s[2] * sizing[2]];
+			// a stretched quad's length comes from its size before the on-screen limits
+			const lengthSize = sizes[1];
+			if (info.screenSize !== null) {
+				sizes = screenLimited(sizes, info.screenSize, view, [
+					instances.origin[0] + center[0],
+					instances.origin[1] + center[1],
+					instances.origin[2] + center[2],
+				]);
+			}
 			const turn = (basis: readonly Vec3[]) => {
 				axes = axes.map((axis) => [
 					basis[0][0] * axis[0] + basis[1][0] * axis[1] + basis[2][0] * axis[2],
@@ -1528,9 +1566,19 @@ export class ParticleField {
 				const ahead = across[0] * f[0] + across[1] * f[1] + across[2] * f[2];
 				const flat: Vec3 = [across[0] - f[0] * ahead, across[1] - f[1] * ahead, across[2] - f[2] * ahead];
 				const right: Vec3 = Math.hypot(...flat) > 1e-9 ? normalize(flat) : view.right;
-				axes = [right, streak, [f[0], f[1], f[2]]];
+				// the face's own normal, which the effect shaders' Fresnel fades by, turned so the quad's -z normal
+				// faces the camera
+				let face = normalize([
+					right[1] * streak[2] - right[2] * streak[1],
+					right[2] * streak[0] - right[0] * streak[2],
+					right[0] * streak[1] - right[1] * streak[0],
+				]);
+				if (face[0] * sight[0] + face[1] * sight[1] + face[2] * sight[2] < 0) {
+					face = [-face[0], -face[1], -face[2]];
+				}
+				axes = [right, streak, face];
 				const stretch = info.stretch ?? { lengthScale: 1, velocityScale: 0 };
-				const length = sizes[1] * stretch.lengthScale + speed * stretch.velocityScale;
+				const length = lengthSize * stretch.lengthScale + speed * stretch.velocityScale;
 				sizes = [sizes[0], length, sizes[2]];
 				// the unit quad is centred, and the particle sits at the streak's head
 				for (let r = 0; r < 3; r++) {

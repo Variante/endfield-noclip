@@ -36,6 +36,7 @@ import {
 	splinePoint,
 	travelled,
 	turnedByBillboard,
+	screenLimited,
 	turnFromZ,
 } from './particles.ts';
 
@@ -91,6 +92,7 @@ const fields = (
 ): Omit<ParticleSystemInfo, 'emissionBound' | 'motion'> => ({
 	renderMode: ParticleRenderMode.Mesh,
 	stretch: null,
+	screenSize: null,
 	sizedByScale: true,
 	duration: 5,
 	looping: true,
@@ -609,10 +611,11 @@ describe('ParticleField', () => {
 	const eye: Vec3 = [0, 0, -10];
 
 	it('lays a stretched particle back from its head, its width set by where the camera is, not how it turns', () => {
-		// Suiming's rising fog (`smoke` in p_fxmap_map02_lv007_windice01): legacy stretched quads
+		// Suiming's drifting fog (`smoke` in p_fxmap_map02_lv007_windice01): legacy stretched quads
 		const fog = system({
 			renderMode: ParticleRenderMode.Stretched,
 			stretch: { lengthScale: 2, velocityScale: 0 },
+			screenSize: { min: 0, max: 2 },
 			looping: false,
 			startLifetime: constant(5),
 			rate: constant(0),
@@ -630,18 +633,25 @@ describe('ParticleField', () => {
 				speedModifier: constant(1),
 			},
 		});
-		const level = written(fog, { eye, right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
+		const level = written(fog, {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 1, 0],
+			forward: [0, 0, 1],
+		});
 		// looking 30° down from the same place
 		const pitched = written(fog, {
 			eye,
+			widthPerDepth: 2,
 			right: [1, 0, 0],
 			up: [0, Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)],
 			forward: [0, -Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)],
 		});
 		const near = (a: Float32Array, b: number[]) =>
-			b.every((value, i) => Math.abs(a[[0, 4, 8, 1, 5, 9, 3, 7, 11][i]] - value) < 1e-5);
-		// width along x, 2 m up the rise, the particle at the top end
-		const expected = [1, 0, 0, 0, 2, 0, 0, -1, 0];
+			b.every((value, i) => Math.abs(a[[0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11][i]] - value) < 1e-5);
+		// width along x, 2 m up the rise, its face's normal on the line of sight, the particle at the top end
+		const expected = [1, 0, 0, 0, 2, 0, 0, 0, 1, 0, -1, 0];
 		assert.ok(near(level, expected), [...level.subarray(0, 12)].join());
 		assert.ok(near(pitched, expected), [...pitched.subarray(0, 12)].join());
 	});
@@ -659,16 +669,29 @@ describe('ParticleField', () => {
 			gravityModifier: constant(0),
 			pivot: [0, 0.5, 0],
 		});
-		const level = center(shard, { eye, right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
+		const level = center(shard, {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 1, 0],
+			forward: [0, 0, 1],
+		});
 		assert.deepEqual(level, [0, 1, 0]);
 		// looking straight down, the camera's up is the world's +z, so the offset goes there
-		const down = center(shard, { eye, right: [1, 0, 0], up: [0, 0, 1], forward: [0, -1, 0] });
+		const down = center(shard, {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 0, 1],
+			forward: [0, -1, 0],
+		});
 		assert.deepEqual(down, [0, 0, 1]);
 		// a world-aligned one keeps it in the world's frame
 		const world = center(
 			{ ...shard, alignment: ParticleAlignment.World },
 			{
 				eye,
+				widthPerDepth: 2,
 				right: [1, 0, 0],
 				up: [0, 0, 1],
 				forward: [0, -1, 0],
@@ -683,6 +706,7 @@ describe('turnedByBillboard', () => {
 		const view = {
 			time: 0,
 			eye: [0, 0, 0],
+			widthPerDepth: 2,
 			right: [0, 0, -1],
 			up: [0.6, 0.8, 0],
 			forward: [0.8, -0.6, 0],
@@ -694,6 +718,27 @@ describe('turnedByBillboard', () => {
 			turnedByBillboard(RowBillboard.Upright, view, [0, 1, 1]).map((value) => value + 0),
 			[1, 1, 0],
 		);
+	});
+});
+
+describe('screenLimited', () => {
+	const view = {
+		time: 0,
+		eye: [0, 0, 0],
+		widthPerDepth: 2,
+		right: [1, 0, 0],
+		up: [0, 1, 0],
+		forward: [0, 0, 1],
+	} satisfies ParticleView;
+
+	it('holds the larger side to a fraction of the viewport width at the depth, scaling both', () => {
+		// 4 m away the viewport is 8 m wide, so half of it is 4 m: a 10 × 5 m quad shrinks to 4 × 2 m
+		assert.deepEqual(screenLimited([10, 5, 1], { min: 0, max: 0.5 }, view, [3, 0, 4]), [4, 2, 1]);
+		// small ones grow to the minimum, those within the limits stay
+		assert.deepEqual(screenLimited([0.5, 1, 1], { min: 0.25, max: 0.5 }, view, [0, 0, 4]), [1, 2, 1]);
+		assert.deepEqual(screenLimited([3, 1, 1], { min: 0, max: 0.5 }, view, [0, 0, 4]), [3, 1, 1]);
+		// behind the camera, nothing
+		assert.deepEqual(screenLimited([3, 1, 1], { min: 0, max: 0.5 }, view, [0, 0, -4]), [0, 0, 0]);
 	});
 });
 

@@ -300,6 +300,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 		info: {
 			renderMode: ParticleRenderMode.Mesh,
 			stretch: null,
+			screenSize: null,
 			sizedByScale: true,
 			duration: 1,
 			looping: true,

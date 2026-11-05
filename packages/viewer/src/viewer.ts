@@ -1599,6 +1599,7 @@ export class Viewer {
 				particles: {
 					time: this.#time,
 					eye: this.camera.position,
+					widthPerDepth: 2 * Math.tan(this.camera.fovY / 2) * aspect,
 					right: this.camera.right(),
 					up: this.camera.up(),
 					forward: this.camera.forward(),

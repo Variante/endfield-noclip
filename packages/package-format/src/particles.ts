@@ -189,6 +189,12 @@ export interface ParticleSystemInfo {
 	/** how {@link ParticleRenderMode.Stretched} quads lengthen; `null` for other modes */
 	stretch: ParticleStretchInfo | null;
 	/**
+	 * the smallest and largest a quad may be on screen, as fractions of the viewport's width at its depth: its
+	 * larger side is held between them, scaling both (a stretched quad's length keeps its own). `null` for
+	 * {@link ParticleRenderMode.Mesh}
+	 */
+	screenSize: { min: number; max: number } | null;
+	/**
 	 * whether the emitter matrix's scale sizes the particles as well as moving them; otherwise they keep their
 	 * own size (Unity's `Shape` scaling mode). the packer resolves the other modes into the matrix itself
 	 */

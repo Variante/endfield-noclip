@@ -587,6 +587,13 @@ export const readParticleSystem = (
 							velocityScale: numberField(renderer, 'm_VelocityScale'),
 						}
 					: null,
+			screenSize:
+				renderMode === ParticleRenderMode.Mesh
+					? null
+					: {
+							min: numberField(renderer, 'm_MinParticleSize'),
+							max: numberField(renderer, 'm_MaxParticleSize'),
+						},
 			// the packer folds the other modes' scale into the emitter's matrix (particleEmitterMatrix)
 			sizedByScale: numberField(system, 'scalingMode') !== ScalingMode.Shape,
 			duration,
