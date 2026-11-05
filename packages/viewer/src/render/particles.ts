@@ -1206,8 +1206,7 @@ export class ParticleSimulation {
 					? this.#limitedPath(clamp, velocity, begin)
 					: this.#freePath(clamp, velocity, { ...begin, startSize });
 		}
-		let position = path.position;
-		const moving = path.moving;
+		const { position, moving } = path;
 
 		const size = startSize.map((value, axis) => {
 			const over = info.sizeOverLifetime;
@@ -1224,14 +1223,6 @@ export class ParticleSimulation {
 			}
 		}
 		const rotation = eulerQuaternion(angles[0], angles[1], angles[2]);
-		if (info.pivot.some((value) => value !== 0)) {
-			const pivot = rotate(rotation, [
-				info.pivot[0] * size[0],
-				info.pivot[1] * size[1],
-				info.pivot[2] * size[2],
-			]);
-			position = [position[0] + pivot[0], position[1] + pivot[1], position[2] + pivot[2]];
-		}
 		let color = evaluateMinMaxGradient(info.startColor, u, random(seed, id, Channel.Color));
 		if (info.colorOverLifetime !== null) {
 			const over = evaluateMinMaxGradient(
@@ -1267,6 +1258,39 @@ export interface ParticleView {
 	up: Vec3;
 	forward: Vec3;
 }
+
+/**
+ * turns a vector in a row's frame as `row_basis` (frame.wgsl) turns the row's axes for its billboard kind
+ *
+ * @param billboard the row's billboard kind
+ * @param view the camera's axes
+ * @param v the vector in the row's frame
+ * @returns it in the world's
+ */
+export const turnedByBillboard = (
+	billboard: RowBillboard,
+	view: ParticleView,
+	v: readonly number[],
+): Vec3 => {
+	let basis: readonly Vec3[];
+	switch (billboard) {
+		case RowBillboard.Facing: {
+			basis = [view.right, view.up, view.forward];
+			break;
+		}
+		case RowBillboard.Upright: {
+			// level and defined even looking straight down; Unity's forward is right × up
+			const right = normalize([view.right[0], 0, view.right[2]]);
+			basis = [right, [0, 1, 0], [-right[2], 0, right[0]]];
+			break;
+		}
+		default: {
+			return [v[0], v[1], v[2]];
+		}
+	}
+	const row = (r: number) => basis[0][r] * v[0] + basis[1][r] * v[1] + basis[2][r] * v[2];
+	return [row(0), row(1), row(2)];
+};
 
 /** one emitter's particles: its rows in the instance buffer and its clock */
 interface Emitter {
@@ -1525,6 +1549,17 @@ export class ParticleField {
 					case ParticleAlignment.World: {
 						break;
 					}
+				}
+			}
+			if (info.pivot.some((value) => value !== 0)) {
+				// the pivot moves the mesh in its turned and sized frame, the one it's drawn in: for camera-facing
+				// rows that frame is turned on the GPU, so turn the offset with it here
+				const inFrame = [0, 1, 2].map((r) =>
+					axes.reduce((sum, axis, k) => sum + axis[r] * sizes[k] * info.pivot[k], 0),
+				);
+				const shift = turnedByBillboard(billboard, view, inFrame);
+				for (let r = 0; r < 3; r++) {
+					center[r] += shift[r];
 				}
 			}
 			const o = i * ROW_WORDS;

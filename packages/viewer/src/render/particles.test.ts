@@ -17,11 +17,15 @@ import {
 } from '@endfield-noclip/package-format/particles';
 
 import type { Vec3 } from '../scene/camera.ts';
+import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
-import { RowKind, packRowColor, rowInfo } from './instance-rows.ts';
+import { ROW_WORDS, RowBillboard, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
 import {
 	PARTICLE_FLOATS,
+	ParticleField,
+	type ParticleRowStore,
 	ParticleSimulation,
+	type ParticleView,
 	dragged,
 	draggedFall,
 	evaluateMinMax,
@@ -31,6 +35,7 @@ import {
 	sheetTile,
 	splinePoint,
 	travelled,
+	turnedByBillboard,
 	turnFromZ,
 } from './particles.ts';
 
@@ -575,6 +580,75 @@ describe('ParticleSimulation', () => {
 		assert.ok(Math.abs(ramped.position[2] - 0.25) < 1e-6, `${ramped.position[2]}`);
 		const [steady] = rising(constant(2));
 		assert.ok(Math.abs(steady.position[2] - 1) < 1e-6, `${steady.position[2]}`);
+	});
+});
+
+describe('ParticleField', () => {
+	/** @returns the centre the field writes for one particle of a system on an identity emitter at the origin */
+	const center = (info: ParticleSystemInfo, view: Omit<ParticleView, 'time'>): number[] => {
+		let written = new Float32Array(0);
+		const store: ParticleRowStore = {
+			allocateRows: (count) => ({ start: 0, count }),
+			freeRows: () => {},
+			writeRows: (_start, rows) => {
+				written = new Float32Array(rows.buffer.slice(0));
+			},
+		};
+		const rowsF32 = new Float32Array(ROW_WORDS);
+		rowsF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+		// the field reads only the emitter row and the block's slot
+		const instances = { rowsF32, blockSlot: 0 } as unknown as ResidentInstances;
+		const field = new ParticleField({ systems: [info] }, store);
+		assert.equal(field.rows(instances, 0, 0, 0, { time: 0, ...view }).length, 1);
+		return [written[3], written[7], written[11]];
+	};
+
+	it('offsets a view-aligned mesh by its pivot in the camera-turned frame it is drawn in', () => {
+		// the blue talosite's shards: one mesh particle each, pivoted off centre, facing the camera
+		const shard = system({
+			looping: false,
+			startLifetime: constant(5),
+			rate: constant(0),
+			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: null,
+			startSize: [constant(2), constant(2), constant(2)],
+			startRotation: [constant(0), constant(0), constant(0)],
+			gravityModifier: constant(0),
+			pivot: [0, 0.5, 0],
+		});
+		const level = center(shard, { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] });
+		assert.deepEqual(level, [0, 1, 0]);
+		// looking straight down, the camera's up is the world's +z, so the offset goes there
+		const down = center(shard, { right: [1, 0, 0], up: [0, 0, 1], forward: [0, -1, 0] });
+		assert.deepEqual(down, [0, 0, 1]);
+		// a world-aligned one keeps it in the world's frame
+		const world = center(
+			{ ...shard, alignment: ParticleAlignment.World },
+			{
+				right: [1, 0, 0],
+				up: [0, 0, 1],
+				forward: [0, -1, 0],
+			},
+		);
+		assert.deepEqual(world, [0, 1, 0]);
+	});
+});
+
+describe('turnedByBillboard', () => {
+	it('turns as row_basis turns a billboard row', () => {
+		const view = {
+			time: 0,
+			right: [0, 0, -1],
+			up: [0.6, 0.8, 0],
+			forward: [0.8, -0.6, 0],
+		} satisfies ParticleView;
+		assert.deepEqual(turnedByBillboard(RowBillboard.None, view, [1, 2, 3]), [1, 2, 3]);
+		assert.deepEqual(turnedByBillboard(RowBillboard.Facing, view, [1, 0, 0]), [0, 0, -1]);
+		// kept upright: right stays level, up is the world's, forward is right × up
+		assert.deepEqual(
+			turnedByBillboard(RowBillboard.Upright, view, [0, 1, 1]).map((value) => value + 0),
+			[1, 1, 0],
+		);
 	});
 });
 
