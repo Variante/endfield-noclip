@@ -407,8 +407,9 @@ empty and store `m_ACLType` 16 instead: `m_ACLArray` holds a u16 per frame and c
 decoding to `(u16 − 32767.5) / 32767.5` times the curve kind's factor (`m_PositionFactor`,
 `m_ScaleFactor`, `m_EulerFactor`, `m_FloatFactor`; 1 for rotations, which are quaternion
 components). sampled at the clip's start and stop, this matches `m_ValueArrayDelta` to within one
-16-bit step on the balloon's clips (positions, rotations and scales). the clips seen leave the ACL
-buffer (`m_AclCompressedBuffer`) empty.
+16-bit step on the balloon's clips (positions, rotations and scales). the balloon's clips leave the
+ACL buffer (`m_AclCompressedBuffer`) empty; other clips keep their curves there instead
+([scenery animators](#scenery-animators)).
 
 clips also set renderer values (mesh renderer class 23, skinned 137, particle system renderer 199):
 
@@ -446,6 +447,26 @@ idle dims the glows below their saved values (the blue bubble `glow02` to a thir
 `_TintColorAlpha`) and holds the shards' pivots at 0, so they cluster; near brightens the glows and
 moves the shards' pivots apart, and scales the star icon up 1.8×. the white model reuses the blue
 model's clips but for its own activation start.
+
+### scenery animators
+
+a prefab placed without view states can carry its own Animator with an AnimatorController. Unity
+plays each layer's default state (`m_DefaultState`) from load: the base layer at full weight
+whatever its saved `m_DefaultWeight`, later layers at theirs. a state whose blend tree has one node
+plays the clip `m_ClipID` indexes in the controller's `m_AnimationClips`, at the state's `m_Speed`;
+a clip that doesn't loop then holds its end pose.
+
+Wuling City's spinning cube (`p_anm_map02_machine+1_002_01`, at -1442, 330, -336 in map02_lv002,
+placed by mission `e6m1`'s level data) is one: its controller `AC_anm_map02_machine+1_002_01` has
+one state, `idle_loop`, playing the looping 53.3 s clip `A_anm_map02_machine+1_002_01` (1602 frames
+at 30 fps) on 15 Transforms of a skinned mesh. that clip's muscle clip has no streamed or dense
+curves (`m_DenseClip.m_ACLType` 0, empty arrays) and 119 compressed curves
+(`m_CompressedCurveCount`): they sit in `m_AclCompressedBuffer` (header `Version` 10), split into
+`TransformBufferData`, `RootMotionBufferData` and `FloatBufferData`, with `TransformSubTrackMasks`,
+`OutputTrackCount`, `RootTrackCount`, `FloatCurveCount` and constant tracks (`m_ConstantIndexs`,
+`m_ConstantValues`) mapping them to bindings. other Endfield tooling reads these buffers as stock
+ACL 2.1 `compressed_tracks`; unverified here, as is how the tracks map to bindings.
+`m_ValueArrayDelta` still gives the start and stop values.
 
 ### campfires
 

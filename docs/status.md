@@ -372,8 +372,13 @@ packs or renders correctly.
   drawn ([cabins](game-data/scene-states.md#dijiang-cabins)); neither are the Images and Text of
   world-space canvases inside prefabs, such as the counters on Dijiang's weapon wall displays
 - skeletons the reader can't pose and nonzero blend shapes (meshes with them are stand-ins);
-  skeletal animation outside a settled interactive view state (scenery Animators, characters) isn't
-  played; vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw their rest pose
+  characters' skeletal animation isn't played. prefab
+  [scenery animators](game-data/assets.md#scenery-animators) play their controllers' default states
+  only when the clip's curves are in its dense or streamed block: clips whose curves are
+  ACL-compressed (`m_AclCompressedBuffer`), such as Wuling City's spinning cube, hold their end
+  pose, since the ACL buffer isn't decoded. blend-tree states, additive or partial-weight layers,
+  override controllers and the Animators of models with view states hold their saved pose.
+  vertex-animation-texture meshes (`_vat`, e.g. floating rocks) draw their rest pose
 - the game's HLOD-unload triggers (`FBStreamArea` root slots 7–9) and HLOD layer load radii
   (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
 - HLOD clusters never stand in for Global chunk content, which always draws, so wherever a cluster

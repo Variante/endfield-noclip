@@ -178,7 +178,7 @@ export const settledState = (layer: ViewStateRecord, blackboard: Blackboard): Vi
  * @returns its motion when it loops, `null` otherwise or when its curves can't be read (it then holds its end
  *   pose)
  */
-const loopingMotion = (clip: TypeTreeObject): ClipMotion | null => {
+export const loopingMotion = (clip: TypeTreeObject): ClipMotion | null => {
 	if (!booleanField(objectField(clip, 'm_MuscleClip'), 'm_LoopTime')) {
 		return null;
 	}

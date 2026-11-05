@@ -27,6 +27,7 @@ import type { SkinAnimation } from '@endfield-noclip/package-format/geometry';
 import { ChainFlags } from '@endfield-noclip/package-format/instances';
 import { ParticleRenderMode, type ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
 
+import { animatorDefaultPose } from './animator-defaults.ts';
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import {
@@ -195,8 +196,8 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
  *
  * @param resolver bundle reader
  * @param root prefab GameObject
- * @param pose a pose to draw instead of the saved one, or `null`; the root's own Transform keeps the caller's
- *   placement
+ * @param viewPose a view-state pose to draw instead of the saved one, or `null` to draw what the prefab's own
+ *   Animators play ({@link animatorDefaultPose}); the root's own Transform keeps the caller's placement
  * @param particleQuad the unit quad billboard particle systems draw, or `null` to skip them
  * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement. those
  *   under GameObjects switched off as saved are stand-ins ({@link PrefabRenderer.unsupported}); those the
@@ -206,9 +207,11 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
 export const readPrefabRenderers = async (
 	resolver: AssetResolver,
 	root: ObjectRef,
-	pose: PrefabPose | null,
+	viewPose: PrefabPose | null,
 	particleQuad: ObjectRef | null,
 ): Promise<PrefabRenderer[]> => {
+	// view states drive their model's Animators; only a prefab without them plays its controllers' defaults
+	const pose = viewPose ?? (await animatorDefaultPose(resolver, root));
 	const candidates: {
 		ref: ObjectRef;
 		data: TypeTreeObject;

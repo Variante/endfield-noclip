@@ -564,6 +564,13 @@ clip the sampler can't read holds its end pose as before. the balloon's tube
 (`int_balloon_postmodel`, 46 bones, 420 frames) and the regional upgrade terminal's robot
 (`int_system_fac_region_upgrade_postmodel`) play this way.
 
+a prefab drawn without a view-state pose (every model placement but posed interactives) is drawn in
+what its own Animators play ([scenery animators](game-data/assets.md#scenery-animators)):
+`animatorDefaultPose` walks the hierarchy's active GameObjects for enabled Animators with a plain
+AnimatorController and takes, per showing layer, the default state's single clip, as a pose clip
+like a view state's (its end pose, or its motion at the state's speed when it loops). layers that
+blend, blend-tree states and override controllers are left out.
+
 - a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
   `activation:<id>` control (0 not activated; 1 activated, the default), in the viewer's progression
   list.
@@ -584,6 +591,7 @@ code: [interactive-model.ts](../packages/formats/src/endfield/interactive-model.
 [level-interactives.ts](../packages/formats/src/endfield/level-interactives.ts),
 [interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts),
 [animation-clip.ts](../packages/formats/src/unity/animation-clip.ts),
+[animator-defaults.ts](../packages/extractor/src/game/animator-defaults.ts),
 [door-poses.ts](../packages/extractor/src/game/door-poses.ts),
 [telescopic-bridge.ts](../packages/extractor/src/game/telescopic-bridge.ts),
 [prefab.ts](../packages/extractor/src/game/prefab.ts)
