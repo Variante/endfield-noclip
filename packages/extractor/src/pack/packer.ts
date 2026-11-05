@@ -169,6 +169,7 @@ import {
 	type IrradianceReport,
 	packIrradiance,
 	packIrradianceRegions,
+	sceneStateBakeCondition,
 } from './irradiance.ts';
 import { LightCollector } from './lights.ts';
 import { type CacheReport, PackCache } from './pack-cache.ts';
@@ -446,11 +447,21 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			entities.counts[`lightsSkipped ${reason}`] = count;
 		}
 
+		const stateIndices = new Map(scene.sceneStates.map(({ index, name }) => [name, index]));
 		const irradiance = await packIrradiance(context.vfs, store, cache, {
 			scene: options.scene,
 			includes: (x, z) =>
 				scene.subset.info === null ||
 				scene.subset.includesTile(tileAt(scene.grid, scene.grid.cellLevel, x, z)),
+			groupOf: (names) => {
+				if (names.length === 0) {
+					return SHARED_GROUP;
+				}
+				const condition = sceneStateBakeCondition(names, (name) => stateIndices.get(name));
+				return condition === null
+					? null
+					: entities.collected.group(0, entities.collected.condition(condition));
+			},
 		});
 		const irradianceRegions = await packIrradianceRegions(context.vfs, store, {
 			scene: options.scene,
@@ -528,7 +539,11 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				...finishEnvironments(environments, environmentTextureIds),
 				water: finishWater(water, waterTextureIds, instances.rowsOf),
 				lights,
-				irradiance: irradiance?.table ?? { keys: new Uint32Array(), blobs: new Uint32Array() },
+				irradiance: irradiance?.table ?? {
+					keys: new Uint32Array(),
+					blobs: new Uint32Array(),
+					groups: new Uint32Array(),
+				},
 				irradianceRegions,
 				global: instances.global,
 				terrainLevels: terrainPacked.levels,

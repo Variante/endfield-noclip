@@ -80,6 +80,26 @@ states) are full copies of base cells: map01's scene-state groups store them wit
 probe masks and relit probes (in one Hub cell about half the level-0 probes differ), so a state most
 likely replaces whole cells rather than overlaying them.
 
+the game passes the irradiance volume a mask with one bit per active MapConfig scene state (bit =
+the state's MapConfig index) whenever the scene's states change; the volume's native code picks the
+bakes from it. that selection wasn't read, but the bakes show its rule: a group applies while all of
+its states are on.
+
+- map01's two Hub groups cover the same cells. `001_damaged + 001_overcast_rainy` is the red,
+  storm-lit Hub, whose two states are on together until the early quests complete.
+  `001_normal + dung01_rdg010_liino` is near-black blue, a dungeon's lighting over the Hub; its
+  second state has no MapConfig condition, so it's set only by name. if one state sufficed, the
+  finished open-world Hub (`001_normal` on) would go dark; the base bake is the bright, finished
+  Hub.
+- map02's groups are single states. the base bake is the stormy one: in Wuling City (near unity
+  −884, 250, −40) the base cells are red-amber (L0 hue about 1.00, 0.54, 0.45) and the
+  `Map02_lv002_sunny` copies neutral (0.98, 1.00, 0.91). sunny is on once quest `e6m4_q#44` is
+  complete, so the finished city takes the sunny bake. the other groups are
+  `Map02_lv005_fields_unrise` and `Map02_lv009_night`.
+
+which bake wins when two groups hold a cell and both apply isn't known; no stored pair of groups can
+both apply under the MapConfig conditions without a state set by name.
+
 ## region bakes
 
 Dijiang's cabin rooms each have their own bakes, one per room type the room can hold, lit with that
@@ -97,7 +117,8 @@ of lattice points from `min` to `max`, which holds for every bake. the cabin slo
 
 ## open
 
-- scene-state bakes: confirming they replace whole cells rather than overlay them
+- scene-state bakes: confirming they replace whole cells rather than overlay them, and reading the
+  native selection that the all-states rule above is inferred for
 - region bakes: whether the game also applies them to the coarser levels, and how it blends their
   edge with the scene's bake
 - the index's pair table and trailing rows, directory words 1, 7 (high bits) and 8, and the other

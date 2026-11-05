@@ -27,9 +27,9 @@ packs or renders correctly.
   ([world](game-data/world.md#stream-areas))
 - terrain heights, baked surface pages and the close-up layer blend
   ([world](game-data/world.md#terrain))
-- environment profiles and volume blending, water, post-processing, base-bake irradiance (plus the
-  bakes of Dijiang's rooms with a cabin built) and local point, spot and tube lights
-  ([environment](game-data/environment.md), [lighting](game-data/lighting.md),
+- environment profiles and volume blending, water, post-processing, baked irradiance with its
+  scene-state bakes (plus the bakes of Dijiang's rooms with a cabin built) and local point, spot and
+  tube lights ([environment](game-data/environment.md), [lighting](game-data/lighting.md),
   [water](game-data/water.md))
 
 ## look and lighting
@@ -38,10 +38,11 @@ packs or renders correctly.
   the lighting lookup has no jitter or forward-shifted clipmap centres. next: compare GPU clipmap
   samples with the bake at one point, and check clipmap seams (L0 repeats, L1 clamps)
 - several ambient and sky-LUT constants are computed in native engine code and not yet recovered
-- irradiance: only the base bake and Dijiang's room bakes are packed, and room bakes reach only the
-  finest clipmap; scene-state bakes, partial clipmap updates, the game's forward-shifted centres and
-  jitter, fallback textures for cells without probes, the meaning of two index tables, and other
-  index magics
+- irradiance: room bakes reach only the finest clipmap; which
+  [scene-state bake](game-data/irradiance.md#scene-state-bakes) applies is inferred from the bakes,
+  not read from the game's native selection; partial clipmap updates, the game's forward-shifted
+  centres and jitter, fallback textures for cells without probes, the meaning of two index tables,
+  and other index magics
 - the game's own vignette (the viewer uses URP's); bloom's compute-shader variant, dirt, additive
   upsampling, character bloom and anamorphic stretch; colour curves in the phase sections are not
   packed ([bloom](game-data/post-processing.md#bloom))
@@ -153,14 +154,14 @@ packs or renders correctly.
   on map02: Lit's macro normal map (`_MACRO_NORMAL_MAP`, 92 materials), subsurface profiles and
   thickness maps (`_SUBSURFACE*`), fake glints, cracks, dust, volume and refraction (`_FAKE*`),
   interior parallax and mapping, [matcaps](game-data/materials.md#lit-layers) (also the campfires'
-  originium crystal on every map, whose glow draws without its sheen), `_ZWRITE_OFF`, and vertex animation other than
-  `HGRP/Lit`'s [swaying cloth](viewer/materials.md#swaying-cloth) (`_SIMPLE_VERTEXANIM_PENDULUM`,
-  `_SIMPLE_VERTEXANIM_ROPE`, `HGRP/LitTransparent`'s cloth, `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`,
-  `_MOVING_BAMBOO`). the cloth sway is unchecked against an in-game shot, each pass's
-  `_DisableAnimateVert` is taken as 0, and no environment means still air; glass's refraction,
-  planar and high reflections; the card LODs' view culling, height culling, trunk cover and
-  sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own inputs (467
-  materials, shaded as plain alpha-tested foliage)
+  originium crystal on every map, whose glow draws without its sheen), `_ZWRITE_OFF`, and vertex
+  animation other than `HGRP/Lit`'s [swaying cloth](viewer/materials.md#swaying-cloth)
+  (`_SIMPLE_VERTEXANIM_PENDULUM`, `_SIMPLE_VERTEXANIM_ROPE`, `HGRP/LitTransparent`'s cloth,
+  `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`, `_MOVING_BAMBOO`). the cloth sway is unchecked against an
+  in-game shot, each pass's `_DisableAnimateVert` is taken as 0, and no environment means still air;
+  glass's refraction, planar and high reflections; the card LODs' view culling, height culling,
+  trunk cover and sphere-shadow proxies, and all of `HGRP/Foliage/TreeFoliageCardMeshLod`'s own
+  inputs (467 materials, shaded as plain alpha-tested foliage)
 - shaders without a look, shown as [unsupported](viewer/materials.md#unsupported-materials) and
   counted per shader by `pack`: on map02 `Hidden/HGRP/Effect/VFXInkWashPaint`,
   `HGRP/Effect/VFXRadialBlur`, `HGRP/CharacterNPR` and `…_VFX`, `Hidden/HGRP/LitEffectBlend`,

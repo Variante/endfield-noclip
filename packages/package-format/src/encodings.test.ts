@@ -200,19 +200,33 @@ describe('blob table', () => {
 });
 
 describe('irradiance table', () => {
-	it('round-trips cells', () => {
-		const table = { keys: Uint32Array.of(1, 0x0108_8080, 0x0230_9040), blobs: Uint32Array.of(7, 0, 12) };
+	it('round-trips cells, with a scene-state bake repeating a key', () => {
+		const table = {
+			keys: Uint32Array.of(1, 0x0108_8080, 0x0108_8080, 0x0230_9040),
+			blobs: Uint32Array.of(7, 3, 0, 12),
+			groups: Uint32Array.of(0, 5, 0, 0),
+		};
 		const decoded = decodeIrradianceTable(encodeIrradianceTable(table));
 		assert.deepEqual([...decoded.keys], [...table.keys]);
 		assert.deepEqual([...decoded.blobs], [...table.blobs]);
+		assert.deepEqual([...decoded.groups], [...table.groups]);
 	});
 
-	it('rejects unsorted keys and truncated input', () => {
+	it('rejects descending keys and truncated input', () => {
 		assert.throws(
-			() => encodeIrradianceTable({ keys: Uint32Array.of(2, 1), blobs: Uint32Array.of(0, 1) }),
+			() =>
+				encodeIrradianceTable({
+					keys: Uint32Array.of(2, 1),
+					blobs: Uint32Array.of(0, 1),
+					groups: Uint32Array.of(0, 0),
+				}),
 			RangeError,
 		);
-		const encoded = encodeIrradianceTable({ keys: Uint32Array.of(1), blobs: Uint32Array.of(0) });
+		const encoded = encodeIrradianceTable({
+			keys: Uint32Array.of(1),
+			blobs: Uint32Array.of(0),
+			groups: Uint32Array.of(0),
+		});
 		assert.throws(() => decodeIrradianceTable(encoded.subarray(0, encoded.length - 4)), PackageFormatError);
 	});
 });

@@ -264,7 +264,7 @@ const TERRAIN_SLOTS = 4096;
 const INSTANCE_ROWS = 1_500_000;
 const STATS_INTERVAL = 250;
 /** the irradiance volume of a package without one */
-const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array() };
+const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array(), groups: new Uint32Array() };
 /** how far over the terrain a level's first view stays (m) */
 const VIEW_CLEARANCE = 100;
 /** headings a level's first view tries, from the south round */

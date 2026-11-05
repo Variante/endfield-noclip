@@ -53,8 +53,8 @@ interface Level {
 /** owns the cell buffer, the clipmaps and their update pass */
 export class IrradianceVolume {
 	#device: GPUDevice;
-	/** blob index by cell key */
-	#cells: Map<number, number>;
+	/** each cell key's bakes in table order: the first whose group shows applies */
+	#cells: Map<number, { blob: number; group: number }[]>;
 	/** the resident cells, in words */
 	#buffer: GrowableBuffer;
 	/** the cell buffer version the level groups bind */
@@ -74,7 +74,7 @@ export class IrradianceVolume {
 
 	/**
 	 * @param device the device
-	 * @param table the package's cells (empty for none)
+	 * @param table the package's cells (empty for none), each bake applying while its group shows
 	 * @param regions the package's region bakes, which apply while their groups show (see
 	 *   {@link setGroupsShown})
 	 */
@@ -88,7 +88,9 @@ export class IrradianceVolume {
 		});
 		this.#cells = new Map();
 		for (let i = 0; i < table.keys.length; i++) {
-			this.#cells.set(table.keys[i], table.blobs[i]);
+			this.#cells
+				.getOrInsertComputed(table.keys[i], () => [])
+				.push({ blob: table.blobs[i], group: table.groups[i] });
 		}
 		const empty = table.keys.length === 0;
 		this.#buffer = new GrowableBuffer(device, {
@@ -186,7 +188,10 @@ export class IrradianceVolume {
 		});
 	}
 
-	/** @param shown per visibility group, whether it shows; a region bake applies while its group does */
+	/**
+	 * @param shown per visibility group, whether it shows; a cell's bake or a region bake applies while its
+	 *   group does
+	 */
 	setGroupsShown(shown: readonly boolean[]): void {
 		this.#groupsShown = shown;
 	}
@@ -266,7 +271,7 @@ export class IrradianceVolume {
 						let slot = 0;
 						if (cell.every((v) => v >= 0 && v < 256)) {
 							const key = (cell[0] | (cell[1] << 8) | (cell[2] << 16) | (index << 24)) >>> 0;
-							const blob = this.#cells.get(key);
+							const blob = this.#cells.get(key)?.find(({ group }) => this.#groupsShown[group] ?? false)?.blob;
 							if (blob !== undefined) {
 								const item = stream.want(blob, PRIORITY[index]);
 								if (item?.resident?.kind === 'irradiance') {

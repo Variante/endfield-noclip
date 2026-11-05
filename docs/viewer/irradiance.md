@@ -1,9 +1,16 @@
 # irradiance volume
 
 how the viewer samples what [game-data/irradiance.md](../game-data/irradiance.md) describes. the
-package stores the base bake's cells in the game's GPU layout
-([package-format.md](../package-format.md)), so the viewer uploads them unchanged; how the ambient
-term uses the result is in [lighting](lighting.md#ambient).
+package stores the cells of the base bake and the scene-state bakes in the game's GPU layout
+([package-format.md](../package-format.md#irradiance-cells)), so the viewer uploads them unchanged;
+how the ambient term uses the result is in [lighting](lighting.md#ambient).
+
+## scene-state bakes
+
+each cell takes the first of its bakes whose visibility group shows, so a scene-state bake replaces
+the base cell while all its states are on
+([scene-state bakes](../game-data/irradiance.md#scene-state-bakes)). the cell window is rebuilt
+every frame, so toggling a scene state swaps the cells and refills the levels holding them.
 
 ## clipmaps
 

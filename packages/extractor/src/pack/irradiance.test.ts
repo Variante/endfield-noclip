@@ -6,7 +6,7 @@ import { IRRADIANCE_INDEX_MAGIC } from '@endfield-noclip/formats/hg/irradiance';
 import { Vfs, type VfsFile } from '../hg/vfs.ts';
 
 import type { BlobStore } from './blob-store.ts';
-import { packIrradiance } from './irradiance.ts';
+import { packIrradiance, sceneStateBakeCondition } from './irradiance.ts';
 
 const indexBytes = (): Uint8Array => {
 	const pieces: Uint8Array[] = [];
@@ -49,6 +49,7 @@ const packOutsideRegion = (lengths: Map<string, number>) =>
 	packIrradiance(vfsWithLengths(lengths), {} as BlobStore, null, {
 		scene: 'synthetic',
 		includes: () => false,
+		groupOf: () => 0,
 	});
 
 test('irradiance validates scene-state payloads even when packing no cells', async () => {
@@ -75,4 +76,26 @@ test('irradiance accepts exact payload lengths with an empty region', async () =
 	);
 	assert.equal(result?.report.cells, 0);
 	assert.equal(result?.table.keys.length, 0);
+});
+
+test('a scene-state bake applies while all its states are on', () => {
+	const indices = new Map([
+		['001_normal', 1],
+		['dung01_rdg010_liino', 4],
+	]);
+	assert.deepEqual(
+		sceneStateBakeCondition(['001_normal', 'dung01_rdg010_liino'], (name) => indices.get(name)),
+		{
+			alternatives: [
+				[
+					{ control: 'sceneState:1', mask: 2 },
+					{ control: 'sceneState:4', mask: 2 },
+				],
+			],
+		},
+	);
+	assert.equal(
+		sceneStateBakeCondition(['001_normal', 'unknown'], (name) => indices.get(name)),
+		null,
+	);
 });

@@ -35,7 +35,7 @@ other workspace packages so both sides can import it.
     tables/water.json.zst         water table
     tables/lights.json.zst        local lights
     tables/particles.json.zst     particle systems
-    tables/irradiance.bin         irradiance cell keys → blobs
+    tables/irradiance.bin         irradiance cell keys → blobs, per bake
     tree.bin                      tile nodes + content refs
   shards/<l>_<x>_<z>-<id>.czar        content of one shard-level tile's subtree
     blobs/<hash>.hgt                  terrain height pages at the cell level and finer
@@ -246,7 +246,7 @@ all little-endian, every section 4-byte aligned. the tables share a 16-byte head
 | `tree.bin`              | `EFTR` | header (nodes, refs); 48-byte nodes: `u8 level, u8 childMask, u16 flags, i32 x, i32 z, f32×3 min, f32×3 max, f32 geometricError, u32 refFirst, u32 refCount`; 24-byte refs: `u8 kind, u8 tier, u16 0, u32 group, u32 blob, u32 first, u32 count, f32 param`                                                           |
 | `tables/chains.bin`     | `EFCH` | header (chains, draws); 8-byte chains: `u32 firstDraw, u16 drawCount, u8 lodCount, u8 flags`; 28-byte draws: `u32 geometry, u32 material, u16 submesh, u8 lod, u8 role, f32 minSquared, f32 maxSquared, u32 sourceFlags, u32 particles`; then `f32×3` distance origins, one per `CameraDistance` chain in chain order |
 | `tables/blobs.bin`      | `EFBX` | header (blobs, 0); 32-byte records: `16-byte hash, u16 archive, u8 codec, u8 kind, u32 offset, u32 length, u32 rawLength`                                                                                                                                                                                             |
-| `tables/irradiance.bin` | `EFIV` | header (cells, 0); u32 cell keys ascending, then u32 blob indices                                                                                                                                                                                                                                                     |
+| `tables/irradiance.bin` | `EFIV` | version 2; header (entries, 0); u32 cell keys ascending (repeats allowed), then u32 blob indices, then u32 visibility groups                                                                                                                                                                                          |
 
 nodes are ordered coarse to fine (level, then z, then x); a node's `childMask` bit `dz·2 + dx` marks
 child `(2x + dx, 2z + dz)`, and its bounds cover everything it and its descendants draw, overhang
@@ -284,12 +284,17 @@ place rather than swinging around it.
 
 ### irradiance cells
 
-[pack/irradiance.ts](../packages/extractor/src/pack/irradiance.ts) stores every **base-bake** cell
-(state group hash 0) whose centre the package covers as one decompressed `Irradiance` blob
+[pack/irradiance.ts](../packages/extractor/src/pack/irradiance.ts) stores every cell whose centre
+the package covers, of the base bake and of each scene-state bake whose states the scene's MapConfig
+names, as one decompressed `Irradiance` blob
 ([cells and probes](game-data/irradiance.md#cells-and-probes)), zstd-compressed, in the 512 m
-archive `irradiance/<x>_<z>-<id>.czar` over it. `tables/irradiance.bin` lists the cell keys, in the
-game's layout moved to one origin ([parser](extraction.md#irradiance)), ascending with their blob
-indices. cells stay in the game's GPU layout so the viewer uploads them unchanged.
+archive `irradiance/<x>_<z>-<id>.czar` over it. `tables/irradiance.bin` lists one entry per stored
+cell: its key, in the game's layout moved to one origin ([parser](extraction.md#irradiance)), its
+blob and a visibility group. keys ascend, and a cell held by several bakes repeats its key: the
+scene-state bakes first, most states first, each under a group that needs all its states on
+([scene-state bakes](game-data/irradiance.md#scene-state-bakes)), then the base bake under the
+always-shown group. a viewer uses a key's first entry whose group shows. cells stay in the game's
+GPU layout so the viewer uploads them unchanged.
 
 the manifest's `irradianceRegions` lists rooms' own bakes (`IrradianceRegionInfo`: a visibility
 group, the probe grid's origin and size, and an `.iv` blob of its probes), which replace the finest

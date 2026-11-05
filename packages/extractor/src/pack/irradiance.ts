@@ -1,6 +1,6 @@
-// the baked irradiance volume: every cell of the scene's base bake becomes a blob in the 512 m
-// irradiance archive over it, listed in tables/irradiance.bin. cells are stored decompressed (the game's GPU
-// layout) and zstd-compressed like other blobs.
+// the baked irradiance volume: every cell of the scene's base bake and its scene-state bakes becomes a blob
+// in the 512 m irradiance archive over it, listed in tables/irradiance.bin. cells are stored decompressed (the
+// game's GPU layout) and zstd-compressed like other blobs.
 
 import {
 	decodeIrradianceCell,
@@ -16,10 +16,12 @@ import {
 	type IrradianceTable,
 	irradianceStem,
 } from '@endfield-noclip/package-format/irradiance';
+import type { ConditionalSetInfo, SceneRequirement } from '@endfield-noclip/package-format/states';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
+import { sceneStateControl } from '../game/scene-conditions.ts';
 import type { VfsFile } from '../hg/vfs.ts';
 
 import type { BlobStore } from './blob-store.ts';
@@ -34,6 +36,8 @@ const ZSTD_LEVEL = 9;
 /** what {@link packIrradiance} reports */
 export interface IrradianceReport {
 	cells: number;
+	/** of {@link cells}, those of scene-state bakes */
+	stateCells: number;
 	/** decompressed bytes of the packed cells */
 	rawBytes: number;
 	/** cells per level */
@@ -44,6 +48,8 @@ export interface IrradianceReport {
 interface IrradianceMemo {
 	/** per cell blob, in the same order: its key */
 	keys: number[];
+	/** per cell blob: the index of its bake's state group in the index (0 for the base bake) */
+	stateGroups: number[];
 	report: IrradianceReport;
 }
 
@@ -56,15 +62,20 @@ interface IrradianceMemo {
 const convertCells = async (
 	vfs: Context['vfs'],
 	store: BlobStore,
-	selected: readonly { name: string; payload: VfsFile; records: readonly IrradianceRecord[] }[],
+	selected: readonly {
+		name: string;
+		stateGroup: number;
+		payload: VfsFile;
+		records: readonly IrradianceRecord[];
+	}[],
 ): Promise<StepMemo<IrradianceMemo>> => {
-	const seen = new Set<number>();
+	const seen = new Set<string>();
 	const memo: StepMemo<IrradianceMemo> = {
 		blobs: [],
-		value: { keys: [], report: { cells: 0, rawBytes: 0, levels: [0, 0, 0] } },
+		value: { keys: [], stateGroups: [], report: { cells: 0, stateCells: 0, rawBytes: 0, levels: [0, 0, 0] } },
 	};
 	const { report } = memo.value;
-	for (const { name, payload: payloadFile, records } of selected) {
+	for (const { name, stateGroup, payload: payloadFile, records } of selected) {
 		// oxlint-disable-next-line no-await-in-loop -- one ~67 MB payload in memory at a time
 		const payload = await vfs.readVerified(payloadFile);
 		// oxlint-disable-next-line no-await-in-loop -- as above
@@ -74,10 +85,11 @@ const convertCells = async (
 				if (record.offset + record.storedLength > payload.length) {
 					throw new Error(`irradiance payload ${name} is shorter than its index says`);
 				}
-				if (level > 2 || seen.has(record.key)) {
-					throw new Error(`irradiance cell ${record.key} has an unsupported level or duplicate base key`);
+				const id = `${stateGroup}:${record.key}`;
+				if (level > 2 || seen.has(id)) {
+					throw new Error(`irradiance cell ${record.key} has an unsupported level or repeats in its bake`);
 				}
-				seen.add(record.key);
+				seen.add(id);
 				report.levels[level] = (report.levels[level] ?? 0) + 1;
 				report.rawBytes += record.size;
 				const raw = decodeIrradianceCell(
@@ -95,6 +107,10 @@ const convertCells = async (
 		for (const [i, record] of records.entries()) {
 			memo.blobs.push(prepared[i].meta);
 			memo.value.keys.push(record.key);
+			memo.value.stateGroups.push(stateGroup);
+		}
+		if (stateGroup !== 0) {
+			report.stateCells += records.length;
 		}
 	}
 	return memo;
@@ -194,13 +210,16 @@ const cellStem = (key: number): string => {
 };
 
 /**
- * packs the scene's baked irradiance volume. with a cache, the cells of an unchanged volume (same index and
- * payload md5s, same region, same code) are taken from it without reading the payloads
+ * packs the scene's baked irradiance volume: the base bake, and each scene-state bake whose states the scene
+ * has. with a cache, the cells of an unchanged volume (same index and payload md5s, same region, same code)
+ * are taken from it without reading the payloads
  *
  * @param vfs the game's VFS
  * @param store where the cells go
  * @param cache the pack cache, or `null`; its blob directory must be the store's
- * @param options the scene, and which world points (cell centres) the package covers
+ * @param options the scene; which world points (cell centres) the package covers; and the visibility group
+ *   under which a bake of these scene states applies (an empty list for the base bake, which must always
+ *   show), or `null` to leave the bake out
  * @returns the cell table and a report, or `null` if the scene has no v3 irradiance volume
  * @throws {Error} if a payload file named by the index is missing or doesn't match it
  */
@@ -208,7 +227,11 @@ export const packIrradiance = async (
 	vfs: Context['vfs'],
 	store: BlobStore,
 	cache: PackCache | null,
-	options: { scene: string; includes: (x: number, z: number) => boolean },
+	options: {
+		scene: string;
+		includes: (x: number, z: number) => boolean;
+		groupOf: (sceneStates: readonly string[]) => number | null;
+	},
 ): Promise<{ table: IrradianceTable; report: IrradianceReport } | null> => {
 	const directory = `Data/IrradianceVolume/PC/${options.scene}/v3/`;
 	const indexFile = await vfs.find(IRRADIANCE_GROUP, `${directory}index.bytes`);
@@ -231,9 +254,15 @@ export const packIrradiance = async (
 			return payload;
 		}),
 	);
-	// the base bake's files and the cells of each the region keeps
+	// a bake's scene states (none for the base bake) and the visibility group it applies under
+	const bakes = index.stateGroups.map(({ hash, sceneStates }) => {
+		const names = hash === 0 ? [] : sceneStates.map((state) => index.sceneStates[state]);
+		return { names, group: options.groupOf(names) };
+	});
+	// the kept bakes' files and the cells of each the region keeps
 	const selected = mapDefined(index.files, (name, file) => {
-		if (index.stateGroups[index.fileGroups[file]].hash !== 0) {
+		const stateGroup = index.fileGroups[file];
+		if (bakes[stateGroup].group === null) {
 			return undefined;
 		}
 		const records = index.records.filter((record) => {
@@ -244,7 +273,7 @@ export const packIrradiance = async (
 			const half = (IRRADIANCE_CELL_SIZE << level) / 2;
 			return options.includes(origin[0] + half, origin[2] + half);
 		});
-		return records.length === 0 ? undefined : { name, payload: payloads[file], records };
+		return records.length === 0 ? undefined : { name, stateGroup, payload: payloads[file], records };
 	});
 
 	const key =
@@ -266,20 +295,52 @@ export const packIrradiance = async (
 		}
 	}
 
+	const { keys, stateGroups } = memo.value;
 	const cells = memo.blobs.map((meta, i) => {
-		const cell = memo.value.keys[i];
+		const cell = keys[i];
+		const { names, group } = bakes[stateGroups[i]];
+		if (group === null) {
+			throw new Error('irradiance: a cached cell belongs to a bake left out');
+		}
 		return {
 			key: cell,
 			blob: store.commit({ meta, options: { kind: BlobKind.Irradiance, stem: cellStem(cell) } }),
+			group,
+			states: names.length,
 		};
 	});
-	cells.sort((a, b) => a.key - b.key);
+	// a viewer takes a key's first shown entry, so the most specific bake comes first and the base bake last
+	cells.sort((a, b) => a.key - b.key || b.states - a.states);
 	const report = { ...memo.value.report, cells: cells.length };
 	return {
 		table: {
 			keys: Uint32Array.from(cells, (cell) => cell.key),
 			blobs: Uint32Array.from(cells, (cell) => cell.blob),
+			groups: Uint32Array.from(cells, (cell) => cell.group),
 		},
 		report,
 	};
+};
+
+/**
+ * the requirement under which the game uses a scene-state bake: every one of its states on. inferred from the
+ * bakes, not read from the game's code (see docs/game-data/irradiance.md#scene-state-bakes)
+ *
+ * @param names the bake's scene states
+ * @param indexOf a scene state's MapConfig index by name, or `undefined` if the scene doesn't have it
+ * @returns the condition, or `null` if one of the states isn't the scene's, so the bake never applies
+ */
+export const sceneStateBakeCondition = (
+	names: readonly string[],
+	indexOf: (name: string) => number | undefined,
+): ConditionalSetInfo | null => {
+	const requirements: SceneRequirement[] = [];
+	for (const name of names) {
+		const index = indexOf(name);
+		if (index === undefined) {
+			return null;
+		}
+		requirements.push({ control: sceneStateControl(index), mask: 2 });
+	}
+	return { alternatives: [requirements] };
 };
