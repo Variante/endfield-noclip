@@ -208,8 +208,11 @@ export interface ParallaxGlow {
 	/** the pattern, on its own UV set; its G picks between the colours */
 	pattern: TextureSlot;
 	patternTiling: number;
-	/** the height field marched through, on the pattern's UV set */
-	noise: number;
+	/**
+	 * the height field marched through, on the pattern's UV set; `null` when the slot is empty, which the
+	 * shader reads as black: height 0 everywhere, so the march ends at its full depth
+	 */
+	noise: number | null;
 	noiseTiling: number;
 	depth: number;
 	/** march steps, 1–20 */

@@ -152,7 +152,8 @@ packs or renders correctly.
   ([unsupported materials](viewer/materials.md#unsupported-materials)). besides those named above,
   on map02: Lit's macro normal map (`_MACRO_NORMAL_MAP`, 92 materials), subsurface profiles and
   thickness maps (`_SUBSURFACE*`), fake glints, cracks, dust, volume and refraction (`_FAKE*`),
-  interior parallax and mapping, matcaps, `_ZWRITE_OFF`, and vertex animation other than
+  interior parallax and mapping, [matcaps](game-data/materials.md#lit-layers) (also the campfires'
+  originium crystal on every map, whose glow draws without its sheen), `_ZWRITE_OFF`, and vertex animation other than
   `HGRP/Lit`'s [swaying cloth](viewer/materials.md#swaying-cloth) (`_SIMPLE_VERTEXANIM_PENDULUM`,
   `_SIMPLE_VERTEXANIM_ROPE`, `HGRP/LitTransparent`'s cloth, `_VAT_*`, `_COMMONVAT_*`, `_GPU_CLOTH`,
   `_MOVING_BAMBOO`). the cloth sway is unchecked against an in-game shot, each pass's

@@ -289,8 +289,11 @@ export const describeLit = (reader: MaterialReader): LitSurface | UnsupportedSur
 	}
 
 	let overlay: LitSurface['overlay'] = null;
-	if (pattern !== null && noise !== null) {
-		overlay = parallaxGlowOf(reader, pattern, noise.texture);
+	// an empty noise slot reads as Unity's black default, which still glows (the originium crystals of
+	// `M_interactive_campfire+1_003_02` and Dijiang's far crystal leave it empty). an empty pattern would glow in
+	// the dark colour alone; none is seen
+	if (pattern !== null) {
+		overlay = parallaxGlowOf(reader, pattern, noise?.texture ?? null);
 	} else if (lit && !parallax) {
 		overlay = layerOf(reader);
 	}
@@ -374,7 +377,7 @@ export const swayOf = (reader: MaterialReader): LitSway | null => {
 };
 
 /** `_PARALLAX_MAP`'s glow (`docs/game-data/materials.md#lit-layers`) */
-const parallaxGlowOf = (reader: MaterialReader, pattern: TextureSlot, noise: number): ParallaxGlow => {
+const parallaxGlowOf = (reader: MaterialReader, pattern: TextureSlot, noise: number | null): ParallaxGlow => {
 	const { float, color } = reader;
 	// the step count is an integer uniform: the float property truncates
 	const steps = Math.min(Math.max(Math.trunc(float('_ParallaxMarchNum', 3)), 1), 20);

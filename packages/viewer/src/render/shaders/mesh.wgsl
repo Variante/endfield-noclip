@@ -727,13 +727,14 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 		s.emission *= mix(1.0, emissive_pulse(draw), draw.parallax2.x);
 	}
 
-	let parallax_maps = PARALLAX_MAP | PARALLAX_NOISE_MAP;
-	if ((flags & (parallax_maps | LAYER_BLEND)) == parallax_maps && in.tangent.w != 0.0) {
+	// the glow needs its pattern; without a noise map it marches a flat height field
+	if ((flags & (PARALLAX_MAP | LAYER_BLEND)) == PARALLAX_MAP && in.tangent.w != 0.0) {
 		// the glow's mask uses the same channel numbering as the emission mask, one lower
 		let glow_mask = map_channel(flags, draw.parallax_color.w + 1.0, base_a, packed, mask);
 		if (glow_mask > 0.01) {
 			let v = normalize(-in.rel);
-			s.emission += parallax_glow(draw, in, v, n, parallax_uv, uv0_dx, uv0_dy, parallax_dx, parallax_dy) *
+			let has_noise = (flags & PARALLAX_NOISE_MAP) != 0u;
+			s.emission += parallax_glow(draw, in, v, n, has_noise, parallax_uv, uv0_dx, uv0_dy, parallax_dx, parallax_dy) *
 				(glow_mask * glow_mask);
 		}
 	}
@@ -849,6 +850,7 @@ fn parallax_glow(
 	in: VertexOut,
 	v: vec3f,
 	n: vec3f,
+	has_noise: bool,
 	uv: vec2f,
 	uv0_dx: vec2f,
 	uv0_dy: vec2f,
@@ -870,7 +872,9 @@ fn parallax_glow(
 	var previous_height = 1.0;
 	var hit = -1.0;
 	for (var i = 0.0; i < steps + 1.0; i += 1.0) {
-		let found = textureSampleGrad(parallax_noise_map, parallax_sampler, noise_uv + offset, uv0_dx, uv0_dy).x;
+		// an empty noise slot is Unity's black default
+		let sampled = textureSampleGrad(parallax_noise_map, parallax_sampler, noise_uv + offset, uv0_dx, uv0_dy).x;
+		let found = select(0.0, sampled, has_noise);
 		if (found > height) {
 			hit = found;
 			break;

@@ -25,7 +25,8 @@ use.
 
 - **`_PARALLAX_MAP`**: the [pulse](../game-data/materials.md#lit-layers) moves only while frames
   render ([performance](performance.md); the `continuous` option keeps it moving), and the
-  brightening near the player puts the player at the camera.
+  brightening near the player puts the player at the camera. a glow without a noise map binds only
+  the pattern, and the march reads height 0 in place of the empty slot.
 - **`_LAYERBLEND_TOP`** and **`_LAYERBLEND_MASK`**: a layer on UV set 2 samples UV set 0, and set 0
   is bound in place of a missing set 1, as the game reads a missing set.
 

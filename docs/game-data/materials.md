@@ -117,7 +117,14 @@ detail map tile ×5 over UV set 1.
   `_ParallaxBrightOuterRadius` down to `…InnerRadius` of the distance to the player is added to the
   pulse. on map01 seven crystal materials use it, mostly with strength 20 within 3–25 m; one stores
   a glow colour of only 0.75, so it glows almost only near the player. `_ParallaxIgnorePostExposure`
-  divides out the post exposure as emission does.
+  divides out the post exposure as emission does. the shader declares both maps' default black, and
+  many crystals leave the noise map empty (the campfires' crystal `M_interactive_campfire+1_003_02`,
+  the display crystal `M_iprop_map01_zmdmachine+1_009_02` and Dijiang's far crystal
+  `M_building_dijianghao+1_001_11`): the height is then 0 everywhere, the march runs its full depth,
+  and the pattern is read at that fixed offset.
+- **`_MATCAP`** (the campfires' crystal, a few Dijiang props): `_MatcapMap`, sampled at the view-space
+  normal's `xy · 0.5 + 0.5`, times `_MatcapMapStrength`, is added to the emission, not tinted by the
+  albedo. `_MatCapIgnorePostExposure` divides out the post exposure as emission does.
 - **`_LAYERBLEND_TOP`** (moss and sand on rock tops; ~220 map02 materials, 33 on map01): a second
   material covers the surface by `saturate((up − _TopBlendThreshold) / _TopBlendSmoothness)`, where
   `up` is the world Y of the vertex normal, blended toward the normal-mapped one by

@@ -217,12 +217,16 @@ test('pulsing emission takes the free parallax rows; a surface with a glow keeps
 		near: { outer: 25, inner: 3, strength: 20 },
 	};
 	const textures = { base: slot(1), normal: null, mro: null, emissive: slot(2) };
-	const [pulsing, glowing] = materialLooks({
+	const [pulsing, glowing, flat] = materialLooks({
 		entries: [
 			described(0, litSurface({ textures, emission })),
 			described(1, litSurface({ textures, emission, overlay: glow })),
+			described(2, litSurface({ textures, emission, overlay: { ...glow, noise: null } })),
 		],
 	});
+	// without a noise map only the pattern binds, and the march reads height 0
+	assert.equal(flat.flags & (LookFlags.ParallaxMap | LookFlags.ParallaxNoiseMap), LookFlags.ParallaxMap);
+	assert.equal(flat.textures[5], 6);
 	const pulse = Array.from(pulsing.params.subarray(EmissivePulseRow.pulse, EmissivePulseRow.pulse + 4));
 	assert.deepEqual(pulse, [1 / Math.PI, 0, 1, 0].map(Math.fround));
 	assert.equal(pulsing.params[EmissivePulseRow.strength], 1);

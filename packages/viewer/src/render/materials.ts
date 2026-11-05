@@ -755,9 +755,11 @@ const setTiledTexture = (
 /** `_PARALLAX_MAP`'s glow (`docs/game-data/materials.md#lit-layers`), in the parallax slots and rows */
 const parallaxParams = (look: MaterialLook, glow: ParallaxGlow): void => {
 	const params = look.params;
-	// the noise follows the pattern's UV set
+	// the noise follows the pattern's UV set. without one the noise flag stays clear, and the march reads height 0
 	setTiledTexture(look, 5, glow.pattern.texture, glow.patternTiling, glow.pattern.uv);
-	setTiledTexture(look, 6, glow.noise, glow.noiseTiling, glow.pattern.uv);
+	if (glow.noise !== null) {
+		setTiledTexture(look, 6, glow.noise, glow.noiseTiling, glow.pattern.uv);
+	}
 	// the pulse runs between the minimum brightness and 1
 	const minimum = glow.pulseMinimum;
 	params.set([glow.depth, glow.steps, glow.fresnelPower, (1 - minimum) / 2], LookRow.parallax);

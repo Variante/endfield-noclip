@@ -387,6 +387,32 @@ describe('the Lit model', () => {
 		assert.deepEqual([switched?.[1].strength, switched?.[2].strength], [0, 0]);
 	});
 
+	it('glows with an empty noise slot, as the campfire crystals do', () => {
+		const shader = shaderEntry({
+			name: 'HGRP/Lit',
+			family: 'lit',
+			floats: { _BaseTextureMapCount: 0, _UseParallaxMask: 0, _ParallaxIntensity: 1 },
+		});
+		const surface = lit(
+			describeMaterial(
+				values({
+					keywords: ['_MATCAP', '_PARALLAX_MAP'],
+					baseTextureMapCount: 0,
+					slots: { _BaseColorMap: slot(1), _MROMap: slot(2), _ParallaxMap: slot(3), _MatcapMap: slot(4) },
+					floats: { _ParallaxStrength: 0.119, _ParallaxMarchNum: 3.61 },
+					colors: { _ParallaxColor: [95.87, 36.64, 3.51, 1] },
+				}),
+				shader,
+			),
+		);
+		const glow = surface.overlay;
+		assert.ok(glow?.kind === 'parallax');
+		assert.deepEqual(
+			[glow.pattern, glow.noise, glow.steps, glow.bright],
+			[slot(3), null, 3, [95.87, 36.64, 3.51]],
+		);
+	});
+
 	it('describes a moss rock top layer with its own tiling and offset, without moss unless keyworded', () => {
 		const shader = shaderEntry({
 			name: 'HGRP/Lit',
