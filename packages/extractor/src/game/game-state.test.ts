@@ -80,6 +80,28 @@ test('a variable takes one value per range between the targets the scene compare
 	);
 });
 
+test('a claimed variable takes no generic control, and only an unread variable can be claimed', () => {
+	const game = new GameState();
+	const gate = (key: number): Extract<GameCondition, { kind: 'mapVar' }> => ({
+		kind: 'mapVar',
+		mapId: '2',
+		name: `#${key}`,
+		compare: 1,
+		target: 2,
+		unsetFails: true,
+	});
+	game.note([gate(5)]);
+	assert.equal(game.claimVariable(gate(5)), null);
+	assert.equal(game.claimVariable(gate(6)), 'mapVar:2:#6');
+	assert.equal(game.claimVariable(gate(6)), 'mapVar:2:#6');
+	assert.throws(() => game.note([gate(6)]), /control of its own/);
+	game.requirements(gate(5));
+	assert.deepEqual(
+		game.controls().map(({ id }) => id),
+		['mapVar:2:#5'],
+	);
+});
+
 test('a variable a MapConfig condition names and one a gate numbers share a control', () => {
 	const game = new GameState({
 		variables: { map: 'map02', mapId: 85, ids: { stateflower: 125 }, names: { 125: 'stateflower' } },

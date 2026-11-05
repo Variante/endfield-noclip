@@ -31,6 +31,7 @@ const outpost: DynamicEntity = {
 	gates: [],
 	resourceGroups: [group(0, 0b00011), group(1, 0b00100), group(2, 0b11100), group(3, 0)],
 	extraScene: null,
+	erosionCore: null,
 };
 
 const tree: DynamicEntity = {
@@ -42,6 +43,7 @@ const tree: DynamicEntity = {
 	gates: [],
 	resourceGroups: [group(0, 0b01), group(1, 0b10)],
 	extraScene: null,
+	erosionCore: null,
 };
 
 test('summarizes progressions with their levels and defaults to the highest authored level', () => {

@@ -25,6 +25,8 @@ import { FlatBuffer } from '../binary/flatbuffer.ts';
 //   FactoryRegionControlComp: i32 region (root string, a level id) @0, i32 @4
 //   PoiControlComp: i32 poi (root string) @0, i32 domainType @4
 //   46 [ExtraSceneComp 40 B] = Vector3 minPos @0, maxPos @12, currentPos @24, u32 direction @36
+//   36 [ErosionRootComp 48 B] = u64 erosionCoreId @0 (the core's level-data logic id), PosList DataGroup @8,
+//     Vector3 erosionCorePos @32 (IL2CPP `FBDynamicSceneErosionRootComp`; the stride was measured on map01)
 //   16 [MissionCondition 16 B] = i32 id (root string), i32 isQuest, i32 state, i32 isSame
 //   27 [MissionControlComp 32 B] = Conditions DataGroup @0 (MissionCondition rows), i32 compareType @24,
 //     i32 toBeTrue @28
@@ -50,6 +52,7 @@ export const DynamicData = {
 	SettlementControlComp: 27,
 	FactoryRegionControlComp: 28,
 	ResourceComp: 30,
+	ErosionRootComp: 34,
 	ExtraSceneComp: 44,
 	MapVarControlComp: 51,
 	PoiControlComp: 55,
@@ -131,6 +134,15 @@ export interface DynamicEntity {
 	resourceGroups: DynamicResourceGroup[];
 	/** an `ExtraSceneSlot`'s slot, where a separately stored scene (a Dijiang cabin) is placed; `null` otherwise */
 	extraScene: ExtraSceneSlot | null;
+	/** the blight core whose blight this entity is, `null` for other entities */
+	erosionCore: ErosionCoreLink | null;
+}
+
+/** the blight core an erosion root belongs to */
+export interface ErosionCoreLink {
+	/** the core's logic id in level data */
+	id: bigint;
+	position: [number, number, number];
 }
 
 /** a slot for a separately stored scene, in world space */
@@ -160,6 +172,7 @@ const Slot = {
 	FactoryRegionControlComp: 30,
 	ResourceComp: 32,
 	RootComp: 33,
+	ErosionRootComp: 36,
 	ExtraSceneComp: 46,
 	MapVarControlComp: 52,
 	PoiControlComp: 55,
@@ -179,6 +192,7 @@ const Width = {
 	MapVarControlComp: 48,
 	PoiControlComp: 8,
 	ExtraSceneComp: 40,
+	ErosionRootComp: 48,
 } as const;
 
 /**
@@ -279,6 +293,7 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 				gates: [],
 				resourceGroups: [],
 				extraScene: null,
+				erosionCore: null,
 			};
 			for (let c = 0; c < comps.count; c++) {
 				const di = row(vectors.dataIndex, comps.index + c, Width.DataIndex, 'DataIndex');
@@ -381,6 +396,20 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 							max: vec3(12),
 							position: vec3(24),
 							direction: fb.u32(s + 36),
+						};
+						break;
+					}
+					case DynamicData.ErosionRootComp: {
+						const s = rowIn(
+							fb.u32(di + 8),
+							Slot.ErosionRootComp,
+							index,
+							Width.ErosionRootComp,
+							'ErosionRootComp',
+						);
+						entity.erosionCore = {
+							id: fb.u64(s),
+							position: [fb.f32(s + 32), fb.f32(s + 36), fb.f32(s + 40)],
 						};
 						break;
 					}

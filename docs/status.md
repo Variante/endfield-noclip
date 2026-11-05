@@ -337,8 +337,10 @@ packs or renders correctly.
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
-  map variables map01's MapConfig doesn't name show as numbers; Yinglung Pass's server-set outpost
-  tier variables are separate controls, so all four tiers show by default
+  map variables map01's MapConfig doesn't name show as numbers, except each blight's, named after
+  its core ([blight and its cores](game-data/scene-states.md#dynamic-load-gates); that the variable
+  holds the core's state is inferred, and map02's sludge cores aren't linked to anything); Yinglung
+  Pass's server-set outpost tier variables are separate controls, so all four tiers show by default
   ([outpost tiers](game-data/scene-states.md#dynamic-load-gates)); variables that drive entity level
   or animator state (doors, bridges, puzzles: `ModelViewStateControllerData` state machines) aren't
   controls yet. the magic [Wuling bridges](game-data/assets.md#wuling-bridges)' DynamicStreaming

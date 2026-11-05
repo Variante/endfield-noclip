@@ -27,6 +27,7 @@ import { VfsGroup } from '../hg/vfs.ts';
 import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
+import { allOf, type Alternatives } from './game-state.ts';
 import type { PrefabPose } from './prefab.ts';
 import { SWITCH_VALUES } from './scene-conditions.ts';
 import { progressionControl } from './scenery-variants.ts';
@@ -392,6 +393,7 @@ export const loadInteractiveFacilities = async (
 	level: string | null,
 	partition: LevelPartition | undefined,
 	scripted: ReadonlySet<string>,
+	erosionCores: ReadonlyMap<string, Alternatives>,
 ): Promise<{
 	models: StructureModel[];
 	progressions: SceneControl[];
@@ -888,15 +890,14 @@ export const loadInteractiveFacilities = async (
 				derived: null,
 			}));
 		}
-		const gate = (visibility: ConditionalSetInfo): ConditionalSetInfo =>
-			switches.length === 0
-				? visibility
-				: {
-						alternatives: visibility.alternatives.map((requirements) => [
-							...requirements,
-							...switches.map((control) => ({ control, mask: 2 })),
-						]),
-					};
+		// a blight core shows while its erosion root loads, so both go when the core is destroyed
+		const erosion = erosionCores.get(logicId);
+		const switchRequirements = switches.map((control) => ({ control, mask: 2 }));
+		const gate = (visibility: ConditionalSetInfo): ConditionalSetInfo => {
+			const alternatives =
+				erosion === undefined ? visibility.alternatives : allOf(visibility.alternatives, erosion);
+			return { alternatives: alternatives.map((requirements) => requirements.concat(switchRequirements)) };
+		};
 		const template = authored.get(row.template);
 		if (template === undefined) {
 			const reason = modelless.get(row.template);

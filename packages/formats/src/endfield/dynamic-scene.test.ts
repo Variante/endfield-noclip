@@ -79,6 +79,8 @@ const build = (
 		effectCopy?: number;
 		/** adds a third entity, an extra-scene slot */
 		slot?: boolean;
+		/** adds a last entity, an erosion root of core 3400020938 */
+		erosion?: boolean;
 	} = {},
 ): Uint8Array => {
 	const w = new Writer();
@@ -93,7 +95,7 @@ const build = (
 	w.view.setUint32(strings, 2, true);
 	w.link(rootFields.get(4)!, strings);
 
-	const slots = [0, 3, 5, 7, 8, 9, 12, 16, 17, 27, 28, 29, 31, 32, 33, 46, 52, 55];
+	const slots = [0, 3, 5, 7, 8, 9, 12, 16, 17, 27, 28, 29, 31, 32, 33, 36, 46, 52, 55];
 	const grid = w.table(56, slots);
 	w.link(gridVector + 4, grid.get(0)! - 4);
 	w.view.setUint32(grid.get(0)!, GRID, true);
@@ -109,11 +111,21 @@ const build = (
 		ref(DynamicData.GlobalVarControlComp, 0),
 		ref(DynamicData.MapVarControlComp, 0),
 		ref(DynamicData.ExtraSceneComp, 0),
+		ref(DynamicData.ErosionRootComp, 1),
 	].map((words) => words.slice(0, 4));
 	w.link(grid.get(5)!, w.structs(16, dataIndex));
 	// min and max corners (stored swapped), origin, direction
 	const float = (value: number): number => new Int32Array(new Float32Array([value]).buffer)[0];
 	w.link(grid.get(46)!, w.structs(40, [[...[3, 7, 4, -3, 2, -4, 0, 4.5, 0.5].map(float), 1]]));
+	// two erosion roots, so a misread stride reads the wrong core: core id, PosList, core position, padding
+	const erosionRoot = (id: number, x: number) => [
+		id % 2 ** 32,
+		0,
+		...ref(2, 0, 3),
+		...[x, 96.4, -189.7].map(float),
+		0,
+	];
+	w.link(grid.get(36)!, w.structs(48, [erosionRoot(1, 0), erosionRoot(3400020938, 550.75)]));
 	// any of (quest `stm_hongs_3` = completed, mission `INN_TABLE` ≠ processing), loaded while false; global
 	// variable 79 ≠ 3 gating the load; a map variable that only drives the level
 	w.link(grid.get(27)!, w.structs(32, [[...ref(DynamicData.MissionCondition, 0, 2), 1, 0]]));
@@ -182,6 +194,7 @@ const build = (
 			[16, 0, ...ref(1, 0, 3), 0, ...visibility(0, 0)],
 			[39, 0, ...ref(1, 3, options.gates ? 6 : 3), 0, ...visibility(1, 1)],
 			...(options.slot ? [[29, 0, ...ref(1, 9, 1), 0, ...visibility(0, 0)]] : []),
+			...(options.erosion ? [[36, 0, ...ref(1, 10, 1), 0, ...visibility(0, 0)]] : []),
 		]),
 	);
 	w.link(grid.get(55)!, w.structs(8, [[1, 161]]));
@@ -298,4 +311,12 @@ test('reads an extra-scene slot: box, origin and quarter turns', () => {
 		direction: 1,
 	});
 	assert.equal(entities[0].extraScene, null);
+});
+
+test('reads the blight core an erosion root belongs to', () => {
+	const entities = readDynamicEntities(build({ erosion: true }));
+	assert.equal(entities.length, 3);
+	const position = [550.75, 96.4, -189.7].map(Math.fround);
+	assert.deepEqual(entities[2].erosionCore, { id: 3400020938n, position });
+	assert.equal(entities[0].erosionCore, null);
 });

@@ -144,6 +144,20 @@ red and a green set on map variable `defenceFnish` (#297, = 0 / = 1), presumably
 defence encounter is cleared; no client quest, script or scene state reads it, so it has no link to
 story progress.
 
+**blight and its cores.** each patch of clearable blight (the glowing `P_erosion_map01_dynamic…`
+pieces, [erosion](materials.md#erosion)) is an erosion root: a DynamicStreaming entity of type 36
+(`ErosionMapVarControl`) whose `ErosionRootComp` names its core, by the core's level-data logic id
+(`erosionCoreId`) and position, next to the patch meshes (`ResourceComp`) and a map variable gate
+loading them while the variable ≠ 2. the core is an `int_erosion_core` interactive in level data,
+placed with no condition of its own; its template has an `ErosionCoreComponent`, keeps its `state`
+as a map-saved property (`useMapVar`), and the component names state 0 inactive, 1 active and 2
+destroyed. map01 has 42 erosion roots, each naming a different placed core and gating on a variable
+of its own (map 2, #3–#44; MapConfig names none), so a destroyed core and its cleansed blight go
+together. that each variable holds its core's `state` is inferred from the shared value 2 and the
+one-to-one pairing; the code that writes it wasn't read. while the variable is unset the blight
+doesn't load. map02's sludge cores (`int_erosion_sludge_core_official`) belong to a separate erosion
+sludge system and aren't paired this way.
+
 ## progressions
 
 settlements (outposts), POI facilities (Trial of Swordmancy, archery range, inn parts) and factory

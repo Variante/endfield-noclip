@@ -887,6 +887,14 @@ condition's name resolves through `mapVarName2NumId`, and the control is labelle
 variable the MapConfig doesn't name (map01 names none) keeps the key its source gives it. global
 variables have no name table, so MapConfig's named ones and gates' numbered ones stay apart.
 
+a blight's variable ([blight and its cores](game-data/scene-states.md#dynamic-load-gates)) gets a
+control described for it instead, from
+[dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts): still
+`mapVar:<map>:#<id>`, named `Blight (x, z)` after its core's position, with two values, present (the
+core alive) and cleansed (destroyed, the default, as in a finished world). its patches and its core
+both require present. `GameState.claimVariable` hands the variable over only when no other condition
+reads it; otherwise the patches keep the generic control and the core stays unconditional.
+
 ### dynamic load gates
 
 [dynamic load gates](game-data/scene-states.md#dynamic-load-gates) are decoded by

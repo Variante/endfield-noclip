@@ -153,8 +153,13 @@ export const loadDynamicPlacements = async (
 	const fail = (kind: PlacementKind, error: unknown): void => {
 		result.failures.push({ kind, message: error instanceof Error ? error.message : String(error) });
 	};
+	// facilities need them too: blight cores follow their erosion roots' gates
 	const needsStructures =
-		kinds.has('dynamic') || kinds.has('model') || kinds.has('effect') || kinds.has('cabin');
+		kinds.has('dynamic') ||
+		kinds.has('model') ||
+		kinds.has('effect') ||
+		kinds.has('cabin') ||
+		kinds.has('facility');
 	let structures: Awaited<ReturnType<typeof loadDynamicStructures>> | undefined;
 	if (needsStructures) {
 		try {
@@ -207,7 +212,14 @@ export const loadDynamicPlacements = async (
 	if (kinds.has('facility')) {
 		try {
 			// placements as authored: level scripts' show and hide actions aren't followed here
-			const facilities = await loadInteractiveFacilities(context, scene, null, partition, new Set());
+			const facilities = await loadInteractiveFacilities(
+				context,
+				scene,
+				null,
+				partition,
+				new Set(),
+				structures?.erosionCores ?? new Map(),
+			);
 			for (const model of facilities.models) {
 				result.prefabs.push({
 					kind: 'facility',

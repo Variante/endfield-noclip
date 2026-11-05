@@ -243,6 +243,8 @@ export const mapVariables = (config: MapConfig): MapVariables => ({
 export class GameState {
 	readonly #quests = new Map<string, 'quest' | 'mission'>();
 	readonly #variables = new Map<string, Variable>();
+	/** variables handed to controls their callers describe */
+	readonly #claimed = new Set<string>();
 	readonly #links: ReadonlyMap<string, ProgressionLink>;
 	readonly #mapVariables: MapVariables | null;
 
@@ -279,6 +281,9 @@ export class GameState {
 				case 'mapVar':
 				case 'globalVar': {
 					const { id, label } = this.#variable(condition);
+					if (this.#claimed.has(id)) {
+						throw new Error(`variable ${id} has a control of its own`);
+					}
 					const variable = this.#variables.getOrInsertComputed(id, () => ({
 						kind: condition.kind,
 						label,
@@ -306,6 +311,22 @@ export class GameState {
 		for (const condition of conditions) {
 			visit(condition);
 		}
+	}
+
+	/**
+	 * hands a variable no noted condition reads to a control the caller describes, for a variable whose values
+	 * mean something the generic ranges don't say. noting a condition on it afterwards throws
+	 *
+	 * @param condition a condition on the variable
+	 * @returns the id the caller's control takes, or `null` if a noted condition reads the variable
+	 */
+	claimVariable(condition: Extract<GameCondition, { kind: 'mapVar' | 'globalVar' }>): string | null {
+		const { id } = this.#variable(condition);
+		if (this.#variables.has(id)) {
+			return null;
+		}
+		this.#claimed.add(id);
+		return id;
 	}
 
 	/**

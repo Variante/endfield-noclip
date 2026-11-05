@@ -295,8 +295,8 @@ metal, noise and flow colours are HDR and used as stored, like `_EmissiveColor`.
 blends softly into whatever lies behind (`_ObjectBlend*`, which reads the scene depth).
 
 `HGRP/ErosionDynamic` (animated, glowing) is used only by the `P_erosion_map01_dynamic…` prefabs,
-the erosion patches the player clears. their load gate shows them while a map variable is not 2
-([variable gates](scene-states.md#dynamic-load-gates)).
+the erosion patches the player clears. their load gate shows them while a map variable is not 2,
+that is until their core is destroyed ([blight and its cores](scene-states.md#dynamic-load-gates)).
 
 ## clock
 

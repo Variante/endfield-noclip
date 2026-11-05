@@ -7,7 +7,11 @@ import {
 	type DynamicResourceEntity,
 	type DynamicResourceGrid,
 } from '@endfield-noclip/formats/endfield/dynamic-resources';
-import type { ExtraSceneSlot } from '@endfield-noclip/formats/endfield/dynamic-scene';
+import type {
+	DynamicEntity as DynamicSceneEntity,
+	DynamicGate,
+	ExtraSceneSlot,
+} from '@endfield-noclip/formats/endfield/dynamic-scene';
 import {
 	parseDynamicChunk,
 	readChunkEntities,
@@ -35,6 +39,57 @@ import { controllerKey, progressionId } from './scenery-variants.ts';
 
 /** `EDynamicSceneEntityType.Tree`: harvestable trees, whose logic state is standing or felled */
 const TREE_ENTITY = 19;
+
+// #region blight
+
+/** `ErosionCoreComponent.STATE_EROSION_DIE`: the core is destroyed and its blight cleansed */
+const CORE_DESTROYED = 2;
+/** `CompareOperator.NotEqual` */
+const NOT_EQUAL = 1;
+/**
+ * blight control values: the core alive (its variable 0 or 1) or destroyed (2). while the variable is unset
+ * neither loads, a state the control leaves out
+ */
+const BLIGHT_PRESENT = 0;
+const BLIGHT_CLEANSED = 1;
+
+/**
+ * @returns an erosion root's load gate on its core's state, which loads it until the core is destroyed;
+ *   `null` for other entities, and for an erosion root gated some other way (left to its variable's control)
+ */
+const blightGate = (entity: DynamicSceneEntity): DynamicGate | null => {
+	if (entity.erosionCore === null) {
+		return null;
+	}
+	return (
+		entity.gates.find(
+			(gate) => gate.kind === 'mapVar' && gate.compare === NOT_EQUAL && gate.value === CORE_DESTROYED,
+		) ?? null
+	);
+};
+
+/**
+ * @param id the control id of the blight's variable
+ * @param position its core's position
+ * @returns the control of one blight and its core: its variable, told apart only as the core destroyed or not
+ */
+const blightControl = (id: string, position: readonly [number, number, number]): SceneControl => ({
+	kind: 'mapVar',
+	id,
+	name: `Blight (${Math.round(position[0])}, ${Math.round(position[2])})`,
+	rule: null,
+	assumption: 'cleansed, as in a finished world: its core destroyed',
+	followsCamera: false,
+	levelTags: [],
+	values: [
+		{ value: BLIGHT_PRESENT, label: 'present' },
+		{ value: BLIGHT_CLEANSED, label: 'cleansed' },
+	],
+	default: BLIGHT_CLEANSED,
+	derived: null,
+});
+
+// #endregion
 
 /** a prefab placement and its owning level */
 export interface StructureModel {
@@ -68,6 +123,8 @@ export interface DynamicStructures {
 	/** slots for separately stored scenes (Dijiang cabins), one per distinct slot, with the first owner's id */
 	slots: { id: string; slot: ExtraSceneSlot }[];
 	models: StructureModel[];
+	/** by blight core logic id, the control values its blight loads under, which the core itself follows */
+	erosionCores: Map<string, Alternatives>;
 	/** selections and exclusions, for the pack report */
 	counts: Record<string, number>;
 }
@@ -121,10 +178,29 @@ export const loadDynamicStructures = async (
 		sceneStates: new Set(),
 		areas: new Set(),
 		slots: [],
+		erosionCores: new Map(),
 		counts: { owners: owners.length, ecsGroups: 0, models: 0, effects: 0 },
 	};
 	const controls = new Map<string, SceneControl>();
-	game.note(owners.flatMap(({ entity }) => entity.gates.map(gateCondition)));
+	// each blight's variable gets a control describing it, claimed before the other gates are noted
+	const blights = new Map<DynamicSceneEntity, { gate: DynamicGate; control: SceneControl }>();
+	for (const { entity } of owners) {
+		const gate = blightGate(entity);
+		const condition = gate === null ? null : gateCondition(gate);
+		if (gate === null || entity.erosionCore === null || condition?.kind !== 'mapVar') {
+			continue;
+		}
+		const id = game.claimVariable(condition);
+		if (id !== null) {
+			blights.set(entity, { gate, control: blightControl(id, entity.erosionCore.position) });
+		}
+	}
+	game.note(
+		owners.flatMap(({ entity }) => {
+			const blight = blights.get(entity)?.gate;
+			return entity.gates.filter((gate) => gate !== blight).map(gateCondition);
+		}),
+	);
 	const chunks = new Map<string, Map<number, ConditionalSetInfo>>();
 	const models = new Map<string, StructureModel>();
 	const ordinals = new Map<number, number>();
@@ -171,10 +247,17 @@ export const loadDynamicStructures = async (
 			result.slots.push({ id: owned, slot: extraScene });
 		}
 		const controller = entity.controllers[0];
-		const gates = entity.gates.reduce<Alternatives>(
-			(partial, gate) => allOf(partial, game.requirements(gateCondition(gate))),
+		const blight = blights.get(entity);
+		let gates = entity.gates.reduce<Alternatives>(
+			(partial, gate) =>
+				gate === blight?.gate ? partial : allOf(partial, game.requirements(gateCondition(gate))),
 			[[]],
 		);
+		if (blight !== undefined && entity.erosionCore !== null) {
+			controls.set(blight.control.id, blight.control);
+			gates = allOf(gates, [[{ control: blight.control.id, mask: 1 << BLIGHT_PRESENT }]]);
+			result.erosionCores.set(String(entity.erosionCore.id), gates);
+		}
 		for (const [i, group] of entity.resourceGroups.entries()) {
 			const ref = group.resources;
 			if (ref.count === 0) {
@@ -352,7 +435,8 @@ export const loadDynamicStructures = async (
 		}
 	}
 	for (const control of controls.values()) {
-		if (control.kind === 'harvest') {
+		// script and logic switches are named after what they show; the others carry their own names
+		if (control.kind !== 'script' && control.kind !== 'logic') {
 			continue;
 		}
 		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
