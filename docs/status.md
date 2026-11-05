@@ -89,9 +89,9 @@ packs or renders correctly.
   unchecked
 - interiors, in order of impact:
   - per-draw emission overrides set at runtime aren't known (see the tower lamps below)
-  - normal-map roughness is read only when the mesh has tangents; normals are transformed by the
-    model matrix rather than its inverse transpose, and every material lights the side facing the
-    camera
+  - meshes without tangents draw their normal map flat (what the game's bump does there is
+    unchecked); normals are transformed by the model matrix rather than its inverse transpose, and
+    every material lights the side facing the camera
   - off-screen casters reach only 250 m, so the sun can leak past that reach, and `_ShadowCullMode`
     isn't read
   - outside the game's sun-off volumes, rooms get the outdoor sun wherever no drawn geometry shadows

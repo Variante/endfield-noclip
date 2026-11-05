@@ -18,7 +18,11 @@ dissolve and disturb effects; trunks declare no property Lit lacks:
   in B and occlusion in A. metallic is the base colour's alpha with 1, `_Metallic` with 2.
 
 foliage normal maps hold roughness in B the same way. roughness read from a map is remapped between
-`_RoughnessMin` and `_RoughnessMax`.
+`_RoughnessMin` and `_RoughnessMax`, which can be inverted (min 1, max 0, so B holds smoothness).
+the map's roughness and occlusion don't depend on the mesh's tangents, which only the bump uses: the
+steel display sculpture in Dijiang's hall (`M_prop_map01_zmdlife+1_005_01` on a mesh without
+tangents, metallic from the base alpha, range 1 to 0) is a satin metal at roughness about 0.7 from
+its map's B, not the mirror that `_RoughnessMax` alone would give.
 
 ## base colour
 
@@ -122,9 +126,9 @@ detail map tile ×5 over UV set 1.
   the display crystal `M_iprop_map01_zmdmachine+1_009_02` and Dijiang's far crystal
   `M_building_dijianghao+1_001_11`): the height is then 0 everywhere, the march runs its full depth,
   and the pattern is read at that fixed offset.
-- **`_MATCAP`** (the campfires' crystal, a few Dijiang props): `_MatcapMap`, sampled at the view-space
-  normal's `xy · 0.5 + 0.5`, times `_MatcapMapStrength`, is added to the emission, not tinted by the
-  albedo. `_MatCapIgnorePostExposure` divides out the post exposure as emission does.
+- **`_MATCAP`** (the campfires' crystal, a few Dijiang props): `_MatcapMap`, sampled at the
+  view-space normal's `xy · 0.5 + 0.5`, times `_MatcapMapStrength`, is added to the emission, not
+  tinted by the albedo. `_MatCapIgnorePostExposure` divides out the post exposure as emission does.
 - **`_LAYERBLEND_TOP`** (moss and sand on rock tops; ~220 map02 materials, 33 on map01): a second
   material covers the surface by `saturate((up − _TopBlendThreshold) / _TopBlendSmoothness)`, where
   `up` is the world Y of the vertex normal, blended toward the normal-mapped one by
