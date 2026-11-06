@@ -10,6 +10,7 @@ import { definite } from '@mary-ext/array-fns';
 
 import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow } from '../controls.tsx';
+import { LazyDetails } from '../lazy-details.tsx';
 
 import { ControlRow } from './control-row.tsx';
 
@@ -156,32 +157,40 @@ export const StoryControls = ({
 					<section key={category} className="story-category">
 						<h3>{title}</h3>
 						{listed.map((mission) => (
-							<details key={mission.id} className="story-mission">
-								<summary>
-									{mission.name ?? mission.id}
-									<small className="muted">
-										{definite([
-											mission.levelId && `takes place in ${levelName(mission.levelId)}`,
-											mission.chapter,
-											mission.episode,
-											mission.name && mission.id,
-										]).join(' · ')}
-									</small>
-								</summary>
-								<StoryProgress
-									viewer={viewer}
-									label="Progress"
-									order={[mission.id]}
-									listed={controls}
-									all={all}
-									missions={missions}
-									finished="completed"
-								/>
-								<details>
-									<summary>Quests ({grouped.get(mission.id)?.length ?? 0})</summary>
-									{rows(grouped.get(mission.id) ?? [])}
-								</details>
-							</details>
+							<LazyDetails
+								key={mission.id}
+								className="story-mission"
+								summary={
+									<summary>
+										{mission.name ?? mission.id}
+										<small className="muted">
+											{definite([
+												mission.levelId && `takes place in ${levelName(mission.levelId)}`,
+												mission.chapter,
+												mission.episode,
+												mission.name && mission.id,
+											]).join(' · ')}
+										</small>
+									</summary>
+								}
+							>
+								{() => (
+									<>
+										<StoryProgress
+											viewer={viewer}
+											label="Progress"
+											order={[mission.id]}
+											listed={controls}
+											all={all}
+											missions={missions}
+											finished="completed"
+										/>
+										<LazyDetails summary={<summary>Quests ({grouped.get(mission.id)?.length ?? 0})</summary>}>
+											{() => rows(grouped.get(mission.id) ?? [])}
+										</LazyDetails>
+									</>
+								)}
+							</LazyDetails>
 						))}
 					</section>
 				);

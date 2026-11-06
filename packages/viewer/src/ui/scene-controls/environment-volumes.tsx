@@ -10,6 +10,7 @@ import { volumeCondition, volumeLevelTag } from '../../environment/blend.ts';
 import { type ListedVolume, groupByLevel, volumesForLevel } from '../../scene-states/listing.ts';
 import type { Viewer } from '../../viewer/viewer.ts';
 import { SceneToggle } from '../controls.tsx';
+import { LazyDetails } from '../lazy-details.tsx';
 
 import { OtherLevels } from './other-levels.tsx';
 
@@ -101,14 +102,21 @@ export const EnvironmentVolumes = ({
 			);
 		});
 	return (
-		<details>
-			<summary>
-				Lighting / environment volumes ({volumes.length}
-				{others.length > 0 && ` here · ${listedHere.size + elsewhere} in all`})
-			</summary>
-			<p className="muted small">A pinned phase overrides these.</p>
-			{toggles(volumes, level)}
-			<OtherLevels groups={others} render={toggles} />
-		</details>
+		<LazyDetails
+			summary={
+				<summary>
+					Lighting / environment volumes ({volumes.length}
+					{others.length > 0 && ` here · ${listedHere.size + elsewhere} in all`})
+				</summary>
+			}
+		>
+			{() => (
+				<>
+					<p className="muted small">A pinned phase overrides these.</p>
+					{toggles(volumes, level)}
+					<OtherLevels groups={others} render={toggles} />
+				</>
+			)}
+		</LazyDetails>
 	);
 };

@@ -6,6 +6,7 @@ import { useId, useState } from 'react';
 
 import { controlsForLevel, groupByLevel } from '../../scene-states/listing.ts';
 import type { Viewer } from '../../viewer/viewer.ts';
+import { LazyDetails } from '../lazy-details.tsx';
 import { useViewerState } from '../use-viewer.ts';
 
 import { ControlRow } from './control-row.tsx';
@@ -167,15 +168,24 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 					(entry) => entry.levelTags,
 				);
 				return (
-					<details key={title} open={open}>
-						<summary>
-							{title} ({here.length}
-							{others.length > 0 && ` here · ${ofKinds.length} in all`})
-						</summary>
-						{note !== null && <p className="muted small">{note}</p>}
-						{sectionRows(kinds, here)}
-						<OtherLevels groups={others} render={(entries) => sectionRows(kinds, entries)} />
-					</details>
+					<LazyDetails
+						key={title}
+						initiallyOpen={open}
+						summary={
+							<summary>
+								{title} ({here.length}
+								{others.length > 0 && ` here · ${ofKinds.length} in all`})
+							</summary>
+						}
+					>
+						{() => (
+							<>
+								{note !== null && <p className="muted small">{note}</p>}
+								{sectionRows(kinds, here)}
+								<OtherLevels groups={others} render={(entries) => sectionRows(kinds, entries)} />
+							</>
+						)}
+					</LazyDetails>
 				);
 			})}
 			<WaterLevels viewer={viewer} matches={matches} />

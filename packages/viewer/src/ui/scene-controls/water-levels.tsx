@@ -2,6 +2,7 @@ import { controlListedFor, groupByLevel } from '../../scene-states/listing.ts';
 import { surfaceView, volumeSurface, waterHeight } from '../../scene-states/water-levels.ts';
 import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow, ControlValueSelect, FlyButton } from '../controls.tsx';
+import { LazyDetails } from '../lazy-details.tsx';
 import { useViewerState, useViewerStats } from '../use-viewer.ts';
 
 import { Drivers } from './drivers.tsx';
@@ -76,29 +77,36 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 			);
 		});
 	return (
-		<details>
-			<summary>
-				Water levels ({here.length}
-				{others.length > 0 && ` here · ${all.length} in all`})
-			</summary>
-			<p className="muted small">
-				Gameplay water that switches, timers and scripts raise or lower. Picking a level moves the water there
-				at the game&apos;s speed; what floats on it follows.
-			</p>
-			<ChoiceRow label="Movement">
-				<select
-					value={String(viewer.options.waterLevelRate)}
-					onChange={(event) => viewer.setOptions({ waterLevelRate: Number(event.currentTarget.value) })}
-				>
-					{RATES.map(({ value, label }) => (
-						<option key={label} value={String(value)}>
-							{label}
-						</option>
-					))}
-				</select>
-			</ChoiceRow>
-			{rows(here)}
-			<OtherLevels groups={others} render={rows} />
-		</details>
+		<LazyDetails
+			summary={
+				<summary>
+					Water levels ({here.length}
+					{others.length > 0 && ` here · ${all.length} in all`})
+				</summary>
+			}
+		>
+			{() => (
+				<>
+					<p className="muted small">
+						Gameplay water that switches, timers and scripts raise or lower. Picking a level moves the water
+						there at the game&apos;s speed; what floats on it follows.
+					</p>
+					<ChoiceRow label="Movement">
+						<select
+							value={String(viewer.options.waterLevelRate)}
+							onChange={(event) => viewer.setOptions({ waterLevelRate: Number(event.currentTarget.value) })}
+						>
+							{RATES.map(({ value, label }) => (
+								<option key={label} value={String(value)}>
+									{label}
+								</option>
+							))}
+						</select>
+					</ChoiceRow>
+					{rows(here)}
+					<OtherLevels groups={others} render={rows} />
+				</>
+			)}
+		</LazyDetails>
 	);
 };

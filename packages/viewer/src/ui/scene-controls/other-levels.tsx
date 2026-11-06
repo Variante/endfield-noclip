@@ -3,6 +3,7 @@ import type { LevelInfo } from '@endfield-noclip/package-format/manifest';
 import type { ReactNode } from 'react';
 
 import type { LevelGroup } from '../../scene-states/listing.ts';
+import { LazyDetails } from '../lazy-details.tsx';
 
 /**
  * a panel section's entries for levels other than the camera's, one collapsed group per level
@@ -24,12 +25,16 @@ export const OtherLevels = <T,>({
 		<section className="other-levels">
 			<h3>Other levels</h3>
 			{groups.map(({ level, entries }) => (
-				<details key={level.id}>
-					<summary>
-						{level.name ?? level.id} ({entries.length})
-					</summary>
-					{render(entries, level)}
-				</details>
+				<LazyDetails
+					key={level.id}
+					summary={
+						<summary>
+							{level.name ?? level.id} ({entries.length})
+						</summary>
+					}
+				>
+					{() => render(entries, level)}
+				</LazyDetails>
 			))}
 		</section>
 	);
