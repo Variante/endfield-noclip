@@ -4,7 +4,13 @@ import { test } from 'node:test';
 import type { LevelInteractive } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
-import { jumpPadArrow, startState, stateOf, verticalRopeFloats } from './interactive-facilities.ts';
+import {
+	jumpPadArrow,
+	startState,
+	stateOf,
+	verticalPadEffect,
+	verticalRopeFloats,
+} from './interactive-facilities.ts';
 
 const property = (key: string, bits: string): MemoryPackValue => ({
 	key,
@@ -140,4 +146,22 @@ test("a vertical rope's length is the height to the port its target names", () =
 	assert.ok(Math.abs(height - 7) < 1e-9);
 	assert.deepEqual(verticalRopeFloats(bottom, rows), new Map());
 	assert.deepEqual(verticalRopeFloats(port(1n, 0, 1n), rows), new Map());
+});
+
+// the vertical jump pad (int_jumpmachine_vertical): saved `state` 0; map01_lv006's pads set 1
+const verticalPad: MemoryPackValue = {
+	componentList: [
+		commonPerform,
+		{ $type: 'Beyond_Gameplay_Core_JumpMachineVerticalComponentDataForMemoryPack' },
+	],
+	saveProperties: [property('state', '0')],
+	configProperties: [],
+	tempProperties: [],
+	templateVariant: [],
+};
+
+test('a vertical jump pad plays its vent effect only while its state is on', () => {
+	const pad = { ...row(1n, []), template: 'int_jumpmachine_vertical' };
+	assert.equal(verticalPadEffect(verticalPad, pad), 'P_interactive_cavewell+1_001_01_loop');
+	assert.equal(verticalPadEffect(verticalPad, { ...pad, properties: [] }), null);
 });

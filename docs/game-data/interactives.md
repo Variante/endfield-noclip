@@ -136,16 +136,25 @@ apart from its view states, a jump pad (`JumpMachineComponent`) that isn't locke
 places a stationary effect named by its `effect` parameter (`P_common_bouncingplatform_arrow_01`, a
 looping arrow) at its own position. it counts as locked while its `state` is off (0, the logic
 components' off value; 1 is on), and then switches the arrow off; its `is_locked` property isn't
-read for this. so an off pad shows neither its `On` glow nor its arrow. `free_jump` and `effect` are the component's own parameters, which the component reads apart from
-its entity's properties: the template component's `propertyList`, overridden by the variant's
-`componentDiffProperties` entry (`Comp_JumpMachine`) and then the placement's parameters under
-component type 169. the entity's `free_jump` property, which variants set alongside, isn't what
-decides. `int_jumpmachine_free` turns it on, but all 13 of its placements turn it back off, so they
-show an arrow; 4 `int_jumpmachine` placements turn it on, and 12 of the 32 rock pads keep the
-variant's free jump. the effect turns about the vertical only, towards its `target_position`
-property: its rotation looks along the horizontal part of the target minus the pad's position. 237
-pad placements set their own target. the template's (−8.3, 0.6, −0.07) is used as a world position
-all the same, so pads that keep it point towards about the world origin.
+read for this. so an off pad shows neither its `On` glow nor its arrow. `free_jump` and `effect` are
+the component's own parameters, which the component reads apart from its entity's properties: the
+template component's `propertyList`, overridden by the variant's `componentDiffProperties` entry
+(`Comp_JumpMachine`) and then the placement's parameters under component type 169. the entity's
+`free_jump` property, which variants set alongside, isn't what decides. `int_jumpmachine_free` turns
+it on, but all 13 of its placements turn it back off, so they show an arrow; 4 `int_jumpmachine`
+placements turn it on, and 12 of the 32 rock pads keep the variant's free jump. the effect turns
+about the vertical only, towards its `target_position` property: its rotation looks along the
+horizontal part of the target minus the pad's position. 237 pad placements set their own target. the
+template's (−8.3, 0.6, −0.07) is used as a world position all the same, so pads that keep it point
+towards about the world origin.
+
+the vertical jump pads (`int_jumpmachine_vertical`, a cave vent rock,
+`P_interactive_cavewell+1_001_01`) have a component of their own (`JumpMachineVerticalComponent`)
+and no view-state effects or arrow. while the entity's `state` is on (1) and its cooldown is done,
+which it is at start, the component plays `P_interactive_cavewell+1_001_01_loop` (two smoke emitters
+and a spark emitter) on the entity's root, and switches it off at any other `state`. the name is
+fixed in the game's code, not read from the template. whether the loop turns with the entity isn't
+read.
 
 ### lengths view states set
 

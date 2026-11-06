@@ -144,6 +144,12 @@ const JUMP_MACHINE: ComponentKeys = {
 };
 const JUMP_MACHINE_COMPONENTS = [JUMP_MACHINE.suffix];
 
+/** the component of vertical jump pads (cave vents), which play an effect of their own while on */
+const JUMP_MACHINE_VERTICAL_COMPONENTS = ['_JumpMachineVerticalComponentDataForMemoryPack'];
+
+/** the looping effect a vertical jump pad's component plays on its root while on; the name is fixed in code */
+const VERTICAL_PAD_EFFECT = 'P_interactive_cavewell+1_001_01_loop';
+
 /** the component of vertical rope lifts, which set their rope's length from their two ports */
 const VERTICAL_ROPE_COMPONENTS = ['_InteractiveVerticalRopeComponentDataForMemoryPack'];
 
@@ -555,6 +561,24 @@ const atomFloat = (bits: bigint): number => {
 };
 
 /**
+ * @param entity the template's entity properties
+ * @param row a placed interactive
+ * @returns its starting `state`: the placement's, else its variant's, else the template's, else 0
+ */
+const entityState = (entity: EntityProperties, row: LevelInteractive): number =>
+	stateOf(row) ?? Number(BigInt.asIntN(32, entityProperty(entity, row, STATE_KEY)?.[0]?.bits ?? 0n));
+
+/**
+ * @param template the decoded vertical jump pad template
+ * @param row a placed vertical jump pad
+ * @returns the looping effect it plays on its root, or `null` unless its `state` starts on (1)
+ */
+export const verticalPadEffect = (template: MemoryPackValue, row: LevelInteractive): string | null => {
+	const entity = entityProperties(template);
+	return entity !== null && entityState(entity, row) === 1 ? VERTICAL_PAD_EFFECT : null;
+};
+
+/**
  * the stationary effect a jump pad that isn't off (`state` 0) or a free jump places at itself, turned about
  * the vertical towards its target position
  *
@@ -573,9 +597,7 @@ export const jumpPadArrow = (
 	}
 	// a pad is locked while its `state` is off (0), whatever its `is_locked` property says. `free_jump` and
 	// `effect` are the component's own parameters; the state and the target are the entity's
-	const state =
-		stateOf(row) ?? Number(BigInt.asIntN(32, entityProperty(entity, row, STATE_KEY)?.[0]?.bits ?? 0n));
-	const locked = state === 0;
+	const locked = entityState(entity, row) === 0;
 	const free = (params.get('free_jump')?.values[0]?.bits ?? 0n) !== 0n;
 	const effect = params.get('effect')?.values[0]?.text;
 	if (locked || free || !effect) {
@@ -1255,6 +1277,8 @@ export const loadInteractiveFacilities = async (
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	/** jump pads' decoded templates, which say whether and where they place their arrow, by key */
 	const jumpPads = new Map<string, MemoryPackValue>();
+	/** vertical jump pads' decoded templates, by key */
+	const verticalPads = new Map<string, MemoryPackValue>();
 	/** auto-moving platforms' decoded templates and starting `state`, by key */
 	const autoMoves = new Map<string, { template: MemoryPackValue; start: StartState | null }>();
 	/** crane towers' decoded templates, by key */
@@ -1274,6 +1298,8 @@ export const loadInteractiveFacilities = async (
 					start: StartState | null;
 					/** a jump pad's decoded template, `null` for other templates */
 					jumpPad: MemoryPackValue | null;
+					/** a vertical jump pad's decoded template, `null` for other templates */
+					verticalPad: MemoryPackValue | null;
 					/** an auto-moving platform's decoded template, `null` for other templates */
 					autoMove: MemoryPackValue | null;
 					verticalRope: boolean;
@@ -1326,6 +1352,7 @@ export const loadInteractiveFacilities = async (
 							animator: animatorStart(decoded),
 							start: startState(decoded),
 							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? decoded : null,
+							verticalPad: hasComponent(decoded, JUMP_MACHINE_VERTICAL_COMPONENTS) ? decoded : null,
 							autoMove: isAutoMovePlatform(decoded) ? decoded : null,
 							verticalRope: hasComponent(decoded, VERTICAL_ROPE_COMPONENTS),
 							craneTower: hasComponent(decoded, CRANE_TOWER_COMPONENTS) ? decoded : null,
@@ -1340,6 +1367,7 @@ export const loadInteractiveFacilities = async (
 						animator: null,
 						start: null,
 						jumpPad: null,
+						verticalPad: null,
 						autoMove: null,
 						verticalRope: false,
 						craneTower: null,
@@ -1366,6 +1394,9 @@ export const loadInteractiveFacilities = async (
 			// a doodad-group shell draws nothing itself; its forms attach to it instead
 			if (kind.kind === 'other' && kind.jumpPad !== null) {
 				jumpPads.set(key, kind.jumpPad);
+			}
+			if (kind.kind === 'other' && kind.verticalPad !== null) {
+				verticalPads.set(key, kind.verticalPad);
 			}
 			if (kind.kind === 'other' && !doodads.has(key)) {
 				const { campfire, keys, start, verticalRope } = kind;
@@ -1756,6 +1787,20 @@ export const loadInteractiveFacilities = async (
 				levelTag,
 				visibility: gate({ alternatives: [[]] }),
 				frame: trsMatrix(row.position, unityEulerQuaternion([0, arrow.yaw, 0]), [1, 1, 1]),
+				on: null,
+				followRotation: true,
+			});
+		}
+		const verticalPad = verticalPads.get(row.template);
+		const vent = verticalPad === undefined ? null : verticalPadEffect(verticalPad, row);
+		if (vent !== null) {
+			// played on the entity's root, so it follows the placement but not its model's scale
+			pendingEffects.push({
+				effect: vent,
+				source,
+				levelTag,
+				visibility: gate({ alternatives: [[]] }),
+				frame: trsMatrix(row.position, unityEulerQuaternion(row.rotation), row.scale),
 				on: null,
 				followRotation: true,
 			});
