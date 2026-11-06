@@ -36,8 +36,9 @@
   uniform buffer in 3 per-frame regions, sub-allocated at `minUniformBufferOffsetAlignment`. callers
   fill CPU views; `flush` uploads the frame's region in one `writeBuffer`, and draws bind group 0 at
   a dynamic offset. a frame needs the main block plus one per shadow layer.
-- **bind layouts** ([`gfx/bind-layouts.ts`](../../packages/viewer/src/gfx/bind-layouts.ts)): group 0
-  is the frame (uniforms, shadow map, reflection cubemap, irradiance clipmaps, shadow ramp, local
+- **bind layouts**
+  ([`render/frame/bind-layouts.ts`](../../packages/viewer/src/render/frame/bind-layouts.ts)): group
+  0 is the frame (uniforms, shadow map, reflection cubemap, irradiance clipmaps, shadow ramp, local
   lights and their bins, cloud shadow) for every family and the volumetric fog, so a pass binds it
   once; group 1 is per family; meshes add group 2 (per-draw parameters) and group 3 (material
   textures). shadow passes bind a placeholder in place of the shadow map they render into.
@@ -47,11 +48,11 @@
   streaming compiles nothing; only the stencil variants of effect pipelines compile on first use. a
   draw whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is.
 - **texture store**
-  ([`render/texture-store.ts`](../../packages/viewer/src/render/texture-store.ts)): textures arrive
-  as pieces, the mip tail first and then one blob per larger level. the GPU texture holds a
-  contiguous run of levels from the finest integrated piece down to 1×1. integrating a finer piece
-  creates a texture one step larger and copies the coarser levels over; releasing a piece shrinks it
-  the same way at the next `commit`. a piece that arrives before its coarser neighbour waits. BC
-  blocks upload as stored, without transcoding. replaced textures are destroyed one commit later,
-  because bindings from before the swap are still in that frame's command buffer; bind groups
+  ([`render/textures/texture-store.ts`](../../packages/viewer/src/render/textures/texture-store.ts)):
+  textures arrive as pieces, the mip tail first and then one blob per larger level. the GPU texture
+  holds a contiguous run of levels from the finest integrated piece down to 1×1. integrating a finer
+  piece creates a texture one step larger and copies the coarser levels over; releasing a piece
+  shrinks it the same way at the next `commit`. a piece that arrives before its coarser neighbour
+  waits. BC blocks upload as stored, without transcoding. replaced textures are destroyed one commit
+  later, because bindings from before the swap are still in that frame's command buffer; bind groups
   rebuild when a binding's `version` changes.

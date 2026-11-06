@@ -1,6 +1,6 @@
 import { type LightEntry, LightKind } from '@endfield-noclip/package-format/lights';
 
-import type { Camera, Vec3 } from '../scene/camera.ts';
+import type { Camera, Vec3 } from '../../scene/camera.ts';
 
 /** lights the shading takes per frame, as the game's light list does */
 export const MAX_LOCAL_LIGHTS = 256;

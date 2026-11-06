@@ -5,8 +5,8 @@ describes. the extractor reads each material's properties and keywords into a
 [surface](../package-format.md#materials)
 ([game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts)), which the
 viewer packs into a look in [`looks/materials.ts`](../../packages/viewer/src/looks/materials.ts),
-shaded in [`shaders/mesh.wgsl`](../../packages/viewer/src/render/shaders/mesh.wgsl); what's left out
-is in [status](../status.md).
+shaded in [`mesh.wgsl`](../../packages/viewer/src/render/meshes/mesh.wgsl); what's left out is in
+[status](../status.md).
 
 the mesh shader has seven texture slots (`SLOTS` in materials.ts; the frame group takes the rest of
 WebGPU's sixteen), so features that rarely meet share a slot or a parameter row, and a material that
@@ -57,7 +57,7 @@ uses its material's `_EmissiveColor`.
 ## foliage
 
 the viewer evaluates the game's [foliage model](../game-data/materials.md#foliage) per pixel
-(`foliage_sun` in [`frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)).
+(`foliage_sun` in [`frame.wgsl`](../../packages/viewer/src/render/frame/frame.wgsl)).
 `HGRP/Foliage/Leaf`'s and the grass shaders' inputs are their surfaces' `foliage`
 ([game/material-surfaces.ts](../../packages/extractor/src/game/material-surfaces.ts)), packed by
 `leafParams` and `grassParams`; the grass takes `h` as the vertex's object-space height. the grass
@@ -101,7 +101,7 @@ sorting, and layers far apart in depth share one fog distance.
 the viewer has no GBuffer, so it draws a [decal](../game-data/materials.md#decals) like the VFXDecal
 boxes ([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in
 the transparent pass ([`litDecalLook`](../../packages/viewer/src/looks/effect-looks.ts),
-`fx_lit_decal` in [`effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). it takes
+`fx_lit_decal` in [`effect.wgsl`](../../packages/viewer/src/render/meshes/effect.wgsl)). it takes
 the surface's normal and roughness from the main pass where the masks keep them, shades the decal
 like any surface, and lays it over by its alpha. placements of one material share its look and draw
 the game's VFXDecal cube; each row's block word indexes its placement's colour and UV transform in a
@@ -140,9 +140,9 @@ read, and a texture on a UV set other than 0 is dropped.
 ## erosion
 
 [erosion rock](../game-data/materials.md#erosion) is drawn by
-[`erosionLook`](../../packages/viewer/src/looks/materials.ts) and `erosion_surface` in
-`shaders/mesh.wgsl`, without the soft blend into what lies behind (`_ObjectBlend*`). its textures
-reuse the Lit slots (`erosionLook` lists which). `HGRP/ErosionDynamic` has no look and shows as
+[`erosionLook`](../../packages/viewer/src/looks/materials.ts) and `erosion_surface` in `mesh.wgsl`,
+without the soft blend into what lies behind (`_ObjectBlend*`). its textures reuse the Lit slots
+(`erosionLook` lists which). `HGRP/ErosionDynamic` has no look and shows as
 [unsupported](#unsupported-materials).
 
 ## unsupported materials

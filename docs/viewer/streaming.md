@@ -51,7 +51,7 @@ range reaches it; a quadrant whose child page isn't resident is drawn from the p
 child is requested, and vertices morph to the coarser grid over the last 30% of a level's range (the
 coarsest level never morphs). every selected page quadrant is an instance of one shared grid, so
 terrain is a single draw
-([`render/terrain-renderer.ts`](../../packages/viewer/src/render/terrain-renderer.ts)).
+([`render/terrain/terrain-renderer.ts`](../../packages/viewer/src/render/terrain/terrain-renderer.ts)).
 
 each visited node also wants its surface page at the same priority. a patch is shaded from the
 finest resident surface page at or above its node, magnified when it's an ancestor's, so the ground

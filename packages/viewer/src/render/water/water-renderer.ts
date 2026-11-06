@@ -1,23 +1,23 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
+import { type Plane, type Vec3, boxInFrustum } from '../../scene/camera.ts';
+import { streamWholeTexture } from '../../streaming/mesh-selection.ts';
+import type { ResidentGeometry, StreamManager } from '../../streaming/stream-manager.ts';
+import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import {
 	HDR_FORMAT,
 	type SceneTextures,
 	WATER_DEPTH_FORMAT,
 	WATER_FOAM_FORMAT,
-} from '../gfx/render-targets.ts';
-import { type Plane, type Vec3, boxInFrustum } from '../scene/camera.ts';
-import { streamWholeTexture } from '../streaming/mesh-selection.ts';
-import type { ResidentGeometry, StreamManager } from '../streaming/stream-manager.ts';
+} from '../frame/render-targets.ts';
+import commonWgsl from '../post/post-common.wgsl?raw';
+import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
+import skyWgsl from '../sky/sky.wgsl?raw';
+import { type TextureBinding, type TextureStore, placeholderView } from '../textures/texture-store.ts';
 
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import atmosphereWgsl from './shaders/atmosphere.wgsl?raw';
-import commonWgsl from './shaders/post-common.wgsl?raw';
-import skyWgsl from './shaders/sky.wgsl?raw';
-import ssrTraceWgsl from './shaders/ssr-trace.wgsl?raw';
-import waterWgsl from './shaders/water.wgsl?raw';
-import { type TextureBinding, type TextureStore, placeholderView } from './texture-store.ts';
+import ssrTraceWgsl from './ssr-trace.wgsl?raw';
+import waterWgsl from './water.wgsl?raw';
 
 /** floats of `Surface` in water.wgsl */
 const SURFACE_FLOATS = 20;

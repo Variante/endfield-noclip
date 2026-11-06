@@ -26,7 +26,7 @@
 - **few draws.** terrain is one draw; each mesh bucket is one instanced `drawIndexed` over its slice
   of the visible list. depth-writing draws are sorted by pipeline, then nearest first, which early
   depth testing rewards; the rest by pipeline, geometry and material, so runs share bindings
-  ([`render/mesh-renderer.ts`](../../packages/viewer/src/render/mesh-renderer.ts)).
+  ([`render/meshes/mesh-renderer.ts`](../../packages/viewer/src/render/meshes/mesh-renderer.ts)).
 - **each pixel shades once.** a depth prepass draws the opaque meshes' positions alone (no fragment
   work) before anything else; the terrain then skips what they cover, and the opaque meshes shade
   with `depthCompare: 'equal'`. the prepass and the shading compute positions through the same

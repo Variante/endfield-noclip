@@ -22,7 +22,7 @@ shading sun alone, so the [blend](environment.md#blending-at-the-camera) can ler
 angles. the package leaves out the light fields the game derives from these, which some phases carry
 stale ([sun](../game-data/lighting.md#sun)).
 
-direct sun lighting in [`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl)
+direct sun lighting in [`frame.wgsl`](../../packages/viewer/src/render/frame/frame.wgsl)
 (`shade_surface`) is GGX with height-correlated Smith visibility, scaled by
 `directSpecularIntensity`, and Lambert diffuse times (1 − F), with the sun's colour taken as
 illuminance and both terms carrying their 1/π. that's the local lights' lobe divided by π, with (1 −
@@ -34,14 +34,15 @@ the game's two-sided model.
 
 the viewer draws the game's four layers ([shadows](../game-data/lighting.md#shadows)) as 2048²
 `depth32float` layers fitted to bounding spheres of frustum slices and snapped to world texels so
-edges don't crawl ([`render/shadow-map.ts`](../../packages/viewer/src/render/shadow-map.ts)).
-turning the camera doesn't change a sphere's fit. casters are what the main pass draws that frame,
-plus instances outside the view within 250 m whose shadows can reach it: the view frustum's planes
-are swept 250 m towards the sun, and instances inside the swept planes draw into the shadow layers
-only. off-screen casters smaller than 16 px (as if on screen) are skipped, and terrain outside the
-view doesn't cast. shadow-only renderers draw into the shadow layers only, in view or not. they cull
-back faces like any material, which is enough for Dijiang's roof; `_ShadowCullMode` isn't read.
-which layers each caster draws into and when the layers redraw is in [frame](frame.md).
+edges don't crawl
+([`render/shadows/shadow-map.ts`](../../packages/viewer/src/render/shadows/shadow-map.ts)). turning
+the camera doesn't change a sphere's fit. casters are what the main pass draws that frame, plus
+instances outside the view within 250 m whose shadows can reach it: the view frustum's planes are
+swept 250 m towards the sun, and instances inside the swept planes draw into the shadow layers only.
+off-screen casters smaller than 16 px (as if on screen) are skipped, and terrain outside the view
+doesn't cast. shadow-only renderers draw into the shadow layers only, in view or not. they cull back
+faces like any material, which is enough for Dijiang's roof; `_ShadowCullMode` isn't read. which
+layers each caster draws into and when the layers redraw is in [frame](frame.md).
 
 - a point uses the first cascade sphere containing it, dithered with the next one over the outer
   tenth of the sphere's radius.
@@ -81,9 +82,9 @@ streams in, it samples the ambient probe instead. local reflection probes aren't
 
 the viewer runs the game's screen-space reflections
 ([screen-space reflections](../game-data/lighting.md#screen-space-reflections)) in
-[`ssr.wgsl`](../../packages/viewer/src/render/shaders/ssr.wgsl) and
-[`screen-space-reflections.ts`](../../packages/viewer/src/render/screen-space-reflections.ts), as
-fullscreen passes rather than compute kernels. it reprojects through the depth buffer and the
+[`ssr.wgsl`](../../packages/viewer/src/render/post/ssr.wgsl) and
+[`screen-space-reflections.ts`](../../packages/viewer/src/render/post/screen-space-reflections.ts),
+as fullscreen passes rather than compute kernels. it reprojects through the depth buffer and the
 previous camera instead of motion vectors (the scenery is static), and needs no rain-wetness
 variant: the viewer's surfaces already carry the wet roughness
 ([wetness](../game-data/environment.md#wetness)), so only the variant's ripple normals are missing.
@@ -104,20 +105,20 @@ every frame, so toggling a scene state swaps the cells and refills the levels ho
 
 ### clipmaps
 
-[`render/irradiance-volume.ts`](../../packages/viewer/src/render/irradiance-volume.ts) keeps three
-3D clipmaps of 128 × 64 × 128 texels with probes 0.5, 2 and 8 m apart (A: L0 rgb; B: three slabs
-along y for the L1 of each channel), centred on the camera. per level it wants the window of cells
-its texels fall in, streams them into one storage buffer (coarse levels first, ahead of scenery),
-and refills the whole level with
-[`shaders/irradiance-update.wgsl`](../../packages/viewer/src/render/shaders/irradiance-update.wgsl)
-when the camera moves more than 4 texels from its centre or a cell arrives or leaves, where the game
+[`render/lighting/irradiance-volume.ts`](../../packages/viewer/src/render/lighting/irradiance-volume.ts)
+keeps three 3D clipmaps of 128 × 64 × 128 texels with probes 0.5, 2 and 8 m apart (A: L0 rgb; B:
+three slabs along y for the L1 of each channel), centred on the camera. per level it wants the
+window of cells its texels fall in, streams them into one storage buffer (coarse levels first, ahead
+of scenery), and refills the whole level with
+[`irradiance-update.wgsl`](../../packages/viewer/src/render/lighting/irradiance-update.wgsl) when
+the camera moves more than 4 texels from its centre or a cell arrives or leaves, where the game
 updates clipmaps partially. levels refill coarse to fine, and a refilled level refills every finer
 one, because their probe-less texels copy it
 ([cells and probes](../game-data/irradiance.md#cells-and-probes)). the update pass looks cells up in
 that window instead of the game's top-level hash. the clipmaps are sampled toroidally. the levels
 stack along z in one A and one B texture, each level's slab with a copy of its last slice before it
 and its first after it so A filters across the wrap
-([`shaders/irradiance-clipmap.wgsl`](../../packages/viewer/src/render/shaders/irradiance-clipmap.wgsl));
+([`irradiance-clipmap.wgsl`](../../packages/viewer/src/render/lighting/irradiance-clipmap.wgsl));
 the update pass writes a level to scratch textures and copies it into its slab, since it samples the
 coarser level from the stacked ones.
 
@@ -132,12 +133,12 @@ room seen from beyond the finest level's reach (about 29 m) is lit as if empty.
 
 the package's `lights` table ([JSON tables](../package-format.md#json-tables)) holds the spot, point
 and tube lights; directional, shadow-only and character-only lights are left out. it feeds
-[`render/local-lights.ts`](../../packages/viewer/src/render/local-lights.ts), and `local_lighting`
-in [`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl) follows the game's
-lobe ([local lights](../game-data/lighting.md#local-lights)), without its multiple-scattering term,
-shadows, cookies or flicker. lights load under their file's, structure's or placement's visibility;
-a light the chunk files also hold keeps its files' conditions. a prefab light's culling box turns
-with its placement.
+[`render/lighting/local-lights.ts`](../../packages/viewer/src/render/lighting/local-lights.ts), and
+`local_lighting` in [`frame.wgsl`](../../packages/viewer/src/render/frame/frame.wgsl) follows the
+game's lobe ([local lights](../game-data/lighting.md#local-lights)), without its multiple-scattering
+term, shadows, cookies or flicker. lights load under their file's, structure's or placement's
+visibility; a light the chunk files also hold keeps its files' conditions. a prefab light's culling
+box turns with its placement.
 
 each frame `local-lights.ts` takes the shown level's lights (and tag 0's) whose condition holds,
 that are within their culling distance and in the view, sorts them by camera distance then priority

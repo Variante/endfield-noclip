@@ -1,8 +1,8 @@
-import type { LightShaftLook } from '../environment/environment.ts';
-import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
-import type { Camera, Vec3 } from '../scene/camera.ts';
+import type { LightShaftLook } from '../../environment/environment.ts';
+import type { Camera, Vec3 } from '../../scene/camera.ts';
+import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 
-import lightShaftsWgsl from './shaders/light-shafts.wgsl?raw';
+import lightShaftsWgsl from './light-shafts.wgsl?raw';
 
 /** byte size of `Shafts` in light-shafts.wgsl */
 const UNIFORM_BYTES = 64;

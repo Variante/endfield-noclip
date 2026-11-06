@@ -15,19 +15,19 @@
  * @module
  */
 
-import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from '../content/instance-rows.ts';
-import type { BindLayouts } from '../gfx/bind-layouts.ts';
-import { GrowableBuffer } from '../gfx/growable-buffer.ts';
-import type { PipelineCache } from '../gfx/pipeline-cache.ts';
-import type { RangeAllocation } from '../gfx/range-allocator.ts';
-import { DEPTH_COMPARE, type MainPassFormat } from '../gfx/render-targets.ts';
-import type { DecodedInstances } from '../package/decode-protocol.ts';
-import type { Vec3 } from '../scene/camera.ts';
-import type { InstanceRange } from '../streaming/selection.ts';
-import type { ResidentInstances } from '../streaming/stream-manager.ts';
+import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from '../../content/instance-rows.ts';
+import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import type { RangeAllocation } from '../../gfx/range-allocator.ts';
+import type { DecodedInstances } from '../../package/decode-protocol.ts';
+import type { Vec3 } from '../../scene/camera.ts';
+import type { InstanceRange } from '../../streaming/selection.ts';
+import type { ResidentInstances } from '../../streaming/stream-manager.ts';
+import type { BindLayouts } from '../frame/bind-layouts.ts';
+import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
+import { DEPTH_COMPARE, type MainPassFormat } from '../frame/render-targets.ts';
 
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import boxesWgsl from './shaders/instance-boxes.wgsl?raw';
+import boxesWgsl from './instance-boxes.wgsl?raw';
 
 /** rows the mega buffer starts with (10 MiB) */
 const INITIAL_ROWS = 131_072;

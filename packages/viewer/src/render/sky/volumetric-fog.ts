@@ -1,9 +1,9 @@
-import type { Environment, VolumetricFog as VolumetricFogLook } from '../environment/environment.ts';
-import type { Camera, Vec3 } from '../scene/camera.ts';
+import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
+import type { Camera, Vec3 } from '../../scene/camera.ts';
+import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
+import { halton } from '../post/temporal-aa.ts';
 
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import fogWgsl from './shaders/volumetric-fog.wgsl?raw';
-import { halton } from './temporal-aa.ts';
+import fogWgsl from './volumetric-fog.wgsl?raw';
 
 /**
  * froxels across, down and in depth. the game sizes its grid from the view in cells of at least a set number

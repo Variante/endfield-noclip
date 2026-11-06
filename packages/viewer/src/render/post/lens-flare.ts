@@ -2,14 +2,14 @@ import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
-import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
-import type { Camera } from '../scene/camera.ts';
-import type { StreamedTexture } from '../streaming/mesh-selection.ts';
+import type { Camera } from '../../scene/camera.ts';
+import type { StreamedTexture } from '../../streaming/mesh-selection.ts';
+import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
+import { placeholderView } from '../textures/texture-store.ts';
 
 import { type LensFlareLook, flareQuads, lensFlareTextures } from './lens-flare-layout.ts';
+import lensFlareWgsl from './lens-flare.wgsl?raw';
 import { sunOnScreen } from './light-shafts.ts';
-import lensFlareWgsl from './shaders/lens-flare.wgsl?raw';
-import { placeholderView } from './texture-store.ts';
 
 /** byte size of `FlareFrame` in lens-flare.wgsl */
 const FRAME_BYTES = 16;

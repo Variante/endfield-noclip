@@ -1,28 +1,28 @@
-import type { Environment } from '../environment/environment.ts';
-import { type SceneTextures, HDR_FORMAT } from '../gfx/render-targets.ts';
-import type { Camera } from '../scene/camera.ts';
+import type { Environment } from '../../environment/environment.ts';
+import type { Camera } from '../../scene/camera.ts';
+import brdfWgsl from '../frame/brdf.wgsl?raw';
+import type { DebugView } from '../frame/frame-uniforms.ts';
+import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
+import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
+import { CelestialLayer } from '../sky/celestial.ts';
+import celestialWgsl from '../sky/celestial.wgsl?raw';
+import skyWgsl from '../sky/sky.wgsl?raw';
+import type { VolumetricFog } from '../sky/volumetric-fog.ts';
+import { type TextureBinding, placeholderView } from '../textures/texture-store.ts';
+import type { WaterContext, WaterRenderer } from '../water/water-renderer.ts';
 
 import { AutoExposure } from './auto-exposure.ts';
-import { CelestialLayer } from './celestial.ts';
-import type { DebugView } from './frame-uniforms.ts';
+import bloomWgsl from './bloom.wgsl?raw';
+import compositeWgsl from './composite.wgsl?raw';
+import gtaoWgsl from './gtao.wgsl?raw';
 import { LensFlares } from './lens-flare.ts';
 import { LightShafts } from './light-shafts.ts';
+import commonWgsl from './post-common.wgsl?raw';
 import { ScreenSpaceReflections } from './screen-space-reflections.ts';
-import atmosphereWgsl from './shaders/atmosphere.wgsl?raw';
-import bloomWgsl from './shaders/bloom.wgsl?raw';
-import brdfWgsl from './shaders/brdf.wgsl?raw';
-import celestialWgsl from './shaders/celestial.wgsl?raw';
-import compositeWgsl from './shaders/composite.wgsl?raw';
-import gtaoWgsl from './shaders/gtao.wgsl?raw';
-import commonWgsl from './shaders/post-common.wgsl?raw';
-import skyWgsl from './shaders/sky.wgsl?raw';
-import ssrWgsl from './shaders/ssr.wgsl?raw';
-import taaWgsl from './shaders/taa.wgsl?raw';
-import tonemapWgsl from './shaders/tonemap.wgsl?raw';
+import ssrWgsl from './ssr.wgsl?raw';
+import taaWgsl from './taa.wgsl?raw';
 import { TemporalAA } from './temporal-aa.ts';
-import { type TextureBinding, placeholderView } from './texture-store.ts';
-import type { VolumetricFog } from './volumetric-fog.ts';
-import type { WaterContext, WaterRenderer } from './water-renderer.ts';
+import tonemapWgsl from './tonemap.wgsl?raw';
 
 /** byte size of `Post` in post-common.wgsl */
 const POST_BYTES = 63 * 16;

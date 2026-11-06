@@ -1,7 +1,7 @@
 import { useId } from 'react';
 
-import { DEBUG_VIEWS } from '../render/frame-uniforms.ts';
-import { TONEMAPPERS } from '../render/post-process.ts';
+import { DEBUG_VIEWS } from '../render/frame/frame-uniforms.ts';
+import { TONEMAPPERS } from '../render/post/post-process.ts';
 import type { Viewer, ViewerOptions } from '../viewer.ts';
 
 import { useViewerState } from './use-viewer.ts';

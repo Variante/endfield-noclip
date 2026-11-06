@@ -1,5 +1,5 @@
-import { HDR_FORMAT } from '../gfx/render-targets.ts';
-import type { Camera, Vec3 } from '../scene/camera.ts';
+import type { Camera, Vec3 } from '../../scene/camera.ts';
+import { HDR_FORMAT } from '../frame/render-targets.ts';
 
 /** frames rendered after the last change, so the history converges on the still view */
 export const SETTLE_FRAMES = 32;

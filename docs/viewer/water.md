@@ -1,8 +1,8 @@
 # water
 
 how the viewer draws the open-world water that [game-data/water.md](../game-data/water.md)
-describes: [water-renderer.ts](../../packages/viewer/src/render/water-renderer.ts) and
-[water.wgsl](../../packages/viewer/src/render/shaders/water.wgsl). the packed table is in
+describes: [water-renderer.ts](../../packages/viewer/src/render/water/water-renderer.ts) and
+[water.wgsl](../../packages/viewer/src/render/water/water.wgsl). the packed table is in
 [package-format.md](../package-format.md#water).
 
 ## placements
@@ -48,7 +48,7 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
   scene: the sun through its shadow maps, the irradiance volume, and the level's sky reflection.
 - **reflection**: the game reflects water through its screen-space reflection pass, with water
   written into its inputs. water draws after the composite here, so it marches separately, with the
-  same march ([`ssr-trace.wgsl`](../../packages/viewer/src/render/shaders/ssr-trace.wgsl)).
+  same march ([`ssr-trace.wgsl`](../../packages/viewer/src/render/water/ssr-trace.wgsl)).
 
 it differs from the game in that:
 
@@ -109,8 +109,8 @@ in the main view.
 
 [WaterDecal](../game-data/water.md#waterdecal) boxes are packed as `waterFoam` surfaces and drawn by
 the mesh renderer's effect family (`fs_water_foam` in
-[effect.wgsl](../../packages/viewer/src/render/shaders/effect.wgsl)), inside the water pass, when
-the frame has any:
+[effect.wgsl](../../packages/viewer/src/render/meshes/effect.wgsl)), inside the water pass, when the
+frame has any:
 
 1. **water depth.** the nearest surface's depth, laid down before the composite (above).
 2. **foam.** the boxes draw into an `rgba8unorm` target cleared to (0, 0, 0, 1), with the main

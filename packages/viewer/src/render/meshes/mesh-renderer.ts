@@ -1,13 +1,5 @@
-import type { BindLayouts } from '../gfx/bind-layouts.ts';
-import type { PipelineCache } from '../gfx/pipeline-cache.ts';
-import {
-	DEPTH_COMPARE,
-	HDR_FORMAT,
-	type MainPassFormat,
-	TRANSPARENT_TARGETS,
-	WATER_FOAM_FORMAT,
-} from '../gfx/render-targets.ts';
-import { OFFSET_SLOT } from '../looks/effect-looks.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { OFFSET_SLOT } from '../../looks/effect-looks.ts';
 import {
 	LOOK_FLOATS,
 	LookFlags,
@@ -15,18 +7,26 @@ import {
 	type MaterialLook,
 	SLOTS,
 	SLOT_FLAGS,
-} from '../looks/materials.ts';
-import type { DecodedGeometry } from '../package/decode-protocol.ts';
-import type { MeshBucket } from '../streaming/mesh-selection.ts';
-import type { ResidentGeometry } from '../streaming/stream-manager.ts';
+} from '../../looks/materials.ts';
+import type { DecodedGeometry } from '../../package/decode-protocol.ts';
+import type { MeshBucket } from '../../streaming/mesh-selection.ts';
+import type { ResidentGeometry } from '../../streaming/stream-manager.ts';
+import type { BindLayouts } from '../frame/bind-layouts.ts';
+import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
+import {
+	DEPTH_COMPARE,
+	HDR_FORMAT,
+	type MainPassFormat,
+	TRANSPARENT_TARGETS,
+	WATER_FOAM_FORMAT,
+} from '../frame/render-targets.ts';
+import { LIST_CAPACITY } from '../instances/instance-renderer.ts';
+import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
+import { placeholderView, type TextureBinding, type TextureStore } from '../textures/texture-store.ts';
 
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import { LIST_CAPACITY } from './instance-renderer.ts';
-import effectWgsl from './shaders/effect.wgsl?raw';
-import meshWgsl from './shaders/mesh.wgsl?raw';
-import { SHADOW_DEPTH_STATE } from './shadow-map.ts';
+import effectWgsl from './effect.wgsl?raw';
+import meshWgsl from './mesh.wgsl?raw';
 import { type ResidentSkin, SkinAnimator } from './skin-animation.ts';
-import { placeholderView, type TextureBinding, type TextureStore } from './texture-store.ts';
 
 /** floats of `Draw` in mesh.wgsl: the position and UV dequantizations, then the material look */
 const DRAW_FLOATS = 16 + LOOK_FLOATS;

@@ -1,5 +1,5 @@
-import { type Camera, type Plane, type Vec3, sweepPlanes } from '../scene/camera.ts';
-import type { CasterVolume } from '../streaming/selection.ts';
+import { type Camera, type Plane, type Vec3, sweepPlanes } from '../../scene/camera.ts';
+import type { CasterVolume } from '../../streaming/selection.ts';
 
 /** shadow map edge, texels */
 export const SHADOW_SIZE = 2048;

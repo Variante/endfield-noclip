@@ -1,12 +1,12 @@
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 
-import { GrowableBuffer } from '../gfx/growable-buffer.ts';
-import type { DecodedIrradiance } from '../package/decode-protocol.ts';
-import type { Vec3 } from '../scene/camera.ts';
-import type { ResidentIrradiance, StreamManager } from '../streaming/stream-manager.ts';
+import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
+import type { DecodedIrradiance } from '../../package/decode-protocol.ts';
+import type { Vec3 } from '../../scene/camera.ts';
+import type { ResidentIrradiance, StreamManager } from '../../streaming/stream-manager.ts';
 
-import clipmapWgsl from './shaders/irradiance-clipmap.wgsl?raw';
-import updateWgsl from './shaders/irradiance-update.wgsl?raw';
+import clipmapWgsl from './irradiance-clipmap.wgsl?raw';
+import updateWgsl from './irradiance-update.wgsl?raw';
 
 /** texels per clipmap level */
 const SIZE = [128, 64, 128] as const;

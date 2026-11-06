@@ -1,7 +1,7 @@
-import type { DecodedSkin } from '../package/decode-protocol.ts';
+import type { DecodedSkin } from '../../package/decode-protocol.ts';
 
-import skinWgsl from './shaders/skin.wgsl?raw';
 import { skinFrame } from './skin-frame.ts';
+import skinWgsl from './skin.wgsl?raw';
 
 /** bytes of `Skin` in skin.wgsl */
 const PARAMS_BYTES = 112;

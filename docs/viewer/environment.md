@@ -81,8 +81,8 @@ aren't extracted. falling rain and snow aren't drawn, and `snowConfig` isn't pac
 
 ### wetness
 
-`rain_wet_surface` ([`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl), fed
-by [`environment/wetness.ts`](../../packages/viewer/src/environment/wetness.ts)) wets the mesh and
+`rain_wet_surface` ([`frame.wgsl`](../../packages/viewer/src/render/frame/frame.wgsl), fed by
+[`environment/wetness.ts`](../../packages/viewer/src/environment/wetness.ts)) wets the mesh and
 terrain surfaces as the [game's deferred lighting](../game-data/environment.md#wetness) does. the
 one-sided `enableWetness` blend is `lerpRain` in
 [`environment/blend.ts`](../../packages/viewer/src/environment/blend.ts). the rain occlusion map

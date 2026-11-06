@@ -17,7 +17,7 @@ import type {
 } from '../package/decode-protocol.ts';
 import { PackageChangedError } from '../package/package-source.ts';
 import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
-import type { ResidentSkin } from '../render/skin-animation.ts';
+import type { ResidentSkin } from '../render/meshes/skin-animation.ts';
 
 // #region types
 

@@ -4,9 +4,10 @@
  * @module
  */
 
-import brdfWgsl from './shaders/brdf.wgsl?raw';
-import frameWgsl from './shaders/frame.wgsl?raw';
-import clipmapWgsl from './shaders/irradiance-clipmap.wgsl?raw';
+import clipmapWgsl from '../lighting/irradiance-clipmap.wgsl?raw';
+
+import brdfWgsl from './brdf.wgsl?raw';
+import frameWgsl from './frame.wgsl?raw';
 
 /** WGSL source of the frame uniforms and shared lighting helpers, prepended to every family */
 export const FRAME_WGSL = brdfWgsl + clipmapWgsl + frameWgsl;

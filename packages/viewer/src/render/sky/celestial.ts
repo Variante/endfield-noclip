@@ -1,7 +1,7 @@
 /**
  * the sky beyond the atmosphere: the sun disc of the profile's `sky` section, the stars and nebula of its
  * `star` section and the planets of its `celestial` section, drawn at the sky pixels by the celestial pass
- * (shaders/celestial.wgsl) for the composite to put over the atmosphere's sky
+ * (celestial.wgsl) for the composite to put over the atmosphere's sky
  * (docs/game-data/sky-and-fog.md#beyond-the-atmosphere). the uniforms are written each frame, since the
  * ray-traced planet is placed relative to the camera.
  *
@@ -23,11 +23,10 @@ import {
 	type SunDirections,
 	towardsEffectLight,
 	towardsLight,
-} from '../environment/environment.ts';
-import { linearRgb } from '../math/color.ts';
-import type { Vec3 } from '../scene/camera.ts';
-
-import { placeholderView, type TextureBinding } from './texture-store.ts';
+} from '../../environment/environment.ts';
+import { linearRgb } from '../../math/color.ts';
+import type { Vec3 } from '../../scene/camera.ts';
+import { placeholderView, type TextureBinding } from '../textures/texture-store.ts';
 
 // #region look
 

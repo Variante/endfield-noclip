@@ -2,8 +2,8 @@
 
 how the viewer draws the effects [game-data/effects.md](../game-data/effects.md) describes, and the
 [light beams](#light-beams) ([`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts),
-[`shaders/effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). the extractor reads
-each effect material's properties and keywords into a [surface](../package-format.md#materials)
+[`effect.wgsl`](../../packages/viewer/src/render/meshes/effect.wgsl)). the extractor reads each
+effect material's properties and keywords into a [surface](../package-format.md#materials)
 ([game/material-effects.ts](../../packages/extractor/src/game/material-effects.ts)), or marks it
 unsupported with the reason; the viewer packs the surface into the look's rows, 12 of which effect
 looks have past the mesh looks' 32. effects on particle meshes play through the
@@ -49,7 +49,7 @@ what's left out is in [status](../status.md).
 effects whose blending the transparent pass's targets can't hold draw after compositing (and after
 the water), into the composited scene with the main pass's depth attached read-only
 (`MaterialLook.screen`, `encodeMultiply` and `encodeRefract` in
-[`mesh-renderer.ts`](../../packages/viewer/src/render/mesh-renderer.ts)):
+[`mesh-renderer.ts`](../../packages/viewer/src/render/meshes/mesh-renderer.ts)):
 
 - `_BlendMode` 2 VFXBaseV2 layers multiply the scene (`fs_effect_multiply`). they have no stencil
   there, so those with one stay unsupported.
@@ -83,7 +83,7 @@ other than keep and replace are unsupported, and portals need the GPU's `depth32
 VFXDitherAlpha shades through the opaque mesh path
 ([`materials.ts`](../../packages/viewer/src/looks/materials.ts), `ditheredLook`). its
 [dither](../game-data/effects.md#solid-effects) is an alpha test in the cutout depth pass
-(`fs_cutout_depth` in `shaders/mesh.wgsl`), for materials without `_USE_MAIN2` in the default
+(`fs_cutout_depth` in `mesh.wgsl`), for materials without `_USE_MAIN2` in the default
 `_DitherAlphaMode`; with `_UseMainTexAsAlpha` only unlit ones, which test the texture through the
 normal slot. drawn without the test, Power Plateau's `blackspot` was a dark square. the test leaves
 out the vertex alpha and the near camera fade, and `_USE_MAIN2` is drawn only when its second
@@ -104,8 +104,8 @@ unsupported.
 
 ## waterfalls
 
-VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `shaders/effect.wgsl`; `waterSheetLook`
-in [`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `_BlendMode` 1 sheets draw
+VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `effect.wgsl`; `waterSheetLook` in
+[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `_BlendMode` 1 sheets draw
 into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the unlit
 share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave falls,
 far below the game's. the normal map's frame comes from the UVs' screen derivatives rather than mesh
@@ -115,7 +115,7 @@ are unsupported.
 ## six-way smoke
 
 [six-way smoke](../game-data/effects.md#six-way-smoke) draws through `fs_effect`, which hands it to
-`six_way_smoke` in `shaders/effect.wgsl` (`sixWaySmokeLook` in
+`six_way_smoke` in `effect.wgsl` (`sixWaySmokeLook` in
 [`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). the positive lightmap takes
 slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask, blend and
 dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and its object
@@ -127,12 +127,12 @@ sheet, and stays unsupported on meshes.
 ## mist
 
 the [mist](../game-data/effects.md#mist) cards and boxes draw by their own entry points in
-`shaders/effect.wgsl` (`fs_mist_card`, `fs_mist_volume`). lit cards take the sun over π, at the mesh
-normal rather than the game's normal map, and the cards' own fog (`_USE_FOG`) isn't drawn. boxes
-draw their back faces without a depth test, like the decals, and take the thickness from the nearer
-of the surface behind and the back face; only additive boxes are drawn, without their depth prepass
-or vertex colour. a box's 3D noise is the look's `volumeTexture`, streamed whole and bound beside
-the slots (a zeroed placeholder leaves boxes without it unchanged); the box waits for it like an
+`effect.wgsl` (`fs_mist_card`, `fs_mist_volume`). lit cards take the sun over π, at the mesh normal
+rather than the game's normal map, and the cards' own fog (`_USE_FOG`) isn't drawn. boxes draw their
+back faces without a depth test, like the decals, and take the thickness from the nearer of the
+surface behind and the back face; only additive boxes are drawn, without their depth prepass or
+vertex colour. a box's 3D noise is the look's `volumeTexture`, streamed whole and bound beside the
+slots (a zeroed placeholder leaves boxes without it unchanged); the box waits for it like an
 effect's other textures. additive cards and boxes draw into the transparent pass's glow, which the
 composite adds unfogged after the fog ([frame](frame.md)); premultiplied cards join the weighted
 blend.

@@ -8,28 +8,28 @@ import {
 	type TerrainSplatInfo,
 } from '@endfield-noclip/package-format/terrain';
 
-import type { BindLayouts } from '../gfx/bind-layouts.ts';
-import { GrowableBuffer } from '../gfx/growable-buffer.ts';
-import type { PipelineCache } from '../gfx/pipeline-cache.ts';
-import { DEPTH_COMPARE, type MainPassFormat } from '../gfx/render-targets.ts';
+import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type {
 	DecodedDetail,
 	DecodedHeights,
 	DecodedLayer,
 	DecodedSurface,
-} from '../package/decode-protocol.ts';
-import type { Vec3 } from '../scene/camera.ts';
-import type { TerrainPatch } from '../streaming/selection.ts';
+} from '../../package/decode-protocol.ts';
+import type { Vec3 } from '../../scene/camera.ts';
+import type { TerrainPatch } from '../../streaming/selection.ts';
 import type {
 	ResidentDetail,
 	ResidentHeights,
 	ResidentLayer,
 	ResidentSurface,
-} from '../streaming/stream-manager.ts';
+} from '../../streaming/stream-manager.ts';
+import type { BindLayouts } from '../frame/bind-layouts.ts';
+import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
+import { DEPTH_COMPARE, type MainPassFormat } from '../frame/render-targets.ts';
+import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import terrainWgsl from './shaders/terrain.wgsl?raw';
-import { SHADOW_DEPTH_STATE } from './shadow-map.ts';
+import terrainWgsl from './terrain.wgsl?raw';
 
 const PAGE_SIDE = TERRAIN_PAGE_SAMPLES;
 const QUADS = PAGE_SIDE - 1;

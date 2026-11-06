@@ -5,9 +5,9 @@ how the viewer draws the passes after the main pass that
 
 ## post chain
 
-[`render/post-process.ts`](../../packages/viewer/src/render/post-process.ts) orchestrates the
-[frame's post passes](frame.md), whose order, resolutions and targets are on that page. toggles and
-debug views change rendering without changing the profile.
+[`render/post/post-process.ts`](../../packages/viewer/src/render/post/post-process.ts) orchestrates
+the [frame's post passes](frame.md), whose order, resolutions and targets are on that page. toggles
+and debug views change rendering without changing the profile.
 
 ## ambient occlusion
 
@@ -22,18 +22,18 @@ the game reads GBuffer normals and filters temporally and twice spatially.
 
 ## light shafts
 
-[`render/light-shafts.ts`](../../packages/viewer/src/render/light-shafts.ts) follows the
+[`render/post/light-shafts.ts`](../../packages/viewer/src/render/post/light-shafts.ts) follows the
 [game's light shaft bloom](../game-data/post-processing.md#light-shafts). the occlusion term and the
 cloud mask aren't drawn.
 
 ## lens flare
 
-[`render/lens-flare-layout.ts`](../../packages/viewer/src/render/lens-flare-layout.ts) lays the
-[game's flare](../game-data/post-processing.md#lens-flare) out on the CPU each frame, and
-[`render/lens-flare.ts`](../../packages/viewer/src/render/lens-flare.ts) draws it. polygon elements
-and inverse SDFs aren't drawn, the per-light curves (radial screen attenuation, distance) take SRP
-core's directional-light defaults, and Unity's mapping of random bits onto `Random.Range` is
-assumed. with the environment's flare off, no flare draws.
+[`render/post/lens-flare-layout.ts`](../../packages/viewer/src/render/post/lens-flare-layout.ts)
+lays the [game's flare](../game-data/post-processing.md#lens-flare) out on the CPU each frame, and
+[`render/post/lens-flare.ts`](../../packages/viewer/src/render/post/lens-flare.ts) draws it. polygon
+elements and inverse SDFs aren't drawn, the per-light curves (radial screen attenuation, distance)
+take SRP core's directional-light defaults, and Unity's mapping of random bits onto `Random.Range`
+is assumed. with the environment's flare off, no flare draws.
 
 at Origin Lodespring's overview the viewer's flare is fainter than the game's: the crystal mountain
 behind the sun occludes it in the viewer's depth buffer.
@@ -41,7 +41,7 @@ behind the sun occludes it in the viewer's depth buffer.
 ## auto exposure
 
 [`environment/exposure.ts`](../../packages/viewer/src/environment/exposure.ts) and
-[`render/auto-exposure.ts`](../../packages/viewer/src/render/auto-exposure.ts) follow the
+[`render/post/auto-exposure.ts`](../../packages/viewer/src/render/post/auto-exposure.ts) follow the
 [game's metering](../game-data/post-processing.md#auto-exposure). the viewer reads the histogram
 back a frame or two late, as the game does, renders while the exposure moves, and jumps straight to
 the first reading after loading or switching levels. the stats panel shows the adjustment; the "auto
@@ -51,14 +51,14 @@ content or metering caused it.
 
 ## bloom
 
-[`bloom.wgsl`](../../packages/viewer/src/render/shaders/bloom.wgsl) reads the post profile's `bloom`
+[`bloom.wgsl`](../../packages/viewer/src/render/post/bloom.wgsl) reads the post profile's `bloom`
 settings and follows the [game's bloom](../game-data/post-processing.md#bloom) at high quality, in
 its pixel-shader variant, without dirt, the additive upsample mode, character bloom or anamorphic
 stretch.
 
 ## colour grading and tonemapping
 
-[`tonemap.wgsl`](../../packages/viewer/src/render/shaders/tonemap.wgsl) applies exposure, bloom and
+[`tonemap.wgsl`](../../packages/viewer/src/render/post/tonemap.wgsl) applies exposure, bloom and
 URP's vignette (post profile `vignette`, without the game's extra mode and fields) in HDR before
 grading.
 

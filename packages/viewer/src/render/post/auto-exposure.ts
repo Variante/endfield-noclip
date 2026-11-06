@@ -4,9 +4,9 @@ import {
 	easeExposure,
 	meteredExposure,
 	targetExposure,
-} from '../environment/exposure.ts';
+} from '../../environment/exposure.ts';
 
-import autoExposureWgsl from './shaders/auto-exposure.wgsl?raw';
+import autoExposureWgsl from './auto-exposure.wgsl?raw';
 
 /** pixels between samples along each axis; one workgroup of 8 × 8 threads covers 128² pixels */
 const STRIDE = 16;
