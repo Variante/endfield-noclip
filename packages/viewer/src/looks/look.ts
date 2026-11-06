@@ -67,15 +67,9 @@ export const LookFlags = {
 	// bit 26 is the geometry's ({@link GeometryFlags})
 	/** `HGRP/Foliage/Leaf`: the sun shadow, vertex-normal lighting and canopy ramp of {@link LookRow.foliage} */
 	FoliageLeaf: 1 << 27,
-	/** a scene effect (`effects/`), drawn by `effect.wgsl` in the transparent pass */
+	/** a scene effect (`effects/`), drawn by `effect.wgsl` in one of the effect queues ({@link LookQueue}) */
 	Effect: 1 << 28,
-	/** with {@link Effect}: a VFXDecal box, projected onto the surfaces inside it */
-	EffectDecal: 1 << 29,
-	/**
-	 * with {@link Effect}: mist (`MistRow` in effects/mist.ts), a FogSimple card, or with {@link EffectDecal} a
-	 * VFXFakeVolumeFog box, drawn by its back faces like a decal's
-	 */
-	EffectMist: 1 << 30,
+	// bits 29 and 30 are free
 	/**
 	 * `_LAYERBLEND_TOP` or `_LAYERBLEND_MASK`: the parallax slots and rows hold the layer (`layerBlendParams`).
 	 * the sign bit, so the value is negative; `words` in mesh-renderer.ts store it unsigned
@@ -118,17 +112,8 @@ export interface MaterialLook {
 	drawn: boolean;
 	/** a material the viewer can't draw, shown as a magenta checker (`unsupportedLook`) */
 	unsupported: boolean;
-	/**
-	 * alpha-tested against the alpha of the base colour, or of the normal map with
-	 * {@link LookFlags.AlphaNormal} (`fs_cutout_depth` in mesh.wgsl), once that texture is bound
-	 * ({@link alphaTextureOf}); such draws need pipelines that can discard
-	 */
-	cutout: boolean;
-	/**
-	 * alpha-blended: drawn in the transparent pass with the opacity `fs_transparent` in mesh.wgsl computes, and
-	 * never alpha-tested or shadow-casting
-	 */
-	transparent: boolean;
+	/** the draws the look's meshes join, which decide their pass and pipelines */
+	queue: LookQueue;
 	/** the faces the game culls, for unmirrored instances */
 	cull: MaterialCull;
 	/** whether the material draws into shadow maps */
@@ -145,23 +130,47 @@ export interface MaterialLook {
 	params: Float32Array;
 	/** the stencil test and write of effects that mask each other, or `null` for the rest */
 	stencil: LookStencil | null;
-	/**
-	 * with {@link LookFlags.EffectDecal}: a lit decal that changes only the normal, roughness or occlusion of
-	 * the surface beneath, drawn by the decal relight pass into the main pass's radiance rather than in the
-	 * transparent pass
-	 */
-	relight: boolean;
-	/**
-	 * with {@link LookFlags.Effect}: an effect drawn over the composited scene rather than in the transparent
-	 * pass, because it multiplies what lies behind (`'multiply'`) or samples it (`'refract'`), or a WaterDecal
-	 * box drawn into the water's foam before the water draws (`'waterFoam'`, depth-tested in front of the
-	 * scene, or `'waterFoamBehind'`, behind it); `null` for the rest
-	 */
-	screen: ScreenEffect | null;
 }
 
-/** how an effect drawn after compositing ({@link MaterialLook.screen}) reaches the image */
-export type ScreenEffect = 'multiply' | 'refract' | 'waterFoam' | 'waterFoamBehind';
+/**
+ * the draws a look's meshes join ({@link MaterialLook.queue}):
+ *
+ * - `opaque`: shaded in the main pass, after a depth prepass
+ * - `cutout`: alpha-tested against the alpha of the base colour, or of the normal map with
+ *   {@link LookFlags.AlphaNormal} (`fs_cutout_depth` in mesh.wgsl), once that texture is bound
+ *   ({@link alphaTextureOf}); until then drawn as `opaque`
+ * - `stencilMask`: writes only the stencil where its surface passes the depth test, at the end of the main pass
+ *   (a portal's mask, with a {@link MaterialLook.stencil})
+ * - `transparent`: alpha-blended in the transparent pass with the opacity `fs_transparent` in mesh.wgsl
+ *   computes; never shadow-casting
+ *
+ * and scene effects ({@link LookFlags.Effect}), drawn by effect.wgsl once all their textures are bound:
+ *
+ * - `effect`: in the transparent pass
+ * - `effectDecal`: a VFXDecal box in the transparent pass, projected onto the surfaces inside it
+ * - `mist`: a FogSimple card (`MistRow` in effects/mist.ts) in the transparent pass
+ * - `mistVolume`: a VFXFakeVolumeFog box in the transparent pass, drawn by its back faces like a decal's
+ * - `decalRelight`: a lit decal that changes only the normal, roughness or occlusion of the surface beneath,
+ *   drawn by the decal relight pass into the main pass's radiance
+ * - `screenMultiply`, `refract`: drawn over the composited scene, because they multiply what lies behind or
+ *   sample it
+ * - `waterFoam`, `waterFoamBehind`: WaterDecal boxes drawn into the water's foam before the water draws,
+ *   depth-tested in front of the scene or behind it
+ */
+export type LookQueue =
+	| 'opaque'
+	| 'cutout'
+	| 'stencilMask'
+	| 'transparent'
+	| 'effect'
+	| 'effectDecal'
+	| 'mist'
+	| 'mistVolume'
+	| 'decalRelight'
+	| 'screenMultiply'
+	| 'refract'
+	| 'waterFoam'
+	| 'waterFoamBehind';
 
 /**
  * a draw's stencil state and the depth test that goes with it, from its material's `_Stencil*` and `_ZTest`
@@ -176,11 +185,6 @@ export interface LookStencil {
 	writeMask: number;
 	/** the depth test, mapped to reversed-Z */
 	depthCompare: GPUCompareFunction;
-	/**
-	 * a stencil-only look: it writes the stencil where its surface passes the depth test, but neither colour
-	 * nor depth, and draws in the main pass after the opaque surfaces
-	 */
-	maskOnly: boolean;
 }
 
 /** float offsets of the rows of {@link MaterialLook.params} */
@@ -300,15 +304,12 @@ export const emptySlots = (): LookSlots => {
 export const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => ({
 	drawn,
 	unsupported: false,
-	cutout: false,
-	transparent: false,
+	queue: 'opaque',
 	cull: 'none',
 	castsShadows: true,
 	...emptySlots(),
 	flags: 0,
 	stencil: null,
-	relight: false,
-	screen: null,
 });
 
 /**

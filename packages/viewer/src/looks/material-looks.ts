@@ -1,5 +1,9 @@
 import type { MaterialCull, MaterialTable } from '@endfield-noclip/package-format/materials';
-import type { EffectStencil, StencilMaskSurface } from '@endfield-noclip/package-format/surfaces';
+import type {
+	EffectStackSurface,
+	EffectStencil,
+	StencilMaskSurface,
+} from '@endfield-noclip/package-format/surfaces';
 
 import type { EffectLook } from './effects/effect-look.ts';
 import { lightBeamLook } from './effects/light-beam.ts';
@@ -14,10 +18,10 @@ import { litLook } from './lit-look.ts';
 import {
 	emptyLook,
 	LookFlags,
+	type LookQueue,
 	LookRow,
 	type LookStencil,
 	type MaterialLook,
-	type ScreenEffect,
 } from './look.ts';
 import { ditheredLook, erosionLook, mattePaintingLook } from './special-looks.ts';
 
@@ -68,18 +72,18 @@ const reversedDepthCompare = (compare: GPUCompareFunction): GPUCompareFunction =
 };
 
 /** an effect's stencil state as the viewer draws it: the depth test under reversed-Z */
-const lookStencilOf = (stencil: EffectStencil, maskOnly: boolean): LookStencil => ({
+const lookStencilOf = (stencil: EffectStencil): LookStencil => ({
 	...stencil,
 	depthCompare: reversedDepthCompare(stencil.depthCompare),
-	maskOnly,
 });
 
 /** the stencil-only look of a portal's mask ({@link StencilMaskSurface}) */
 const stencilMaskLook = (mask: StencilMaskSurface, cull: MaterialCull): MaterialLook => {
 	const look = emptyLook({ drawn: true });
 	look.cull = cull;
+	look.queue = 'stencilMask';
 	look.castsShadows = false;
-	look.stencil = lookStencilOf(mask.stencil, true);
+	look.stencil = lookStencilOf(mask.stencil);
 	return look;
 };
 
@@ -125,32 +129,32 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			}
 			case 'mistCard': {
 				looks[entry.id] = effectMaterialLook(mistCardLook(surface), {
-					flags: LookFlags.Effect | LookFlags.EffectMist,
+					queue: 'mist',
 					cull: entry.cull,
 				});
 				break;
 			}
 			case 'mistVolume': {
 				looks[entry.id] = effectMaterialLook(mistVolumeLook(surface), {
-					flags: LookFlags.Effect | LookFlags.EffectMist | LookFlags.EffectDecal,
+					queue: 'mistVolume',
+					box: true,
 					cull: entry.cull,
 				});
 				break;
 			}
 			case 'lightBeam': {
 				looks[entry.id] = effectMaterialLook(lightBeamLook(surface), {
-					flags: LookFlags.Effect,
+					queue: 'effect',
 					cull: entry.cull,
 				});
 				break;
 			}
 			case 'effectStack': {
 				looks[entry.id] = effectMaterialLook(stackLook(surface), {
-					flags: LookFlags.Effect | (surface.variant === 'decal' ? LookFlags.EffectDecal : 0),
+					queue: stackQueue(surface),
+					box: surface.variant === 'decal',
 					cull: entry.cull,
-					stencil: surface.stencil === null ? null : lookStencilOf(surface.stencil, false),
-					// drawn over the composited scene
-					screen: multipliesScene(surface) ? 'multiply' : null,
+					stencil: surface.stencil === null ? null : lookStencilOf(surface.stencil),
 				});
 				break;
 			}
@@ -160,39 +164,37 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 			}
 			case 'waterSheet': {
 				looks[entry.id] = effectMaterialLook(waterSheetLook(surface), {
-					flags: LookFlags.Effect,
+					queue: 'effect',
 					cull: entry.cull,
 				});
 				break;
 			}
 			case 'sixWaySmoke': {
 				looks[entry.id] = effectMaterialLook(sixWaySmokeLook(surface), {
-					flags: LookFlags.Effect,
+					queue: 'effect',
 					cull: entry.cull,
 				});
 				break;
 			}
 			case 'litDecal': {
 				looks[entry.id] = effectMaterialLook(litDecalLook(surface), {
-					flags: LookFlags.Effect | LookFlags.EffectDecal,
+					queue: surface.relight ? 'decalRelight' : 'effectDecal',
+					box: true,
 					cull: entry.cull,
-					relight: surface.relight,
 				});
 				break;
 			}
 			case 'refract': {
 				looks[entry.id] = effectMaterialLook(refractLook(surface), {
-					flags: LookFlags.Effect,
+					queue: 'refract',
 					cull: entry.cull,
-					screen: 'refract',
 				});
 				break;
 			}
 			case 'waterFoam': {
 				looks[entry.id] = effectMaterialLook(waterFoamLook(surface), {
-					flags: LookFlags.Effect,
+					queue: surface.depthTest === 'lessEqual' ? 'waterFoam' : 'waterFoamBehind',
 					cull: entry.cull,
-					screen: surface.depthTest === 'lessEqual' ? 'waterFoam' : 'waterFoamBehind',
 				});
 				break;
 			}
@@ -201,39 +203,43 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 	return looks;
 };
 
+/** the queue of a VFXBaseV2 stack: those that multiply the scene draw over the composited scene */
+const stackQueue = (surface: EffectStackSurface): LookQueue => {
+	if (multipliesScene(surface)) {
+		return 'screenMultiply';
+	}
+	return surface.variant === 'decal' ? 'effectDecal' : 'effect';
+};
+
 /**
- * @returns the look of a scene effect: alpha-blended and shadowless. decal boxes draw their back faces, so
- *   they still show with the camera inside them
+ * @returns the look of a scene effect: blended and shadowless. boxes (decals, fog volumes) draw their back
+ *   faces, so they still show with the camera inside them
  */
 const effectMaterialLook = (
 	effect: EffectLook,
 	{
-		flags,
+		queue,
+		box = false,
 		cull,
 		stencil = null,
-		relight = false,
-		screen = null,
 	}: {
-		/** {@link LookFlags.Effect} and the kind's flags */
-		flags: number;
+		/** one of the effect queues */
+		queue: LookQueue;
+		/** whether the effect is a box drawn by its back faces */
+		box?: boolean;
 		cull: MaterialCull;
 		stencil?: LookStencil | null;
-		relight?: boolean;
-		screen?: ScreenEffect | null;
 	},
 ): MaterialLook => ({
 	drawn: true,
 	unsupported: false,
-	cutout: false,
-	transparent: true,
-	cull: (flags & LookFlags.EffectDecal) !== 0 ? 'front' : cull,
+	queue,
+	cull: box ? 'front' : cull,
 	castsShadows: false,
 	textures: effect.textures,
 	uvScales: effect.uvScales,
 	volumeTexture: effect.volumeTexture,
-	flags,
+	flags: LookFlags.Effect,
 	params: effect.params,
 	stencil,
-	relight,
-	screen,
 });

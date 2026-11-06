@@ -23,12 +23,12 @@ test('glass is transparent and shadowless with its blending flag', () => {
 		],
 	});
 	assert.deepEqual(
-		[blended.transparent, blended.cutout, blended.castsShadows, blended.params[LookRow.detail2 + 2]],
-		[true, false, false, 0],
+		[blended.queue, blended.castsShadows, blended.params[LookRow.detail2 + 2]],
+		['transparent', false, 0],
 	);
 	assert.equal(blended.params[LookRow.emissive2 + 3], 0.5);
 	assert.notEqual(blended.flags & LookFlags.AlphaNormal, 0);
-	assert.deepEqual([premultiplied.transparent, premultiplied.params[LookRow.detail2 + 2]], [true, 1]);
+	assert.deepEqual([premultiplied.queue, premultiplied.params[LookRow.detail2 + 2]], ['transparent', 1]);
 });
 
 /** a two-basemap Lit surface with no optional parts */

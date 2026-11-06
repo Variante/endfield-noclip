@@ -152,7 +152,7 @@ export const ditheredLook = (surface: DitheredSurface, cull: MaterialCull): Mate
 			[dither.alphaScale, dither.exponent, dither.tiling, dither.redAlpha ? 1 : 0],
 			DitherRow.dither,
 		);
-		look.cutout = true;
+		look.queue = 'cutout';
 	}
 	const { color, lighting } = surface;
 	if (lighting === null) {
@@ -197,7 +197,9 @@ export const mattePaintingLook = (surface: MattePaintingSurface, cull: MaterialC
 	}
 	const threshold = surface.alphaClip ?? -1;
 	params.set([...surface.color, threshold], LookRow.tint);
-	look.cutout = threshold >= 0 && look.textures[Slot.Base] >= 0;
+	if (threshold >= 0 && look.textures[Slot.Base] >= 0) {
+		look.queue = 'cutout';
+	}
 	params[LookRow.surface] = surface.highlight.threshold;
 	params[LookRow.surface + 1] = surface.highlight.intensity;
 	params[LookRow.emissive2 + 2] = surface.ignorePostExposure;

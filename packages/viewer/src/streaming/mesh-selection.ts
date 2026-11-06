@@ -277,7 +277,7 @@ export class MeshSelector {
 			const look = bucket.look;
 			if (bucket.castOnly) {
 				// a shadow needs only the texture holding the alpha it's cut out by
-				const alpha = look.cutout ? alphaTextureOf(look) : -1;
+				const alpha = look.queue === 'cutout' ? alphaTextureOf(look) : -1;
 				if (alpha >= 0) {
 					this.#textures.forPixels(
 						alpha,

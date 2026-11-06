@@ -87,13 +87,13 @@ export const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook =
 	// glass: the opacity is the alpha the alpha test would read, times its own. glass casting a solid shadow
 	// would darken what lies behind it, so it casts none
 	if (surface.blend !== 'opaque') {
-		look.transparent = true;
+		look.queue = 'transparent';
 		look.castsShadows = false;
 		params[LookRow.emissive2 + 3] = surface.opacity;
 		params[LookRow.detail2 + 2] = surface.blend === 'premultiplied' ? 1 : 0;
+	} else if (surface.alphaClip !== null && surface.alphaClip >= 0 && alphaTextureOf(look) >= 0) {
+		look.queue = 'cutout';
 	}
-	look.cutout =
-		!look.transparent && surface.alphaClip !== null && surface.alphaClip >= 0 && alphaTextureOf(look) >= 0;
 	params[LookRow.emissive + 3] = surface.tintCover;
 	params.set(
 		[surface.roughness[0], surface.roughness[1], surface.metallic, surface.normalScale],

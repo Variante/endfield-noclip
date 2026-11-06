@@ -98,8 +98,8 @@ test('a texture stack packs each layer’s role, red alpha, source and distortio
 		],
 	});
 	assert.deepEqual(
-		[look.transparent, look.castsShadows, look.cull, look.flags],
-		[true, false, 'back', LookFlags.Effect],
+		[look.queue, look.castsShadows, look.cull, look.flags],
+		['effect', false, 'back', LookFlags.Effect],
 	);
 	assert.deepEqual(look.textures, [1, 2, -1, -1, 4, -1, -1]);
 	assert.deepEqual(
@@ -169,7 +169,7 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 			described(1, stack({ blendMode: 2 })),
 		],
 	});
-	assert.deepEqual([decal.cull, decal.flags], ['front', LookFlags.Effect | LookFlags.EffectDecal]);
+	assert.deepEqual([decal.cull, decal.flags, decal.queue], ['front', LookFlags.Effect, 'effectDecal']);
 	assert.deepEqual(
 		[...decal.params.subarray(EffectRow.decalFade, EffectRow.decalFade + 4)],
 		[0.1, 0.2, 0.3, 2].map(Math.fround),
@@ -179,7 +179,7 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 		[0.5, 5, Math.fround(NO_WATER_BLEND), 1],
 	);
 	assert.deepEqual([...decal.params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
-	assert.equal(multiply.screen, 'multiply');
+	assert.equal(multiply.queue, 'screenMultiply');
 	assert.equal(multiply.params[EffectRow.unfogged + 2], 2);
 });
 
@@ -277,10 +277,10 @@ test('a stack’s vertex offset takes the offset slot and rows, and its stencil 
 	assert.deepEqual([...moved.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 1]);
 	assert.equal(moved.params[EffectRow.decal + 3], 3);
 	assert.deepEqual(
-		[portal.stencil?.compare, portal.stencil?.depthCompare, portal.stencil?.maskOnly],
-		['equal', 'greater-equal', false],
+		[portal.stencil?.compare, portal.stencil?.depthCompare, portal.queue],
+		['equal', 'greater-equal', 'effect'],
 	);
-	assert.deepEqual([mask.transparent, mask.castsShadows, mask.stencil?.maskOnly], [false, false, true]);
+	assert.deepEqual([mask.queue, mask.castsShadows, mask.stencil === null], ['stencilMask', false, false]);
 });
 
 test('a soft body takes the offset slot for its position texture, with its playback and bounds in the offset rows', () => {

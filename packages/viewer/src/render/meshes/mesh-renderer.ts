@@ -4,6 +4,7 @@ import {
 	GeometryFlags,
 	LOOK_FLOATS,
 	LookFlags,
+	type LookQueue,
 	type LookStencil,
 	type MaterialLook,
 	SLOTS,
@@ -101,21 +102,62 @@ const withStencil = (
 	};
 };
 
-/** the draws a phase runs over: prepared in this order */
-type DrawRange =
-	| 'opaque'
-	| 'cutout'
-	| 'stencilMask'
-	| 'transparent'
-	| 'effect'
-	| 'effectDecal'
-	| 'mist'
-	| 'mistVolume'
-	| 'decalRelight'
-	| 'screenMultiply'
-	| 'refract'
-	| 'waterFoam'
-	| 'waterFoamBehind';
+/** the draws a phase runs over: the draws of a look queue */
+type DrawRange = LookQueue;
+
+/**
+ * @param look a bucket's look
+ * @param context whether the bucket only casts shadows, whether the depth buffer has a stencil, and its
+ *   material's state
+ * @returns the range the bucket's draws join this frame, or `null` if they don't draw
+ */
+const drawRangeOf = (
+	look: MaterialLook,
+	{
+		castOnly,
+		stencil,
+		state,
+	}: { castOnly: boolean; stencil: boolean; state: Pick<MaterialState, 'slots' | 'alphaReady' | 'complete'> },
+): DrawRange | null => {
+	const queue = look.queue;
+	if (castOnly && (!look.castsShadows || (queue !== 'opaque' && queue !== 'cutout'))) {
+		return null;
+	}
+	// a portal's effects would show unmasked, and its mask would draw as a solid surface
+	if (look.stencil !== null && !stencil) {
+		return null;
+	}
+	if (queue === 'stencilMask') {
+		return queue;
+	}
+	// unlit looks are their texture, so they wait for it rather than draw as solid cards. the unsupported
+	// checker has none to wait for
+	if ((look.flags & LookFlags.Unlit) !== 0 && look.textures[0] >= 0 && state.slots[0] === null) {
+		return null;
+	}
+	switch (queue) {
+		case 'opaque':
+		case 'transparent': {
+			return queue;
+		}
+		// without the texture holding its alpha there's nothing to test yet, so it draws opaque
+		case 'cutout': {
+			return state.alphaReady ? queue : 'opaque';
+		}
+		// effects are made of their textures, so they wait for all of them
+		case 'effect':
+		case 'effectDecal':
+		case 'mist':
+		case 'mistVolume':
+		case 'decalRelight':
+		case 'screenMultiply':
+		case 'refract':
+		case 'waterFoam':
+		case 'waterFoamBehind': {
+			return state.complete ? queue : null;
+		}
+	}
+};
 
 /**
  * the vertex streams a phase's pipelines read, in buffer slot order: every stream, positions alone (opaque
@@ -166,13 +208,13 @@ const RELIGHT_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/decal-relight', range: 'decalRelight', textured: true, shadow: false, streams: 'all' },
 ];
 
-/** effects that multiply the composited scene (`MaterialLook.screen`), drawn over it */
+/** effects that multiply the composited scene (`MaterialLook.queue`), drawn over it */
 const MULTIPLY_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/effect-multiply', range: 'screenMultiply', textured: true, shadow: false, streams: 'all' },
 ];
 
 /**
- * effects that sample a copy of the composited scene (`MaterialLook.screen`), drawn over it after the
+ * effects that sample a copy of the composited scene (`MaterialLook.queue`), drawn over it after the
  * multiplies
  */
 const REFRACT_PHASES: readonly DrawPhase[] = [
@@ -180,8 +222,8 @@ const REFRACT_PHASES: readonly DrawPhase[] = [
 ];
 
 /**
- * WaterDecal boxes (`MaterialLook.screen`), drawn into the water's foam before the water draws: those the
- * game depth-tests in front of the scene, then those it tests behind it
+ * WaterDecal boxes (`MaterialLook.queue`), drawn into the water's foam before the water draws: those the game
+ * depth-tests in front of the scene, then those it tests behind it
  */
 const WATER_FOAM_PHASES: readonly DrawPhase[] = [
 	{ key: 'mesh/water-foam', range: 'waterFoam', textured: true, shadow: false, streams: 'all' },
@@ -952,94 +994,48 @@ export class MeshRenderer {
 	 */
 	prepare(buckets: readonly MeshBucket[], textures: TextureStore): void {
 		this.clear();
-		const opaque = this.#opaqueOrder;
-		const cutout = this.#cutoutOrder;
-		const stencilMasks = this.#stencilMaskOrder;
-		const transparent = this.#transparentOrder;
-		const effects = this.#effectOrder;
-		const decals = this.#decalOrder;
-		const mists = this.#mistOrder;
-		const mistVolumes = this.#mistVolumeOrder;
-		const relit = this.#relightOrder;
-		const multiplies = this.#multiplyOrder;
-		const refracts = this.#refractOrder;
-		const foams = this.#foamOrder;
-		const foamsBehind = this.#foamBehindOrder;
-		opaque.length = 0;
-		cutout.length = 0;
-		stencilMasks.length = 0;
-		transparent.length = 0;
-		effects.length = 0;
-		decals.length = 0;
-		mists.length = 0;
-		mistVolumes.length = 0;
-		relit.length = 0;
-		multiplies.length = 0;
-		refracts.length = 0;
-		foams.length = 0;
-		foamsBehind.length = 0;
+		const orders = {
+			opaque: this.#opaqueOrder,
+			cutout: this.#cutoutOrder,
+			stencilMask: this.#stencilMaskOrder,
+			transparent: this.#transparentOrder,
+			effect: this.#effectOrder,
+			effectDecal: this.#decalOrder,
+			mist: this.#mistOrder,
+			mistVolume: this.#mistVolumeOrder,
+			decalRelight: this.#relightOrder,
+			screenMultiply: this.#multiplyOrder,
+			refract: this.#refractOrder,
+			waterFoam: this.#foamOrder,
+			waterFoamBehind: this.#foamBehindOrder,
+		} satisfies Record<DrawRange, MeshBucket[]>;
+		for (const order of Object.values(orders)) {
+			order.length = 0;
+		}
+		const {
+			opaque,
+			cutout,
+			stencilMask: stencilMasks,
+			transparent,
+			effect: effects,
+			effectDecal: decals,
+			mist: mists,
+			mistVolume: mistVolumes,
+			decalRelight: relit,
+			screenMultiply: multiplies,
+			refract: refracts,
+			waterFoam: foams,
+			waterFoamBehind: foamsBehind,
+		} = orders;
 		for (const bucket of buckets) {
 			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
 			}
 			const look = bucket.look;
-			if (bucket.castOnly && (!look.castsShadows || look.transparent)) {
-				continue;
-			}
-			// a portal's effects would show unmasked, and its mask would draw as a solid surface
-			if (look.stencil !== null && !this.#stencil) {
-				continue;
-			}
-			if (look.stencil?.maskOnly === true) {
-				stencilMasks.push(bucket);
-				continue;
-			}
 			const state = this.#materialState(bucket.material, look, textures);
-			// unlit looks are their texture, so they wait for it rather than draw as solid cards. the unsupported
-			// checker has none to wait for
-			if ((look.flags & LookFlags.Unlit) !== 0 && look.textures[0] >= 0 && state.slots[0] === null) {
-				continue;
-			}
-			// effects are made of their textures, so they wait for all of them
-			if ((look.flags & LookFlags.Effect) !== 0) {
-				if (state.complete) {
-					const decal = (look.flags & LookFlags.EffectDecal) !== 0;
-					if ((look.flags & LookFlags.EffectMist) !== 0) {
-						(decal ? mistVolumes : mists).push(bucket);
-					} else if (look.screen !== null) {
-						switch (look.screen) {
-							case 'multiply': {
-								multiplies.push(bucket);
-								break;
-							}
-							case 'refract': {
-								refracts.push(bucket);
-								break;
-							}
-							case 'waterFoam': {
-								foams.push(bucket);
-								break;
-							}
-							case 'waterFoamBehind': {
-								foamsBehind.push(bucket);
-								break;
-							}
-						}
-					} else if (look.relight) {
-						relit.push(bucket);
-					} else {
-						(decal ? decals : effects).push(bucket);
-					}
-				}
-				continue;
-			}
-			// without the texture holding its alpha there's nothing to test yet, so it draws opaque
-			if (look.transparent) {
-				transparent.push(bucket);
-			} else if (look.cutout && state.alphaReady) {
-				cutout.push(bucket);
-			} else {
-				opaque.push(bucket);
+			const range = drawRangeOf(look, { castOnly: bucket.castOnly, stencil: this.#stencil, state });
+			if (range !== null) {
+				orders[range].push(bucket);
 			}
 		}
 		opaque.sort(byPipelineThenNearest);

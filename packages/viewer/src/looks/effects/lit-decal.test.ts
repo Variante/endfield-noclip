@@ -59,10 +59,7 @@ test('a lit decal draws its maps through the placement or the PBR map’s own tr
 			}),
 		],
 	});
-	assert.deepEqual(
-		[look.flags, look.cull, look.relight],
-		[LookFlags.Effect | LookFlags.EffectDecal, 'front', false],
-	);
+	assert.deepEqual([look.flags, look.cull, look.queue], [LookFlags.Effect, 'front', 'effectDecal']);
 	assert.deepEqual(look.textures.slice(0, 2), [1, 2]);
 	// the placement's colour and UV transform are the row's: the look holds the opacity, and that the PBR map
 	// takes the placement's transform
@@ -76,7 +73,7 @@ test('a lit decal draws its maps through the placement or the PBR map’s own tr
 		[3, 0, 1],
 	);
 	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.LitDecal);
-	assert.equal(water.relight, true);
+	assert.equal(water.queue, 'decalRelight');
 	assert.equal(water.params[DecalLitRow.pbrPlaced], 0);
 	assert.deepEqual(
 		[...water.params.subarray(EffectRow.uv + 4, EffectRow.uv + 6)].map((v) => Math.round(v * 1000) / 1000),

@@ -48,8 +48,8 @@ test('a light beam is a shadowless effect with its cone, falloff and colour in t
 		entries: [described(0, beam), described(1, { ...beam, additive: false, unfogged: false })],
 	});
 	assert.deepEqual(
-		[look.unsupported, look.transparent, look.castsShadows, look.cull],
-		[false, true, false, 'back'],
+		[look.unsupported, look.queue, look.castsShadows, look.cull],
+		[false, 'effect', false, 'back'],
 	);
 	assert.notEqual(look.flags & LookFlags.Effect, 0);
 	assert.equal(look.params[EffectRow.unfogged + 1], EffectKind.Beam);

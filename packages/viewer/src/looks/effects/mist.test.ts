@@ -60,7 +60,7 @@ test('mist: cards and boxes draw in the mist rows; boxes by their back faces, wi
 	const [cardLook, boxLook, plainLook] = materialLooks({
 		entries: [described(0, card), described(1, box), described(2, { ...box, noise: null })],
 	});
-	assert.equal(cardLook.flags, LookFlags.Effect | LookFlags.EffectMist);
+	assert.deepEqual([cardLook.flags, cardLook.queue], [LookFlags.Effect, 'mist']);
 	assert.deepEqual(cardLook.textures.slice(0, 2), [1, 2]);
 	assert.equal(cardLook.params[MistRow.card], 2);
 	assert.deepEqual(
@@ -73,7 +73,7 @@ test('mist: cards and boxes draw in the mist rows; boxes by their back faces, wi
 		[0.001, 0.0011, 3000, 2500],
 	);
 	assert.equal(cardLook.params[MistRow.top + 2], 12);
-	assert.equal(boxLook.flags, LookFlags.Effect | LookFlags.EffectMist | LookFlags.EffectDecal);
+	assert.deepEqual([boxLook.flags, boxLook.queue], [LookFlags.Effect, 'mistVolume']);
 	assert.equal(boxLook.cull, 'front');
 	assert.deepEqual([boxLook.params[MistRow.volume + 1], boxLook.params[MistRow.volume + 3]], [4, 0]);
 	assert.equal(boxLook.volumeTexture, 3);

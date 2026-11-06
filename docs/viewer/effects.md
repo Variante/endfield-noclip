@@ -50,7 +50,7 @@ what's left out is in [status](../status.md).
 
 effects whose blending the transparent pass's targets can't hold draw after compositing (and after
 the water), into the composited scene with the main pass's depth attached read-only
-(`MaterialLook.screen`, `encodeMultiply` and `encodeRefract` in
+(`MaterialLook.queue`, `encodeMultiply` and `encodeRefract` in
 [`mesh-renderer.ts`](../../packages/viewer/src/render/meshes/mesh-renderer.ts)):
 
 - `_BlendMode` 2 VFXBaseV2 layers multiply the scene (`fs_effect_multiply`). they have no stencil

@@ -56,7 +56,7 @@ test('a water foam box draws into the water’s foam, by the depth test its mate
 	const [front, behind] = materialLooks({
 		entries: [described(0, foam), described(1, { ...foam, depthTest: 'greater', clipToBox: true }, 'front')],
 	});
-	assert.deepEqual([front.screen, behind.screen], ['waterFoam', 'waterFoamBehind']);
+	assert.deepEqual([front.queue, behind.queue], ['waterFoam', 'waterFoamBehind']);
 	assert.deepEqual([front.cull, behind.cull], ['back', 'front']);
 	assert.deepEqual(front.textures, [1, 2, 3, -1, -1, -1, -1]);
 	assert.equal(front.params[EffectRow.unfogged + 1], EffectKind.WaterFoam);

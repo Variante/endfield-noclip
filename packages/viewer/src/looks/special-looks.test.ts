@@ -25,7 +25,7 @@ test('matte paintings are unlit, cast no shadows and test the texture alpha agai
 	});
 	const [look] = materialLooks({ entries: [entry] });
 	assert.equal(look.castsShadows, false);
-	assert.equal(look.cutout, true);
+	assert.equal(look.queue, 'cutout');
 	assert.equal(look.textures[0], 7);
 	assert.deepEqual(Array.from(look.params.subarray(0, 4)), [2, 2, 2, Math.fround(0.2)]);
 	assert.deepEqual(Array.from(look.params.subarray(LookRow.surface, LookRow.surface + 2)), [1, 4]);
@@ -68,12 +68,12 @@ test('dithered effects shade as opaque shadowless surfaces, or unlit, and dither
 			}),
 		],
 	});
-	assert.deepEqual([rock.cutout, rock.castsShadows, rock.cull], [false, false, 'none']);
+	assert.deepEqual([rock.queue, rock.castsShadows, rock.cull], ['opaque', false, 'none']);
 	assert.deepEqual(rock.textures.slice(0, 3), [3, 5, -1]);
 	assert.equal(rock.flags, LookFlags.BaseMap | LookFlags.NormalMap | LookFlags.NormalRag);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.surface, LookRow.surface + 4)), [1, 1, 0, 1.5]);
 	assert.deepEqual(Array.from(rock.params.subarray(LookRow.uv, LookRow.uv + 4)), [4, 4, 0, 0]);
-	assert.equal(spot.cutout, true);
+	assert.equal(spot.queue, 'cutout');
 	assert.notEqual(spot.flags & LookFlags.Unlit, 0);
 	assert.equal(spot.params[LookRow.tint + 3], -1);
 	assert.deepEqual(Array.from(spot.params.subarray(DitherRow.dither, DitherRow.dither + 4)), [0.75, 1, 1, 0]);
