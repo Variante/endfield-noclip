@@ -16,7 +16,6 @@ import {
 } from '../content/instance-rows.ts';
 import type { RangeAllocation } from '../gfx/range-allocator.ts';
 import type { Vec3 } from '../scene/camera.ts';
-import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { hash2, hashText } from './random.ts';
 import { MAX_PARTICLES, PARTICLE_FLOATS, ParticleFloat, ParticleSimulation } from './simulation.ts';
@@ -114,6 +113,19 @@ interface Emitter {
 	live: number[];
 }
 
+/**
+ * what {@link ParticleField} reads of a resident instance block. the same object must stand for the block
+ * while it's resident, since it keys the block's emitters
+ */
+export interface EmitterBlock {
+	/** the block's rows, each starting with its rows3x4 transform relative to {@link origin} */
+	readonly rowsF32: Float32Array;
+	/** the world origin of the rows, f64 */
+	readonly origin: readonly [x: number, y: number, z: number];
+	/** the block's slot, which its particles' rows name */
+	readonly blockSlot: number;
+}
+
 /** what {@link ParticleField} needs of the instance buffer */
 export interface ParticleRowStore {
 	allocateRows(count: number): RangeAllocation | null;
@@ -130,7 +142,7 @@ export class ParticleField {
 	/** each system's seed salt, the same for entries differing only in their mesh */
 	readonly #salts: number[];
 	readonly #store: ParticleRowStore;
-	readonly #emitters = new Map<ResidentInstances, Map<number, Emitter>>();
+	readonly #emitters = new Map<EmitterBlock, Map<number, Emitter>>();
 	readonly #scratch = new Float32Array(MAX_PARTICLES * PARTICLE_FLOATS);
 	readonly #rows = new Uint32Array(MAX_PARTICLES * ROW_WORDS);
 	readonly #rowsF32 = new Float32Array(this.#rows.buffer);
@@ -156,7 +168,7 @@ export class ParticleField {
 	 * @returns the global row indices of its live particles (valid until the next frame)
 	 */
 	rows(
-		instances: ResidentInstances,
+		instances: EmitterBlock,
 		row: number,
 		system: number,
 		frame: number,
@@ -200,7 +212,7 @@ export class ParticleField {
 	}
 
 	/** forgets a released block's emitters and frees their rows */
-	release(instances: ResidentInstances): void {
+	release(instances: EmitterBlock): void {
 		const emitters = this.#emitters.get(instances);
 		if (emitters === undefined) {
 			return;
@@ -211,7 +223,7 @@ export class ParticleField {
 		this.#emitters.delete(instances);
 	}
 
-	#write(instances: ResidentInstances, row: number, emitter: Emitter, view: ParticleView): void {
+	#write(instances: EmitterBlock, row: number, emitter: Emitter, view: ParticleView): void {
 		const simulation = emitter.simulation;
 		const info = simulation.info;
 		const f32 = instances.rowsF32;

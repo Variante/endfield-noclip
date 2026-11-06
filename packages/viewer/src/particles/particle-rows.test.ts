@@ -9,9 +9,9 @@ import {
 
 import { ROW_WORDS, RowBillboard, RowWord } from '../content/instance-rows.ts';
 import type { Vec3 } from '../scene/camera.ts';
-import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import {
+	type EmitterBlock,
 	ParticleField,
 	type ParticleRowStore,
 	type ParticleView,
@@ -34,7 +34,7 @@ describe('ParticleField', () => {
 		const rowsF32 = new Float32Array(ROW_WORDS);
 		rowsF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 		// the field reads only the emitter row, the block's origin and its slot
-		const instances = { rowsF32, origin: [0, 0, 0], blockSlot: 0 } as unknown as ResidentInstances;
+		const instances = { rowsF32, origin: [0, 0, 0], blockSlot: 0 } satisfies EmitterBlock;
 		const field = new ParticleField({ systems: [info] }, store);
 		assert.equal(field.rows(instances, 0, 0, 0, { time: 0, ...view }).length, 1);
 		return rows;
