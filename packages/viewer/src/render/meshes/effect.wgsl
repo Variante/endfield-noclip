@@ -1038,7 +1038,7 @@ fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 		sw_absorb(negative.g, exponent, range) + sw_absorb(negative.b, exponent, range);
 	var ambient = ambient_irradiance(world, n) * all_axes;
 	{
-		let grey = dot(ambient, vec3f(0.2126729, 0.7151522, 0.0721750));
+		let grey = dot(ambient, LUMINANCE);
 		ambient = mix(vec3f(grey), ambient, row.w);
 	}
 	let l = frame.sun.xyz;
@@ -1188,17 +1188,11 @@ fn fs_water_foam(in: EffectOut) -> @location(0) vec4f {
 
 // unpacks the normal of `pack_reflection_surface` (frame.wgsl), or returns zero where nothing lit was drawn
 fn fx_surface_normal(px: vec2i) -> vec3f {
-	let packed = textureLoad(fx_surface, px, 0).xy;
-	if ((packed.y & (1u << 30u)) == 0u) {
+	let surface = unpack_reflection_surface(textureLoad(fx_surface, px, 0).xy);
+	if (!surface.valid) {
 		return vec3f(0.0);
 	}
-	let e = vec2f(f32(packed.x & 0xfffu), f32((packed.x >> 12u) & 0xfffu)) / 4095.0 * 2.0 - 1.0;
-	var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0) {
-		let s = select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0));
-		n = vec3f((1.0 - abs(n.yx)) * s, n.z);
-	}
-	return normalize(n);
+	return surface.normal;
 }
 
 // VFXDecal boxes, drawn by their back faces without a depth test: each covered pixel finds the main pass's
@@ -1271,11 +1265,10 @@ fn ld_channel(p: vec4f, channel: f32, offset: f32) -> f32 {
 	return mix(mix(p.x, p.y, saturate(c - 2.0)), mix(p.z, p.w, saturate(c - 4.0)), saturate(c - 3.0));
 }
 
-// a decoded tangent-space normal map texel: RG · 2 − 1 with the game's dead zone, and the z that makes it unit
+// a decoded tangent-space normal map texel, unit length
 fn ld_tangent_normal(rg: vec2f) -> vec3f {
-	var xy = rg * 2.0 - 1.0;
-	xy = select(xy, vec2f(0.0), abs(xy) < vec2f(0.012));
-	return vec3f(xy, max(1.0 / 2048.0, sqrt(saturate(1.0 - dot(xy, xy)))));
+	let xy = unpack_normal_xy(rg);
+	return vec3f(xy, normal_z(xy));
 }
 
 // what a lit decal makes of the surface beneath at one pixel

@@ -1,5 +1,6 @@
 // skins an animated geometry's bind pose at the current frame and writes the result over its own vertex
-// streams, in the formats the mesh pipelines read (`DecodedSkin`, `SkinAnimation` in the package format)
+// streams, in the formats the mesh pipelines read (`DecodedSkin`, `SkinAnimation` in the package format).
+// needs octahedral.wgsl
 
 struct Skin {
 	vertex_count: u32,
@@ -32,15 +33,8 @@ const NONE = 0xffffffffu;
 @group(0) @binding(2) var<storage, read> frames: array<vec4f>;
 @group(0) @binding(3) var<storage, read_write> vertices: array<u32>;
 
-fn oct_decode(e: vec2f) -> vec3f {
-	var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0) {
-		n = vec3f((1.0 - abs(n.yx)) * select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0)), n.z);
-	}
-	return normalize(n);
-}
-
-fn oct_encode(v: vec3f) -> vec2f {
+// `oct_encode` (octahedral.wgsl), safe for the zero vector a vertex without weights turns its directions into
+fn oct_encode_guarded(v: vec3f) -> vec2f {
 	let n = v / max(abs(v.x) + abs(v.y) + abs(v.z), 1e-20);
 	if (n.z < 0.0) {
 		return (1.0 - abs(n.yx)) * select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0));
@@ -90,11 +84,11 @@ fn cs_skin(@builtin(global_invocation_id) id: vec3u) {
 	let linear = mat3x3f(r0.xyz, r1.xyz, r2.xyz);
 	if (skin.normal_out != NONE) {
 		let normal = oct_decode(unpack2x16snorm(source[skin.normal_in + v]));
-		vertices[skin.normal_out + v] = pack2x16snorm(oct_encode(normal * linear));
+		vertices[skin.normal_out + v] = pack2x16snorm(oct_encode_guarded(normal * linear));
 	}
 	if (skin.tangent_out != NONE) {
 		let tangent = unpack4x8snorm(source[skin.tangent_in + v]);
-		let turned = oct_encode(oct_decode(tangent.xy) * linear);
+		let turned = oct_encode_guarded(oct_decode(tangent.xy) * linear);
 		vertices[skin.tangent_out + v] = pack4x8snorm(vec4f(turned, tangent.z, 0.0));
 	}
 }

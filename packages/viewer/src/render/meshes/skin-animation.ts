@@ -1,5 +1,6 @@
 import { createBufferWithData } from '../../gfx/buffers.ts';
 import type { DecodedSkin } from '../../package/decode-protocol.ts';
+import octahedralWgsl from '../shaders/common/octahedral.wgsl?raw';
 
 import { skinFrame } from './skin-frame.ts';
 import skinWgsl from './skin.wgsl?raw';
@@ -37,7 +38,7 @@ export class SkinAnimator {
 	/** @param device the device */
 	constructor(device: GPUDevice) {
 		this.#device = device;
-		const module = device.createShaderModule({ label: 'skin', code: skinWgsl });
+		const module = device.createShaderModule({ label: 'skin', code: octahedralWgsl + '\n' + skinWgsl });
 		this.#pipeline = device.createComputePipeline({
 			label: 'skin',
 			layout: 'auto',

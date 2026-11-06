@@ -316,16 +316,6 @@ fn blend_mask_channel(s: Surface, w: f32, albedo: vec3f, roughness: f32, metalli
 	return out;
 }
 
-// a tangent-space normal from a map's RG, with the game's dead zone around flat and the Z floor
-fn unpack_normal_xy(rg: vec2f) -> vec2f {
-	let xy = rg * 2.0 - 1.0;
-	return select(xy, vec2f(0.0), abs(xy) < vec2f(0.012));
-}
-
-fn normal_z(xy: vec2f) -> f32 {
-	return max(1.0 / 2048.0, sqrt(saturate(1.0 - dot(xy, xy))));
-}
-
 // reoriented normal mapping of a tangent-space normal, its x and y already negated, onto a base normal
 fn reorient_normal(base: vec3f, flipped: vec3f) -> vec3f {
 	let b = base + vec3f(0.0, 0.0, 1.0);
@@ -413,7 +403,7 @@ fn layer_surface(
 	let normal = draw.parallax_bright;
 	let fuzzy = draw.foliage;
 	let fuzzy2 = draw.foliage_ao;
-	let luma = dot(layer.rgb, vec3f(0.2126729, 0.7151522, 0.0721750));
+	let luma = dot(layer.rgb, LUMINANCE);
 	let tinted = mix(vec3f(luma), layer.rgb, color.w) * color.rgb * (1.0 - edge * fuzzy2.x);
 	// darker facing the viewer, brighter towards the silhouette, the more so the brighter the moss
 	let core = mix(1.0 - fuzzy.x, 1.0, pow(facing, fuzzy2.y));

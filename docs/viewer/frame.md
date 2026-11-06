@@ -107,9 +107,10 @@ what each post pass computes is in [post-processing](post-processing.md) and
   post uniforms to group 3
   ([`render/post/shader-source.ts`](../../packages/viewer/src/render/post/shader-source.ts)). WGSL
   helpers that several shaders share (noise, colour conversions, luminance weights, the screen-space
-  projection, the octahedral codec, the reflection surface's packing, the Henyey–Greenstein phase)
-  are in [`render/shaders/common/`](../../packages/viewer/src/render/shaders/common/); TS constants
-  a shader reads are declared into its source with `wgslConst`
+  projection, the octahedral codec, the reflection surface's packing, the Henyey–Greenstein phase,
+  normal-map texels) are in
+  [`render/shaders/common/`](../../packages/viewer/src/render/shaders/common/); TS constants a
+  shader reads are declared into its source with `wgslConst`
   ([`render/shaders/wgsl-const.ts`](../../packages/viewer/src/render/shaders/wgsl-const.ts)).
 - **debug views** (`albedo`, `normals`, `roughness`, `ambient`, and `clouds` for the raw cloud
   panorama) show the main pass as it is: no shadows, local lights, cloud shadows, exposure,

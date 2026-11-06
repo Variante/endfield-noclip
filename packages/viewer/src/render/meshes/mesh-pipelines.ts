@@ -11,6 +11,7 @@ import {
 	TRANSPARENT_TARGETS,
 	WATER_FOAM_FORMAT,
 } from '../frame/render-targets.ts';
+import normalMapWgsl from '../shaders/common/normal-map.wgsl?raw';
 import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 
 import { type DrawPhase, PHASES, type VertexStreams } from './draw-ranges.ts';
@@ -124,7 +125,7 @@ export const prepareMeshPipelines = (
 	};
 
 	// #region meshes
-	const module = pipelines.module('mesh', FRAME_WGSL + meshWgsl);
+	const module = pipelines.module('mesh', FRAME_WGSL + normalMapWgsl + meshWgsl);
 	/** describes a phase of the mesh shader */
 	const describeMesh = (
 		phase: DrawPhase,
@@ -177,7 +178,7 @@ export const prepareMeshPipelines = (
 
 	// #region scene effects
 	const effectLayout = createEffectLayout(device);
-	const effectModule = pipelines.module('mesh-effect', FRAME_WGSL + effectWgsl);
+	const effectModule = pipelines.module('mesh-effect', FRAME_WGSL + normalMapWgsl + effectWgsl);
 	const effectPipelineLayout = device.createPipelineLayout({
 		label: 'effect',
 		bindGroupLayouts: [layouts.frame, layouts.instances, layouts.draw, effectLayout],
