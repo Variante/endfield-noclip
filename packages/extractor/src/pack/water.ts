@@ -25,10 +25,12 @@ import {
 	loadSectorTexture,
 	loadWaterGlobalConfig,
 	loadWaterSurfaceConfig,
+	type LoadedWaterConfig,
 	readSceneWater,
 	type SourcedWaterSurface,
 } from '../game/water-source.ts';
 import type { ScriptWaterLevel } from '../game/water-volume-scripts.ts';
+import { loadVolumeSurfaceConfigs } from '../game/water-volume-surfaces.ts';
 import type { LevelWaterVolume } from '../game/water-volumes.ts';
 import type { ChunkSource } from '../game/world-index.ts';
 
@@ -170,23 +172,35 @@ export const planWater = async (
 			errors: options.volumes.unsupported.map(({ path, reason }) => `water volumes of ${path}: ${reason}`),
 		},
 	};
-	const volumes = options.volumes.volumes.flatMap((volume) => {
-		const { configHash } = volume;
-		if (configHash === null) {
-			plan.debug.errors.push(`water volume ${volume.id} names no water config`);
-			return [];
-		}
+	const volumes = options.volumes.volumes.filter((volume) => {
 		const [x, z] = polygonCenter(volume.points);
-		return options.includes(volume.levelTag, x, z) ? [{ ...volume, configHash }] : [];
+		return options.includes(volume.levelTag, x, z);
 	});
 	if (selected.length === 0 && volumes.length === 0) {
 		return plan;
 	}
 	const [resolver, pathOf] = await Promise.all([context.resolver(), world.pathLookup()]);
 
+	// volumes that name no config take their liquid's surface prefab's
+	const liquids = unique(
+		volumes.filter((volume) => volume.configHash === null).map(({ itemType }) => itemType),
+	);
+	let liquidConfigs = new Map<string, LoadedWaterConfig<WaterSurfaceConfig> | Error>();
+	if (liquids.length > 0) {
+		try {
+			liquidConfigs = await loadVolumeSurfaceConfigs({ world, resolver }, liquids);
+		} catch (error) {
+			plan.debug.errors.push(`water volume surfaces: ${errorText(error)}`);
+		}
+	}
+
+	/** by config key (a path hash, or a liquid's item type), its table index */
+	const configIndex = new Map<bigint | string, number>();
+	/** by liquid item type, its config's name (reached by PPtr, so its path isn't known) */
+	const liquidConfigNames = new Map<string, string>();
 	const configHashes = unique([
 		...selected.map((surface) => surface.configHash),
-		...volumes.map((volume) => volume.configHash),
+		...volumes.flatMap((volume) => (volume.configHash === null ? [] : [volume.configHash])),
 	]);
 	const loaded = await Promise.all(
 		configHashes.map(async (hash) => {
@@ -198,13 +212,29 @@ export const planWater = async (
 			}
 		}),
 	);
-	const configIndex = new Map<bigint, number>();
 	for (const [i, entry] of loaded.entries()) {
 		if (entry instanceof Error) {
 			plan.debug.errors.push(entry.message);
 		} else {
 			configIndex.set(configHashes[i], plan.table.configs.length);
 			plan.table.configs.push(entry);
+		}
+	}
+	for (const liquid of liquids) {
+		const loadedConfig = liquidConfigs.get(liquid);
+		if (loadedConfig === undefined) {
+			continue;
+		}
+		try {
+			if (loadedConfig instanceof Error) {
+				throw loadedConfig;
+			}
+			const entry = configEntry(loadedConfig.config);
+			configIndex.set(liquid, plan.table.configs.length);
+			liquidConfigNames.set(liquid, entry.name);
+			plan.table.configs.push(entry);
+		} catch (error) {
+			plan.debug.errors.push(`${liquid} surface config: ${errorText(error)}`);
 		}
 	}
 
@@ -227,7 +257,7 @@ export const planWater = async (
 	}
 	plan.debug.surfaces.packed = plan.table.surfaces.length;
 	for (const volume of volumes) {
-		const config = configIndex.get(volume.configHash);
+		const config = configIndex.get(volume.configHash ?? volume.itemType);
 		if (config === undefined) {
 			continue;
 		}
@@ -250,7 +280,10 @@ export const planWater = async (
 			name: `water volume ${volume.id}`,
 			file: volume.source,
 			mesh: null,
-			config: pathOf(volume.configHash) ?? null,
+			config:
+				volume.configHash === null
+					? (liquidConfigNames.get(volume.itemType) ?? null)
+					: (pathOf(volume.configHash) ?? null),
 			renderTypeMask: null,
 			param1: null,
 		});

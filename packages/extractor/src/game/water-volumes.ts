@@ -27,6 +27,8 @@ export interface LevelWaterVolume {
 	amountMax: number;
 	/** metres per second the surface moves at when scripts move it at a fixed speed */
 	fillSpeed: number;
+	/** the liquid's factory item id, e.g. `item_liquid_acid`, which picks its surface when it names no config */
+	itemType: string;
 	/** the surface `WaterConfig` the volume draws with, or `null` when it names none */
 	configHash: bigint | null;
 	/** `<LevelData path>#<id>` */
@@ -175,6 +177,7 @@ const toVolume = (
 		fraction: amountMax > 0 ? numberOf(row, 'amountCurrent') / amountMax : 0,
 		amountMax,
 		fillSpeed: numberOf(row, 'fillSpeed'),
+		itemType: idOf(row, 'waterItemType'),
 		configHash: configHash === 0n ? null : configHash,
 		source: `${owner.path}#${id}`,
 	};

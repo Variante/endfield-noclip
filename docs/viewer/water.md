@@ -87,8 +87,11 @@ drops the picks with every other control's, putting every volume back at its aut
 
 it differs from the game in that:
 
-- only volumes that bind a `WaterConfig` are packed and drawn; the others, which the game draws
-  through its per-type surface prefabs, are listed in `debug/water.json`
+- a volume that names no config draws with its water type's
+  [surface prefab](../game-data/water.md#water-volumes) config (resolved by
+  [water-volume-surfaces.ts](../../packages/extractor/src/game/water-volume-surfaces.ts)); the
+  prefab's foam decal and its per-level multipliers aren't drawn, and the outline is always
+  triangulated, where the game loads the volume's prebuilt `_WaterSurface` mesh of the same outline
 - moves are linear: the game's ease over the last metres, and the eased moves of scripts that don't
   fix the speed, aren't reproduced (those use the fill speed as metres per second)
 - floaters keep their authored height above the surface instead of settling to `surface_offset`, and

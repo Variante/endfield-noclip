@@ -207,27 +207,45 @@ besides the surfaces above, levels place gameplay water whose surface moves: Lev
 map is map02, 13 moved by scripts), Suiming, a race, three dungeons and eight factory puzzle scenes.
 a volume holds:
 
-| field                                                                         | meaning                                                                                                     |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `id`                                                                          | entity id; scripts and floaters name the volume by it                                                       |
-| `pivot`                                                                       | the volume's floor; `pivot.y` is where its height counts from                                               |
-| `points`                                                                      | the outline, world positions at `pivot.y`; the game triangulates it in x, z into a flat surface mesh        |
-| `heightMax`                                                                   | metres from the pivot to a full volume                                                                      |
-| `amountCurrent`, `amountMax`                                                  | the authored fill; the surface sits at `pivot.y + heightMax · amountCurrent / amountMax`                    |
-| `isInfinite`                                                                  | the fill is a fraction scripts set directly (`WaterVolumeInfiniteSetHeight`) rather than an amount of water |
-| `fillSpeed`                                                                   | metres per second for fixed-speed moves (below)                                                             |
-| `flowSpeed`, `flowDirection` (degrees)                                        | the surface's flow                                                                                          |
-| `isUseLunaConfig`, `lunaConfigPathHash`                                       | the surface `WaterConfig` it draws with, as an ordinary surface does                                        |
-| `obbCenter`, `obbRotation`, `obbSize`                                         | the volume's box, for gameplay (swimming, the danger area)                                                  |
-| `waterItemType`, `waterNameLangKey`, `isPrototype`, nav-mesh and audio fields | gameplay; `isPrototype` is false on every map02 volume and its meaning isn't recovered                      |
+| field                                                        | meaning                                                                                                     |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `id`                                                         | entity id; scripts and floaters name the volume by it                                                       |
+| `pivot`                                                      | the volume's floor; `pivot.y` is where its height counts from                                               |
+| `points`                                                     | the outline, world positions at `pivot.y`; the game triangulates it in x, z into a flat surface mesh        |
+| `heightMax`                                                  | metres from the pivot to a full volume                                                                      |
+| `amountCurrent`, `amountMax`                                 | the authored fill; the surface sits at `pivot.y + heightMax · amountCurrent / amountMax`                    |
+| `isInfinite`                                                 | the fill is a fraction scripts set directly (`WaterVolumeInfiniteSetHeight`) rather than an amount of water |
+| `fillSpeed`                                                  | metres per second for fixed-speed moves (below)                                                             |
+| `flowSpeed`, `flowDirection` (degrees)                       | the surface's flow                                                                                          |
+| `isUseLunaConfig`, `lunaConfigPathHash`                      | a surface `WaterConfig` drawn in place of its water type's (below)                                          |
+| `waterItemType`, `meshPathHash`                              | the liquid, which picks its surface prefab (below), and an optional prebuilt surface mesh                   |
+| `obbCenter`, `obbRotation`, `obbSize`                        | the volume's box, for gameplay (swimming, the danger area)                                                  |
+| `waterNameLangKey`, `isPrototype`, nav-mesh and audio fields | gameplay; `isPrototype` is false on every map02 volume and its meaning isn't recovered                      |
 
-the surface is a mesh the game builds from the outline, moved vertically as the fill changes; it's
-drawn by the water pipeline with the bound `WaterConfig` like any surface. a volume with id 0 is
-static and builds no mesh. most volumes bind no `WaterConfig` (54 of map02's 61, sewage, acid and
-xiranite among them); they take a surface prefab per water type
-(`WaterVolumeManagerConfig.waterSurfaceSettingDict`, `…/GameMech/WaterVolumeSurface_<type>.prefab`).
-per-volume `…/Gameplay/Water/<item type>#<volume id>_WaterSurface.asset` files also exist; what they
-hold isn't known.
+a volume with id 0 is static and builds no mesh. every other volume's surface is an instance of a
+surface prefab picked by its **water type**, the `FacItemSubType` that FactoryItemTable gives its
+`waterItemType` (`item_liquid_acid` 0, `item_liquid_sewage` 3, `item_liquid_water` 4, xiranite 7).
+`…/GameMech/WaterVolumeManagerConfig.prefab` maps it:
+
+- `waterTypeToSurfaceDict` first remaps a type to the one whose surface it borrows (Plant2 13 →
+  Plant 2 on the current client)
+- `waterSurfaceSettingDict` then gives the type's `surfacePrefab`
+  (`…/GameMech/WaterVolumeSurface_<name>.prefab`: acid, dirty, clear, foliage, xiranite,
+  hyper_xiranite), an optional foam `decalPrefab` placed beside it, and per-level multipliers for
+  the flow cycles, large-wave scale and displacement
+- a type it doesn't list, or whose prefab is null, takes `waterSurfaceMissingFallback` (on map02 the
+  same prefab as water's)
+
+a surface prefab is a MeshFilter, MeshCollider and an `HGWaterRendererV2` whose `waterConfig` names
+an ordinary surface `WaterConfig` (render type 1, proxy; wetness offset 0.25 m). the game fills the
+MeshFilter with the outline triangulated in x, z, or, when the volume's `meshPathHash` is set, with
+that mesh: the `…/Gameplay/Water/<item type>#<volume id>_WaterSurface.asset` files, the same outline
+triangulated ahead of time around the pivot (30 of map02's 61 volumes). a volume that sets
+`isUseLunaConfig` swaps its own `lunaConfigPathHash` config in over the prefab's. most map02 volumes
+don't (54 of 61, sewage and acid among them). the surface moves vertically as the fill changes and
+is drawn by the water pipeline like any surface. a volume with a flow speed or a direction other
+than the default gets a config slot of its own with its flow applied; the default takes the type's
+shared slot.
 
 level scripts move volumes:
 

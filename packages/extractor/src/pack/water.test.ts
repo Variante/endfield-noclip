@@ -124,6 +124,7 @@ describe('volumeEntry', () => {
 		fraction: 0.5,
 		amountMax: 100,
 		fillSpeed: 0.11,
+		itemType: 'item_liquid_water',
 		configHash: 1n,
 		source: 'indie_dg016_lv_data.json#46300000002',
 	};

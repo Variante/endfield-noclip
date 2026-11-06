@@ -220,12 +220,13 @@ packs or renders correctly.
   foam is unchecked against an in-game shot; map02's 248 static boxes (InitChunkData component 31,
   [world](game-data/world.md#initchunkdata-layout)) aren't packed, counted in
   `debug/skipped-entities.json`; other fluid types are unverified
-- water volumes ([viewer](viewer/water.md#water-volumes)): volumes that bind no `WaterConfig` (54 of
-  map02's 61) aren't drawn ([game data](game-data/water.md#water-volumes)); moves are linear;
-  floaters keep their authored height and don't lag; `ground_distance`, `isPrototype`, flow and
-  amount transfers aren't read; volumes coinciding with a placed surface draw twice, unverified
-  against the game; Suiming's lily pads end 0.9 m under the pit's surface at the first stage, as the
-  data says, unverified in game; no shoreline wetness
+- water volumes ([viewer](viewer/water.md#water-volumes)): volumes without a `WaterConfig` of their
+  own draw with their water type's surface prefab config, but without its foam decal or per-level
+  multipliers ([game data](game-data/water.md#water-volumes)); moves are linear; floaters keep their
+  authored height and don't lag; `ground_distance`, `isPrototype`, flow and amount transfers aren't
+  read; volumes coinciding with a placed surface draw twice, unverified against the game; Suiming's
+  lily pads end 0.9 m under the pit's surface at the first stage, as the data says, unverified in
+  game; no shoreline wetness
 - waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
   beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
   of it, and the steep river surface running down the lip draws as clear water. what the game draws
