@@ -1,10 +1,10 @@
-import { controlListedFor } from '../scene-states/listing.ts';
-import { surfaceView, volumeSurface, waterHeight } from '../scene-states/water-levels.ts';
-import type { Viewer } from '../viewer.ts';
+import { controlListedFor } from '../../scene-states/listing.ts';
+import { surfaceView, volumeSurface, waterHeight } from '../../scene-states/water-levels.ts';
+import type { Viewer } from '../../viewer.ts';
+import { ChoiceRow, ControlValueSelect, FlyButton } from '../controls.tsx';
+import { useViewerState, useViewerStats } from '../use-viewer.ts';
 
-import { ChoiceRow, ControlValueSelect, FlyButton } from './controls.tsx';
 import { Drivers } from './drivers.tsx';
-import { useViewerState, useViewerStats } from './use-viewer.ts';
 
 /** how fast water volumes move between levels, as multiples of the game's speed */
 const RATES: { value: number; label: string }[] = [

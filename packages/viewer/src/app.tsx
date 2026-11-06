@@ -5,7 +5,7 @@ import type { PackageSource } from './package/package-source.ts';
 import { CameraReadout } from './ui/camera-readout.tsx';
 import { LevelsPanel } from './ui/levels-panel.tsx';
 import { type OpenPackage, PackagePanel } from './ui/package-panel.tsx';
-import { SceneControls } from './ui/scene-controls.tsx';
+import { SceneControls } from './ui/scene-controls/scene-controls.tsx';
 import { SettingsPanel } from './ui/settings-panel.tsx';
 import { StatsPanel } from './ui/stats-panel.tsx';
 import { Viewer } from './viewer.ts';

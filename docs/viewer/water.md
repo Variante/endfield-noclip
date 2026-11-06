@@ -76,13 +76,13 @@ floaters' instance rows (the package names each by block blob and row) move by t
 the CPU copy the selection culls with and on the GPU.
 
 the "Water levels" section of the scene conditions panel
-([water-levels.tsx](../../packages/viewer/src/ui/water-levels.tsx)) lists the shown level's volumes
-that scripts move, each a select over its `waterLevel` scene control with what sets each fill, its
-surface's height and "Go" to fly over it (`waterHeight`, `surfaceView` in water-levels.ts). the
-viewer moves each volume to the fill its control's value picks, linearly at the speed the scripts
-move it at (else the volume's fill speed), so Suiming's stages take their two or three minutes;
-"Movement" speeds that up or jumps. "Reset" drops the picks with every other control's, putting
-every volume back at its authored fill.
+([water-levels.tsx](../../packages/viewer/src/ui/scene-controls/water-levels.tsx)) lists the shown
+level's volumes that scripts move, each a select over its `waterLevel` scene control with what sets
+each fill, its surface's height and "Go" to fly over it (`waterHeight`, `surfaceView` in
+water-levels.ts). the viewer moves each volume to the fill its control's value picks, linearly at
+the speed the scripts move it at (else the volume's fill speed), so Suiming's stages take their two
+or three minutes; "Movement" speeds that up or jumps. "Reset" drops the picks with every other
+control's, putting every volume back at its authored fill.
 
 it differs from the game in that:
 

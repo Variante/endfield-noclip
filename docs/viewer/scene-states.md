@@ -29,8 +29,9 @@ game's transition clips.
 
 ## the scene conditions panel
 
-[`scene-controls.tsx`](../../packages/viewer/src/ui/scene-controls.tsx) shows the "Scene conditions"
-panel:
+[`ui/scene-controls/`](../../packages/viewer/src/ui/scene-controls/) shows the "Scene conditions"
+panel, a module per section (`story-controls.tsx`, `water-levels.tsx`, `environment-volumes.tsx`)
+and per row (`control-row.tsx`, `drivers.tsx`):
 
 - **scene states**: a select per state, "Follow game (on/off)" for derived states, else on/off
 - **quests and missions**: quests run in order, so progress is picked as a story point rather than
