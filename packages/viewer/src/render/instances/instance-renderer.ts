@@ -238,7 +238,6 @@ export class InstanceRenderer {
 			alloc,
 			placements,
 			blockSlot: slot,
-			count: decoded.count,
 			origin: decoded.origin,
 			runs: decoded.runs,
 			rowsF32: new Float32Array(decoded.rows.buffer),

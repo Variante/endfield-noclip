@@ -24,5 +24,4 @@ export interface ContentItem {
 	decoded: Decoded | null;
 	/** set exactly while the item is `ready` */
 	resident: Resident | null;
-	error: string | null;
 }

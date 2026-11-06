@@ -24,7 +24,7 @@ export const RowWord = {
 	block: 15,
 	/** half extents, f32×3 */
 	extent: 16,
-	/** see {@link rowInfo} */
+	/** its {@link RowKind} in bits 0–2 and its {@link RowBillboard} in bits 30–31; the bits between are free */
 	info: 19,
 	/** the texture sheet tile its mesh's UVs are remapped into ({@link rowSheet}) */
 	sheet: 20,
@@ -38,7 +38,7 @@ export const RowWord = {
 } as const;
 
 /** the {@link RowWord.color} of a row that leaves its mesh's colours as they are */
-export const ROW_WHITE = 0xffff_ffff;
+const ROW_WHITE = 0xffff_ffff;
 
 /**
  * bits of a row's block word that hold its block slot (`row_block` in frame.wgsl); the bits above hold its
@@ -65,12 +65,6 @@ export const RowKind = {
 } as const;
 
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
-
-/**
- * a row's info word ({@link RowWord.info}) holds its {@link RowKind} in bits 0–2 and its {@link RowBillboard}
- * in bits 30–31; the bits between are free
- */
-export const ROW_INFO_KIND_BITS = 3;
 
 /**
  * a row's texture sheet word ({@link RowWord.sheet}): the tile its mesh's UVs are remapped into (`sheet_uv`
@@ -160,7 +154,7 @@ export interface TierSpan {
 export type RowKinds = RowKind | readonly TierSpan[];
 
 /** f32 per spinning row in {@link RowSpins.base}: its stored transform (12) and bounds centre (3) */
-export const SPIN_BASE_FLOATS = 15;
+const SPIN_BASE_FLOATS = 15;
 
 /** a block's spinning rows, which {@link turnRows} turns by the clock */
 export interface RowSpins {

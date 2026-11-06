@@ -271,7 +271,6 @@ export class StreamManager {
 				usedFrame: -1,
 				decoded: null,
 				resident: null,
-				error: null,
 			};
 			this.#items[blob] = item;
 			this.#known.push(item);
@@ -446,7 +445,6 @@ export class StreamManager {
 
 	#fail(item: ContentItem, err: unknown): void {
 		item.state = 'failed';
-		item.error = String(err);
 		item.decoded = null;
 		this.stats.failed++;
 		console.warn(`blob ${item.blob}:`, err);

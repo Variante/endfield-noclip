@@ -44,11 +44,11 @@ export interface ResidentInstances {
 	kind: 'instances';
 	/** GPU bytes */
 	bytes: number;
+	/** its rows' range of the instance buffer, one row per instance */
 	alloc: RangeAllocation;
 	/** its rect decal placements' range of the placement buffer */
 	placements: RangeAllocation;
 	blockSlot: number;
-	count: number;
 	/** world origin of the rows, f64 */
 	origin: [x: number, y: number, z: number];
 	/** (chain, first, count) runs */
