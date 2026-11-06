@@ -8,10 +8,10 @@ how the viewer draws the sky, the layers beyond the atmosphere and the fogs that
 
 [`shaders/atmosphere.wgsl`](../../packages/viewer/src/render/shaders/atmosphere.wgsl) builds the
 transmittance, multiple-scattering and per-frame sky-view LUTs of the
-[atmosphere model](../game-data/sky-and-fog.md#sky). since the game's absolute sky brightness isn't
-recovered, `sky_scale` in [`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl)
-matches the LUT's upper-hemisphere luminance to the ambient probe's luminance looking up; it's an
-approximation.
+[atmosphere model](../game-data/sky-and-fog.md#sky). the game's LUT scale (`skyViewScale` in
+[`render/environment.ts`](../../packages/viewer/src/render/environment.ts)) is applied when
+[`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl) samples the LUT rather than
+when it's rendered, which comes to the same.
 
 the cloud panorama is drawn in the celestial pass (see
 [beyond the atmosphere](#beyond-the-atmosphere)), with contrast and rotation applied as authored.

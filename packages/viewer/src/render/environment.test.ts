@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { type CloudInput, cloudLook } from './environment.ts';
+import { type CloudInput, cloudLook, skyViewScale } from './environment.ts';
 
 // Power Plateau's overcast phase once e3m5 reaches state 3 (Env_map01_lv007_art_overcast_brightness)
 const overcast: CloudInput = {
@@ -46,5 +46,15 @@ describe('cloudLook', () => {
 		assert.ok(look !== null);
 		assert.ok(Math.abs(look.tint[0] - 0.507 * 3) < 1e-9);
 		assert.equal(look.tint[3], 0.0745);
+	});
+});
+
+describe('skyViewScale', () => {
+	it('is the outer sun colour × the exposed sun × the procedural sky lux factor', () => {
+		const scale = skyViewScale(light, sky, { outerSunIrradianceColor: [1, 0.5, 0.25, 1] });
+		const expected = (90000 / (1.2 * 2 ** 13.5)) * 2.43;
+		assert.ok(Math.abs(scale[0] - expected) < 1e-9);
+		assert.ok(Math.abs(scale[1] - expected * 0.5) < 1e-9);
+		assert.ok(Math.abs(scale[2] - expected * 0.25) < 1e-9);
 	});
 });

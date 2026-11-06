@@ -10,9 +10,11 @@ post-processing in [post-processing.md](post-processing.md).
 
 the game's `atmosphereConfig` parameterises a Hillaire-style atmosphere (transmittance,
 multiple-scattering and sky-view LUTs), Unreal's SkyAtmosphere model: kilometres and per-kilometre
-coefficients, scale × colour per term, ozone as a tent. the game's absolute sky brightness comes
-from CPU factors in native engine code that aren't recovered. the sky-view LUT fades out just below
-the horizon.
+coefficients, scale × colour per term, ozone as a tent. the sky-view LUT holds radiance per unit sun
+illuminance; the game's C# scales it by `atmosphere.outerSunIrradianceColor` (raw) ×
+`light.directIntensity` (the exposed sun, `directLux · preExposure`) × `sky.proceduralSkyLuxFactor`
+when it renders the LUT, and the sky pass samples it unscaled. the LUT fades out just below the
+horizon.
 
 the cloud panorama (`cloud.cloudTexture`) is blended over the sky by its alpha above the horizon. it
 covers only the upper hemisphere: u is the azimuth (`atan2(x, z)`) turned back by `rotation`

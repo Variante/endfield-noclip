@@ -105,39 +105,15 @@ fn fog_over(direction: vec3f, distance: f32, froxels: Froxels) -> Fog {
 	return Fog(fog.transmittance * light.a, fog.inscatter * light.a + light.rgb);
 }
 
-// 1×1: the sky-view LUT's mean from fs_sky_mean, rendered once per frame after the LUT
-@group(1) @binding(4) var sky_mean_texture: texture_2d<f32>;
-
-// the sky LUT's cosine-weighted mean over the upper hemisphere (per unit sun illuminance)
-@fragment
-fn fs_sky_mean() -> @location(0) vec4f {
-	var sum = vec3f(0.0);
-	for (var e = 0; e < 4; e++) {
-		let elevation = (f32(e) + 0.5) / 4.0 * PI * 0.5;
-		for (var a = 0; a < 4; a++) {
-			let azimuth = f32(a) / 4.0 * 2.0 * PI;
-			let d = vec3f(cos(elevation) * cos(azimuth), sin(elevation), cos(elevation) * sin(azimuth));
-			sum += sky_view(d) * sin(elevation);
-		}
-	}
-	return vec4f(sum / 16.0 * 2.0, 1.0);
-}
-
-// the atmosphere's absolute brightness isn't known (the game scales it by factors that aren't recovered), so
-// it's matched to the ambient probe the game bakes from its sky: the same luminance looking up
-fn sky_scale() -> f32 {
-	let mean = textureLoad(sky_mean_texture, vec2i(0), 0).rgb;
-	return luminance(post.sky_up.rgb) / max(luminance(mean), 1e-6);
-}
-
 // the atmosphere's sky along a direction; the cloud panorama and what lies beyond the atmosphere go over it in
 // celestial.wgsl
 fn sky_radiance(direction: vec3f) -> vec3f {
 	if (post.flags.x == 0u) {
 		return vec3f(0.0);
 	}
-	// the game fades its sky-view LUT out just below the horizon
-	return sky_view(direction) * sky_scale() * clamp(1.0 + direction.y * 10.0, 0.0, 1.0);
+	// the game's LUT scale (its outer sun colour, exposed sun and procedural sky lux factor); it fades the LUT out
+	// just below the horizon
+	return sky_view(direction) * post.sky_illuminance.rgb * clamp(1.0 + direction.y * 10.0, 0.0, 1.0);
 }
 
 // #region transparent layers

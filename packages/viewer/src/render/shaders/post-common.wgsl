@@ -19,7 +19,7 @@ struct Post {
 	sun_illuminance: vec4f,
 	// towards the sun the sky is lit by
 	sky_sun: vec4f,
-	// the sky sun's pre-exposed illuminance, w unused
+	// what the sky-view LUT is multiplied by (pre-exposed), w unused
 	sky_illuminance: vec4f,
 	// atmosphere (km): bottom radius, top radius, Mie anisotropy, multiple-scattering factor
 	planet: vec4f,
@@ -43,9 +43,8 @@ struct Post {
 	fog_range: vec4f,
 	// directional inscattered radiance (pre-exposed), w = exponent
 	fog_directional: vec4f,
-	// the ambient probe looking up and looking at the horizon, pre-exposed
-	sky_up: vec4f,
-	sky_horizon: vec4f,
+	unused21: vec4f,
+	unused22: vec4f,
 	// ambient occlusion: radius (m), intensity, power, enabled
 	ao: vec4f,
 	// bloom threshold: linear threshold t, t − knee, 2 · knee, 1 / (4 · knee)

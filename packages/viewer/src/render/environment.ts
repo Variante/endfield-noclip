@@ -80,7 +80,7 @@ export type SkyInput = Pick<
 >;
 
 /** the game's atmosphere config, Unreal's SkyAtmosphere parameters: kilometres and per-kilometre */
-export type AtmosphereInput = Omit<AtmosphereConfig, 'outerSunIrradianceColor'>;
+export type AtmosphereInput = AtmosphereConfig;
 
 /** the game's distance fog (`HGFogConfig`), an analytic single-scattering fog it calls atmosphere fog */
 export type FogInput = Pick<
@@ -424,7 +424,10 @@ export interface Environment {
 	};
 	/** unit vector towards the sun the sky is lit by (art direction can move it away from the light's) */
 	skySunDirection: Vec3;
-	/** the sky's sun illuminance, pre-exposed */
+	/**
+	 * what the sky-view LUT (radiance per unit sun illuminance) is multiplied by, as the game packs it: the
+	 * outer sun colour × the exposed sun × the procedural sky lux factor
+	 */
 	skyIlluminance: Vec3;
 	/** Unity shader form of the ambient probe (SHAr, SHAg, SHAb, SHBr, SHBg, SHBb, SHC), 28 floats */
 	sh: Float32Array;
@@ -548,31 +551,6 @@ export const shaderSh = (sh: readonly number[], scale: number): Float32Array => 
 	return out;
 };
 
-/**
- * @param sh the ambient probe in shader form, from {@link shaderSh}
- * @param n a unit direction
- * @returns what `ShadeSH9` gives for it: irradiance over π, clamped at 0
- */
-export const evaluateSh = (sh: Float32Array, [x, y, z]: Vec3): Vec3 => {
-	const out: Vec3 = [0, 0, 0];
-	for (let c = 0; c < 3; c++) {
-		const a = c * 4;
-		const b = (3 + c) * 4;
-		const value =
-			sh[a] * x +
-			sh[a + 1] * y +
-			sh[a + 2] * z +
-			sh[a + 3] +
-			sh[b] * x * y +
-			sh[b + 1] * y * z +
-			sh[b + 2] * z * z +
-			sh[b + 3] * z * x +
-			sh[24 + c] * (x * x - y * y);
-		out[c] = Math.max(0, value);
-	}
-	return out;
-};
-
 /** the height fog's density and falloff per profile unit, as the game packs them (its shaders use base 2) */
 const FOG_UNIT = 0.1;
 
@@ -585,6 +563,22 @@ const FOG_UNIT = 0.1;
  */
 export const exposedSunIntensity = (light: Pick<LightConfig, 'directLux' | 'directEV100'>): number =>
 	light.directLux / (1.2 * 2 ** light.directEV100);
+
+/**
+ * what the game multiplies its sky-view LUT (radiance per unit sun illuminance) by
+ * (docs/game-data/sky-and-fog.md#sky)
+ *
+ * @param light the light config
+ * @param sky the sky config
+ * @param atmosphere the atmosphere config
+ * @returns the pre-exposed scale, linear rgb
+ */
+export const skyViewScale = (
+	light: Pick<LightConfig, 'directLux' | 'directEV100'>,
+	sky: Pick<SkyInput, 'proceduralSkyLuxFactor'>,
+	atmosphere: Pick<AtmosphereInput, 'outerSunIrradianceColor'>,
+): Vec3 =>
+	scaled(atmosphere.outerSunIrradianceColor, exposedSunIntensity(light) * sky.proceduralSkyLuxFactor);
 
 /**
  * @param light the light config
@@ -660,6 +654,7 @@ const DEFAULT_PROFILE: EnvironmentInput = {
 	atmosphere: {
 		groundRadius: 6360,
 		groundAlbedo: [0, 0, 0, 1],
+		outerSunIrradianceColor: [1, 1, 1, 1],
 		atmosphereHeight: 60,
 		multiScatteringFactor: 1,
 		rayleighScatteringScale: 0.0331,
@@ -1026,7 +1021,6 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 	const sunIlluminance: Vec3 = [color[0] * intensity, color[1] * intensity, color[2] * intensity];
 	const sunDirection = towardsLight(light.directPitchYaw);
 	const skySunDirection = towardsEffectLight(light, 'atmosphere');
-	const skyScale = intensity * sky.skyDirectIntensity;
 	return {
 		name: profile === null ? null : source.name,
 		sunDirection,
@@ -1041,7 +1035,7 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 			ramp: source.shadow.csmRampTexture,
 		},
 		skySunDirection,
-		skyIlluminance: [skyScale, skyScale, skyScale],
+		skyIlluminance: skyViewScale(light, sky, atmosphere),
 		sh: shaderSh(sky.skyAmbientSH, light.indirectDiffuseFactor),
 		indirectSpecular: light.indirectSpecularFactor,
 		reflection: sky.reflectionMap,

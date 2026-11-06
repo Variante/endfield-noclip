@@ -3,7 +3,7 @@ import type { Camera } from '../scene/camera.ts';
 
 import { AutoExposure } from './auto-exposure.ts';
 import { CelestialLayer } from './celestial.ts';
-import { type Environment, evaluateSh } from './environment.ts';
+import type { Environment } from './environment.ts';
 import type { DebugView } from './frame-uniforms.ts';
 import { LensFlares } from './lens-flare.ts';
 import { LightShafts } from './light-shafts.ts';
@@ -126,7 +126,6 @@ const Lut = {
 	multiScattering: 1,
 	skyView: 2,
 	sampler: 3,
-	skyMean: 4,
 	froxels: 5,
 } as const;
 
@@ -197,13 +196,11 @@ export class PostProcess {
 	#transmittance: GPUTexture;
 	#multiScattering: GPUTexture;
 	#skyView: GPUTexture;
-	#skyMean: GPUTexture;
-	#lutViews: Record<'transmittance' | 'multiScattering' | 'skyView' | 'skyMean', GPUTextureView>;
+	#lutViews: Record<'transmittance' | 'multiScattering' | 'skyView', GPUTextureView>;
 	#pipelines: {
 		transmittance: GPURenderPipeline;
 		multiScattering: GPURenderPipeline;
 		skyView: GPURenderPipeline;
-		skyMean: GPURenderPipeline;
 		aoDepth: GPURenderPipeline;
 		gtao: GPURenderPipeline;
 		blur: GPURenderPipeline;
@@ -215,7 +212,7 @@ export class PostProcess {
 		up: GPURenderPipeline;
 		tonemap: GPURenderPipeline;
 	};
-	#lutPasses: Record<'transmittance' | 'multiScattering' | 'skyView' | 'skyMean', Pass>;
+	#lutPasses: Record<'transmittance' | 'multiScattering' | 'skyView', Pass>;
 	#sized: Sized | null = null;
 	#environment: Environment;
 	/** the cloud panorama bound in the celestial pass */
@@ -229,9 +226,9 @@ export class PostProcess {
 	/** the volumetric fog the composite and water passes add in front */
 	#fog: VolumetricFog;
 	/**
-	 * explicit layouts of the post uniforms and of the sky's reads (the sky-view LUT, its sampler, the sky mean
-	 * and the volumetric fog, at their atmosphere.wgsl and sky.wgsl bindings), for passes that also bind the
-	 * main pass's frame group and so can't use `auto` layouts
+	 * explicit layouts of the post uniforms and of the sky's reads (the sky-view LUT, its sampler and the
+	 * volumetric fog, at their atmosphere.wgsl and sky.wgsl bindings), for passes that also bind the main
+	 * pass's frame group and so can't use `auto` layouts
 	 */
 	readonly skyLayouts: { uniforms: GPUBindGroupLayout; sky: GPUBindGroupLayout };
 	/** groups for {@link skyLayouts} */
@@ -275,12 +272,10 @@ export class PostProcess {
 		this.#transmittance = lut('transmittance lut', 256, 64);
 		this.#multiScattering = lut('multiple scattering lut', 32, 32);
 		this.#skyView = lut('sky view lut', 192, 108);
-		this.#skyMean = lut('sky mean', 1, 1);
 		this.#lutViews = {
 			transmittance: this.#transmittance.createView(),
 			multiScattering: this.#multiScattering.createView(),
 			skyView: this.#skyView.createView(),
-			skyMean: this.#skyMean.createView(),
 		};
 		this.#noCloud = {
 			view: placeholderView(device, { label: 'no clouds', dimension: '2d' }),
@@ -332,7 +327,6 @@ export class PostProcess {
 			transmittance: pipeline('transmittance', atmosphere, 'fs_transmittance', HDR_FORMAT),
 			multiScattering: pipeline('multiple scattering', atmosphere, 'fs_multi_scattering', HDR_FORMAT),
 			skyView: pipeline('sky view', atmosphere, 'fs_sky_view', HDR_FORMAT),
-			skyMean: pipeline('sky mean', composite, 'fs_sky_mean', HDR_FORMAT),
 			aoDepth: pipeline('ao depth', gtao, 'fs_ao_depth', AO_DEPTH_FORMAT),
 			gtao: pipeline('gtao', gtao, 'fs_gtao', AO_FORMAT),
 			blur: pipeline('gtao blur', gtao, 'fs_blur', AO_FORMAT),
@@ -357,7 +351,6 @@ export class PostProcess {
 			transmittance: lutPass(p.transmittance, views.transmittance, []),
 			multiScattering: lutPass(p.multiScattering, views.multiScattering, [Lut.transmittance, Lut.sampler]),
 			skyView: lutPass(p.skyView, views.skyView, [Lut.transmittance, Lut.multiScattering, Lut.sampler]),
-			skyMean: lutPass(p.skyMean, views.skyMean, [Lut.skyView, Lut.sampler]),
 		};
 		this.#environment = environment;
 		this.#writeEnvironment();
@@ -378,7 +371,6 @@ export class PostProcess {
 				entries: [
 					texture(Lut.skyView, '2d'),
 					{ binding: Lut.sampler, visibility: fragment, sampler: { type: 'filtering' } },
-					texture(Lut.skyMean, '2d'),
 					texture(Lut.froxels, '3d'),
 				],
 			});
@@ -393,7 +385,6 @@ export class PostProcess {
 					entries: [
 						{ binding: Lut.skyView, resource: views.skyView },
 						{ binding: Lut.sampler, resource: this.#sampler },
-						{ binding: Lut.skyMean, resource: views.skyMean },
 						{ binding: Lut.froxels, resource: fog.view },
 					],
 				}),
@@ -420,7 +411,6 @@ export class PostProcess {
 			[Lut.multiScattering]: views.multiScattering,
 			[Lut.skyView]: views.skyView,
 			[Lut.sampler]: this.#sampler,
-			[Lut.skyMean]: views.skyMean,
 			[Lut.froxels]: this.#fog.view,
 		};
 		return this.#device.createBindGroup({
@@ -431,13 +421,13 @@ export class PostProcess {
 
 	/**
 	 * @param pipeline a pass built from {@link postShaderSource} with atmosphere.wgsl and sky.wgsl that draws
-	 *   the sky and fog (it reads the sky-view LUT and its mean, and the volumetric fog)
+	 *   the sky and fog (it reads the sky-view LUT and the volumetric fog)
 	 * @returns its groups 0 (uniforms) and 1 (atmosphere)
 	 */
 	#skyGroups(pipeline: GPURenderPipeline): GPUBindGroup[] {
 		return [
 			this.#uniformsGroup(pipeline),
-			this.#atmosphereGroup(pipeline, [Lut.skyView, Lut.sampler, Lut.skyMean, Lut.froxels]),
+			this.#atmosphereGroup(pipeline, [Lut.skyView, Lut.sampler, Lut.froxels]),
 		];
 	}
 
@@ -844,8 +834,6 @@ export class PostProcess {
 			set(39, [...atmo.ambient, atmo.startHeight / atmo.fallOffHeight]);
 		}
 		set(40, [environment.skyDistance, atmo !== null ? 1 : 0, 0, 0]);
-		set(21, [...evaluateSh(environment.sh, [0, 1, 0]), 0]);
-		set(22, [...evaluateSh(environment.sh, [Math.SQRT1_2, 0, Math.SQRT1_2]), 0]);
 		const { bloom, ao, vignette } = environment.post;
 		{
 			// the game's threshold packing: a knee of half the threshold
@@ -1003,7 +991,6 @@ export class PostProcess {
 		// the atmosphere fog is analytic; only the sky reads the LUTs
 		if (settings.sky) {
 			this.#run(encoder, 'sky view lut', luts.skyView);
-			this.#run(encoder, 'sky mean', luts.skyMean);
 		}
 		if (settings.ao && this.#environment.post.ao !== null) {
 			this.#run(encoder, 'ao depth', sized.passes.aoDepth);
@@ -1103,7 +1090,6 @@ export class PostProcess {
 		this.#transmittance.destroy();
 		this.#multiScattering.destroy();
 		this.#skyView.destroy();
-		this.#skyMean.destroy();
 		this.#uniforms.destroy();
 		this.celestial.destroy();
 		this.autoExposure.destroy();

@@ -37,7 +37,7 @@ packs or renders correctly.
 - baked GI brightness is unverified against in-game shots; the native ambient scale is missing, and
   the lighting lookup has no jitter or forward-shifted clipmap centres. next: compare GPU clipmap
   samples with the bake at one point, and check clipmap seams (L0 repeats, L1 clamps)
-- several ambient and sky-LUT constants are computed in native engine code and not yet recovered
+- several ambient constants are computed in native engine code and not yet recovered
 - irradiance: room bakes reach only the finest clipmap; which
   [scene-state bake](game-data/irradiance.md#scene-state-bakes) applies is inferred from the bakes,
   not read from the game's native selection; partial clipmap updates, the game's forward-shifted
@@ -73,9 +73,10 @@ packs or renders correctly.
   prism volume under a non-identity placement is rejected, `world env` votes on chunk volumes only,
   and scenes without levels get no environment
   ([environment](game-data/environment.md#environment-volumes))
-- sky ([sky](game-data/sky-and-fog.md#sky)): its absolute brightness is the viewer's `sky_scale`
-  approximation; the sky planets are always added (the game's blend is unchecked), and their ring
-  thinning the stars and the ray-traced planet's light brightness are unchecked
+- sky ([sky](game-data/sky-and-fog.md#sky)): the LUT's ground-bounce term isn't drawn; at Power
+  Plateau's overcast the sky stays 15–20 sRGB levels brighter than the in-game shot, while Wuling's
+  matches. the sky planets are always added (the game's blend is unchecked), and their ring thinning
+  the stars and the ray-traced planet's light brightness are unchecked
 - volumetric fog: local fog volumes and the volumetric light's flow noise (`enableVLFlowNoise`)
   aren't drawn, the grid size, depth distribution and history weight are Unreal's defaults rather
   than the game's quality preset, and its sky term lacks the native diffuse-ambient scale. the
@@ -297,9 +298,7 @@ packs or renders correctly.
 - the sky's celestial layers are unchecked against in-game shots, and the moon's sky-wide ring
   (`HG_RING`) and the aurora aren't drawn
   ([beyond the atmosphere](game-data/sky-and-fog.md#beyond-the-atmosphere));
-  `enableFarCloudShadowTexture` is ignored ([cloud shadows](game-data/lighting.md#cloud-shadows)).
-  sun-lit clouds ([sky](game-data/sky-and-fog.md#sky)) at Power Plateau still read lighter and
-  thinner than the in-game shot, unexplained
+  `enableFarCloudShadowTexture` is ignored ([cloud shadows](game-data/lighting.md#cloud-shadows))
 - HLOD/detail, LOD and mip swaps pop without cross-fade; ground-blend and decal meshes z-fight
   without the game's depth offsets
 
