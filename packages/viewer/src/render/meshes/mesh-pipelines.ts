@@ -15,14 +15,7 @@ import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 import { type DrawPhase, PHASES, type VertexStreams } from './draw-ranges.ts';
 import effectWgsl from './effect.wgsl?raw';
 import meshWgsl from './mesh.wgsl?raw';
-import {
-	FACE_CULLS,
-	type FaceCull,
-	FRONT_FACE,
-	UV_FORMATS,
-	type UvFormat,
-	pipelineKey,
-} from './pipeline-variants.ts';
+import { type FaceCull, FRONT_FACE, type UvFormat, VARIANTS, pipelineKey } from './pipeline-variants.ts';
 
 /** a phase's pipeline descriptor for a face culling and UV format */
 export type PhaseDescriber = (cull: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor;
@@ -126,10 +119,8 @@ export const prepareMeshPipelines = (
 	/** registers a phase's descriptor and compiles its pipeline for every face culling and UV format */
 	const describe = ({ key }: DrawPhase, describer: PhaseDescriber): void => {
 		describers.set(key, describer);
-		for (const cull of FACE_CULLS) {
-			for (const uvFormat of UV_FORMATS) {
-				void pipelines.prepare(pipelineKey(key, cull, uvFormat), () => describer(cull, uvFormat));
-			}
+		for (const { cull, uvFormat } of VARIANTS) {
+			void pipelines.prepare(pipelineKey(key, cull, uvFormat), () => describer(cull, uvFormat));
 		}
 	};
 

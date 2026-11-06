@@ -13,7 +13,7 @@ export interface EffectInputs {
 }
 
 /** what a material's draws take from its textures' current bindings */
-export interface MaterialState {
+export interface MaterialState extends EffectMaterial {
 	/** the texture store's version this was derived at */
 	version: number;
 	/** each slot's binding, `null` where it has no texture or it hasn't streamed in */
@@ -132,6 +132,7 @@ export class MaterialBindings {
 		const volume = look.volumeTexture < 0 ? null : textures.binding(look.volumeTexture);
 		complete &&= look.volumeTexture < 0 || volume !== null;
 		const state: MaterialState = {
+			material,
 			version: textures.version,
 			slots,
 			volume,
@@ -175,15 +176,18 @@ export class MaterialBindings {
 	 * @returns the effect material's bind group over its slots' current bindings and the outputs
 	 */
 	effectGroup({ material, slots, volume }: EffectMaterial, inputs: EffectInputs): GPUBindGroup {
-		const versions = [...slots, volume].map((slot) => slot?.version ?? -1);
 		const cached = this.#effectBindings.get(material);
-		if (
-			cached !== undefined &&
-			cached.inputs === inputs.version &&
-			cached.versions.every((version, i) => version === versions[i])
-		) {
-			return cached.group;
+		if (cached !== undefined && cached.inputs === inputs.version) {
+			// the slots' versions, then the volume's
+			let current = cached.versions[slots.length] === (volume?.version ?? -1);
+			for (let i = 0; i < slots.length && current; i++) {
+				current = cached.versions[i] === (slots[i]?.version ?? -1);
+			}
+			if (current) {
+				return cached.group;
+			}
 		}
+		const versions = [...slots, volume].map((slot) => slot?.version ?? -1);
 		const group = this.#device.createBindGroup({
 			label: `effect material ${material}`,
 			layout: this.#effectLayout,

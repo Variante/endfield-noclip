@@ -26,6 +26,19 @@ export type UvFormat = (typeof UV_FORMATS)[number];
 export const pipelineKey = (phase: string, cull: FaceCull, uvFormat: UvFormat): string =>
 	`${phase}/${cull}/${uvFormat}`;
 
+/** every face culling and UV format a phase has a pipeline for, by {@link variantOf} */
+export const VARIANTS: readonly { cull: FaceCull; uvFormat: UvFormat }[] = FACE_CULLS.flatMap((cull) =>
+	UV_FORMATS.map((uvFormat) => ({ cull, uvFormat })),
+);
+
+/** @returns the index of a face culling and UV format in {@link VARIANTS} */
+export const variantOf = (cull: FaceCull, uvFormat: UvFormat): number =>
+	FACE_CULLS.indexOf(cull) * UV_FORMATS.length + UV_FORMATS.indexOf(uvFormat);
+
+/** @returns the cache keys of a phase's pipelines, by {@link variantOf} */
+export const variantKeys = (phase: string): string[] =>
+	VARIANTS.map(({ cull, uvFormat }) => pipelineKey(phase, cull, uvFormat));
+
 /** @returns the faces a bucket's draws cull: the material's, swapped for mirrored instances */
 export const faceCullOf = (bucket: MeshBucket): FaceCull => {
 	switch (bucket.look.cull) {

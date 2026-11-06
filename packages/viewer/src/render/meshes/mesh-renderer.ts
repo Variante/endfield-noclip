@@ -24,13 +24,11 @@ import { releaseGeometry, uploadGeometry } from './geometry-residency.ts';
 import { type EffectInputs, type EffectMaterial, MaterialBindings } from './material-bindings.ts';
 import { type PhaseDescriber, prepareMeshPipelines } from './mesh-pipelines.ts';
 import {
-	FACE_CULLS,
-	type FaceCull,
-	UV_FORMATS,
-	type UvFormat,
+	VARIANTS,
 	faceCullOf,
-	pipelineKey,
 	stencilPipelineKey,
+	variantKeys,
+	variantOf,
 	withStencil,
 } from './pipeline-variants.ts';
 import { type ResidentSkin, SkinAnimator } from './skin-animation.ts';
@@ -52,8 +50,8 @@ interface PreparedDraw {
 	layerCounts: readonly number[];
 	/** the material group; `null` for an effect until its pass builds it */
 	material: GPUBindGroup | null;
-	cull: FaceCull;
-	uvFormat: UvFormat;
+	/** the pipeline variant for its face culling and its geometry's UV format ({@link variantOf}) */
+	variant: number;
 	/** for scene effects: the material id and slot bindings their group is built from at encode */
 	effect: EffectMaterial | null;
 	/** the stencil state its pipeline variant uses, or `null` for the phase's own pipeline */
@@ -116,6 +114,10 @@ export class MeshRenderer {
 	#stencil: boolean;
 	/** each phase's pipeline descriptor by face culling and UV format, for its stencil variants */
 	#describers: Map<string, PhaseDescriber>;
+	/** each phase's variant keys by phase key */
+	#phaseKeys = new Map<string, readonly string[]>();
+	/** the passes whose pipelines have all compiled */
+	#compiledPasses = new Set<MeshPass>();
 	#skins: SkinAnimator;
 	/** the resident geometries' animations */
 	#animated = new Set<ResidentSkin>();
@@ -363,10 +365,8 @@ export class MeshRenderer {
 
 		// an effect's group also binds the main pass's outputs, so it's built when its pass encodes
 		const material = info.effect ? null : state.group;
-		const effect = info.effect
-			? { material: bucket.material, slots: state.slots, volume: state.volume }
-			: null;
-		const cull = faceCullOf(bucket);
+		const effect = info.effect ? state : null;
+		const variant = variantOf(faceCullOf(bucket), resident.uvFormat);
 		const draw = this.#draws[d];
 		if (draw === undefined) {
 			this.#draws[d] = {
@@ -378,8 +378,7 @@ export class MeshRenderer {
 				count: span.count,
 				layerCounts: span.layerCounts,
 				material,
-				cull,
-				uvFormat: resident.uvFormat,
+				variant,
 				effect,
 				stencil: look.stencil,
 			};
@@ -392,8 +391,7 @@ export class MeshRenderer {
 			draw.count = span.count;
 			draw.layerCounts = span.layerCounts;
 			draw.material = material;
-			draw.cull = cull;
-			draw.uvFormat = resident.uvFormat;
+			draw.variant = variant;
 			draw.effect = effect;
 			draw.stencil = look.stencil;
 		}
@@ -478,17 +476,24 @@ export class MeshRenderer {
 		return this.#encode('shadow', pass, layer);
 	}
 
-	/** @returns whether every pipeline of the phases is compiled */
-	#ready(phases: readonly DrawPhase[]): boolean {
-		for (const phase of phases) {
-			for (const cull of FACE_CULLS) {
-				for (const uvFormat of UV_FORMATS) {
-					if (this.#pipelines.get(pipelineKey(phase.key, cull, uvFormat)) === undefined) {
-						return false;
-					}
+	/** @returns the cache keys of a phase's pipeline variants, by {@link variantOf} */
+	#variantKeys(phase: DrawPhase): readonly string[] {
+		return this.#phaseKeys.getOrInsertComputed(phase.key, variantKeys);
+	}
+
+	/** @returns whether every pipeline of a pass's phases is compiled; once they are, they stay */
+	#compiled(which: MeshPass): boolean {
+		if (this.#compiledPasses.has(which)) {
+			return true;
+		}
+		for (const phase of PASS_PHASES[which]) {
+			for (const key of this.#variantKeys(phase)) {
+				if (this.#pipelines.get(key) === undefined) {
+					return false;
 				}
 			}
 		}
+		this.#compiledPasses.add(which);
 		return true;
 	}
 
@@ -502,9 +507,8 @@ export class MeshRenderer {
 		}
 		// cutout depth and depth-equal shading must rasterize identically, so nothing draws until every variant
 		// is ready
-		const phases = PASS_PHASES[which];
 		const paired = PAIRED_PASSES[which];
-		if (!this.#ready(phases) || (paired !== undefined && !this.#ready(PASS_PHASES[paired]))) {
+		if (!this.#compiled(which) || (paired !== undefined && !this.#compiled(paired))) {
 			return 0;
 		}
 		pass.setBindGroup(1, this.#instances.bindGroup);
@@ -512,7 +516,7 @@ export class MeshRenderer {
 		const bindings = this.#vertexBindings;
 		bindings.reset();
 		let draws = 0;
-		for (const phase of phases) {
+		for (const phase of PASS_PHASES[which]) {
 			const range = this.#range(phase.range);
 			// shadow passes draw the casters, cast-only ones first; the rest skip those
 			const from = phase.shadow ? range.start : range.castOnlyEnd;
@@ -520,8 +524,8 @@ export class MeshRenderer {
 			if (from === to) {
 				continue;
 			}
-			let cull: FaceCull | null = null;
-			let uvFormat: UvFormat | null = null;
+			const keys = this.#variantKeys(phase);
+			let variant = -1;
 			let stencil: LookStencil | null = null;
 			let reference = -1;
 			let geometry: ResidentGeometry | null = null;
@@ -533,18 +537,18 @@ export class MeshRenderer {
 				if (draw.material === null || count === 0) {
 					continue;
 				}
-				if (draw.cull !== cull || draw.uvFormat !== uvFormat || draw.stencil !== stencil) {
+				if (draw.variant !== variant || draw.stencil !== stencil) {
 					if (draw.stencil === null) {
-						const pipeline = this.#pipelines.get(pipelineKey(phase.key, draw.cull, draw.uvFormat));
+						const pipeline = this.#pipelines.get(keys[draw.variant]);
 						if (pipeline === undefined) {
 							return draws;
 						}
 						pass.setPipeline(pipeline);
 					} else {
 						// a variant still compiling skips its draws; the next draw picks a pipeline again
-						const pipeline = this.#stencilPipeline(phase.key, draw.cull, draw.uvFormat, draw.stencil);
+						const pipeline = this.#stencilPipeline(phase, keys, draw.variant, draw.stencil);
 						if (pipeline === undefined) {
-							cull = null;
+							variant = -1;
 							continue;
 						}
 						pass.setPipeline(pipeline);
@@ -553,8 +557,7 @@ export class MeshRenderer {
 							pass.setStencilReference(reference);
 						}
 					}
-					cull = draw.cull;
-					uvFormat = draw.uvFormat;
+					variant = draw.variant;
 					stencil = draw.stencil;
 				}
 				if ((phase.textured || material === null) && draw.material !== material) {
@@ -574,29 +577,30 @@ export class MeshRenderer {
 	}
 
 	/**
-	 * @param phase the phase's key
-	 * @param cull the draw's face culling
-	 * @param uvFormat the draw's UV format
+	 * @param phase the phase
+	 * @param keys the phase's variant keys
+	 * @param variant the draw's variant
 	 * @param stencil the draw's stencil state
 	 * @returns the phase's pipeline variant for the stencil state, or `undefined` while it compiles (compiling
 	 *   starts on the first call)
 	 */
 	#stencilPipeline(
-		phase: string,
-		cull: FaceCull,
-		uvFormat: UvFormat,
+		phase: DrawPhase,
+		keys: readonly string[],
+		variant: number,
 		stencil: LookStencil,
 	): GPURenderPipeline | undefined {
-		const variant = stencilPipelineKey(pipelineKey(phase, cull, uvFormat), stencil);
-		const pipeline = this.#pipelines.get(variant);
+		const key = stencilPipelineKey(keys[variant], stencil);
+		const pipeline = this.#pipelines.get(key);
 		if (pipeline !== undefined) {
 			return pipeline;
 		}
-		const describer = this.#describers.get(phase);
+		const describer = this.#describers.get(phase.key);
 		if (describer === undefined) {
-			throw new Error(`phase ${phase} has no pipeline descriptor`);
+			throw new Error(`phase ${phase.key} has no pipeline descriptor`);
 		}
-		void this.#pipelines.prepare(variant, () => withStencil(describer(cull, uvFormat), stencil));
+		const { cull, uvFormat } = VARIANTS[variant];
+		void this.#pipelines.prepare(key, () => withStencil(describer(cull, uvFormat), stencil));
 		return undefined;
 	}
 
