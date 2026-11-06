@@ -14,6 +14,8 @@ import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package
 
 import type { Vec3 } from '../scene/camera.ts';
 
+import { SUN_EFFECTS } from './sun.ts';
+
 /** a volume that applied at the camera, and how strongly */
 export interface AppliedVolume {
 	/** index into the manifest's volumes, or -1 for a pinned phase */
@@ -39,7 +41,7 @@ export interface BlendPlan {
 }
 
 /** what the blend may use */
-export interface BlendOptions {
+interface BlendOptions {
 	/** whether volumes apply by where the camera is, rather than only the level's own look */
 	volumes: boolean;
 	/** apply only this phase over the level's own look, instead of the volumes */
@@ -362,23 +364,45 @@ const applyPhase = (
 		to: phase.active.includes('atmosphere') ? source.atmosphere : target.atmosphere,
 	};
 	for (const name of phase.active) {
-		const fields = schema[name] ?? {};
 		if (t >= 1 - 1e-4) {
 			target[name] = source[name];
-		} else if (name === 'light') {
-			target[name] = lerpLight(target[name], source[name], t, fields);
-		} else if (name === 'fog') {
-			target[name] = lerpFog(target[name], source[name], atmospheres, t, fields);
-		} else if (name === 'cloud') {
-			target[name] = lerpCloud(target[name], source[name], t, fields);
-		} else if (name === 'rain' && target[name] !== undefined) {
-			target[name] = lerpRain(target[name], source[name], t, fields);
-		} else if (name === 'heightFog' || name === 'volumetricFog') {
-			target[name] = lerpFlowNoise(target[name], source[name], t, fields);
-		} else if (name === 'lensFlare') {
-			target[name] = lerpLensFlare(target[name], source[name], t);
 		} else {
-			target[name] = lerpObject(target[name], source[name], t, fields);
+			target[name] = lerpSection(name, target[name], source[name], atmospheres, t, schema[name] ?? {});
+		}
+	}
+};
+
+/** lerps one section, below full strength */
+const lerpSection = (
+	name: keyof EnvironmentSections,
+	a: Record<string, unknown>,
+	b: Record<string, unknown>,
+	atmospheres: { from: Record<string, unknown>; to: Record<string, unknown> },
+	t: number,
+	schema: BlendSchema,
+): Record<string, unknown> => {
+	switch (name) {
+		case 'light': {
+			return lerpLight(a, b, t, schema);
+		}
+		case 'fog': {
+			return lerpFog(a, b, atmospheres, t, schema);
+		}
+		case 'cloud': {
+			return lerpCloud(a, b, t, schema);
+		}
+		case 'rain': {
+			return a !== undefined ? lerpRain(a, b, t, schema) : lerpObject(a, b, t, schema);
+		}
+		case 'heightFog':
+		case 'volumetricFog': {
+			return lerpFlowNoise(a, b, t, schema);
+		}
+		case 'lensFlare': {
+			return lerpLensFlare(a, b, t);
+		}
+		default: {
+			return lerpObject(a, b, t, schema);
 		}
 	}
 };
@@ -427,16 +451,6 @@ const lerpValue = (
 
 const isNumbers = (value: unknown): value is number[] =>
 	Array.isArray(value) && value.every((v) => typeof v === 'number');
-
-/** the effects whose sun direction the light config sets apart from the sun's (`<effect>PitchYaw`) */
-const SUN_EFFECTS = [
-	'atmosphere',
-	'lightShaft',
-	'sunDisc',
-	'lensFlare',
-	'cloudShadow',
-	'heightFogDirectionalInscattering',
-] as const;
 
 const isPitchYaw = (value: unknown): value is [number, number] =>
 	Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number');

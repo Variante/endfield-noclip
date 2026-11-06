@@ -7,7 +7,7 @@ import type { RainConfig } from '@endfield-noclip/package-format/environment';
 const OCCLUSION_RANGE = 100;
 
 /** floats of `Frame.wetness` */
-export const WETNESS_FLOATS = 12;
+const WETNESS_FLOATS = 12;
 
 /**
  * @param rain the profile's rain section, or `undefined` when the profile has none

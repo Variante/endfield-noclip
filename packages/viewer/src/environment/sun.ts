@@ -11,13 +11,17 @@ import type { Vec2 } from '@endfield-noclip/package-format/values';
 import type { Vec3 } from '../scene/camera.ts';
 
 /** the effects that draw the sun along a direction of their own (`<effect>PitchYaw`) */
-export type SunEffect =
-	| 'atmosphere'
-	| 'lightShaft'
-	| 'sunDisc'
-	| 'lensFlare'
-	| 'cloudShadow'
-	| 'heightFogDirectionalInscattering';
+export const SUN_EFFECTS = [
+	'atmosphere',
+	'lightShaft',
+	'sunDisc',
+	'lensFlare',
+	'cloudShadow',
+	'heightFogDirectionalInscattering',
+] as const;
+
+/** one of {@link SUN_EFFECTS} */
+type SunEffect = (typeof SUN_EFFECTS)[number];
 
 /** the light config's direction fields for the given effects */
 export type SunDirections<E extends SunEffect> = Pick<
