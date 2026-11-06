@@ -90,6 +90,8 @@ export class StreamManager {
 	/** the uploads a frame deferred, reused */
 	#deferred: ContentItem[] = [];
 	#inFlight = new Set<{ items: ContentItem[]; abort: AbortController }>();
+	/** cancels the decodes still queued in the pool when the stream is destroyed */
+	#decodes = new AbortController();
 	/** core reads and decodes under way */
 	#working = 0;
 	#frame = 0;
@@ -246,12 +248,13 @@ export class StreamManager {
 		return this.#items[blob];
 	}
 
-	/** aborts requests and frees all GPU content */
+	/** aborts requests, cancels queued decodes and frees all GPU content */
 	destroy(): void {
 		this.#destroyed = true;
 		for (const request of this.#inFlight) {
 			request.abort.abort();
 		}
+		this.#decodes.abort();
 		for (const item of this.#items) {
 			if (item !== undefined && item.resident !== null) {
 				releaseResident(this.#handlers, item.resident.kind, item.blob, item.resident);
@@ -443,7 +446,7 @@ export class StreamManager {
 			return;
 		}
 		const stored = { data, codec: record.codec, rawLength: record.rawLength };
-		const job = this.#pool.run(decodeJob(this.#handlers, kind, item.blob, stored));
+		const job = this.#pool.run(decodeJob(this.#handlers, kind, item.blob, stored), this.#decodes.signal);
 		item.state = 'decoding';
 		this.#working++;
 		this.stats.decoding++;
@@ -456,7 +459,12 @@ export class StreamManager {
 				item.state = 'uploading';
 				this.#uploads.push(item);
 			})
-			.catch((err: unknown) => this.#fail(item, err))
+			.catch((err: unknown) => {
+				// the decodes still queued when the stream was destroyed are cancelled
+				if (!this.#destroyed) {
+					this.#fail(item, err);
+				}
+			})
 			.finally(() => {
 				this.#working--;
 				this.stats.decoding--;

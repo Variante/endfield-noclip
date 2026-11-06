@@ -56,8 +56,10 @@ constants; the terrain renderer throws on a page of any other size, which fails 
 
 [`package/decode-pool.ts`](../../packages/viewer/src/package/decode-pool.ts) runs 2–4 module workers
 (half the hardware threads, clamped) and hands each job to the least busy one, transferring the
-blob's buffer. [`package/decode-worker.ts`](../../packages/viewer/src/package/decode-worker.ts)
-undoes the blob codec and builds GPU-ready arrays:
+blob's buffer. each worker holds at most two jobs at once; the rest wait in the pool, so the jobs of
+an unloaded package that no worker has taken yet are dropped instead of keeping the workers busy.
+[`package/decode-worker.ts`](../../packages/viewer/src/package/decode-worker.ts) undoes the blob
+codec and builds GPU-ready arrays:
 
 | kind                       | worker output                                                                                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
