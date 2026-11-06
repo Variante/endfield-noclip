@@ -333,15 +333,18 @@ packs or renders correctly.
 - interactives ([interactives](game-data/interactives.md)) with view states draw the pose their
   state machines settle in from the placement's starting `state`, ignoring its other component
   properties; a `state` the server or a level script sets later isn't followed.
-  [one-shot effects](game-data/effects.md#one-shot-effects), the effects a state's `EffectBehavior`
-  plays (the talosites' activation burst, a jump pad's `On` glow) and effects components place
-  themselves (a jump pad's arrow) aren't drawn. a settled loop clip moves skinned bones and the
-  Transforms of mesh renderers, including ones under its bones, but not billboarded renderers or
-  particle systems; its material values and GameObject switches hold their end values
-  ([looping clips](extraction/prefabs-and-interactives.md#looping-clips)). every placement plays in
-  step from the viewer's clock (the game's start per placement is unknown), the animation moves only
-  while frames render, each moving renderer stores every frame of its own, and the balloon's sway is
-  unchecked against an in-game shot
+  [one-shot effects](game-data/effects.md#one-shot-effects) and transitions' bursts (the talosites'
+  activation) aren't drawn. looping effects that rest looks' states play are
+  ([effects at rest](extraction/prefabs-and-interactives.md#effects-at-rest)), but not doors',
+  bridges' or facility forms'; that a non-persistent effect ends with its state is assumed, effects
+  on a looping clip's GameObjects hold its end pose, and of the effects components place themselves
+  only the jump pad's arrow is drawn, unchecked against an in-game shot. a settled loop clip moves
+  skinned bones and the Transforms of mesh renderers, including ones under its bones, but not
+  billboarded renderers or particle systems; its material values and GameObject switches hold their
+  end values ([looping clips](extraction/prefabs-and-interactives.md#looping-clips)). every
+  placement plays in step from the viewer's clock (the game's start per placement is unknown), the
+  animation moves only while frames render, each moving renderer stores every frame of its own, and
+  the balloon's sway is unchecked against an in-game shot
 - facility visual forms settle with every key false. looks the player's presence changes follow the
   camera ([keys the player sets](game-data/interactives.md#keys-the-player-sets)); a campfire's
   `InZone` sphere uses the template's 2.5 m radius, not the runtime radius the game swaps in once

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import type { LevelInteractive } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
-import { startState, stateOf } from './interactive-facilities.ts';
+import { entityProperties, jumpPadArrow, startState, stateOf } from './interactive-facilities.ts';
 
 const property = (key: string, bits: string): MemoryPackValue => ({
 	key,
@@ -57,4 +57,46 @@ test("a placement's own state property overrides, then a state parameter on any 
 	assert.equal(stateOf(row(null, [[173, 'state', 1n]])), 1);
 	assert.equal(stateOf(row(null, [[50, 'guide_trigger_by_state', 1n]])), null);
 	assert.equal(stateOf(row(null, [[169, 'state', 0xffffffffn]])), -1);
+});
+
+const text = (key: string, value: string): MemoryPackValue => ({
+	key,
+	value: { type: 7, valueArray: [{ valueBit64: '0', valueString: value }] },
+});
+
+// the jump pad's config: its arrow effect and a target position of (-8.3, 0.6, -0.07)
+const padTemplate: MemoryPackValue = {
+	saveProperties: [property('is_locked', '0')],
+	configProperties: [
+		text('effect', 'P_common_bouncingplatform_arrow_01'),
+		property('free_jump', '0'),
+		{
+			key: 'target_position',
+			value: {
+				type: 11,
+				valueArray: ['-1056587121', '1057400816', '-1111993876'].map((valueBit64) => ({
+					valueBit64,
+					valueString: null,
+				})),
+			},
+		},
+	],
+	templateVariant: [['int_jumpmachine_free', { diffProperties: [property('free_jump', '1')] }]],
+};
+
+test('an unlocked jump pad turns its arrow towards its target position', () => {
+	const entity = entityProperties(padTemplate)!;
+	const pad = { ...row(null, []), position: [-8.3, 0, 10] as [number, number, number] };
+	const arrow = jumpPadArrow(entity, pad);
+	assert.equal(arrow?.effect, 'P_common_bouncingplatform_arrow_01');
+	// about straight down -z
+	assert.ok(arrow !== null && Math.abs(Math.abs(arrow.yaw) - 180) < 2, `yaw ${arrow?.yaw}`);
+});
+
+test('a free or locked jump pad places no arrow', () => {
+	const entity = entityProperties(padTemplate)!;
+	assert.equal(jumpPadArrow(entity, { ...row(null, []), template: 'int_jumpmachine_free' }), null);
+	const locked = row(null, []);
+	locked.properties = [{ key: 'is_locked', type: 1, values: [{ bits: 1n, text: null }] }];
+	assert.equal(jumpPadArrow(entity, locked), null);
 });

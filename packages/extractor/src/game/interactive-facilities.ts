@@ -1,4 +1,5 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
+import type { DynamicModel } from '@endfield-noclip/formats/endfield/dynamic-resources';
 import {
 	readInteractiveBaseModel,
 	readInteractiveTable,
@@ -13,6 +14,12 @@ import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-par
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 import { parseSparkTable } from '@endfield-noclip/formats/hg/spark-buffer';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
+import {
+	multiplyMatrices,
+	quaternionUnityEuler,
+	trsMatrix,
+	unityEulerQuaternion,
+} from '@endfield-noclip/formats/unity/transform';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
 import type {
 	ConditionalSetInfo,
@@ -29,11 +36,13 @@ import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
 import { allOf, type Alternatives } from './game-state.ts';
+import { prefabNodeMatrices } from './prefab-nodes.ts';
 import type { PrefabPose } from './prefab.ts';
 import { SWITCH_VALUES } from './scene-conditions.ts';
 import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
-import { type ModelViews, readViewStates, settledPose } from './view-state-poses.ts';
+import { isOneShotEffect } from './view-state-effects.ts';
+import { type ModelViews, readViewStates, type RestingEffect, settledPose } from './view-state-poses.ts';
 
 // templates with the model-upgrade component have their visual forms as a progression control; every other
 // template draws its base model only. templates carry no display name, so these labels are ours; other
@@ -102,11 +111,63 @@ const REGION_WALL_COMPONENTS = ['_SpaceshipRegionWallDataForMemoryPack'];
 /** the component of campfires */
 const CAMPFIRE_COMPONENTS = ['_InteractiveCampfireComponentDataForMemoryPack'];
 
-/** a settled look of an interactive's model, and its settled states' names */
+/** a settled look of an interactive's model, its settled states' names and the effects they leave playing */
 interface SettledLook {
 	pose: PrefabPose;
 	states: string[];
+	effects: RestingEffect[];
 }
+
+/** the component of jump pads, which place an effect of their own */
+const JUMP_MACHINE_COMPONENTS = ['_JumpMachineComponentDataForMemoryPack'];
+
+/**
+ * @param name an effect's name
+ * @returns the bundle path of its prefab, where the game's effect manager loads it from
+ */
+const effectPrefab = (name: string): string =>
+	`assets/beyond/dynamicassets/gameplay/effects/prefabs/${name.toLowerCase()}.prefab`;
+
+/**
+ * @param m a rotation's matrix by row and column
+ * @returns the rotation as an xyzw quaternion
+ */
+const matrixQuaternion = (m: readonly (readonly number[])[]): [number, number, number, number] => {
+	const trace = m[0][0] + m[1][1] + m[2][2];
+	if (trace > 0) {
+		const s = 0.5 / Math.sqrt(trace + 1);
+		return [(m[2][1] - m[1][2]) * s, (m[0][2] - m[2][0]) * s, (m[1][0] - m[0][1]) * s, 0.25 / s];
+	}
+	if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+		const s = 2 * Math.sqrt(1 + m[0][0] - m[1][1] - m[2][2]);
+		return [0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s, (m[2][1] - m[1][2]) / s];
+	}
+	if (m[1][1] > m[2][2]) {
+		const s = 2 * Math.sqrt(1 + m[1][1] - m[0][0] - m[2][2]);
+		return [(m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s, (m[0][2] - m[2][0]) / s];
+	}
+	const s = 2 * Math.sqrt(1 + m[2][2] - m[0][0] - m[1][1]);
+	return [(m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s, (m[1][0] - m[0][1]) / s];
+};
+
+/**
+ * @param matrix an affine column-major matrix without shear or mirroring
+ * @param followRotation whether to keep its rotation; without, the placement keeps the world's axes
+ * @returns its position, Unity Euler angles (degrees) and axis scales
+ */
+const matrixPlacement = (
+	matrix: Float32Array,
+	followRotation: boolean,
+): Pick<DynamicModel, 'position' | 'rotation' | 'scale'> => {
+	const columns = [0, 1, 2].map((c) => [matrix[c * 4], matrix[c * 4 + 1], matrix[c * 4 + 2]]);
+	const scale = columns.map((column) => Math.hypot(...column));
+	let rotation: [number, number, number] = [0, 0, 0];
+	if (followRotation) {
+		const rows = [0, 1, 2].map((r) => [0, 1, 2].map((c) => columns[c][r] / (scale[c] || 1)));
+		rotation = quaternionUnityEuler(matrixQuaternion(rows));
+	}
+	return { position: [matrix[12], matrix[13], matrix[14]], rotation, scale: [scale[0], scale[1], scale[2]] };
+};
 
 /**
  * an interactive model's looks at rest. `away` and `near` are indexed by the activation (campfires: 0 not
@@ -368,6 +429,105 @@ export const startState = (template: MemoryPackValue): StartState | null => {
 		}
 	}
 	return { state, variants };
+};
+
+/** a property's value atoms: their raw bits and strings */
+type PropertyAtoms = { bits: bigint; text: string | null }[];
+
+/** where an interactive's entity properties start, below a placement's own `properties` */
+export interface EntityProperties {
+	/** the template's saved, config and temporary properties, in the order they're looked up */
+	lists: MemoryPackValue[];
+	/** by interactive id, a variant's diff properties, looked up before the template's */
+	variants: Map<string, MemoryPackValue>;
+}
+
+/**
+ * @param template a decoded interactive template
+ * @returns its entity property lists, or `null` when it isn't a record
+ */
+export const entityProperties = (template: MemoryPackValue): EntityProperties | null => {
+	if (!isRecord(template)) {
+		return null;
+	}
+	const variants = new Map<string, MemoryPackValue>();
+	for (const pair of Array.isArray(template.templateVariant) ? template.templateVariant : []) {
+		if (Array.isArray(pair) && typeof pair[0] === 'string' && isRecord(pair[1])) {
+			variants.set(pair[0], pair[1].diffProperties);
+		}
+	}
+	return {
+		lists: [template.saveProperties, template.configProperties, template.tempProperties],
+		variants,
+	};
+};
+
+/**
+ * @param properties a template's keyed property list
+ * @param key the property's key
+ * @returns its value atoms, or `null` when it's absent
+ */
+const templateAtoms = (properties: MemoryPackValue | undefined, key: string): PropertyAtoms | null => {
+	for (const property of Array.isArray(properties) ? properties : []) {
+		if (!isRecord(property) || property.key !== key || !isRecord(property.value)) {
+			continue;
+		}
+		const atoms = Array.isArray(property.value.valueArray) ? property.value.valueArray : [];
+		return atoms.filter(isRecord).map((atom) => ({
+			bits:
+				typeof atom.valueBit64 === 'string' || typeof atom.valueBit64 === 'number'
+					? BigInt(atom.valueBit64)
+					: 0n,
+			text: typeof atom.valueString === 'string' ? atom.valueString : null,
+		}));
+	}
+	return null;
+};
+
+/**
+ * @param entity the template's entity properties
+ * @param row a placed interactive
+ * @param key the property's key
+ * @returns the property's starting value atoms: the placement's own, else its variant's, else the template's;
+ *   `null` when none has it
+ */
+const entityProperty = (entity: EntityProperties, row: LevelInteractive, key: string): PropertyAtoms | null =>
+	row.properties.find((param) => param.key === key)?.values ??
+	templateAtoms(entity.variants.get(row.template), key) ??
+	entity.lists.reduce<PropertyAtoms | null>((found, list) => found ?? templateAtoms(list, key), null);
+
+/**
+ * @param bits a float's IEEE bits in a 64-bit atom
+ * @returns the float
+ */
+const atomFloat = (bits: bigint): number => {
+	const view = new DataView(new ArrayBuffer(4));
+	view.setUint32(0, Number(BigInt.asUintN(32, bits)));
+	return view.getFloat32(0);
+};
+
+/**
+ * the stationary effect an unlocked jump pad that isn't a free jump places at itself, turned about the
+ * vertical towards its target position
+ *
+ * @param entity the jump pad template's entity properties
+ * @param row a placed jump pad
+ * @returns the effect's name and its yaw in degrees, or `null` when it places none
+ */
+export const jumpPadArrow = (
+	entity: EntityProperties,
+	row: LevelInteractive,
+): { effect: string; yaw: number } | null => {
+	const flag = (key: string) => (entityProperty(entity, row, key)?.[0]?.bits ?? 0n) !== 0n;
+	const effect = entityProperty(entity, row, 'effect')?.[0]?.text;
+	if (flag('is_locked') || flag('free_jump') || !effect) {
+		return null;
+	}
+	const target = (entityProperty(entity, row, 'target_position') ?? []).map((atom) => atomFloat(atom.bits));
+	const dx = (target[0] ?? 0) - row.position[0];
+	const dz = (target[2] ?? 0) - row.position[2];
+	// a zero direction looks along +z
+	return { effect, yaw: dx === 0 && dz === 0 ? 0 : (Math.atan2(dx, dz) * 180) / Math.PI };
 };
 
 /**
@@ -954,6 +1114,8 @@ export const loadInteractiveFacilities = async (
 	const animatorStarts = new Map<string, AnimatorStart>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
+	/** jump pads' entity properties, which say whether and where they place their arrow, by key */
+	const jumpPads = new Map<string, EntityProperties>();
 	{
 		const templateKinds = new Map<
 			string,
@@ -965,6 +1127,8 @@ export const loadInteractiveFacilities = async (
 					keys: PlayerKey[];
 					animator: AnimatorStart | null;
 					start: StartState | null;
+					/** a jump pad's entity properties, `null` for other templates */
+					jumpPad: EntityProperties | null;
 			  }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
@@ -1010,10 +1174,11 @@ export const loadInteractiveFacilities = async (
 							keys: playerKeys(decoded),
 							animator: animatorStart(decoded),
 							start: startState(decoded),
+							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? entityProperties(decoded) : null,
 						};
 					},
 					// an unreadable template is drawn as saved
-					{ kind: 'other' as const, campfire: false, keys: [], animator: null, start: null },
+					{ kind: 'other' as const, campfire: false, keys: [], animator: null, start: null, jumpPad: null },
 				);
 				templateKinds.set(data, kind);
 			}
@@ -1024,6 +1189,9 @@ export const loadInteractiveFacilities = async (
 				telescopic.set(key, { pieces: kind.pieces, prefab: forms[0].prefab });
 			}
 			// a doodad-group shell draws nothing itself; its forms attach to it instead
+			if (kind.kind === 'other' && kind.jumpPad !== null) {
+				jumpPads.set(key, kind.jumpPad);
+			}
 			if (kind.kind === 'other' && !doodads.has(key)) {
 				const { campfire, keys, start } = kind;
 				const state = start === null ? null : (start.variants.get(key) ?? start.state);
@@ -1152,6 +1320,18 @@ export const loadInteractiveFacilities = async (
 			}
 		});
 	};
+	/** effects to place once their prefabs' hashes are found, after every placement is read */
+	const pendingEffects: {
+		effect: string;
+		source: string;
+		levelTag: number;
+		visibility: ConditionalSetInfo;
+		/** the world matrix the effect is placed relative to: its model's placement, or its own */
+		frame: Float32Array;
+		/** the model and pose whose GameObject the effect plays on, `null` when placed at {@link frame} itself */
+		on: { prefab: string; pose: PrefabPose; rest: RestingEffect } | null;
+		followRotation: boolean;
+	}[] = [];
 	const scriptControls = new Map<string, ScriptControl>();
 	for (const { path, levelId, levelTag, row, created } of placed) {
 		// a row created later also needs its level's `created` control on, and one a level script shows and hides
@@ -1224,6 +1404,45 @@ export const loadInteractiveFacilities = async (
 				pose,
 			});
 		};
+		// a settled look's model, and the looping effects its states leave playing on it
+		const placeLook = (
+			model: { prefab: string; scale: number },
+			shown: ConditionalSetInfo,
+			look: SettledLook,
+		): void => {
+			place(model, shown, look.pose);
+			const scale = row.modelScale > 0 ? row.modelScale : model.scale;
+			const frame = trsMatrix(row.position, unityEulerQuaternion(row.rotation), [
+				row.scale[0] * scale,
+				row.scale[1] * scale,
+				row.scale[2] * scale,
+			]);
+			for (const rest of look.effects) {
+				pendingEffects.push({
+					effect: rest.effect,
+					source: `${path}#${row.id}`,
+					levelTag,
+					visibility: gate(shown),
+					frame,
+					on: { prefab: model.prefab, pose: look.pose, rest },
+					followRotation: rest.followRotation,
+				});
+			}
+		};
+		const jumpPad = jumpPads.get(row.template);
+		const arrow = jumpPad === undefined ? null : jumpPadArrow(jumpPad, row);
+		if (arrow !== null) {
+			// a stationary effect, unscaled, independent of the pad's state
+			pendingEffects.push({
+				effect: arrow.effect,
+				source: `${path}#${row.id}`,
+				levelTag,
+				visibility: gate({ alternatives: [[]] }),
+				frame: trsMatrix(row.position, unityEulerQuaternion([0, arrow.yaw, 0]), [1, 1, 1]),
+				on: null,
+				followRotation: true,
+			});
+		}
 		const bridge = telescopic.get(row.template);
 		if (bridge !== undefined) {
 			const pieces = piecesOf(row) ?? bridge.pieces;
@@ -1331,18 +1550,18 @@ export const loadInteractiveFacilities = async (
 				const requirements = campfire ? [{ control: activation, mask: 1 << i }] : [];
 				const near = looks.near?.[i];
 				if (near === undefined || near.states.join() === away.states.join()) {
-					place(template.forms[0], { alternatives: [requirements] }, away.pose);
+					placeLook(template.forms[0], { alternatives: [requirements] }, away);
 					continue;
 				}
-				place(
+				placeLook(
 					template.forms[0],
 					{ alternatives: [[...requirements, { control: nearness, mask: 1 }]] },
-					away.pose,
+					away,
 				);
-				place(
+				placeLook(
 					template.forms[0],
 					{ alternatives: [[...requirements, { control: nearness, mask: 2 }]] },
-					near.pose,
+					near,
 				);
 			}
 			continue;
@@ -1429,6 +1648,79 @@ export const loadInteractiveFacilities = async (
 				{ alternatives: [[{ control: id, mask: (1 << form) >>> 0 }]] },
 				formPoses.get(model.model) ?? null,
 			);
+		}
+	}
+	if (pendingEffects.length > 0) {
+		findHashes(new Set(pendingEffects.map(({ effect }) => effectPrefab(effect))));
+		const resolver = await context.resolver();
+		/** by effect prefab, whether it keeps playing at rest; `null` when it's missing or unreadable */
+		const looping = new Map<string, Promise<boolean | null>>();
+		const loops = (prefab: string): Promise<boolean | null> =>
+			looping.getOrInsertComputed(prefab, async () => {
+				const hash = hashes.get(prefab);
+				if (hash === undefined) {
+					unsupported.push({ path: prefab, reason: 'effect prefab not in the bundle manifest' });
+					return null;
+				}
+				try {
+					const root = await resolver.findUnique({ hash, path: prefab }, UnityClass.GameObject);
+					// an effect that doesn't loop has run out by the time its state rests
+					return !(await isOneShotEffect(resolver, root));
+				} catch (error) {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					unsupported.push({ path: prefab, reason: error.message });
+					return null;
+				}
+			});
+		/** by model prefab and pose, its GameObjects' matrices; `null` when unreadable */
+		const nodeMatrices = new Map<string, Promise<Map<string, Float32Array> | null>>();
+		const nodesOf = (prefab: string, pose: PrefabPose): Promise<Map<string, Float32Array> | null> =>
+			nodeMatrices.getOrInsertComputed(`${prefab}:${pose.key}`, async () => {
+				try {
+					const root = await resolver.findUnique(
+						{ hash: hashOf(prefab), path: prefab },
+						UnityClass.GameObject,
+					);
+					return await prefabNodeMatrices(resolver, root, pose);
+				} catch (error) {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					unsupported.push({ path: prefab, reason: error.message });
+					return null;
+				}
+			});
+		for (const pending of pendingEffects) {
+			const prefab = effectPrefab(pending.effect);
+			// oxlint-disable-next-line no-await-in-loop -- one read per effect prefab
+			if ((await loops(prefab)) !== true) {
+				continue;
+			}
+			let matrix = pending.frame;
+			if (pending.on !== null) {
+				const { rest } = pending.on;
+				// oxlint-disable-next-line no-await-in-loop -- one walk per model prefab and pose
+				const nodes = await nodesOf(pending.on.prefab, pending.on.pose);
+				if (nodes === null) {
+					continue;
+				}
+				// a GameObject the model lacks falls back to the animator's, as in the game
+				const node =
+					(rest.node === null ? undefined : nodes.get(rest.node)) ??
+					(rest.fallback === null ? undefined : nodes.get(rest.fallback));
+				if (node !== undefined) {
+					matrix = multiplyMatrices(matrix, node);
+				}
+			}
+			models.push({
+				model: { pathHash: hashes.get(prefab)!, ...matrixPlacement(matrix, pending.followRotation) },
+				levelTag: pending.levelTag,
+				source: `${pending.source}:${pending.effect}`,
+				visibility: pending.visibility,
+				pose: null,
+			});
 		}
 	}
 	for (const [id, set] of doodadLevels) {

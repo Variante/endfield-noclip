@@ -85,6 +85,26 @@ their own: the monitoring terminal's forms 1–4 (`int_system_kiteStation_<n>_po
 0 has no clip. when each placement's loop starts is unknown. how clips store poses, switches and
 material values is in [animation clips](animation.md#animation-clips).
 
+### effects states play
+
+a state's effect behaviour (`MVSCEffectBehaviorData`) plays an effect by name when the state is
+entered. the game loads it from
+`Assets/Beyond/DynamicAssets/Gameplay/Effects/Prefabs/<name>.prefab`. it plays on the GameObject
+`effectNodeName` names, or on the animator's GameObject when that's empty or the model has no such
+GameObject. it follows that GameObject, turning with it only with `followRot`; with
+`dontFollowTrans` it's placed once at the GameObject's position and rotation instead. a
+fire-and-forget effect (`fireAndForget`) is left to play out on its own. otherwise:
+
+- a persistent effect (`isPersistence`) is switched on or off (`active`) by each state that names
+  it, so it outlasts the state that started it
+- any other effect replaces the instance the same behaviour played before; that it ends when its
+  state is left is assumed (`EffectPlayBehavior.ForceEnd` isn't read)
+
+so at rest a model plays the persistent effects its states left on and the other effects of the
+states it rests in. an effect whose `EffectSetting`s don't loop has run out by then
+([one-shot effects](effects.md#one-shot-effects)). across the install's view states there are about
+1800 effect behaviours: about 1060 on named GameObjects, 755 persistent and 110 fire-and-forget.
+
 ### the `state` key
 
 an interactive whose template has a common-perform component (`InteractiveCommonPerformComponent`)
@@ -102,10 +122,16 @@ idle turn, and its `EffectLayer` rests in `On`, which plays `P_common_bouncingpl
 rests in a one-frame closed idle with no effect. `int_jumpmachine_vertical` and
 `int_jumpmachine_electric` save 0. every jump pad placement in the install sets its own `state`: all
 31 vertical pads and 216 of the 223 plain, free, rock and Xirang pads start at 1, and 12 of the 14
-electric pads at 0. apart from its view states, an unlocked jump pad that isn't a free jump also
-places a stationary effect named by its `effect` property (`P_common_bouncingplatform_arrow_01`) at
-itself, turned towards its target position. lifters, fans, attack switches, hydrants and ball
-receivers start at a nonzero `state` too.
+electric pads at 0. lifters, fans, attack switches, hydrants and ball receivers start at a nonzero
+`state` too.
+
+apart from its view states, a jump pad (`JumpMachineComponent`) that isn't locked (`is_locked`) or a
+free jump (`free_jump`) places a stationary effect named by its `effect` property
+(`P_common_bouncingplatform_arrow_01`, a looping arrow) at its own position, whatever its `state`.
+the effect turns about the vertical only, towards its `target_position` property: its rotation looks
+along the horizontal part of the target minus the pad's position. 237 pad placements set their own
+target. the template's (−8.3, 0.6, −0.07) is used as a world position all the same, so pads that
+keep it point towards about the world origin.
 
 ### keys the player sets
 

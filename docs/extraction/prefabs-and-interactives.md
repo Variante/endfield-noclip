@@ -141,6 +141,22 @@ poses with their own controls:
   applies its open-idle clip. that clip binds below the piece's own Animator, so its paths are
   re-keyed to paths below the root ([bridges](scene-controls.md#bridges)).
 
+### effects at rest
+
+a rest look (not a door, bridge or facility form) also places the effects its states leave playing
+([effects states play](../game-data/interactives.md#effects-states-play)): `settledPath` follows
+each layer from its starting state, and `restingEffects` keeps the persistent effects switched on
+along the way plus the resting state's other effects, skipping fire-and-forget ones. each effect's
+prefab is placed as a model of its own under the look's visibility, unless its `EffectSetting`s
+don't loop (`isOneShotEffect`) or the manifest lacks it (reported in
+`unsupported-interactives.json`). its GameObject's matrix comes from `prefabNodeMatrices`, which
+walks the model in the look's pose (clip end poses, so a looping clip's motion isn't followed); an
+effect that doesn't turn with its GameObject keeps the world's axes but the GameObject's scale.
+
+a jump pad's arrow ([the `state` key](../game-data/interactives.md#the-state-key)) is placed the
+same way, at the pad's position with its yaw towards the target and unit scale, under the pad's own
+visibility only.
+
 ### looping clips
 
 a settled state whose clip loops keeps playing it
