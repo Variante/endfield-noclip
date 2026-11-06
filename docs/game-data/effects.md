@@ -551,6 +551,22 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   `donutRadius` the tube's, `radiusThickness` the tube's outer part used, each particle leaving
   outwards from the tube's centre line, as Unity documents it (not checked against the engine). the
   mushroom's coin motes (`lizi1`) burst from one stretched tall by the shape's scale.
+- **mesh shape.** `ShapeModule.type` 6 emits from `m_Mesh`, read from the engine. its primitives are
+  every submesh's, or only `m_MeshMaterialIndex`'s (clamped) with `m_UseMeshMaterialIndex`:
+  triangles, lines, line strips, and a submesh without indices as a line strip through its vertices;
+  quads and points make the mesh invalid and nothing is emitted. `placementMode` 0 (vertex) picks a
+  primitive evenly, then one of its corners, so vertices shared by more primitives come up more
+  often; 1 (edge) picks a triangle by area (a line by length), then a point along its outline by
+  parameter, each side a third whatever its length; 2 (triangle) picks by area and a point evenly
+  within. `m_MeshSpawn.mode` steps vertex placement through the vertex buffer itself, one vertex per
+  emitted particle from a running count, wrapping (Loop) or back and forth (PingPong and
+  BurstSpread); edge placement in those modes walks the outline by `m_MeshSpawn.speed` over time,
+  and its `spread` snaps the place to steps (random mode too); triangles are always random. the
+  particle leaves along the point's interpolated normal, normalized ((0, 0, 1) without normals),
+  `m_MeshNormalOffset` moving it along the unnormalized normal first; with `m_UseMeshColors` and
+  vertex colours, its start colour is multiplied by the point's Color32. the shape's placement then
+  applies as for other shapes. the red mission portals' sparks (`dot_Line` in
+  `p_fxint_s_missionportal_entrance_red_narrowloop_2103`) start on the edges of a ring mesh.
 
 examples:
 

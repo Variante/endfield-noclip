@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { type MinMaxCurveInfo, ParticleShapeKind } from '@endfield-noclip/package-format/particles';
+import {
+	type MinMaxCurveInfo,
+	ParticleMeshPlacement,
+	ParticleMeshSpawn,
+	ParticleShapeKind,
+} from '@endfield-noclip/package-format/particles';
 
 import { PARTICLE_FLOATS, ParticleSimulation, ringBufferAge } from './simulation.ts';
 import { DOWN, constant, line, run, same, sheet, system } from './test-systems.ts';
@@ -199,6 +204,42 @@ describe('ParticleSimulation', () => {
 			// distance from the circle of radius 1 in the xy plane
 			const tube = Math.hypot(Math.hypot(position[0], position[1]) - 1, position[2]);
 			assert.ok(tube >= 0.2 * 0.6 - 1e-4 && tube <= 0.2 + 1e-4, `${tube}`);
+		}
+	});
+
+	it('starts mesh-shape particles on the mesh, scaled by the shape and tinted by its vertex colours', () => {
+		const info = system({
+			gravityModifier: constant(0),
+			looping: false,
+			rate: constant(0),
+			startLifetime: constant(10),
+			bursts: [{ time: 0, count: constant(20), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: {
+				...system().shape!,
+				kind: ParticleShapeKind.Mesh,
+				scale: [2, 2, 2],
+				mesh: {
+					placement: ParticleMeshPlacement.Vertex,
+					spawn: ParticleMeshSpawn.Random,
+					spread: 0,
+					normalOffset: 0,
+					positions: [1, 0, 0, 0, 1, 0],
+					normals: null,
+					colors: [255, 0, 0, 255, 255, 0, 0, 255],
+					corners: 2,
+					primitives: [0, 1],
+				},
+			},
+		});
+		const out = new Float32Array(1024 * PARTICLE_FLOATS);
+		const count = new ParticleSimulation(info, 7).evaluate(0.5, DOWN, same, out);
+		assert.equal(count, 20);
+		for (let i = 0; i < count; i++) {
+			const at = i * PARTICLE_FLOATS;
+			const [x, y] = out.subarray(at, at + 2);
+			// one of the two vertices, twice as far out
+			assert.ok(Math.abs(Math.max(x, y) - 2) < 1e-6 && Math.abs(Math.min(x, y)) < 1e-6, `${x} ${y}`);
+			assert.deepEqual(Array.from(out.subarray(at + 11, at + 15)), [1, 0, 0, 1]);
 		}
 	});
 

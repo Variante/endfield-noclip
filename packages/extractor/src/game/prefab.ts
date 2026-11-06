@@ -47,6 +47,7 @@ import {
 	readAdjustLength,
 } from './adjust-length.ts';
 import { animatorDefaultPose } from './animator-defaults.ts';
+import { loadMesh } from './asset-decode.ts';
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
 import type { RootPath } from './curve-move.ts';
@@ -63,6 +64,7 @@ import {
 	InfluenceFilter,
 	ScalingMode,
 	particleReach,
+	particleShapeMesh,
 	readForceField,
 	readParticleSystem,
 } from './particle-system.ts';
@@ -704,7 +706,21 @@ export const readPrefabRenderers = async (
 					distances,
 				});
 			} else {
-				const read = readParticleSystem(system.data, rendererData);
+				let read = readParticleSystem(system.data, rendererData);
+				if (read !== null && 'info' in read && read.info.shape !== null && read.shapeMesh !== null) {
+					const shapeMesh = await resolver.resolve(system.ref, read.shapeMesh);
+					const mesh =
+						shapeMesh === null
+							? 'no shape mesh'
+							: particleShapeMesh(
+									objectField(system.data, 'ShapeModule'),
+									await loadMesh(resolver, shapeMesh),
+								);
+					read =
+						typeof mesh === 'string'
+							? { reason: mesh }
+							: { ...read, info: { ...read.info, shape: { ...read.info.shape, mesh } } };
+				}
 				const emitter = particleEmitterMatrix(parent, local, scalingMode);
 				// a system a script starts is still there to see, so it gets a stand-in too
 				let reason = standIn;

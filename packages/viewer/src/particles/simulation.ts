@@ -17,6 +17,7 @@ import { normalizeOrZInto } from '../math/vec3.ts';
 
 import { evaluateMinMax, evaluateMinMaxGradient, livedAt, meanOf, upperBound } from './curves.ts';
 import { applyForces, type ForceRandoms, type PreparedField, prepareField } from './forces.ts';
+import { meshShapePoint, type PreparedMeshShape, prepareMeshShape } from './mesh-shape.ts';
 import {
 	dragged,
 	draggedFall,
@@ -131,8 +132,18 @@ const quat = (): Quat => [0, 0, 0, 1];
 
 /** {@link ParticleSimulation.evaluate}'s particle */
 const placing: Placing = { id: 0, born: 0, life: 0, age: 0, moved: 0 };
-/** the place and direction a particle starts from (`#start`) and its size then (`#place`) */
-const begin = { position: vec3(), direction: vec3(), away: vec3(), size: vec3() };
+/**
+ * the place and direction a particle starts from and the shape's tint of its colour (`#start`), and its size
+ * then (`#place`)
+ */
+const begin = {
+	position: vec3(),
+	direction: vec3(),
+	away: vec3(),
+	tint: [1, 1, 1, 1] as [number, number, number, number],
+	size: vec3(),
+	randoms: [0, 0, 0] as [number, number, number],
+};
 /** the path `#place` hands `#freePath` or `#steppedPath` */
 const path: PathStart = {
 	id: 0,
@@ -205,6 +216,8 @@ export class ParticleSimulation {
 	readonly #rate: number;
 	readonly #meshTotal: number;
 	readonly #shapeRotation: Quat;
+	/** the mesh a mesh shape emits from; `null` for other shapes */
+	readonly #meshShape: PreparedMeshShape | null;
 	/** the emissions of the window {@link #emitted} last listed, drawn from {@link #emissionPool} */
 	readonly #emissions: Emission[] = [];
 	/** emission records kept for reuse, as many as the largest window held */
@@ -261,6 +274,8 @@ export class ParticleSimulation {
 		const forces: ParticleForcesInfo | null = info.motion.kind === 'free' ? info.motion.forces : null;
 		this.#forces =
 			forces === null ? null : { multiplier: forces.multiplier, fields: forces.fields.map(prepareField) };
+		const shapeMesh = info.shape?.mesh ?? null;
+		this.#meshShape = shapeMesh === null ? null : prepareMeshShape(shapeMesh);
 		const rotation = info.shape?.rotation ?? [0, 0, 0];
 		this.#shapeRotation = eulerQuaternion(
 			(rotation[0] * Math.PI) / 180,
@@ -510,9 +525,11 @@ export class ParticleSimulation {
 		return weights.length - 1 === this.info.mesh;
 	}
 
-	/** writes where a particle starts and which way it leaves, in the emitter's frame */
+	/** writes where a particle starts and which way it leaves, in the emitter's frame, and its tint */
 	#start(id: number, position: Vec3, direction: Vec3): void {
 		const shape = this.info.shape;
+		const tint = begin.tint;
+		tint.fill(1);
 		if (shape === null) {
 			copy(position, ZERO);
 			direction[0] = 0;
@@ -574,6 +591,22 @@ export class ParticleSimulation {
 				direction[0] = 0;
 				direction[1] = 0;
 				direction[2] = 1;
+				break;
+			}
+			case ParticleShapeKind.Mesh: {
+				if (this.#meshShape === null) {
+					copy(position, ZERO);
+					direction[0] = 0;
+					direction[1] = 0;
+					direction[2] = 1;
+					break;
+				}
+				const randoms = begin.randoms;
+				randoms[0] = r0;
+				randoms[1] = r1;
+				randoms[2] = r2;
+				// the rate's stream numbers its emissions (even ids); bursts don't keep theirs
+				meshShapePoint(this.#meshShape, randoms, id % 2 === 0 ? id / 2 : null, position, direction, tint);
 				break;
 			}
 			case ParticleShapeKind.Donut: {
@@ -886,7 +919,11 @@ export class ParticleSimulation {
 			out[at + ParticleFloat.rotation + k] = rotation[k];
 		}
 		const color = evaluateMinMaxGradient(info.startColor, u, random(seed, id, Channel.Color));
-		let [red, green, blue, alpha] = color;
+		const shapeTint = begin.tint;
+		let red = color[0] * shapeTint[0];
+		let green = color[1] * shapeTint[1];
+		let blue = color[2] * shapeTint[2];
+		let alpha = color[3] * shapeTint[3];
 		if (info.colorOverLifetime !== null) {
 			const tint = evaluateMinMaxGradient(
 				info.colorOverLifetime,

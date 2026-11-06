@@ -101,6 +101,7 @@ const fields = (
 		randomDirection: 0,
 		sphericalDirection: 0,
 		randomPosition: 0,
+		mesh: null,
 	},
 	sizeOverLifetime: null,
 	rotationOverLifetime: null,

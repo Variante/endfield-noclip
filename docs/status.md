@@ -285,15 +285,19 @@ packs or renders correctly.
   - stand-ins at the emitter: systems that don't play on awake; a start delay, rate or drag curve; a
     per-axis speed limit or one alongside drag; speed-modifier curves alongside drag, a speed limit
     or force fields; force fields alongside drag, other than spheres or with a vector field; shapes
-    other than sphere, hemisphere, cone, box, circle and donut; sprite-mode sheets, sheet time modes
-    other than lifetime or frames per second, sheets over 64 tiles a side
+    other than sphere, hemisphere, cone, box, circle, donut and mesh (map02's 16 single-sided edge
+    and 2 box-edge systems); mesh shapes with a shape texture, edge placement in Loop or PingPong,
+    or quads, points or lines mixed with triangles; sprite-mode sheets, sheet time modes other than
+    lifetime or frames per second, sheets over 64 tiles a side
   - approximations: drag slows only the start velocity and the fall; orbits turn the whole path
     (exact only along the orbit's axis); force fields push only from within the system's own prefab
     (no wind zones or scene fields); a particle replaying a ring buffer's loop range replays its
     path; `Facing` turns to the camera's plane like `View`; velocity-aligned billboards roll by the
-    viewer's choice; cones and circles ignore the arc's mode and spread (about 20 map02 systems set
-    one), sphere and hemisphere arcs aren't applied; stretched quads ignore the camera's velocity
-    (no map02 system scales by it), the freeform mode and an `m_NormalDirection` below 1
+    viewer's choice; vertex Loop and PingPong mesh shapes pick at random for bursts and count the
+    rate's emissions from the start delay (when the game's count restarts isn't traced); cones and
+    circles ignore the arc's mode and spread (about 20 map02 systems set one), sphere and hemisphere
+    arcs aren't applied; stretched quads ignore the camera's velocity (no map02 system scales by
+    it), the freeform mode and an `m_NormalDirection` below 1
   - limits: at most 1024 live particles per emitter (two map01 systems can hold up to 1201), bounds
     that a ring-buffered particle moving far past its lifetime can outrun, colours clamped to 1
     (RGBA8), custom data in colour mode isn't packed (no map02 system uses it)

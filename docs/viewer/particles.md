@@ -67,6 +67,10 @@ system and its index, so any moment can be evaluated on its own:
 - start values read their curves at the emission's place in its loop. the shape gives the start
   position and direction (cones towards the matching point of their far end, volumes anywhere up to
   their length, donuts outwards from the tube's centre line), placed by the shape's own transform.
+  mesh shapes (`mesh-shape.ts`) pick a primitive and a point on it as the game does, from the
+  particle's random values, and multiply the start colour by the point's vertex colour; vertex Loop
+  and PingPong number the rate's emissions from the start delay, while bursts, whose emissions
+  aren't numbered, pick at random.
 
 ### motion
 
