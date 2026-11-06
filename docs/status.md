@@ -359,6 +359,14 @@ packs or renders correctly.
   ([template animator parameters](game-data/interactives.md#template-animator-parameters)), set by
   default, and int and trigger parameters aren't set; telescopic bridges draw retracted or extended
   ([telescopic bridges](game-data/interactives.md#telescopic-bridges)), retracted by default
+- level scripts' own interactives draw with their script's switch, on by default, as if every script
+  runs; which the server starts (the player's distance to its active shape, missions) isn't followed
+- [auto-moving platforms](game-data/interactives.md#auto-moving-platforms) ride their splines from
+  the viewer clock's zero rather than when their script starts, and drop no overshoot at the end of
+  a loop. ones that turn along the curve, wait at knots, ease, or stop at their target stay at their
+  placement (`unsupported-interactives.json`); effects, particles and billboards on a moving
+  platform stay behind; other curve movers (coins, butterflies, kickable balls), which scripts
+  start, hold still
 - rows created later (`createState` ≠ 0) draw only with their level's "created during play" toggle,
   off by default; one toggle covers a level's rows, since which of them the server or a script
   creates isn't followed

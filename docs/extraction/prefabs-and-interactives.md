@@ -76,13 +76,16 @@ code: [level-interactives.ts](../../packages/formats/src/endfield/level-interact
 ### templates and models
 
 `readLevelInteractives` decodes LevelData's sequential prefix through the interactive list
-([interactives](../game-data/interactives.md)); `readInteractiveTable` reads
-`InteractiveTable.json`; `readInteractiveBaseModel` reads a template's model component and
-`readInteractiveVariantModels` its variant table. a placement draws its variant's model, else the
-template's. a variant whose override is enabled but empty draws nothing, so the magic
-[Wuling bridges](../game-data/interactives.md#wuling-bridges) show only their DynamicStreaming row,
-not the template's drawbridge too. a doodad-group shell places one form per group level instead
-([doodad groups](scene-controls.md#doodad-groups)).
+([interactives](../game-data/interactives.md)). a level script's own interactives come from the
+decoded script through `levelInteractiveFromValue`: since the script names them by slot, each gets
+the id script id × 100000 + slot, and they're placed like LevelData rows under a
+`script:spawned:<script id>` switch, on by default (rows created later also need their level's
+`created` control). `readInteractiveTable` reads `InteractiveTable.json`; `readInteractiveBaseModel`
+reads a template's model component and `readInteractiveVariantModels` its variant table. a placement
+draws its variant's model, else the template's. a variant whose override is enabled but empty draws
+nothing, so the magic [Wuling bridges](../game-data/interactives.md#wuling-bridges) show only their
+DynamicStreaming row, not the template's drawbridge too. a doodad-group shell places one form per
+group level instead ([doodad groups](scene-controls.md#doodad-groups)).
 
 hundreds of component and action-graph types sit between the model component and the variant table,
 so the reader locates the [variant table](../game-data/interactives.md#the-variant-table) from the
@@ -207,3 +210,19 @@ rounding decides w), and interpolates stripped samples as ACL plays them; on Wul
 cube it agrees with upstream ACL's decompressor to 5e-6 in translations and 1.3e-4 in rotations. the
 clip then samples between frames like the dense block, wrapping when the buffer does, with tracks
 mapped to bindings through the sub-track masks and constant bindings held at their listed values.
+
+### moving platforms
+
+an [auto-moving platform](../game-data/interactives.md#auto-moving-platforms)
+([curve-move.ts](../../packages/extractor/src/game/curve-move.ts)) whose starting `state` is 1 and
+whose `spline_id` names a spline rides it. its level's LevelData files are decoded whole through the
+[MemoryPack schema](../extraction.md#memorypack-data) for their splines (`readLevelSplines`,
+[level-splines.ts](../../packages/formats/src/endfield/level-splines.ts)), once per level that has
+such a platform. `curvePath` builds the spline's Bézier curves in world space, measures them with a
+30-sample arc-length table per curve, and samples the platform's trip at 15 frames per second over
+one loop (the trip's length over the speed; twice that back and forth). each frame is the prefab
+root's translation in the placement's space, the pose's `path`; `poseFrames` poses the hierarchy on
+those frames, so every mesh renderer gets a `rigid` motion and skinned ones a `skinned` one, as for
+[looping clips](#looping-clips). a platform that turns along the curve, waits at knots, eases, or
+stops at its target (mode 0) is reported in `unsupported-interactives.json` and stays at its
+placement.

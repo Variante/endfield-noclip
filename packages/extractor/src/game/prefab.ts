@@ -40,6 +40,7 @@ import {
 import { animatorDefaultPose } from './animator-defaults.ts';
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
+import type { RootPath } from './curve-move.ts';
 import {
 	frozenParticleMatrix,
 	meshParticlePivot,
@@ -183,6 +184,11 @@ export interface PrefabPose {
 	clips: readonly PoseClip[];
 	/** GameObjects the states switch on or off, by name */
 	active: ReadonlyMap<string, boolean>;
+	/**
+	 * the root's matrices in the placement's space at evenly spaced times of a loop, for a prefab that moves as
+	 * a whole (an auto-moving platform); absent for one that stays at its placement
+	 */
+	path?: RootPath;
 }
 
 /** what one Animator's clip leaves its subtree at */
@@ -992,22 +998,28 @@ interface PoseFrames {
 }
 
 /**
- * poses the prefab's Transforms at each frame of the pose's first looping clip that moves any; the pose's
- * other clips hold their end poses, and its other looping clips play on the first one's frames
+ * poses the prefab's Transforms at each frame of the pose's root path, else of its first looping clip that
+ * moves any; the pose's other clips hold their end poses, and its looping clips play on those frames
  *
  * @param nodes the walk's Transforms, parents first
  * @param pose the pose the walk drew
- * @returns the frames, or `null` when no clip keeps moving a Transform
+ * @returns the frames, or `null` when nothing keeps moving a Transform
  */
 const poseFrames = (nodes: readonly PosedNode[], pose: PrefabPose): PoseFrames | null => {
 	const playing = pose.clips.find(
 		(clip) => clip.motion !== null && clip.motion.loops && clip.motion.paths.length > 0,
 	)?.motion;
-	if (playing === undefined || playing === null || playing.duration <= 0 || playing.sampleRate <= 0) {
+	let frameRate: number;
+	let frameCount: number;
+	if (pose.path !== undefined) {
+		frameRate = pose.path.frameRate;
+		frameCount = pose.path.matrices.length;
+	} else if (playing !== undefined && playing !== null && playing.duration > 0 && playing.sampleRate > 0) {
+		frameRate = playing.sampleRate;
+		frameCount = Math.max(Math.round(playing.duration * frameRate), 1);
+	} else {
 		return null;
 	}
-	const frameRate = playing.sampleRate;
-	const frameCount = Math.max(Math.round(playing.duration * frameRate), 1);
 	const matrices: Map<string, Float32Array>[] = [];
 	for (let frame = 0; frame < frameCount; frame++) {
 		const time = frame / frameRate;
@@ -1018,8 +1030,8 @@ const poseFrames = (nodes: readonly PosedNode[], pose: PrefabPose): PoseFrames |
 		for (const node of nodes) {
 			const parent = node.parent === null ? undefined : posed.get(node.parent);
 			if (parent === undefined) {
-				// the root keeps the caller's placement
-				posed.set(node.key, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]));
+				// the root keeps the caller's placement, moved along its path if it has one
+				posed.set(node.key, pose.path?.matrices[frame] ?? trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]));
 				continue;
 			}
 			const local = { ...node.saved };

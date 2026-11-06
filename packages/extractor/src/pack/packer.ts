@@ -1279,9 +1279,12 @@ const collectEntities = async (
 		scene.options.level,
 		scene.partition,
 		entityVisibilityTargets(levelScripts.scripts, levelScripts.ownLevels),
+		levelScripts.scripts,
 		dynamic.erosionCores,
 	);
 	counts.interactiveFacilities = facilities.progressions.length;
+	collected.controls.push(...facilities.scriptSpawned);
+	counts.scriptSpawnedInteractives = facilities.scriptSpawned.length;
 	/** proximity controls of the trigger volumes script groups follow */
 	const volumeProximities: SceneControl[] = [];
 	{

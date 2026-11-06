@@ -23,6 +23,13 @@ an interactive's model comes from four sources:
    model id.
 4. `Data/Json/GameplayConfig/ModelTable.json` maps each model id to a prefab path and `scaleFactor`.
 
+level scripts place interactives too: a script's `interactives` dictionary maps slots (40001, 40002,
+…) to rows of the same `LevelInteractiveData` shape, with `levelLogicId` 0 and `belongLevelScriptId`
+naming the script, which addresses them by slot. they exist while the script runs
+([script groups](scene-states.md#what-sets-a-script-group)). across the install thousands of such
+rows sit in hundreds of scripts: racing courses' coins and moving platforms, open-world butterflies,
+bubble chests, mission beacons and puzzle pieces.
+
 a placement's model is its variant's, else the template's. a variant whose model override is enabled
 but empty has no model of its own, rather than the template's. templates without a model (triggers,
 logic) have nothing to draw. a model that is a doodad-group shell draws nothing itself; one form per
@@ -248,3 +255,35 @@ of its own model, so its `state` switches that row's `on`/`off` states (`SetActi
 copies, effects on the way). the magic bridge's model has no clips. that the empty model override
 alone keeps the game from loading the template's drawbridge there is inferred from the data; the
 model component's loading isn't read.
+
+## auto-moving platforms
+
+`int_platform_automove` (variants `_4m_4m`, `_5m_5m`, `_floatingtower`, …) is a platform that rides
+a spline. its template has an auto-move platform component
+(`InteractiveAutoMovePlatformComponentData`) and a custom curve move component
+(`CustomCurveMoveComponentData`, component type 107 in placements' parameters), whose parameters
+come from the template, then the variant's `Comp_InteractiveCustomCurveMove` diff, then the
+placement's own.
+
+- **starting**: the auto-move component starts the move when the entity's `state` is 1, on start and
+  whenever `state` becomes 1; another value pauses it. the template saves 0, so only placements that
+  set `state` 1 move with their level. nothing reacts to the player stepping on.
+- **the spline**: `spline_id` names a spline of the level's LevelData (`splines`, `LevelSplineData`:
+  `splineId`, `position`, Euler `rotation`, `closed`, Unity Splines `BezierKnot`s with tangents in
+  the knot's frame). an id with no spline (the template's 0) or a `speed` of 0 or less never moves.
+- **position**: `rotation · EvaluatePosition(spline, ratio) + position`, replacing the platform's
+  own position; its rotation stays unless `curve_move_direction` is 1 (along the tangent). the ratio
+  is the distance travelled from knot 0 over the spline's length, so the platform moves at `speed`
+  metres per second along the curve. `tween` 1 eases over `distance`; 0 is uniform.
+  `sync_speed_to_audio` only feeds the speed to an audio parameter.
+- **the trip**: it starts at `curve_start_index` and travels to `curve_target_index`; equal indices
+  close the spline for the trip and go round it whole. a later start than target runs backwards.
+  `curve_move_mode` 0 stops at the target, 1 starts over from the start knot (dropping the
+  overshoot), 2 goes back and forth. `initial_phase` starts it that fraction of the trip on. it
+  waits only at knots in `curve_node_index_list`. `knotProgresses` and `keyNodeIndexList` aren't
+  read.
+
+in indie_race001 every moving platform belongs to a level script: script 12800025038 places eight 4
+m platforms on spline 25012, a 144 m loop under the crane rails near unity 80, 122, 92, an eighth of
+the loop apart at 4 m/s. the level's own LevelData places eleven more that keep `state` 0, four of
+them (12800025316–19, near 104, 118, 85) without a spline, so those stand still.

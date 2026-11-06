@@ -7,10 +7,12 @@ import {
 } from '@endfield-noclip/formats/endfield/interactive-model';
 import {
 	type LevelInteractive,
+	levelInteractiveFromValue,
 	readLevelDataPrefix,
 	UnsupportedLevelData,
 } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
+import { type LevelSpline, readLevelSplines } from '@endfield-noclip/formats/endfield/level-splines';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 import { parseSparkTable } from '@endfield-noclip/formats/hg/spark-buffer';
 import { UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
@@ -32,6 +34,7 @@ import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
 import { animatorParameterId, animatorPose } from './animator-defaults.ts';
+import { type CurveMove, curveMoveOf, curvePath, isAutoMovePlatform } from './curve-move.ts';
 import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
 import type { StructureModel } from './dynamic-structures.ts';
@@ -40,6 +43,7 @@ import { prefabNodeMatrices } from './prefab-nodes.ts';
 import type { PrefabPose } from './prefab.ts';
 import { SWITCH_VALUES } from './scene-conditions.ts';
 import { progressionControl } from './scenery-variants.ts';
+import type { Script } from './script-drivers.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
 import { isOneShotEffect } from './view-state-effects.ts';
 import { type ModelViews, readViewStates, type RestingEffect, settledPose } from './view-state-poses.ts';
@@ -59,6 +63,12 @@ const MODEL_UPGRADE_COMPONENTS = ['_InteractiveModelLevelUpComponentDataForMemor
 
 /** the MemoryPack wrapper of interactive templates */
 const TEMPLATE_ROOT = 'Beyond_Gameplay_InteractiveTemplateDataForMemoryPack';
+
+/** the MemoryPack wrapper of LevelData, decoded whole for its splines */
+const LEVEL_DATA_ROOT = 'Beyond_Gameplay_LevelDataForMemoryPack';
+
+/** a level script's own interactive gets the script's id times this plus its slot (slots are below 100000) */
+const SCRIPT_SLOT_SPAN = 100_000n;
 
 /**
  * @param template a decoded interactive template
@@ -741,12 +751,17 @@ export interface InteractiveStandIn {
  * `bridge:<id>` control, retracted by default. a model without view states whose template sets its own
  * Animator's bools on load is posed in the states they settle; one bool from a saved property puts it under
  * an `activation:<id>` control, set by default. rows the game creates later (`createState` ≠ 0) are placed
- * the same way and also require their level's `created:<level id>` control, off by default
+ * the same way and also require their level's `created:<level id>` control, off by default. a level script's
+ * own interactives are placed the same way under its `script:spawned:<script id>` control, on by default. an
+ * auto-moving platform that starts with its level rides its spline
  *
  * @param context install readers and the bundle resolver
  * @param scene owning map
  * @param level restricts decoding to one level, or null for the map
  * @param partition numeric level tags
+ * @param scripted logic ids of the interactives level scripts show and hide
+ * @param scripts decoded level scripts; those of the selected levels place their own interactives
+ * @param erosionCores by logic id, the conditions a blight core's erosion root loads under
  * @returns placements, controls, explicit unsupported-file diagnostics and the placements of interactives
  *   whose model wasn't found (a template that's missing or can't be read, or a model id the model table
  *   lacks); no partial file is used
@@ -758,6 +773,7 @@ export const loadInteractiveFacilities = async (
 	level: string | null,
 	partition: LevelPartition | undefined,
 	scripted: ReadonlySet<string>,
+	scripts: readonly Script[],
 	erosionCores: ReadonlyMap<string, Alternatives>,
 ): Promise<{
 	models: StructureModel[];
@@ -766,6 +782,8 @@ export const loadInteractiveFacilities = async (
 	scriptControls: Map<string, ScriptControl>;
 	/** per level with rows the game creates later (`createState` ≠ 0), the control that shows them, off */
 	created: SceneControl[];
+	/** per level script with interactives of its own, the control that shows them while it runs, on */
+	scriptSpawned: ScriptControl[];
 	/** controls of interactives whose look follows the player's presence, and where each counts as near */
 	proximityControls: SceneControl[];
 	proximities: ProximityInfo[];
@@ -817,22 +835,30 @@ export const loadInteractiveFacilities = async (
 		row: LevelInteractive;
 		/** the `created:<level id>` control of a row the game creates later, `null` for one created with the level */
 		created: string | null;
+		/** the control of the level script that owns the row, `null` for a LevelData placement */
+		spawnedBy: string | null;
 	}[] = [];
 	/** by level id, the control of its rows created later */
 	const createdControls = new Map<string, SceneControl>();
+	/** by level id, its LevelData files, which also hold the splines its moving platforms ride */
+	const levelDataPaths = new Map<string, string[]>();
+	const scriptSpawned: ScriptControl[] = [];
 	{
 		const seen = new Set<bigint>();
 		const later: typeof placed = [];
+		const levelTags = new Map<string, number>();
 		for (const config of (await world.levelConfigs()).values()) {
 			if (config.mapId !== scene || (level !== null && config.id !== level)) {
 				continue;
 			}
 			const levelTag = partition?.levels.find((entry) => entry.id === config.id)?.tag ?? 0;
+			levelTags.set(config.id, levelTag);
 			for (const hash of config.levelDataPathHashes ?? []) {
 				const path = pathOf(hash);
 				if (!path) {
 					throw new FormatError(`missing LevelData path ${hash}`);
 				}
+				levelDataPaths.getOrInsertComputed(config.id, () => []).push(path);
 				let prefix;
 				try {
 					// oxlint-disable-next-line no-await-in-loop -- level files are released after their prefix is decoded
@@ -852,16 +878,73 @@ export const loadInteractiveFacilities = async (
 				}
 				for (const row of prefix.interactives) {
 					if (row.createState !== 0) {
-						later.push({ path, levelId: config.id, levelTag, row, created: `created:${config.id}` });
+						later.push({
+							path,
+							levelId: config.id,
+							levelTag,
+							row,
+							created: `created:${config.id}`,
+							spawnedBy: null,
+						});
 						continue;
 					}
 					if (seen.has(row.id)) {
 						continue;
 					}
 					seen.add(row.id);
-					placed.push({ path, levelId: config.id, levelTag, row, created: null });
+					placed.push({ path, levelId: config.id, levelTag, row, created: null, spawnedBy: null });
 				}
 			}
+		}
+		// a level script's own interactives exist while it runs; the script names them by slot, so each gets an
+		// id of the script's id over its slot, above every LevelData id
+		for (const script of scripts) {
+			const levelTag = levelTags.get(script.level);
+			const rows = Array.isArray(script.data.interactives) ? script.data.interactives : [];
+			if (levelTag === undefined || rows.length === 0) {
+				continue;
+			}
+			const path = `Data/Json/LevelScriptData/${script.level}/${script.id}.json`;
+			const control = `script:spawned:${script.id}`;
+			let count = 0;
+			for (const pair of rows) {
+				if (
+					!Array.isArray(pair) ||
+					typeof pair[0] !== 'number' ||
+					pair[0] < 0 ||
+					pair[0] >= SCRIPT_SLOT_SPAN
+				) {
+					throw new FormatError(`${path} has an invalid interactive slot`);
+				}
+				const row = levelInteractiveFromValue(
+					pair[1],
+					BigInt(script.id) * SCRIPT_SLOT_SPAN + BigInt(pair[0]),
+				);
+				const created = row.createState === 0 ? null : `created:${script.level}`;
+				(created === null ? placed : later).push({
+					path,
+					levelId: script.level,
+					levelTag,
+					row,
+					created,
+					spawnedBy: control,
+				});
+				count++;
+			}
+			scriptSpawned.push({
+				kind: 'script',
+				id: control,
+				name: `Level script ${script.id} (${count} interactives)`,
+				rule: null,
+				assumption:
+					'running: the server starts it as the player comes near, and it spawns these while it runs',
+				followsCamera: false,
+				drivers: [],
+				levelTags: [],
+				values: SWITCH_VALUES,
+				default: 1,
+				derived: null,
+			});
 		}
 		// a row created with its level wins over the same id created later in another layer
 		for (const entry of later) {
@@ -1116,6 +1199,8 @@ export const loadInteractiveFacilities = async (
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
 	/** jump pads' entity properties, which say whether and where they place their arrow, by key */
 	const jumpPads = new Map<string, EntityProperties>();
+	/** auto-moving platforms' decoded templates and starting `state`, by key */
+	const autoMoves = new Map<string, { template: MemoryPackValue; start: StartState | null }>();
 	{
 		const templateKinds = new Map<
 			string,
@@ -1129,6 +1214,8 @@ export const loadInteractiveFacilities = async (
 					start: StartState | null;
 					/** a jump pad's entity properties, `null` for other templates */
 					jumpPad: EntityProperties | null;
+					/** an auto-moving platform's decoded template, `null` for other templates */
+					autoMove: MemoryPackValue | null;
 			  }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
@@ -1175,12 +1262,24 @@ export const loadInteractiveFacilities = async (
 							animator: animatorStart(decoded),
 							start: startState(decoded),
 							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? entityProperties(decoded) : null,
+							autoMove: isAutoMovePlatform(decoded) ? decoded : null,
 						};
 					},
 					// an unreadable template is drawn as saved
-					{ kind: 'other' as const, campfire: false, keys: [], animator: null, start: null, jumpPad: null },
+					{
+						kind: 'other' as const,
+						campfire: false,
+						keys: [],
+						animator: null,
+						start: null,
+						jumpPad: null,
+						autoMove: null,
+					},
 				);
 				templateKinds.set(data, kind);
+			}
+			if (kind.kind === 'other' && kind.autoMove !== null) {
+				autoMoves.set(key, { template: kind.autoMove, start: kind.start });
 			}
 			if (kind.kind === 'regionWall') {
 				regionWalls.add(key);
@@ -1332,15 +1431,66 @@ export const loadInteractiveFacilities = async (
 		on: { prefab: string; pose: PrefabPose; rest: RestingEffect } | null;
 		followRotation: boolean;
 	}[] = [];
+	/** by level id, the splines its LevelData files hold */
+	const levelSplines = new Map<string, Promise<Map<number, LevelSpline>>>();
+	const splinesOf = (levelId: string): Promise<Map<number, LevelSpline>> =>
+		levelSplines.getOrInsertComputed(levelId, async () => {
+			const splines = new Map<number, LevelSpline>();
+			for (const path of levelDataPaths.get(levelId) ?? []) {
+				try {
+					// oxlint-disable-next-line no-await-in-loop -- one level's files, each released once read
+					for (const spline of readLevelSplines(reader.decode(await read(path), LEVEL_DATA_ROOT))) {
+						splines.set(spline.id, spline);
+					}
+				} catch (error) {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					unsupported.push({ path, reason: `splines: ${error.message}` });
+				}
+			}
+			return splines;
+		});
+	/**
+	 * @returns the spline an auto-moving platform rides and how, when it starts moving with its level (its
+	 *   `state` is 1 and it names a spline); otherwise `null`
+	 */
+	const rideOf = async (
+		row: LevelInteractive,
+		levelId: string,
+	): Promise<{ spline: LevelSpline; move: CurveMove } | null> => {
+		const auto = autoMoves.get(row.template);
+		if (auto === undefined) {
+			return null;
+		}
+		const state = stateOf(row) ?? auto.start?.variants.get(row.template) ?? auto.start?.state ?? 0;
+		const move = curveMoveOf(auto.template, row);
+		if (state !== 1 || move === null || move.splineId === 0) {
+			return null;
+		}
+		const spline = (await splinesOf(levelId)).get(move.splineId);
+		if (spline === undefined) {
+			unsupported.push({ path: levelId, reason: `spline ${move.splineId} of ${row.template} not found` });
+			return null;
+		}
+		return { spline, move };
+	};
 	const scriptControls = new Map<string, ScriptControl>();
-	for (const { path, levelId, levelTag, row, created } of placed) {
-		// a row created later also needs its level's `created` control on, and one a level script shows and hides
-		// its script control
+	for (const { path, levelId, levelTag, row, created, spawnedBy } of placed) {
+		// a row created later also needs its level's `created` control on, one a level script owns that script's
+		// control, and one a level script shows and hides its script control
 		const logicId = row.id.toString();
+		const source = `${path}#${spawnedBy === null ? row.id : row.id % SCRIPT_SLOT_SPAN}`;
 		const switches: string[] = [];
 		if (created !== null) {
 			switches.push(created);
 		}
+		if (spawnedBy !== null) {
+			switches.push(spawnedBy);
+		}
+		// an auto-moving platform started with its level rides its spline
+		// oxlint-disable-next-line no-await-in-loop -- splines are read once per level
+		const ride = await rideOf(row, levelId);
 		if (scripted.has(logicId)) {
 			const control = `script:${logicId}`;
 			switches.push(control);
@@ -1371,7 +1521,7 @@ export const loadInteractiveFacilities = async (
 			const reason = modelless.get(row.template);
 			if (reason !== undefined) {
 				standIns.push({
-					source: `${path}#${row.id}`,
+					source,
 					template: row.template,
 					reason,
 					levelTag,
@@ -1391,17 +1541,37 @@ export const loadInteractiveFacilities = async (
 			const visibility = gate(shown);
 			// zero is the authored "no scale override" sentinel on LevelInteractiveData.
 			const scale = row.modelScale > 0 ? row.modelScale : model.scale;
+			const scales: [number, number, number] = [
+				row.scale[0] * scale,
+				row.scale[1] * scale,
+				row.scale[2] * scale,
+			];
+			let posed = pose;
+			if (ride !== null) {
+				const placement = trsMatrix(row.position, unityEulerQuaternion(row.rotation), scales);
+				const moving = curvePath(ride.spline, ride.move, placement);
+				if ('reason' in moving) {
+					unsupported.push({ path: source, reason: moving.reason });
+				} else {
+					posed = {
+						key: `${pose?.key ?? ''} path:${source}`,
+						clips: pose?.clips ?? [],
+						active: pose?.active ?? new Map(),
+						path: moving.path,
+					};
+				}
+			}
 			models.push({
 				model: {
 					pathHash: hashOf(model.prefab),
 					position: row.position,
 					rotation: row.rotation,
-					scale: [row.scale[0] * scale, row.scale[1] * scale, row.scale[2] * scale],
+					scale: scales,
 				},
 				levelTag,
-				source: `${path}#${row.id}`,
+				source,
 				visibility,
-				pose,
+				pose: posed,
 			});
 		};
 		// a settled look's model, and the looping effects its states leave playing on it
@@ -1420,7 +1590,7 @@ export const loadInteractiveFacilities = async (
 			for (const rest of look.effects) {
 				pendingEffects.push({
 					effect: rest.effect,
-					source: `${path}#${row.id}`,
+					source,
 					levelTag,
 					visibility: gate(shown),
 					frame,
@@ -1435,7 +1605,7 @@ export const loadInteractiveFacilities = async (
 			// a stationary effect, unscaled, independent of the pad's state
 			pendingEffects.push({
 				effect: arrow.effect,
-				source: `${path}#${row.id}`,
+				source,
 				levelTag,
 				visibility: gate({ alternatives: [[]] }),
 				frame: trsMatrix(row.position, unityEulerQuaternion([0, arrow.yaw, 0]), [1, 1, 1]),
@@ -1743,6 +1913,7 @@ export const loadInteractiveFacilities = async (
 		progressions,
 		scriptControls,
 		created: [...createdControls.values()],
+		scriptSpawned,
 		proximityControls,
 		proximities,
 		doors,

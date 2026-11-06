@@ -1,5 +1,7 @@
 import { BinaryReader, FormatError } from '../binary/binary-reader.ts';
 
+import type { MemoryPackValue } from './memory-pack.ts';
+
 /** a placed interactive, before runtime scripts and facility upgrades */
 export interface LevelInteractive {
 	id: bigint;
@@ -775,3 +777,86 @@ export const readLevelDataPrefix = (
 	});
 	return { interactives: result, hideByTypeAreas };
 };
+
+// #region decoded rows
+
+type Fields = { [key: string]: MemoryPackValue };
+
+const asRecord = (value: MemoryPackValue | undefined, what: string): Fields => {
+	if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) {
+		throw new FormatError(`invalid ${what}`);
+	}
+	return value;
+};
+
+const asVec3 = (value: MemoryPackValue | undefined, what: string): [number, number, number] => {
+	if (!Array.isArray(value) || value.length !== 3 || !value.every((v) => typeof v === 'number')) {
+		throw new FormatError(`invalid ${what}`);
+	}
+	return [value[0], value[1], value[2]];
+};
+
+/**
+ * @param value a decoded `ParamKeyValue`
+ * @returns it as an {@link InteractiveParam}
+ * @throws {FormatError} if it isn't one
+ */
+export const interactiveParamFromValue = (value: MemoryPackValue): InteractiveParam => {
+	const pair = asRecord(value, 'interactive parameter');
+	const inner = asRecord(pair.value, 'interactive parameter value');
+	if (typeof pair.key !== 'string' || typeof inner.type !== 'number' || !Array.isArray(inner.valueArray)) {
+		throw new FormatError('invalid interactive parameter');
+	}
+	return {
+		key: pair.key,
+		type: inner.type,
+		values: inner.valueArray.map((atom) => {
+			const { valueBit64, valueString } = asRecord(atom, 'interactive parameter atom');
+			if (typeof valueBit64 !== 'string' && typeof valueBit64 !== 'number') {
+				throw new FormatError('invalid interactive parameter bits');
+			}
+			return {
+				bits: BigInt.asUintN(64, BigInt(valueBit64)),
+				text: typeof valueString === 'string' ? valueString : null,
+			};
+		}),
+	};
+};
+
+/**
+ * converts an interactive the MemoryPack schema decoded whole (`LevelInteractiveData`, as level scripts hold
+ * their own interactives) into a placement like {@link readLevelInteractives} returns
+ *
+ * @param value the decoded row
+ * @param id the id to give it: its `levelLogicId` is 0 for a script's own interactive, which the script names
+ *   by slot instead
+ * @returns the placement
+ * @throws {FormatError} if the row lacks a field a placement needs
+ */
+export const levelInteractiveFromValue = (value: MemoryPackValue, id: bigint): LevelInteractive => {
+	const row = asRecord(value, 'interactive row');
+	if (typeof row.entityDataIdKey !== 'string' || typeof row.createState !== 'number') {
+		throw new FormatError('invalid interactive row');
+	}
+	const componentProperties = new Map<number, InteractiveParam[]>();
+	for (const pair of Array.isArray(row.componentProperties) ? row.componentProperties : []) {
+		if (!Array.isArray(pair) || typeof pair[0] !== 'number' || !Array.isArray(pair[1])) {
+			throw new FormatError('invalid interactive component properties');
+		}
+		componentProperties.set(pair[0], pair[1].map(interactiveParamFromValue));
+	}
+	return {
+		id,
+		template: row.entityDataIdKey,
+		createState: row.createState,
+		position: asVec3(row.position, 'interactive position'),
+		rotation: asVec3(row.rotation, 'interactive rotation'),
+		scale: asVec3(row.scale, 'interactive scale'),
+		modelScale: typeof row.modelScale === 'number' ? row.modelScale : 0,
+		isLocked: row.isLocked === true,
+		properties: (Array.isArray(row.properties) ? row.properties : []).map(interactiveParamFromValue),
+		componentProperties,
+	};
+};
+
+// #endregion
