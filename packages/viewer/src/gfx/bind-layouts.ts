@@ -51,23 +51,20 @@ export const createBindLayouts = (device: GPUDevice): BindLayouts => {
 			{ binding: 2, visibility: lighting, sampler: { type: 'comparison' } },
 			{ binding: 3, visibility: lighting, texture: { sampleType: 'float', viewDimension: 'cube' } },
 			{ binding: 4, visibility: lighting, sampler: { type: 'filtering' } },
-			// the irradiance clipmaps, A and B per level, and their repeating and clamping samplers
-			...[5, 6, 7, 8, 9, 10].map((binding): GPUBindGroupLayoutEntry => ({
-				binding,
-				visibility: lighting,
-				texture: { sampleType: 'float', viewDimension: '3d' },
-			})),
-			{ binding: 11, visibility: lighting, sampler: { type: 'filtering' } },
-			{ binding: 12, visibility: lighting, sampler: { type: 'filtering' } },
+			// the irradiance clipmaps, A and B with the levels stacked, and their repeating and clamping samplers
+			{ binding: 5, visibility: lighting, texture: { sampleType: 'float', viewDimension: '3d' } },
+			{ binding: 6, visibility: lighting, texture: { sampleType: 'float', viewDimension: '3d' } },
+			{ binding: 7, visibility: lighting, sampler: { type: 'filtering' } },
+			{ binding: 8, visibility: lighting, sampler: { type: 'filtering' } },
 			// raw shadow-map depth reads
-			{ binding: 13, visibility: lighting, sampler: { type: 'non-filtering' } },
+			{ binding: 9, visibility: lighting, sampler: { type: 'non-filtering' } },
 			// the shadow's penumbra ramp
-			{ binding: 14, visibility: lighting, texture: { sampleType: 'float' } },
+			{ binding: 10, visibility: lighting, texture: { sampleType: 'float' } },
 			// local lights and their bins
-			storage(15, lighting),
-			storage(16, lighting),
+			storage(11, lighting),
+			storage(12, lighting),
 			// the cloud shadow texture, sampled with the repeating sampler
-			{ binding: 17, visibility: lighting, texture: { sampleType: 'float' } },
+			{ binding: 13, visibility: lighting, texture: { sampleType: 'float' } },
 		],
 	});
 	const terrain = device.createBindGroupLayout({

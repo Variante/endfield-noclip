@@ -5,10 +5,16 @@ import type { DecodedIrradiance } from '../package/decode-protocol.ts';
 import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentIrradiance, StreamManager } from '../streaming/stream-manager.ts';
 
+import clipmapWgsl from './shaders/irradiance-clipmap.wgsl?raw';
 import updateWgsl from './shaders/irradiance-update.wgsl?raw';
 
 /** texels per clipmap level */
 const SIZE = [128, 64, 128] as const;
+/**
+ * slices per level in the stacked textures: the level's, with a wrapped copy either side
+ * (irradiance-clipmap.wgsl)
+ */
+const SLAB = SIZE[2] + 2;
 /** metres between probes, per level */
 const SPACING = [0.5, 2, 8] as const;
 /** a level re-centres once the camera is this many texels from its centre (well within its fade margin) */
@@ -42,12 +48,14 @@ interface Level {
 	/** the window's first word in the windows buffer */
 	windowBase: number;
 	dirty: boolean;
-	a: GPUTexture;
-	b: GPUTexture;
-	/** the next coarser level's textures, which texels without a probe copy (any level's for the coarsest) */
-	coarse: { a: GPUTexture; b: GPUTexture };
 	uniforms: GPUBuffer;
 	group: GPUBindGroup;
+}
+
+/** a clipmap's A (L0 rgb) and B (three slabs along y of L1) */
+interface Clipmap {
+	a: GPUTexture;
+	b: GPUTexture;
 }
 
 /** owns the cell buffer, the clipmaps and their update pass */
@@ -69,6 +77,10 @@ export class IrradianceVolume {
 	#regionBuffer: GPUBuffer;
 	#pipeline: GPUComputePipeline;
 	#levels: Level[];
+	/** every level, stacked along z; the lighting and the update pass read these */
+	#stacked: Clipmap;
+	/** one level, which the update pass writes before it's copied into its slab */
+	#scratch: Clipmap;
 	readonly sampler: GPUSampler;
 	readonly clampSampler: GPUSampler;
 
@@ -100,7 +112,7 @@ export class IrradianceVolume {
 			maxUnits: empty ? 4 : CELL_BUFFER_MAX / 4,
 			usage: GPUBufferUsage.STORAGE,
 		});
-		const module = device.createShaderModule({ label: 'irradiance update', code: updateWgsl });
+		const module = device.createShaderModule({ label: 'irradiance update', code: clipmapWgsl + updateWgsl });
 		this.#pipeline = device.createComputePipeline({
 			label: 'irradiance update',
 			layout: 'auto',
@@ -130,26 +142,30 @@ export class IrradianceVolume {
 			size: windowWords.reduce((sum, n) => sum + n, 0) * 4,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		});
-		const textures = SPACING.map((_, level) => {
-			const texture = (label: string, height: number): GPUTexture =>
+		const clipmap = (label: string, depth: number, usage: number): Clipmap => {
+			const texture = (part: 'a' | 'b'): GPUTexture =>
 				device.createTexture({
-					label: `irradiance ${label} ${level}`,
-					size: empty ? [1, 1, 1] : [SIZE[0], height, SIZE[2]],
+					label: `irradiance ${label} ${part}`,
+					size: empty ? [1, 1, 1] : [SIZE[0], part === 'a' ? SIZE[1] : SIZE[1] * 3, depth],
 					dimension: '3d',
-					format: label === 'a' ? 'rgba16float' : 'rgba8unorm',
-					usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+					format: part === 'a' ? 'rgba16float' : 'rgba8unorm',
+					usage,
 				});
-			return { a: texture('a', SIZE[1]), b: texture('b', SIZE[1] * 3) };
-		});
+			return { a: texture('a'), b: texture('b') };
+		};
+		this.#stacked = clipmap(
+			'stacked',
+			SLAB * SPACING.length,
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+		);
+		this.#scratch = clipmap('scratch', SIZE[2], GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC);
 		let windowBase = 0;
-		this.#levels = textures.map(({ a, b }, level) => {
+		this.#levels = SPACING.map((_, level) => {
 			const uniforms = device.createBuffer({
 				label: `irradiance update ${level}`,
 				size: 48,
 				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 			});
-			// the coarsest level has no coarser one and never reads it; any other level's textures fill the slot
-			const coarse = textures[level + 1] ?? textures[level - 1];
 			const out: Level = {
 				center: null,
 				windowMin: [0, 0, 0],
@@ -157,11 +173,8 @@ export class IrradianceVolume {
 				slots: new Uint32Array(windowWords[level]),
 				windowBase,
 				dirty: true,
-				a,
-				b,
-				coarse,
 				uniforms,
-				group: this.#levelGroup({ a, b, coarse, uniforms }),
+				group: this.#levelGroup(uniforms),
 			};
 			windowBase += windowWords[level];
 			return out;
@@ -169,18 +182,18 @@ export class IrradianceVolume {
 		this.#bufferVersion = this.#buffer.version;
 	}
 
-	/** @returns a level's update group over the current cell buffer */
-	#levelGroup(level: Pick<Level, 'a' | 'b' | 'coarse' | 'uniforms'>): GPUBindGroup {
+	/** @returns a level's update group over the current cell buffer, given its uniforms */
+	#levelGroup(uniforms: GPUBuffer): GPUBindGroup {
 		return this.#device.createBindGroup({
 			layout: this.#pipeline.getBindGroupLayout(0),
 			entries: [
-				{ binding: 0, resource: { buffer: level.uniforms } },
+				{ binding: 0, resource: { buffer: uniforms } },
 				{ binding: 1, resource: { buffer: this.#buffer.buffer } },
 				{ binding: 2, resource: { buffer: this.#windows } },
-				{ binding: 3, resource: level.a.createView() },
-				{ binding: 4, resource: level.b.createView() },
-				{ binding: 5, resource: level.coarse.a.createView() },
-				{ binding: 6, resource: level.coarse.b.createView() },
+				{ binding: 3, resource: this.#scratch.a.createView() },
+				{ binding: 4, resource: this.#scratch.b.createView() },
+				{ binding: 5, resource: this.#stacked.a.createView() },
+				{ binding: 6, resource: this.#stacked.b.createView() },
 				{ binding: 7, resource: this.sampler },
 				{ binding: 8, resource: this.clampSampler },
 				{ binding: 9, resource: { buffer: this.#regionBuffer } },
@@ -201,9 +214,9 @@ export class IrradianceVolume {
 		return this.#cells.size > 0;
 	}
 
-	/** @returns each level's clipmap views, A (L0) then B (L1 slabs) */
-	views(): { a: GPUTextureView; b: GPUTextureView }[] {
-		return this.#levels.map((level) => ({ a: level.a.createView(), b: level.b.createView() }));
+	/** @returns views of the clipmaps with the levels stacked along z, A (L0) and B (L1 slabs) */
+	views(): { a: GPUTextureView; b: GPUTextureView } {
+		return { a: this.#stacked.a.createView(), b: this.#stacked.b.createView() };
 	}
 
 	/** @returns the world position (m) of each level's clipmap centre, or `null` for a level not filled yet */
@@ -336,7 +349,7 @@ export class IrradianceVolume {
 		if (this.#bufferVersion !== this.#buffer.version) {
 			this.#bufferVersion = this.#buffer.version;
 			for (const level of this.#levels) {
-				level.group = this.#levelGroup(level);
+				level.group = this.#levelGroup(level.uniforms);
 			}
 		}
 		// coarse to fine, since finer levels copy coarser ones
@@ -367,7 +380,36 @@ export class IrradianceVolume {
 			pass.setBindGroup(0, level.group);
 			pass.dispatchWorkgroups(SIZE[0] / 4, SIZE[1] / 4, SIZE[2] / 4);
 			pass.end();
+			this.#copyToSlab(encoder, index);
 		}
+	}
+
+	/** copies the scratch level into level `index`'s slab, with A's wrapped slices either side */
+	#copyToSlab(encoder: GPUCommandEncoder, index: number): void {
+		const base = index * SLAB;
+		const last = SIZE[2] - 1;
+		const { a, b } = this.#scratch;
+		encoder.copyTextureToTexture(
+			{ texture: a },
+			{ texture: this.#stacked.a, origin: [0, 0, base + 1] },
+			SIZE,
+		);
+		encoder.copyTextureToTexture(
+			{ texture: a, origin: [0, 0, last] },
+			{ texture: this.#stacked.a, origin: [0, 0, base] },
+			[SIZE[0], SIZE[1], 1],
+		);
+		encoder.copyTextureToTexture(
+			{ texture: a, origin: [0, 0, 0] },
+			{ texture: this.#stacked.a, origin: [0, 0, base + SLAB - 1] },
+			[SIZE[0], SIZE[1], 1],
+		);
+		// B samples clamped, so its wrapped slices stay unread
+		encoder.copyTextureToTexture({ texture: b }, { texture: this.#stacked.b, origin: [0, 0, base + 1] }, [
+			SIZE[0],
+			SIZE[1] * 3,
+			SIZE[2],
+		]);
 	}
 
 	/** frees the GPU resources */
@@ -375,9 +417,10 @@ export class IrradianceVolume {
 		this.#buffer.destroy();
 		this.#windows.destroy();
 		this.#regionBuffer.destroy();
+		for (const texture of [this.#stacked.a, this.#stacked.b, this.#scratch.a, this.#scratch.b]) {
+			texture.destroy();
+		}
 		for (const level of this.#levels) {
-			level.a.destroy();
-			level.b.destroy();
 			level.uniforms.destroy();
 		}
 	}

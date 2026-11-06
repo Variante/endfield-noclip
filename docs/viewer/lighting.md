@@ -114,7 +114,12 @@ when the camera moves more than 4 texels from its centre or a cell arrives or le
 updates clipmaps partially. levels refill coarse to fine, and a refilled level refills every finer
 one, because their probe-less texels copy it
 ([cells and probes](../game-data/irradiance.md#cells-and-probes)). the update pass looks cells up in
-that window instead of the game's top-level hash. the clipmaps are sampled toroidally.
+that window instead of the game's top-level hash. the clipmaps are sampled toroidally. the levels
+stack along z in one A and one B texture, each level's slab with a copy of its last slice before it
+and its first after it so A filters across the wrap
+([`shaders/irradiance-clipmap.wgsl`](../../packages/viewer/src/render/shaders/irradiance-clipmap.wgsl));
+the update pass writes a level to scratch textures and copies it into its slab, since it samples the
+coarser level from the stacked ones.
 
 ### region bakes
 

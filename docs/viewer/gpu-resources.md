@@ -1,9 +1,19 @@
 # GPU resource management
 
-- **device** ([`gfx/device.ts`](../../packages/viewer/src/gfx/device.ts)): the mesh pipeline needs
-  17 sampled textures per stage, exceeding WebGPU's default limit. without BC support, package BC
-  textures cannot stream and materials use their untextured look. optional stencil support enables
-  effect portals; timestamp queries enable GPU profiling.
+- **device** ([`gfx/device.ts`](../../packages/viewer/src/gfx/device.ts)): the effect and water
+  pipelines exceed WebGPU's default of 16 sampled textures per stage, so the device asks for the
+  adapter's limit. without BC support, package BC textures cannot stream and materials use their
+  untextured look. optional stencil support enables effect portals; timestamp queries enable GPU
+  profiling. what each pipeline's fragment stage binds, against the defaults the device keeps for
+  samplers and storage buffers:
+
+  | pipeline | sampled textures (16) | samplers (16) | storage buffers (8) |
+  | -------- | --------------------- | ------------- | ------------------- |
+  | mesh     | 13                    | 8             | 3                   |
+  | terrain  | 12                    | 7             | 4                   |
+  | effects  | 18                    | 14            | 3                   |
+  | water    | 19                    | 7             | 3                   |
+
 - **range allocator**
   ([`gfx/range-allocator.ts`](../../packages/viewer/src/gfx/range-allocator.ts)): first-fit over
   units, with frees coalescing neighbours so streaming in and out doesn't fragment the space without

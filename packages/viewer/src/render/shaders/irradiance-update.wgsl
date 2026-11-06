@@ -2,7 +2,9 @@
 // (docs/game-data/irradiance.md), with a window of resident cells in place of its top-level hash. one invocation per
 // texel; texel t holds the probe whose index along each axis is congruent to t modulo the clipmap's size, so
 // the clipmap is toroidal and the lighting samples it with a repeating sampler. a texel without a probe takes
-// the next coarser level's value, so levels are filled coarse to fine.
+// the next coarser level's value, so levels are filled coarse to fine. a level is written to scratch textures
+// and copied into its slab of the stacked ones (irradiance-clipmap.wgsl), since a dispatch can't both write
+// and sample one texture.
 
 struct Update {
 	// xyz: probe index (in this level's spacing) of the clipmap's centre, w: level
@@ -30,7 +32,7 @@ struct Region {
 @group(0) @binding(3) var out_a: texture_storage_3d<rgba16float, write>;
 // three slabs along y (red, green, blue): the L1 direction · 0.25 + 0.5, alpha the probe's validity
 @group(0) @binding(4) var out_b: texture_storage_3d<rgba8unorm, write>;
-// the next coarser level's A and B; unread at the coarsest level
+// the stacked A and B, read at the next coarser level; unread at the coarsest level
 @group(0) @binding(5) var coarse_a: texture_3d<f32>;
 @group(0) @binding(6) var coarse_b: texture_3d<f32>;
 @group(0) @binding(7) var coarse_repeat: sampler;
@@ -129,10 +131,12 @@ fn cs_update(@builtin(global_invocation_id) id: vec3u) {
 		let uvw = fract((vec3f(index) * 0.25 + 0.5) / vec3f(SIZE));
 		let half_y = 0.5 / f32(SIZE.y);
 		let v = clamp(uvw.y, half_y, 1.0 - half_y) / 3.0;
-		a = textureSampleLevel(coarse_a, coarse_repeat, uvw, 0.0);
-		b0 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v, uvw.z), 0.0);
-		b1 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v + 1.0 / 3.0, uvw.z), 0.0);
-		b2 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v + 2.0 / 3.0, uvw.z), 0.0);
+		let coarse = level + 1;
+		a = textureSampleLevel(coarse_a, coarse_repeat, vec3f(uvw.xy, irradiance_z(coarse, uvw.z)), 0.0);
+		let z = irradiance_z_clamped(coarse, uvw.z);
+		b0 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v, z), 0.0);
+		b1 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v + 1.0 / 3.0, z), 0.0);
+		b2 = textureSampleLevel(coarse_b, coarse_clamp, vec3f(uvw.x, v + 2.0 / 3.0, z), 0.0);
 	} else {
 		// no light but full validity, as in the game: the lighting then adds half the ambient probe here
 		a = vec4f(0.0);

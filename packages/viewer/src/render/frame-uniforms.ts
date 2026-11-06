@@ -6,9 +6,10 @@
 
 import brdfWgsl from './shaders/brdf.wgsl?raw';
 import frameWgsl from './shaders/frame.wgsl?raw';
+import clipmapWgsl from './shaders/irradiance-clipmap.wgsl?raw';
 
 /** WGSL source of the frame uniforms and shared lighting helpers, prepended to every family */
-export const FRAME_WGSL = brdfWgsl + frameWgsl;
+export const FRAME_WGSL = brdfWgsl + clipmapWgsl + frameWgsl;
 
 /** byte size of `Frame` */
 export const FRAME_UNIFORM_BYTES = 928;

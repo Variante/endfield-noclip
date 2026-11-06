@@ -71,29 +71,26 @@ struct Frame {
 @group(0) @binding(1) var shadow_map: texture_depth_2d_array;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
 // raw depth reads (gathers) of the shadow map
-@group(0) @binding(13) var shadow_gather_sampler: sampler;
+@group(0) @binding(9) var shadow_gather_sampler: sampler;
 // the penumbra tint, sampled at the shadow value (u) with irradiance_clamp; black without one
-@group(0) @binding(14) var shadow_ramp: texture_2d<f32>;
+@group(0) @binding(10) var shadow_ramp: texture_2d<f32>;
 // the level's sky reflection, prefiltered by roughness over its mips (Unity's convention); a black cube
 // until it streams in, flagged by ambient.z
 @group(0) @binding(3) var reflection_map: texture_cube<f32>;
 @group(0) @binding(4) var reflection_sampler: sampler;
-// the baked irradiance volume's clipmaps (see irradiance-volume.ts): per level, L0 rgb (A), and three slabs
-// along y holding the red, green and blue L1 directions · 0.25 + 0.5 with the probe's validity in alpha (B)
-@group(0) @binding(5) var irradiance_a0: texture_3d<f32>;
-@group(0) @binding(6) var irradiance_b0: texture_3d<f32>;
-@group(0) @binding(7) var irradiance_a1: texture_3d<f32>;
-@group(0) @binding(8) var irradiance_b1: texture_3d<f32>;
-@group(0) @binding(9) var irradiance_a2: texture_3d<f32>;
-@group(0) @binding(10) var irradiance_b2: texture_3d<f32>;
-@group(0) @binding(11) var irradiance_repeat: sampler;
-@group(0) @binding(12) var irradiance_clamp: sampler;
+// the baked irradiance volume's clipmaps, levels stacked along z (irradiance-clipmap.wgsl): L0 rgb (A), and
+// three slabs along y holding the red, green and blue L1 directions · 0.25 + 0.5 with the probe's validity in
+// alpha (B)
+@group(0) @binding(5) var irradiance_a: texture_3d<f32>;
+@group(0) @binding(6) var irradiance_b: texture_3d<f32>;
+@group(0) @binding(7) var irradiance_repeat: sampler;
+@group(0) @binding(8) var irradiance_clamp: sampler;
 // local lights, 8 vec4s each (`packLight` in local-lights.ts), and their bins: 8-word masks per 32 px screen
 // tile, then per 1 m view-depth slice
-@group(0) @binding(15) var<storage, read> lights: array<vec4f>;
-@group(0) @binding(16) var<storage, read> light_bins: array<u32>;
+@group(0) @binding(11) var<storage, read> lights: array<vec4f>;
+@group(0) @binding(12) var<storage, read> light_bins: array<u32>;
 // the cloud shadow's tiling texture (red), sampled with irradiance_repeat; a placeholder while off
-@group(0) @binding(17) var cloud_shadow_map: texture_2d<f32>;
+@group(0) @binding(13) var cloud_shadow_map: texture_2d<f32>;
 
 // #region sun shadow
 
@@ -384,19 +381,18 @@ struct IrradianceSample {
 	validity: f32,
 }
 
-const IRRADIANCE_TEXELS = vec3f(128.0, 64.0, 128.0);
-
-fn irradiance_level(a: texture_3d<f32>, b: texture_3d<f32>, uvw_in: vec3f, clamp_all: bool, weight: f32) -> IrradianceSample {
+fn irradiance_level(level: i32, uvw_in: vec3f, clamp_all: bool, weight: f32) -> IrradianceSample {
 	var uvw = uvw_in - floor(uvw_in);
 	let half = 0.5 / IRRADIANCE_TEXELS;
 	if (clamp_all) {
 		uvw = clamp(uvw, half, vec3f(1.0) - half);
 	}
-	let l0 = textureSampleLevel(a, irradiance_repeat, uvw, 0.0).xyz;
+	let l0 = textureSampleLevel(irradiance_a, irradiance_repeat, vec3f(uvw.xy, irradiance_z(level, uvw.z)), 0.0).xyz;
 	let v = clamp(uvw.y, half.y, 1.0 - half.y) / 3.0;
-	let br = textureSampleLevel(b, irradiance_clamp, vec3f(uvw.x, v, uvw.z), 0.0);
-	let bg = textureSampleLevel(b, irradiance_clamp, vec3f(uvw.x, v + 1.0 / 3.0, uvw.z), 0.0);
-	let bb = textureSampleLevel(b, irradiance_clamp, vec3f(uvw.x, v + 2.0 / 3.0, uvw.z), 0.0);
+	let z = irradiance_z_clamped(level, uvw.z);
+	let br = textureSampleLevel(irradiance_b, irradiance_clamp, vec3f(uvw.x, v, z), 0.0);
+	let bg = textureSampleLevel(irradiance_b, irradiance_clamp, vec3f(uvw.x, v + 1.0 / 3.0, z), 0.0);
+	let bb = textureSampleLevel(irradiance_b, irradiance_clamp, vec3f(uvw.x, v + 2.0 / 3.0, z), 0.0);
 	var s: IrradianceSample;
 	s.r = vec4f((br.xyz * 4.0 - 2.0) * l0.x, l0.x) * weight;
 	s.g = vec4f((bg.xyz * 4.0 - 2.0) * l0.y, l0.y) * weight;
@@ -430,7 +426,7 @@ fn ambient_irradiance(world: vec3f, n: vec3f) -> vec3f {
 	// a level not filled yet counts as out of reach
 	let f0 = select(1.0, irradiance_outside(p - frame.irradiance[0].xyz, vec2f(29.0, 13.0), 0.5), frame.irradiance[0].w > 0.5);
 	if (f0 < 1.0) {
-		let s = irradiance_level(irradiance_a0, irradiance_b0, (p * 2.0 + 0.5) / IRRADIANCE_TEXELS, false, 1.0 - f0);
+		let s = irradiance_level(0,(p * 2.0 + 0.5) / IRRADIANCE_TEXELS, false, 1.0 - f0);
 		r += s.r;
 		g += s.g;
 		b += s.b;
@@ -438,14 +434,14 @@ fn ambient_irradiance(world: vec3f, n: vec3f) -> vec3f {
 	}
 	let f1 = select(1.0, irradiance_outside(p - frame.irradiance[1].xyz, vec2f(116.0, 52.0), 0.125), frame.irradiance[1].w > 0.5);
 	if (f1 < 1.0) {
-		let s = irradiance_level(irradiance_a1, irradiance_b1, (p * 0.5 + 0.5) / IRRADIANCE_TEXELS, false, f0 * (1.0 - f1));
+		let s = irradiance_level(1,(p * 0.5 + 0.5) / IRRADIANCE_TEXELS, false, f0 * (1.0 - f1));
 		r += s.r;
 		g += s.g;
 		b += s.b;
 		validity += s.validity;
 	}
 	if (f1 > 0.0) {
-		let s = irradiance_level(irradiance_a2, irradiance_b2, (p * 0.125 + 0.5) / IRRADIANCE_TEXELS, true, f1 * (1.0 - outside));
+		let s = irradiance_level(2,(p * 0.125 + 0.5) / IRRADIANCE_TEXELS, true, f1 * (1.0 - outside));
 		r += s.r;
 		g += s.g;
 		b += s.b;
