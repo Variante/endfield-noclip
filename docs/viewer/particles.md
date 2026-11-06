@@ -69,8 +69,11 @@ system and its index, so any moment can be evaluated on its own:
   their length, donuts outwards from the tube's centre line), placed by the shape's own transform.
   mesh shapes (`mesh-shape.ts`) pick a primitive and a point on it as the game does, from the
   particle's random values, and multiply the start colour by the point's vertex colour; vertex Loop
-  and PingPong number the rate's emissions from the start delay, while bursts, whose emissions
-  aren't numbered, pick at random.
+  and PingPong number the rate's emissions from the start delay. a system without the rate numbers
+  its bursts' particles instead, in emission order, when it plays once or every loop emits the same
+  particles (`#burstsNumbered` in `simulation.ts`), so Wuling's tower lamps
+  (`p_fxmap_map02_lv002_citywall_lighting_02`, one 39-particle burst over a 39-vertex mesh) get one
+  glow and one streak each. other bursts, and those of systems that also stream, pick at random.
 
 ### motion
 

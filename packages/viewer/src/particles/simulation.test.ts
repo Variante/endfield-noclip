@@ -243,6 +243,57 @@ describe('ParticleSimulation', () => {
 		}
 	});
 
+	it('steps a burst through the vertices in Loop mode, one particle per vertex', () => {
+		// Wuling's tower lamps (`p_fxmap_map02_lv002_citywall_lighting_02`) burst one particle per lamp onto a mesh
+		// of their positions
+		const positions = [1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 0];
+		const info = system({
+			gravityModifier: constant(0),
+			duration: 1,
+			rate: constant(0),
+			startLifetime: constant(10),
+			bursts: [{ time: 0, count: constant(4), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: {
+				...system().shape!,
+				kind: ParticleShapeKind.Mesh,
+				scale: [1, 1, 1],
+				mesh: {
+					placement: ParticleMeshPlacement.Vertex,
+					spawn: ParticleMeshSpawn.Loop,
+					spread: 0,
+					normalOffset: 0,
+					positions,
+					normals: null,
+					colors: null,
+					corners: 2,
+					primitives: [0, 1, 2, 3],
+				},
+			},
+		});
+		// later loops start where the earlier ones left off, which with 4 particles is the first vertex again
+		for (const time of [0.5, 3.5]) {
+			const out = new Float32Array(1024 * PARTICLE_FLOATS);
+			const count = new ParticleSimulation(info, 7).evaluate(time, DOWN, same, out);
+			const picked = [];
+			for (let i = 0; i < count; i++) {
+				const p = Array.from(out.subarray(i * PARTICLE_FLOATS, i * PARTICLE_FLOATS + 3), Math.round);
+				picked.push(
+					positions.findIndex((_, v) => v % 3 === 0 && p.every((c, a) => c === positions[v + a])) / 3,
+				);
+			}
+			// each loop's burst covers every vertex once
+			const perLoop = new Map<number, number>();
+			for (const v of picked) {
+				perLoop.set(v, (perLoop.get(v) ?? 0) + 1);
+			}
+			assert.deepEqual(
+				[...perLoop.keys()].toSorted((a, b) => a - b),
+				[0, 1, 2, 3],
+			);
+			assert.ok([...perLoop.values()].every((n) => n === perLoop.get(0)));
+		}
+	});
+
 	it('turns particles by the integral of a rotation curve over their age', () => {
 		const spinning = run(
 			system({

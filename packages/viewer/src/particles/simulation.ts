@@ -5,6 +5,7 @@ import {
 	type ParticleDragInfo,
 	type ParticleForcesInfo,
 	type ParticleVelocityInfo,
+	ParticleMeshSpawn,
 	ParticleShapeKind,
 	type ParticleSpeedLimitInfo,
 	type ParticleSystemInfo,
@@ -82,6 +83,9 @@ interface AdmittedEmission extends Emission {
 }
 
 const byTime = (a: Emission, b: Emission): number => a.time - b.time;
+
+/** a burst firing's key within its loop */
+const burstKey = (burst: number, cycle: number): number => burst * 2 ** 20 + cycle;
 
 /** a live particle being placed */
 interface Placing {
@@ -218,6 +222,15 @@ export class ParticleSimulation {
 	readonly #shapeRotation: Quat;
 	/** the mesh a mesh shape emits from; `null` for other shapes */
 	readonly #meshShape: PreparedMeshShape | null;
+	/**
+	 * whether burst particles take even ids numbering them in emission order, for a mesh shape's vertex spawn
+	 * modes, which step through the vertices by that count. the count is known only without the rate's stream
+	 * (whose ids are the even ones otherwise), and when every loop emits the same particles or the system plays
+	 * once
+	 */
+	readonly #burstsNumbered: boolean;
+	/** the bursts' firings within a loop, in time order: burst index, cycle */
+	readonly #burstOrder: [burst: number, cycle: number][] = [];
 	/** the emissions of the window {@link #emitted} last listed, drawn from {@link #emissionPool} */
 	readonly #emissions: Emission[] = [];
 	/** emission records kept for reuse, as many as the largest window held */
@@ -276,6 +289,28 @@ export class ParticleSimulation {
 			forces === null ? null : { multiplier: forces.multiplier, fields: forces.fields.map(prepareField) };
 		const shapeMesh = info.shape?.mesh ?? null;
 		this.#meshShape = shapeMesh === null ? null : prepareMeshShape(shapeMesh);
+		{
+			const bursts = info.bursts;
+			for (let b = 0; b < bursts.length; b++) {
+				for (let cycle = 0; cycle < bursts[b].cycles; cycle++) {
+					if (bursts[b].time + cycle * bursts[b].interval <= info.duration) {
+						this.#burstOrder.push([b, cycle]);
+					}
+				}
+			}
+			const offsetOf = ([b, cycle]: [number, number]) => bursts[b].time + cycle * bursts[b].interval;
+			this.#burstOrder.sort((x, y) => offsetOf(x) - offsetOf(y));
+			const sameEachLoop = bursts.every(
+				(burst) =>
+					burst.probability >= 1 &&
+					(burst.count.mode === CurveMode.Constant || burst.count.mode === CurveMode.Curve),
+			);
+			this.#burstsNumbered =
+				shapeMesh !== null &&
+				shapeMesh.spawn !== ParticleMeshSpawn.Random &&
+				this.#rate === 0 &&
+				(!info.looping || sameEachLoop);
+		}
 		const rotation = info.shape?.rotation ?? [0, 0, 0];
 		this.#shapeRotation = eulerQuaternion(
 			(rotation[0] * Math.PI) / 180,
@@ -456,6 +491,7 @@ export class ParticleSimulation {
 				: 0;
 			const lastLoop = looping ? Math.floor((end - startDelay) / duration) : 0;
 			for (let loop = firstLoop; loop <= lastLoop; loop++) {
+				const numbers = this.#burstsNumbered ? this.#burstNumbers(loop) : null;
 				for (let cycle = 0; cycle < burst.cycles; cycle++) {
 					const offset = burst.time + cycle * burst.interval;
 					const at = startDelay + loop * duration + offset;
@@ -463,14 +499,10 @@ export class ParticleSimulation {
 						continue;
 					}
 					const event = hash2(hash2(b, loop), cycle);
-					if (random(this.#seed, event, Channel.Burst) >= burst.probability) {
-						continue;
-					}
-					const count = Math.round(
-						evaluateMinMax(burst.count, offset / duration, random(this.#seed, event, 0)),
-					);
-					for (let j = 0; j < Math.min(count, MAX_PARTICLES); j++) {
-						this.#emit(at, hash2(event, j) | 1);
+					const count = this.#burstCount(b, loop, cycle);
+					const first = numbers?.get(burstKey(b, cycle)) ?? 0;
+					for (let j = 0; j < count; j++) {
+						this.#emit(at, numbers === null ? hash2(event, j) | 1 : ((first + j) * 2) >>> 0);
 					}
 				}
 			}
@@ -486,6 +518,40 @@ export class ParticleSimulation {
 		}
 		emissions.sort(byTime);
 		return emissions;
+	}
+
+	/** @returns how many particles a burst's firing emits: 0 when its probability turns it down */
+	#burstCount(b: number, loop: number, cycle: number): number {
+		const burst = this.info.bursts[b];
+		const event = hash2(hash2(b, loop), cycle);
+		if (random(this.#seed, event, Channel.Burst) >= burst.probability) {
+			return 0;
+		}
+		const offset = burst.time + cycle * burst.interval;
+		const count = Math.round(
+			evaluateMinMax(burst.count, offset / this.info.duration, random(this.#seed, event, 0)),
+		);
+		return Math.min(Math.max(count, 0), MAX_PARTICLES);
+	}
+
+	/**
+	 * @returns the emission number of the first particle of each of a loop's burst firings, by
+	 *   {@link burstKey}, counting every particle the system emitted before ({@link #burstsNumbered})
+	 */
+	#burstNumbers(loop: number): Map<number, number> {
+		const numbers = new Map<number, number>();
+		let total = 0;
+		for (const [b, cycle] of this.#burstOrder) {
+			numbers.set(burstKey(b, cycle), total);
+			total += this.#burstCount(b, loop, cycle);
+		}
+		// numbered looping systems emit the same particles every loop
+		if (loop > 0) {
+			for (const [key, first] of numbers) {
+				numbers.set(key, first + loop * total);
+			}
+		}
+		return numbers;
 	}
 
 	/** adds an emission to {@link #emissions}, reusing a pooled record */
@@ -605,7 +671,7 @@ export class ParticleSimulation {
 				randoms[0] = r0;
 				randoms[1] = r1;
 				randoms[2] = r2;
-				// the rate's stream numbers its emissions (even ids); bursts don't keep theirs
+				// even ids number the emissions: the rate's stream, or numbered bursts (`#burstsNumbered`)
 				meshShapePoint(this.#meshShape, randoms, id % 2 === 0 ? id / 2 : null, position, direction, tint);
 				break;
 			}
