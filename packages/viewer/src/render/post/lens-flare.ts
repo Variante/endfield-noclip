@@ -3,7 +3,7 @@ import type { Vec2 } from '@endfield-noclip/package-format/values';
 import { mapDefined } from '@mary-ext/array-fns';
 
 import type { Camera } from '../../scene/camera.ts';
-import type { StreamedTexture } from '../../streaming/mesh-selection.ts';
+import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import { placeholderView } from '../textures/texture-store.ts';
 

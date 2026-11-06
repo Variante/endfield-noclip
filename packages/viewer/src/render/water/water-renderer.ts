@@ -2,9 +2,9 @@ import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
 import { type Plane, type Vec3, boxInFrustum } from '../../scene/camera.ts';
-import { streamWholeTexture } from '../../streaming/mesh-selection.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { StreamManager } from '../../streaming/stream-manager.ts';
+import { streamWholeTexture } from '../../streaming/texture-requests.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import {
 	HDR_FORMAT,

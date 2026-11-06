@@ -71,7 +71,10 @@ rows, frames that render traverse again, as with particles, so the shadows follo
 starts from its stored pose at the clock's zero; the game's phase is its gameplay clock's.
 
 [`streaming/mesh-selection.ts`](../../packages/viewer/src/streaming/mesh-selection.ts) runs on the
-CPU over the selected row ranges. per instance it:
+CPU over the selected row ranges, with the sphere and shadow layer tests of
+[`instance-culling.ts`](../../packages/viewer/src/streaming/instance-culling.ts) and the chain slots
+and buckets of [`mesh-buckets.ts`](../../packages/viewer/src/streaming/mesh-buckets.ts). per
+instance it:
 
 1. culls by projected bounding-sphere radius (`minBoxPixels`, default 1.5 px) and by frustum planes;
 2. computes Unity's LODGroup metric (object size relative to screen height, the size being twice the
@@ -99,7 +102,8 @@ are shadow-only draws whose material casts no shadow; the other shadow-only draw
 buckets even for instances in view. textures are then requested per bucket, coarse to fine, down to
 the mip that gives about one texel per pixel across the largest on-screen use, scaled by the UV
 tiling, then `textureBias` levels coarser (0 by default; each level quarters the textures' memory).
-sky, reflection and water textures are streamed whole (`streamWholeTexture`).
+sky, reflection and water textures are streamed whole (`streamWholeTexture`; both ways are in
+[`texture-requests.ts`](../../packages/viewer/src/streaming/texture-requests.ts)).
 
 the output (a visible row list plus per-bucket ranges) has the shape a GPU cull pass would write
 next to indirect draw arguments ([optimization candidates](performance.md#optimization-candidates)).

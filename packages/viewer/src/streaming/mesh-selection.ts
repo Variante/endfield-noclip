@@ -1,51 +1,25 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
-import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances';
-import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
+import type { Chain } from '@endfield-noclip/package-format/instances';
 
 import { CULL_FLOATS, ROW_WORDS } from '../content/instance-rows.ts';
 import { type MaterialLook, alphaTextureOf } from '../looks/look.ts';
-import { unsupportedLook } from '../looks/material-looks.ts';
 import type { ParticleField, ParticleView } from '../particles/particle-rows.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow-map.ts';
-import type { TextureBinding, TextureStore } from '../render/textures/texture-store.ts';
+import type { TextureStore } from '../render/textures/texture-store.ts';
 import type { Plane, Vec3 } from '../scene/camera.ts';
 
-import type { ContentItem } from './content-item.ts';
+import { firstRunAt, firstShadowLayer, sphereInPlanes } from './instance-culling.ts';
+import {
+	BUCKET_LIFETIME,
+	type ChainSlot,
+	type MeshBucket,
+	MeshBuckets,
+	bucketIndex,
+	slotHidden,
+} from './mesh-buckets.ts';
 import type { CasterVolume, InstanceRange } from './selection.ts';
 import type { StreamManager } from './stream-manager.ts';
-
-/** instances sharing one geometry submesh, material and handedness */
-export interface MeshBucket {
-	geometry: ContentItem;
-	submesh: number;
-	material: number;
-	look: MaterialLook;
-	/** whether the instances' transforms mirror them (negative determinant) */
-	mirrored: boolean;
-	/** whether the instances are outside the view and only draw into the shadow map */
-	castOnly: boolean;
-	/**
-	 * global row indices, grouped by the first shadow layer each instance can cast into (the last group for
-	 * none), so each layer draws a prefix of the bucket; reset every frame
-	 */
-	rows: number[][];
-	/**
-	 * the highest priority of an instance this frame: its projected height, px, scaled by the caster priority
-	 * in cast-only buckets. textures stream by it
-	 */
-	pixels: number;
-	/** distance from the camera to the nearest instance's bounding sphere this frame, m */
-	nearest: number;
-	/** offset and count of the rows in this frame's visible list, set by `InstanceRenderer.prepareList` */
-	first: number;
-	count: number;
-	/** per shadow layer, how many of the listed rows it draws (the prefix through its group) */
-	layerCounts: number[];
-	/** last frame the bucket had rows */
-	frame: number;
-	/** the bucket's draw order, computed by `MeshRenderer` on first use; -1 until then */
-	sortKey: number;
-}
+import { TextureRequests } from './texture-requests.ts';
 
 /** this frame's mesh selection, reused across frames */
 export interface MeshSelection {
@@ -92,149 +66,20 @@ export interface MeshSelectorInit {
 	particles: ParticleField;
 }
 
-/** a draw of a chain with a visible material, or a shadow-only draw of one that casts shadows */
-interface ChainSlot {
-	lod: number;
-	minSquared: number;
-	maxSquared: number;
-	geometry: number;
-	submesh: number;
-	material: number;
-	castsShadows: boolean;
-	/**
-	 * what hides the draw: `material` for a material in the unsupported look ({@link
-	 * MeshView.unsupportedMaterials}), `stand-in` for a `DrawRole.Unsupported` draw ({@link
-	 * MeshView.missingContent}), `null` for neither
-	 */
-	hiddenBy: 'material' | 'stand-in' | null;
-	/** whether the draw is a shadow proxy, which only the shadow passes draw, even for instances in view */
-	shadowOnly: boolean;
-	/** the particle system the draw plays, whose particles stand in for the instance; `null` for a mesh */
-	particles: number | null;
-	/** the slot's buckets, once they had rows, by {@link bucketIndex} */
-	buckets: (MeshBucket | null)[];
-}
-
-/** @returns {@link ChainSlot.hiddenBy} for a draw of `role` drawn with `look` */
-const hiddenByOf = (role: DrawRole, look: MaterialLook): ChainSlot['hiddenBy'] => {
-	if (role === DrawRole.Unsupported) {
-		return 'stand-in';
-	}
-	return look.unsupported ? 'material' : null;
-};
-
-/** @returns whether the view's options skip the slot */
-const slotHidden = (
-	slot: ChainSlot,
-	view: Pick<MeshView, 'unsupportedMaterials' | 'missingContent'>,
-): boolean => {
-	switch (slot.hiddenBy) {
-		case 'material': {
-			return !view.unsupportedMaterials;
-		}
-		case 'stand-in': {
-			return !view.missingContent;
-		}
-		case null: {
-			return false;
-		}
-	}
-};
-
-/** @returns the index of a slot's bucket for mirrored (1) or unmirrored (0), cast-only or drawn instances */
-const bucketIndex = (mirrored: 0 | 1, castOnly: boolean): number => mirrored + (castOnly ? 2 : 0);
-
-/** buckets without rows for this many frames are dropped */
-const BUCKET_LIFETIME = 600;
 /** priority multiplier for shadow casters outside the view */
 const CASTER_PRIORITY = 0.1;
 /** shadow casters outside the view smaller than this are culled, px (as if on screen) */
 const CASTER_MIN_PIXELS = 16;
-
-/**
- * @param runs (chain, first, count) triples in row order
- * @param row a row
- * @returns the word offset of the run containing `row`, or of the first run after it
- */
-const firstRunAt = (runs: Uint32Array, row: number): number => {
-	let lo = 0;
-	let hi = runs.length / 3;
-	while (lo < hi) {
-		const mid = (lo + hi) >>> 1;
-		if (runs[mid * 3 + 1] + runs[mid * 3 + 2] <= row) {
-			lo = mid + 1;
-		} else {
-			hi = mid;
-		}
-	}
-	return lo * 3;
-};
-
-/** @returns whether a camera-relative sphere is at least partly inside the first `floats / 4` planes */
-const sphereInPlanes = (
-	planes: Float64Array,
-	floats: number,
-	x: number,
-	y: number,
-	z: number,
-	radius: number,
-): boolean => {
-	for (let p = 0; p < floats; p += 4) {
-		if (planes[p] * x + planes[p + 1] * y + planes[p + 2] * z + planes[p + 3] < -radius) {
-			return false;
-		}
-	}
-	return true;
-};
-
-/**
- * @returns the first shadow layer a camera-relative sphere can cast into, or {@link SHADOW_LAYERS} for none.
- *   each layer draws the instances whose first layer is it or an earlier one: that holds every caster it
- *   needs, plus a few near the camera that only the nearer layers need
- */
-const firstShadowLayer = (
-	volumes: ShadowLayerVolumes,
-	x: number,
-	y: number,
-	z: number,
-	radius: number,
-): number => {
-	const axes = volumes.axes;
-	const layers = volumes.layers;
-	const u = x * axes[0] + y * axes[1] + z * axes[2];
-	const v = x * axes[3] + y * axes[4] + z * axes[5];
-	const w = x * axes[6] + y * axes[7] + z * axes[8];
-	for (let layer = 0; layer < SHADOW_LAYERS; layer++) {
-		const at = layer * 4;
-		const reach = layers[at + 3] + radius;
-		const dw = w - layers[at + 2];
-		if (
-			Math.abs(u - layers[at]) <= reach &&
-			Math.abs(v - layers[at + 1]) <= reach &&
-			dw <= reach &&
-			dw >= -reach - volumes.reach
-		) {
-			return layer;
-		}
-	}
-	return SHADOW_LAYERS;
-};
 
 /** selects LODs and buckets instances */
 export class MeshSelector {
 	readonly selection: MeshSelection = { buckets: [], boxes: [], particles: false };
 	#chains: readonly Chain[];
 	#geometries: readonly GeometryEntry[];
-	/** by material id, then the look stand-ins draw with at {@link #standIn} */
-	#looks: readonly MaterialLook[];
-	/** the material id `DrawRole.Unsupported` draws take, one past the package's */
-	#standIn: number;
 	#stream: StreamManager;
-	#textures: TextureStore;
+	#textures: TextureRequests;
 	#particles: ParticleField;
-	#buckets = new Map<number, MeshBucket>();
-	/** drawn draws per chain, built on first use */
-	#slots: (ChainSlot[] | null)[];
+	#buckets: MeshBuckets;
 	#frame = 0;
 	/** per geometry: the frame {@link #geometryReady} last looked it up */
 	#checkedFrame: Int32Array;
@@ -250,13 +95,10 @@ export class MeshSelector {
 	constructor(init: MeshSelectorInit) {
 		this.#chains = init.chains;
 		this.#geometries = init.geometries;
-		this.#standIn = init.looks.length;
-		this.#looks = [...init.looks, unsupportedLook()];
 		this.#stream = init.stream;
-		this.#textures = init.textures;
+		this.#textures = new TextureRequests(init.stream, init.textures);
 		this.#particles = init.particles;
-		// filled up front: an array written at scattered indices turns into a slow dictionary
-		this.#slots = Array.from({ length: init.chains.length }, () => null);
+		this.#buckets = new MeshBuckets(init);
 		const count = init.geometries.length;
 		this.#checkedFrame = new Int32Array(count).fill(-1);
 		this.#ready = new Uint8Array(count);
@@ -315,7 +157,7 @@ export class MeshSelector {
 				if (runEnd <= first) {
 					continue;
 				}
-				const slots = this.#chainSlots(runs[r]);
+				const slots = this.#buckets.slots(runs[r]);
 				// effect distance bands measure from the effect's origin, in the instance's frame
 				const origin = this.#chains[runs[r]].distanceOrigin;
 				const last = Math.min(end, runEnd);
@@ -403,7 +245,8 @@ export class MeshSelector {
 					for (let p = 0; p < pendingCount; p++) {
 						const slot = pending[p];
 						const cast = castOnly || slot.shadowOnly;
-						const bucket = slot.buckets[bucketIndex(mirrored, cast)] ?? this.#bucketOf(slot, mirrored, cast);
+						const bucket =
+							slot.buckets[bucketIndex(mirrored, cast)] ?? this.#buckets.bucketOf(slot, mirrored, cast);
 						if (bucket.frame !== frame) {
 							bucket.frame = frame;
 							for (const rows of bucket.rows) {
@@ -440,7 +283,7 @@ export class MeshSelector {
 				// a shadow needs only the texture holding the alpha it's cut out by
 				const alpha = look.cutout ? alphaTextureOf(look) : -1;
 				if (alpha >= 0) {
-					this.#streamTexture(
+					this.#textures.forPixels(
 						alpha,
 						bucket.pixels * texturePixels,
 						look.uvScales[look.textures.indexOf(alpha)],
@@ -450,21 +293,15 @@ export class MeshSelector {
 			}
 			for (let i = 0; i < look.textures.length; i++) {
 				if (look.textures[i] >= 0) {
-					this.#streamTexture(look.textures[i], bucket.pixels * texturePixels, look.uvScales[i]);
+					this.#textures.forPixels(look.textures[i], bucket.pixels * texturePixels, look.uvScales[i]);
 				}
 			}
 			if (look.volumeTexture >= 0) {
-				streamWholeTexture({
-					stream: this.#stream,
-					textures: this.#textures,
-					id: look.volumeTexture,
-					kind: '3d',
-					priority: bucket.pixels,
-				});
+				this.#textures.whole(look.volumeTexture, '3d', bucket.pixels);
 			}
 		}
 		if (frame % BUCKET_LIFETIME === 0) {
-			this.#prune(frame);
+			this.#buckets.prune(frame);
 		}
 		return selection;
 	}
@@ -550,171 +387,4 @@ export class MeshSelector {
 			this.#stream.markUsed(entry.blob);
 		}
 	}
-
-	#chainSlots(chain: number): ChainSlot[] {
-		let slots = this.#slots[chain];
-		if (slots === null) {
-			slots = [];
-			for (const draw of this.#chains[chain].draws) {
-				const material = draw.role === DrawRole.Unsupported ? this.#standIn : draw.material;
-				const look = material < this.#looks.length ? this.#looks[material] : undefined;
-				const shadowOnly = draw.role === DrawRole.ShadowOnly;
-				// a proxy's material is never seen, only whether it casts
-				if (look === undefined || (shadowOnly ? !look.castsShadows : !look.drawn)) {
-					continue;
-				}
-				slots.push({
-					lod: draw.lod,
-					minSquared: draw.minSquared,
-					maxSquared: draw.maxSquared,
-					geometry: draw.geometry,
-					submesh: draw.submesh,
-					material,
-					castsShadows: look.castsShadows,
-					hiddenBy: hiddenByOf(draw.role, look),
-					shadowOnly,
-					particles: draw.particles,
-					buckets: [null, null, null, null],
-				});
-			}
-			this.#slots[chain] = slots;
-		}
-		return slots;
-	}
-
-	#bucketOf(slot: ChainSlot, mirrored: 0 | 1, castOnly: boolean): MeshBucket {
-		const { geometry, submesh, material } = slot;
-		const index = bucketIndex(mirrored, castOnly);
-		const key = ((geometry * 256 + submesh) * 65_536 + material) * 4 + index;
-		const bucket = this.#buckets.getOrInsertComputed(key, (): MeshBucket => {
-			const entry = this.#geometries[geometry];
-			const item = entry.status === 'ready' ? this.#stream.get(entry.blob) : undefined;
-			if (item === undefined) {
-				throw new Error(`geometry ${geometry} has no stream item`);
-			}
-			return {
-				geometry: item,
-				submesh,
-				material,
-				look: this.#looks[material],
-				mirrored: mirrored === 1,
-				castOnly,
-				rows: Array.from({ length: SHADOW_LAYERS + 1 }, () => []),
-				pixels: 0,
-				nearest: Infinity,
-				first: 0,
-				count: 0,
-				layerCounts: Array.from({ length: SHADOW_LAYERS }, () => 0),
-				frame: -1,
-				sortKey: -1,
-			};
-		});
-		slot.buckets[index] = bucket;
-		return bucket;
-	}
-
-	/** drops buckets unused for a while, and the slots' references to them */
-	#prune(frame: number): void {
-		let pruned = false;
-		for (const [key, bucket] of this.#buckets) {
-			if (bucket.frame < frame - BUCKET_LIFETIME) {
-				this.#buckets.delete(key);
-				pruned = true;
-			}
-		}
-		if (pruned) {
-			for (const slots of this.#slots) {
-				for (const slot of slots ?? []) {
-					slot.buckets.fill(null);
-				}
-			}
-		}
-	}
-
-	/**
-	 * requests a texture's pieces coarse to fine, up to the level its largest on-screen use needs: about one
-	 * texel per pixel across the object, scaled by how often the UVs tile
-	 */
-	#streamTexture(id: number, pixels: number, uvScale: number): void {
-		const entry = this.#textures.streamable(id, '2d');
-		if (entry === null) {
-			return;
-		}
-		const texels = Math.max(entry.width, entry.height) * uvScale;
-		const level = Math.min(
-			entry.mipCount - 1,
-			Math.max(0, Math.floor(Math.log2(texels / Math.max(pixels, 1)))),
-		);
-		requestTexturePieces({ stream: this.#stream, textures: this.#textures, entry, level, priority: pixels });
-	}
 }
-
-/**
- * requests a texture's pieces coarse to fine, down to the piece holding `level`, and keeps the integrated
- * ones in use.
- *
- * @param request the stream, the texture store, the texture, the finest level wanted and the priority
- */
-const requestTexturePieces = (request: {
-	stream: StreamManager;
-	textures: TextureStore;
-	entry: ReadyTexture;
-	level: number;
-	priority: number;
-}): void => {
-	const { stream, textures, entry, level, priority } = request;
-	const pieces = entry.pieces;
-	const integrated = textures.integrated(entry.id);
-	for (let i = 0; i < pieces.length; i++) {
-		const piece = pieces[i];
-		const blob = piece.blob;
-		if (i < integrated) {
-			stream.markUsed(blob);
-		} else if (i === integrated) {
-			// a piece left over from before a coarser one was evicted can't be integrated: fetch it again
-			if (stream.isReady(blob)) {
-				stream.discard(blob);
-			}
-			// coarse pieces first; the tail always, then each level the view needs
-			if (i === 0 || piece.firstLevel + piece.levelCount - 1 >= level) {
-				stream.want(blob, priority / (1 + i));
-			}
-		} else {
-			// decoded ahead of a coarser piece: keep it from looking unused until it's integrated
-			stream.markUsed(blob);
-		}
-		if (piece.firstLevel <= level) {
-			break;
-		}
-	}
-};
-
-/** a texture streamed whole by {@link streamWholeTexture} */
-export interface StreamedTexture {
-	entry: ReadyTexture;
-	/** `null` until its tail arrives */
-	binding: TextureBinding | null;
-}
-
-/**
- * requests every level of a texture (sky and water textures, which aren't picked by screen size).
- *
- * @param request the stream, the texture store, the texture id (or `null` for none), the kind it's bound as
- *   and the priority
- * @returns the texture and its current binding, or `null` without a texture streamable as that kind
- */
-export const streamWholeTexture = (request: {
-	stream: StreamManager;
-	textures: TextureStore;
-	id: number | null;
-	kind: '2d' | 'cube' | '2d-array' | '3d';
-	priority: number;
-}): StreamedTexture | null => {
-	const { stream, textures, id, kind, priority } = request;
-	const entry = id === null ? null : textures.streamable(id, kind);
-	if (entry === null) {
-		return null;
-	}
-	requestTexturePieces({ stream, textures, entry, level: 0, priority });
-	return { entry, binding: textures.binding(entry.id) };
-};
