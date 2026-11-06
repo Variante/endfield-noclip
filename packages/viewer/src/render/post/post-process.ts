@@ -216,6 +216,11 @@ export class PostProcess {
 		tonemap: GPURenderPipeline;
 	};
 	#lutPasses: Record<'transmittance' | 'multiScattering' | 'skyView', Pass>;
+	/**
+	 * the celestial pipeline's group 1 layout, fetched once: `getBindGroupLayout` returns a new object each
+	 * call, and the layer rebuilds its group whenever the layout it's handed differs
+	 */
+	#celestialLayout: GPUBindGroupLayout;
 	#sized: Sized | null = null;
 	#environment: Environment;
 	/** the cloud panorama bound in the celestial pass */
@@ -342,6 +347,7 @@ export class PostProcess {
 			tonemap: pipeline('tonemap', tonemap, 'fs_tonemap', swapchainFormat),
 		};
 		const p = this.#pipelines;
+		this.#celestialLayout = p.celestial.getBindGroupLayout(1);
 		const lutPass = (target: GPURenderPipeline, view: GPUTextureView, reads: readonly number[]): Pass => {
 			const groups = [this.#uniformsGroup(target)];
 			if (reads.length > 0) {
@@ -771,7 +777,7 @@ export class PostProcess {
 					// group 1 is the layer's own, bound each frame
 					groups: [
 						this.#uniformsGroup(p.celestial),
-						this.celestial.group(p.celestial.getBindGroupLayout(1)),
+						this.celestial.group(this.#celestialLayout),
 						this.#celestialGroup(scene),
 					],
 					// the sky reflection target is free once the reflections have resolved, which run first
@@ -1010,7 +1016,7 @@ export class PostProcess {
 			const environment = this.#environment;
 			this.celestial.write(camera.position, environment.sunDirection, environment.sunIlluminance);
 			const celestial = sized.passes.celestial;
-			celestial.groups[1] = this.celestial.group(celestial.pipeline.getBindGroupLayout(1));
+			celestial.groups[1] = this.celestial.group(this.#celestialLayout);
 			this.#run(encoder, 'celestial', celestial);
 		}
 		const water = input.water;
