@@ -15,6 +15,12 @@ export type ItemState =
 	| 'ready'
 	| 'failed';
 
+/**
+ * reads of a blob that may fail before the blob fails for good: a dev server under load now and then answers
+ * a range request with no bytes
+ */
+export const MAX_READ_FAILURES = 3;
+
 /** a blob the viewer has asked for at some point */
 export interface ContentItem {
 	blob: number;
@@ -29,6 +35,8 @@ export interface ContentItem {
 	wantedFrame: number;
 	/** last frame it was used: wanted or marked used while resident, or uploaded */
 	usedFrame: number;
+	/** failed reads so far; a read fails the blob only after {@link MAX_READ_FAILURES} */
+	readFailures: number;
 	decoded: Decoded | null;
 	/** set exactly while the item is `ready` */
 	resident: Resident | null;

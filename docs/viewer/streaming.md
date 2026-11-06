@@ -148,8 +148,10 @@ scenery.
 
 [`streaming/stream-manager.ts`](../../packages/viewer/src/streaming/stream-manager.ts) owns each
 blob's lifecycle (`idle → queued → fetching → fetched → decoding → uploading → ready`, or `failed`,
-which isn't retried). it doesn't know the kinds of content: each kind (`heights`, `surface`,
-`splat`, `layer`, `instances`, `geometry`, `texture`, `irradiance`) has a handler
+which isn't retried; a failed read returns the blob to idle twice before it fails, since a dev
+server under load now and then answers a range request with no bytes). it doesn't know the kinds of
+content: each kind (`heights`, `surface`, `splat`, `layer`, `instances`, `geometry`, `texture`,
+`irradiance`) has a handler
 ([`streaming/residency.ts`](../../packages/viewer/src/streaming/residency.ts)) that uploads its
 decoded blobs and frees them, and may build its decode job (instance blocks add their row kinds,
 from [`content/row-kinds.ts`](../../packages/viewer/src/content/row-kinds.ts)). `openScene`

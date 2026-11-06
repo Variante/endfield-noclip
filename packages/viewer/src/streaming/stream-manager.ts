@@ -4,7 +4,7 @@ import { PackageChangedError } from '../package/package-source.ts';
 import { CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
 
 import { type QueuedRange, coalesceRanges } from './coalesce.ts';
-import type { ContentItem } from './content-item.ts';
+import { type ContentItem, MAX_READ_FAILURES } from './content-item.ts';
 import {
 	RESIDENT_KINDS,
 	type ResidencyHandlers,
@@ -315,6 +315,7 @@ export class StreamManager {
 				priority: 0,
 				wantedFrame: -1,
 				usedFrame: -1,
+				readFailures: 0,
 				decoded: null,
 				resident: null,
 			};
@@ -455,6 +456,9 @@ export class StreamManager {
 						continue;
 					}
 					if (aborted || changed) {
+						item.state = 'idle';
+					} else if (++item.readFailures < MAX_READ_FAILURES) {
+						// wanted again, it's read again
 						item.state = 'idle';
 					} else {
 						this.#fail(item, err);
