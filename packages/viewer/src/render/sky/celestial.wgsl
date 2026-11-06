@@ -78,7 +78,7 @@ struct Celestial {
 	nebula: vec4f,
 	// x = how far the sky planets hide the nebula, yzw unused
 	nebula_mask: vec4f,
-	// the game's _SkyBoxStarParam0..6, packed from the star config (`starLook` in celestial.ts)
+	// the game's _SkyBoxStarParam0..6, packed from the star config (`starLook` in environment/celestial-look.ts)
 	stars: array<vec4f, 7>,
 	ray: RayPlanet,
 	sky: array<SkyPlanet, 2>,

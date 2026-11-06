@@ -8,7 +8,7 @@ import type {
 	StarConfig,
 } from '@endfield-noclip/package-format/environment';
 
-import { type CelestialInput, celestialLook } from './celestial.ts';
+import { type CelestialInput, celestialLook } from './celestial-look.ts';
 
 const material = (overrides: Partial<EnvironmentMaterial>): EnvironmentMaterial => ({
 	shader: 'HGRP/SkydomeStar',

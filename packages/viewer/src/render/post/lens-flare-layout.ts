@@ -1,7 +1,6 @@
 /**
- * the sun's lens flare as the CPU lays it out: SRP core's data-driven lens flare, which the game draws for
- * its sun from the environment's `lensFlare` section. each frame, every visible element becomes one quad per
- * copy, placed from where the sun falls on screen; `lens-flare.ts` draws them.
+ * the sun's lens flare ({@link LensFlareLook}) as the CPU lays it out: each frame, every visible element
+ * becomes one quad per copy, placed from where the sun falls on screen; `lens-flare.ts` draws them.
  *
  * the layout follows SRP core 12 (`LensFlareCommonSRP`), in its screen frame: x right and y down, both −1 to
  * 1, with sizes in units of the screen's height
@@ -10,98 +9,10 @@
  */
 
 import { evaluateCurve, evaluateGradient } from '@endfield-noclip/package-format/curves';
-import type {
-	LensFlareConfig,
-	LensFlareElement,
-	LightConfig,
-} from '@endfield-noclip/package-format/environment';
+import type { LensFlareElement } from '@endfield-noclip/package-format/environment';
 import type { Vec2, Vec4 } from '@endfield-noclip/package-format/values';
 
-import { mapDefined, unique } from '@mary-ext/array-fns';
-
-import { type SunDirections, towardsEffectLight } from '../../environment/sun.ts';
-import type { Vec3 } from '../../scene/camera.ts';
-
-// #region look
-
-/** the flare in effect: the config's settings and the elements that can draw */
-export interface LensFlareLook {
-	/** unit vector towards the sun */
-	direction: Vec3;
-	/** the light's raw colour, which elements marked `modulateByLightColor` take */
-	lightColor: Vec4;
-	intensity: number;
-	scale: number;
-	/** the occlusion test, or `null` without one */
-	occlusion: { radius: number; samples: number } | null;
-	allowOffScreen: boolean;
-	/** visible image and circle elements, in drawing order */
-	elements: LensFlareElement[];
-}
-
-/** the profile sections the flare comes from; absent in packages from before it was packed */
-export interface LensFlareInput {
-	lensFlare?: LensFlareConfig;
-	light?: Pick<LightConfig, 'directColor'> & SunDirections<'lensFlare'>;
-}
-
-const IMAGE = 0;
-const CIRCLE = 1;
-
-/**
- * the sun's flare as the game overrides the sun's flare component with the environment's: the section's
- * flare, intensity, scale and occlusion, the light's flare direction and colour. polygons aren't drawn
- *
- * @param input the blended profile's sections, or `null` for the defaults (no flare)
- * @returns the flare, or `null` when nothing draws
- */
-export const lensFlareLook = (input: LensFlareInput | null): LensFlareLook | null => {
-	const config = input?.lensFlare;
-	const light = input?.light;
-	const data = config?.lensFlareData ?? null;
-	if (
-		config === undefined ||
-		light === undefined ||
-		data === null ||
-		!config.enable ||
-		config.intensity <= 0
-	) {
-		return null;
-	}
-	const elements = data.elements.filter(
-		(element) =>
-			element.visible &&
-			element.count > 0 &&
-			element.localIntensity > 0 &&
-			((element.flareType === IMAGE && element.lensFlareTexture !== null) || element.flareType === CIRCLE),
-	);
-	if (elements.length === 0) {
-		return null;
-	}
-	const [r, g, b, a] = light.directColor;
-	return {
-		direction: towardsEffectLight(light, 'lensFlare'),
-		lightColor: [r, g, b, a],
-		intensity: config.intensity,
-		scale: config.scale,
-		occlusion: config.useOcclusion ? { radius: config.occlusionRadius, samples: config.sampleCount } : null,
-		allowOffScreen: config.allowOffScreen,
-		elements,
-	};
-};
-
-/**
- * @param look the flare, or `null` for none
- * @returns the texture-table ids the flare's image elements sample
- */
-export const lensFlareTextures = (look: LensFlareLook | null): number[] =>
-	unique(
-		mapDefined(look?.elements ?? [], ({ flareType, lensFlareTexture }) =>
-			flareType === IMAGE && lensFlareTexture !== null ? lensFlareTexture : undefined,
-		),
-	);
-
-// #endregion
+import { FLARE_IMAGE, type LensFlareLook } from '../../environment/lens-flare-look.ts';
 
 // #region randomness
 
@@ -220,7 +131,7 @@ export const flareQuads = (
 	const quads: FlareQuad[] = [];
 	const ratio: Vec2 = [aspect, 1];
 	for (const element of look.elements) {
-		const texture = element.flareType === IMAGE ? element.lensFlareTexture : null;
+		const texture = element.flareType === FLARE_IMAGE ? element.lensFlareTexture : null;
 		const intensity = look.intensity * element.localIntensity;
 		const modulation: Vec4 = element.modulateByLightColor ? look.lightColor : [1, 1, 1, 1];
 		const color = modulation.map((c, i) => c * element.tint[i] * intensity);

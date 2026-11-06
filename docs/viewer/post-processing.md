@@ -28,8 +28,10 @@ cloud mask aren't drawn.
 
 ## lens flare
 
+[`environment/lens-flare-look.ts`](../../packages/viewer/src/environment/lens-flare-look.ts) takes
+the [game's flare](../game-data/post-processing.md#lens-flare) from the environment,
 [`render/post/lens-flare-layout.ts`](../../packages/viewer/src/render/post/lens-flare-layout.ts)
-lays the [game's flare](../game-data/post-processing.md#lens-flare) out on the CPU each frame, and
+lays it out on the CPU each frame, and
 [`render/post/lens-flare.ts`](../../packages/viewer/src/render/post/lens-flare.ts) draws it. polygon
 elements and inverse SDFs aren't drawn, the per-light curves (radial screen attenuation, distance)
 take SRP core's directional-light defaults, and Unity's mapping of random bits onto `Random.Range`

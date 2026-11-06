@@ -2,12 +2,13 @@ import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
+import { type LensFlareLook, lensFlareTextures } from '../../environment/lens-flare-look.ts';
 import type { Camera } from '../../scene/camera.ts';
 import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import { placeholderView } from '../textures/texture-store.ts';
 
-import { type LensFlareLook, flareQuads, lensFlareTextures } from './lens-flare-layout.ts';
+import { flareQuads } from './lens-flare-layout.ts';
 import lensFlareWgsl from './lens-flare.wgsl?raw';
 
 /** byte size of `FlareFrame` in lens-flare.wgsl */

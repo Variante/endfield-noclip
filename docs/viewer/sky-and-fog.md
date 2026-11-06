@@ -30,12 +30,13 @@ facing the sun.
 
 where the game shades these layers inside its one sky-dome draw, the viewer renders them per sky
 pixel in a pass of its own ([`celestial.wgsl`](../../packages/viewer/src/render/sky/celestial.wgsl),
-packed by [`render/sky/celestial.ts`](../../packages/viewer/src/render/sky/celestial.ts)), and the
-composite puts them over the atmosphere's sky before fogging it: `sky · (1 − cover) + layers`. the
-cloud panorama is drawn in the same pass so it can sit between the layers in the
-[game's order](../game-data/sky-and-fog.md#beyond-the-atmosphere).
+drawn by [`render/sky/celestial.ts`](../../packages/viewer/src/render/sky/celestial.ts) from the
+look [`environment/celestial-look.ts`](../../packages/viewer/src/environment/celestial-look.ts)
+derives), and the composite puts them over the atmosphere's sky before fogging it:
+`sky · (1 − cover) + layers`. the cloud panorama is drawn in the same pass so it can sit between the
+layers in the [game's order](../game-data/sky-and-fog.md#beyond-the-atmosphere).
 
-- **the ray-traced planet**: `render/sky/celestial.ts` copies its parameters from the
+- **the ray-traced planet**: `environment/celestial-look.ts` copies its parameters from the
   `HGRP/Planet/PlanetBillboard` material, linearising the colours. its light is the viewer's
   pre-exposed sun; which light the game gives it in a space level is unchecked.
 - **sky planets**: the body's frame hands its right vector to the shader as "forward" and its

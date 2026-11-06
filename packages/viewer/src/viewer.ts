@@ -31,8 +31,15 @@ import {
 	planBlend,
 	volumeLevelTag,
 } from './environment/blend.ts';
+import {
+	type CelestialLook,
+	NO_CELESTIAL,
+	celestialLook,
+	celestialTextures,
+} from './environment/celestial-look.ts';
 import { deriveEnvironment } from './environment/derive.ts';
 import { type Environment, windClockRate } from './environment/environment.ts';
+import { lensFlareLook } from './environment/lens-flare-look.ts';
 import { wetnessParams } from './environment/wetness.ts';
 import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
 import { GpuProfiler } from './gfx/gpu-profiler.ts';
@@ -55,7 +62,6 @@ import { InstanceRenderer } from './render/instances/instance-renderer.ts';
 import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
 import { LocalLights } from './render/lighting/local-lights.ts';
 import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
-import { lensFlareLook } from './render/post/lens-flare-layout.ts';
 import {
 	type PostSettings,
 	PostProcess,
@@ -65,12 +71,6 @@ import {
 } from './render/post/post-process.ts';
 import { SETTLE_FRAMES } from './render/post/temporal-aa.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadows/shadow-map.ts';
-import {
-	type CelestialLook,
-	NO_CELESTIAL,
-	celestialLook,
-	celestialTextures,
-} from './render/sky/celestial.ts';
 import { VolumetricFog } from './render/sky/volumetric-fog.ts';
 import { TerrainRenderer } from './render/terrain/terrain-renderer.ts';
 import { type TextureBinding, TextureStore, placeholderView } from './render/textures/texture-store.ts';

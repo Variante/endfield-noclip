@@ -4,7 +4,9 @@ import { describe, it } from 'node:test';
 import type { AnimationCurve } from '@endfield-noclip/package-format/curves';
 import type { LensFlareConfig, LensFlareElement } from '@endfield-noclip/package-format/environment';
 
-import { type LensFlareInput, UnityRandom, flareQuads, lensFlareLook } from './lens-flare-layout.ts';
+import { type LensFlareInput, lensFlareLook } from '../../environment/lens-flare-look.ts';
+
+import { UnityRandom, flareQuads } from './lens-flare-layout.ts';
 
 const line = (from: number, to: number): AnimationCurve => ({
 	keys: [
