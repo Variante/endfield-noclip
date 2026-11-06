@@ -9,7 +9,6 @@ import { placeholderView } from '../textures/texture-store.ts';
 
 import { type LensFlareLook, flareQuads, lensFlareTextures } from './lens-flare-layout.ts';
 import lensFlareWgsl from './lens-flare.wgsl?raw';
-import { sunOnScreen } from './light-shafts.ts';
 
 /** byte size of `FlareFrame` in lens-flare.wgsl */
 const FRAME_BYTES = 16;
@@ -194,7 +193,7 @@ export class LensFlares {
 		}
 		const { camera, width, height } = input;
 		const aspect = width / height;
-		const sun = sunOnScreen(camera, aspect, look.direction);
+		const sun = camera.projectDirection(look.direction, aspect);
 		if (sun === null) {
 			return;
 		}
@@ -228,11 +227,10 @@ export class LensFlares {
 		if (look.occlusion !== null) {
 			const up = camera.up();
 			const k = CELESTIAL_OCCLUSION * look.occlusion.radius;
-			const edge = sunOnScreen(camera, aspect, [
-				look.direction[0] + up[0] * k,
-				look.direction[1] + up[1] * k,
-				look.direction[2] + up[2] * k,
-			]);
+			const edge = camera.projectDirection(
+				[look.direction[0] + up[0] * k, look.direction[1] + up[1] * k, look.direction[2] + up[2] * k],
+				aspect,
+			);
 			radius = edge === null ? 0 : Math.hypot(edge[0] - sun[0], edge[1] - sun[1]);
 			samples = look.occlusion.samples;
 		}

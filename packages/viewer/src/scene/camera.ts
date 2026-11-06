@@ -46,6 +46,42 @@ export class Camera {
 	}
 
 	/**
+	 * the view's axes scaled to its half extents at unit depth, so a camera-relative view ray through NDC `(x,
+	 * y)` is `forward + x · right + y · up`
+	 *
+	 * @param aspect width / height
+	 * @returns forward (unit), right · aspect · tan(fovY / 2) and up · tan(fovY / 2)
+	 */
+	viewBasis(aspect: number): { forward: Vec3; right: Vec3; up: Vec3 } {
+		const tanHalf = Math.tan(this.fovY / 2);
+		const right = this.right();
+		const up = this.up();
+		return {
+			forward: this.forward(),
+			right: [right[0] * aspect * tanHalf, right[1] * aspect * tanHalf, right[2] * aspect * tanHalf],
+			up: [up[0] * tanHalf, up[1] * tanHalf, up[2] * tanHalf],
+		};
+	}
+
+	/**
+	 * @param direction a unit direction, such as towards the sun
+	 * @param aspect width / height
+	 * @returns where the direction falls on screen (uv, 0 at the top-left; outside [0, 1] off screen), or
+	 *   `null` when it points behind the camera
+	 */
+	projectDirection(direction: Vec3, aspect: number): [u: number, v: number] | null {
+		const dot = (a: Vec3): number => a[0] * direction[0] + a[1] * direction[1] + a[2] * direction[2];
+		const w = dot(this.forward());
+		if (w <= 0) {
+			return null;
+		}
+		const f = 1 / Math.tan(this.fovY / 2);
+		const x = ((f / aspect) * dot(this.right())) / w;
+		const y = (f * dot(this.up())) / w;
+		return [x * 0.5 + 0.5, 0.5 - y * 0.5];
+	}
+
+	/**
 	 * @param viewportHeight drawing buffer height, px
 	 * @returns pixels per metre at 1 m distance: `viewportHeight / (2 tan(fovY / 2))`; screen-space error is
 	 *   `geometricError · factor / distance`

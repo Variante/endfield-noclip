@@ -1,7 +1,7 @@
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
+import { halton } from '../../math/sequence.ts';
 import type { Camera, Vec3 } from '../../scene/camera.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
-import { halton } from '../post/temporal-aa.ts';
 
 import fogWgsl from './volumetric-fog.wgsl?raw';
 
@@ -240,15 +240,12 @@ export class VolumetricFog {
 			return false;
 		}
 		const { camera, aspect } = input;
-		const tanHalf = Math.tan(camera.fovY / 2);
-		const forward = camera.forward();
-		const right = camera.right();
-		const up = camera.up();
+		const basis = camera.viewBasis(aspect);
 		const eye = camera.position;
 		const f = this.#data;
-		f.set([...forward, 0], 0);
-		f.set([right[0] * aspect * tanHalf, right[1] * aspect * tanHalf, right[2] * aspect * tanHalf, 0], 4);
-		f.set([up[0] * tanHalf, up[1] * tanHalf, up[2] * tanHalf, 0], 8);
+		f.set([...basis.forward, 0], 0);
+		f.set([...basis.right, 0], 4);
+		f.set([...basis.up, 0], 8);
 		f.set([...eye, 0], 12);
 		{
 			// the point each froxel is lit at this frame, as a fraction of its cell: across and down in
@@ -273,12 +270,15 @@ export class VolumetricFog {
 		pass.dispatchWorkgroups(Math.ceil(GRID[0] / WORKGROUP), Math.ceil(GRID[1] / WORKGROUP));
 		pass.end();
 
-		this.#previous = {
-			eye: [eye[0], eye[1], eye[2]],
-			forward,
-			right: scale(right, 1 / (aspect * tanHalf)),
-			up: scale(up, 1 / tanHalf),
-		};
+		{
+			const tanHalf = Math.tan(camera.fovY / 2);
+			this.#previous = {
+				eye: [eye[0], eye[1], eye[2]],
+				forward: basis.forward,
+				right: scale(camera.right(), 1 / (aspect * tanHalf)),
+				up: scale(camera.up(), 1 / tanHalf),
+			};
+		}
 		this.#index = 1 - this.#index;
 		return true;
 	}

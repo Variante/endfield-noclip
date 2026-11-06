@@ -1,3 +1,4 @@
+import { halton } from '../../math/sequence.ts';
 import type { Camera, Vec3 } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 
@@ -10,21 +11,6 @@ const BASE_PHASES = 8;
 const MAX_PHASES = 64;
 /** byte size of `Taa` in taa.wgsl */
 const UNIFORM_BYTES = 112;
-
-/**
- * @param index the element, from 1
- * @param base the sequence's base, a prime
- * @returns element `index` of the Halton sequence in `base`, in [0, 1)
- */
-export const halton = (index: number, base: number): number => {
-	let result = 0;
-	let fraction = 1 / base;
-	for (let i = index; i > 0; i = Math.floor(i / base)) {
-		result += (i % base) * fraction;
-		fraction /= base;
-	}
-	return result;
-};
 
 interface Sized {
 	width: number;

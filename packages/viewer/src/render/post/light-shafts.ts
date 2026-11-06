@@ -1,5 +1,5 @@
 import type { LightShaftLook } from '../../environment/environment.ts';
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 
 import lightShaftsWgsl from './light-shafts.wgsl?raw';
@@ -12,24 +12,6 @@ const DOWNSAMPLE = 2;
 const SAMPLES = 12;
 /** the game's default `lightShaftBlurPassCount` */
 const BLUR_PASSES = 3;
-
-/**
- * @param camera the camera
- * @param aspect width / height
- * @param direction unit vector towards the sun
- * @returns the sun's position on screen (uv, 0 at the top-left), or `null` when it's behind the camera
- */
-export const sunOnScreen = (camera: Camera, aspect: number, direction: Vec3): [number, number] | null => {
-	const dot = (a: Vec3): number => a[0] * direction[0] + a[1] * direction[1] + a[2] * direction[2];
-	const w = dot(camera.forward());
-	if (w <= 0) {
-		return null;
-	}
-	const f = 1 / Math.tan(camera.fovY / 2);
-	const x = ((f / aspect) * dot(camera.right())) / w;
-	const y = (f * dot(camera.up())) / w;
-	return [x * 0.5 + 0.5, 0.5 - y * 0.5];
-};
 
 interface Pass {
 	pipeline: GPURenderPipeline;
@@ -183,7 +165,7 @@ export class LightShafts {
 		if (look === null) {
 			return;
 		}
-		const sun = sunOnScreen(camera, aspect, look.sunDirection);
+		const sun = camera.projectDirection(look.sunDirection, aspect);
 		if (sun === null) {
 			return;
 		}

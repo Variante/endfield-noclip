@@ -889,22 +889,13 @@ export class PostProcess {
 		const environment = this.#environment;
 		const f = this.#data;
 		const u = this.#words;
-		const aspect = width / height;
-		const tanHalf = Math.tan(camera.fovY / 2);
-		const forward = camera.forward();
-		const right = camera.right();
-		const up = camera.up();
+		const { forward, right, up } = camera.viewBasis(width / height);
 		const set = (at: number, values: readonly number[]): void => {
 			f.set(values, at * 4);
 		};
 		set(0, [...forward, camera.near]);
-		set(1, [
-			right[0] * aspect * tanHalf,
-			right[1] * aspect * tanHalf,
-			right[2] * aspect * tanHalf,
-			camera.pixelFactor(height),
-		]);
-		set(2, [up[0] * tanHalf, up[1] * tanHalf, up[2] * tanHalf, settings.time]);
+		set(1, [...right, camera.pixelFactor(height)]);
+		set(2, [...up, settings.time]);
 		set(3, [...camera.position, frame % 1024]);
 		set(4, [width, height, 1 / width, 1 / height]);
 		set(57, [...this.taa.jitter, 0, 0]);
