@@ -372,14 +372,14 @@ packs or renders correctly.
   ([template animator parameters](game-data/interactives.md#template-animator-parameters)), set by
   default, and int and trigger parameters aren't set; telescopic bridges draw retracted or extended
   ([telescopic bridges](game-data/interactives.md#telescopic-bridges)), retracted by default
-- level scripts' own interactives draw with their script's switch, on by default, as if every script
-  runs; which the server starts (the player's distance to its active shape, missions) isn't followed
+- level scripts' own interactives (indie_race001's moving platforms and coins, open-world event
+  pieces) aren't placed: they exist while their script runs, and which scripts the server starts
+  (the player's distance to its start shape, missions, activities) isn't known from the data
 - [auto-moving platforms](game-data/interactives.md#auto-moving-platforms) ride their splines from
-  the viewer clock's zero rather than when their script starts, and drop no overshoot at the end of
-  a loop. ones that turn along the curve, wait at knots, ease, or stop at their target stay at their
-  placement (`unsupported-interactives.json`); effects, particles and billboards on a moving
-  platform stay behind; other curve movers (coins, butterflies, kickable balls), which scripts
-  start, hold still
+  the viewer clock's zero, and drop no overshoot at the end of a loop. ones that turn along the
+  curve, wait at knots, ease, or stop at their target stay at their placement
+  (`unsupported-interactives.json`); effects, particles and billboards on a moving platform stay
+  behind; other curve movers (coins, butterflies, kickable balls), which scripts start, hold still
 - [crane towers](game-data/interactives.md#crane-towers) draw their placement's starting steps, with
   the container hung from the hook; the steps the player's operations save on the server aren't
   offered as controls

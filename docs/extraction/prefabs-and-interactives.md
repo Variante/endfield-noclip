@@ -83,16 +83,13 @@ code: [level-interactives.ts](../../packages/formats/src/endfield/level-interact
 ### templates and models
 
 `readLevelInteractives` decodes LevelData's sequential prefix through the interactive list
-([interactives](../game-data/interactives.md)). a level script's own interactives come from the
-decoded script through `levelInteractiveFromValue`: since the script names them by slot, each gets
-the id script id × 100000 + slot, and they're placed like LevelData rows under a
-`script:spawned:<script id>` switch, on by default (rows created later also need their level's
-`created` control). `readInteractiveTable` reads `InteractiveTable.json`; `readInteractiveBaseModel`
-reads a template's model component and `readInteractiveVariantModels` its variant table. a placement
-draws its variant's model, else the template's. a variant whose override is enabled but empty draws
-nothing, so the magic [Wuling bridges](../game-data/interactives.md#wuling-bridges) show only their
-DynamicStreaming row, not the template's drawbridge too. a doodad-group shell places one form per
-group level instead ([doodad groups](scene-controls.md#doodad-groups)).
+([interactives](../game-data/interactives.md)); `readInteractiveTable` reads
+`InteractiveTable.json`; `readInteractiveBaseModel` reads a template's model component and
+`readInteractiveVariantModels` its variant table. a placement draws its variant's model, else the
+template's. a variant whose override is enabled but empty draws nothing, so the magic
+[Wuling bridges](../game-data/interactives.md#wuling-bridges) show only their DynamicStreaming row,
+not the template's drawbridge too. a doodad-group shell places one form per group level instead
+([doodad groups](scene-controls.md#doodad-groups)).
 
 hundreds of component and action-graph types sit between the model component and the variant table,
 so the reader locates the [variant table](../game-data/interactives.md#the-variant-table) from the

@@ -9,7 +9,6 @@ import { loadDynamicStructures, type StructureModel } from './dynamic-structures
 import { GameState, type Alternatives } from './game-state.ts';
 import { loadInteractiveFacilities, type InteractiveStandIn } from './interactive-facilities.ts';
 import { loadMapVariables } from './scene-conditions.ts';
-import { loadLevelScripts } from './script-drivers.ts';
 import { loadUpgradeLinks } from './settlement-upgrades.ts';
 import { pivotOf, type IndexedEntity } from './world-index.ts';
 
@@ -212,16 +211,13 @@ export const loadDynamicPlacements = async (
 	}
 	if (kinds.has('facility')) {
 		try {
-			// placements as authored, with level scripts' own interactives: their show and hide actions aren't
-			// followed here
-			const { scripts } = await loadLevelScripts(context, scene, new Set());
+			// placements as authored: level scripts' show and hide actions aren't followed here
 			const facilities = await loadInteractiveFacilities(
 				context,
 				scene,
 				null,
 				partition,
 				new Set(),
-				scripts,
 				structures?.erosionCores ?? new Map(),
 			);
 			for (const model of facilities.models) {
