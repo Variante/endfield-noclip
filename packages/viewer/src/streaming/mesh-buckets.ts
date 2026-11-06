@@ -8,7 +8,10 @@ import { SHADOW_LAYERS } from '../render/shadows/shadow-map.ts';
 import type { ContentItem } from './content-item.ts';
 import type { StreamManager } from './stream-manager.ts';
 
-/** instances sharing one geometry submesh, material and handedness */
+/**
+ * instances sharing one geometry submesh, material and handedness. selection output: only the selector writes
+ * it, and renderers keep where its rows landed and its draw order to themselves
+ */
 export interface MeshBucket {
 	geometry: ContentItem;
 	submesh: number;
@@ -30,15 +33,8 @@ export interface MeshBucket {
 	pixels: number;
 	/** distance from the camera to the nearest instance's bounding sphere this frame, m */
 	nearest: number;
-	/** offset and count of the rows in this frame's visible list, set by `InstanceRenderer.prepareList` */
-	first: number;
-	count: number;
-	/** per shadow layer, how many of the listed rows it draws (the prefix through its group) */
-	layerCounts: number[];
 	/** last frame the bucket had rows */
 	frame: number;
-	/** the bucket's draw order, computed by `MeshRenderer` on first use; -1 until then */
-	sortKey: number;
 }
 
 /** which hidden draws a view selects */
@@ -225,11 +221,7 @@ export class MeshBuckets {
 				rows: Array.from({ length: SHADOW_LAYERS + 1 }, () => []),
 				pixels: 0,
 				nearest: Infinity,
-				first: 0,
-				count: 0,
-				layerCounts: Array.from({ length: SHADOW_LAYERS }, () => 0),
 				frame: -1,
-				sortKey: -1,
 			};
 		});
 		slot.buckets[index] = bucket;

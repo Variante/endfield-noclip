@@ -1597,8 +1597,11 @@ export class Viewer {
 			this.#instances.prepareRanges(options.instances && options.boxes ? selection.instances : []);
 			this.#meshes.clear();
 		} else {
-			this.#instances.prepareList(options.boxes ? meshSelection.boxes : [], meshSelection.buckets);
-			this.#meshes.prepare(meshSelection.buckets, scene.textures);
+			const spans = this.#instances.prepareList(
+				options.boxes ? meshSelection.boxes : [],
+				meshSelection.buckets,
+			);
+			this.#meshes.prepare(meshSelection.buckets, spans, scene.textures);
 		}
 		this.#shadowsStale = true;
 		this.#span('prepare');

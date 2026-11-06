@@ -42,12 +42,8 @@ export const LIST_CAPACITY = 1 << 20;
 const BOX_FILL_VERTICES = 36;
 const BOX_WIRE_VERTICES = 24;
 
-/**
- * rows to place in the visible list, in groups listed one after another; {@link InstanceRenderer.prepareList}
- * sets where they landed
- */
-export interface ListedRows {
-	readonly rows: readonly (readonly number[])[];
+/** where a set of rows landed in the visible list ({@link InstanceRenderer.prepareList}) */
+export interface ListedSpan {
 	/** list offset of the rows */
 	first: number;
 	/** rows that fit into the list */
@@ -78,6 +74,8 @@ export class InstanceRenderer {
 	#liveSlots = 0;
 	#list: GPUBuffer;
 	#listData = new Uint32Array(LIST_CAPACITY);
+	/** where {@link prepareList}'s sets landed, reused across frames */
+	#spans: ListedSpan[] = [];
 	#mode: DrawMode = 'ranges';
 	#bindGroup: GPUBindGroup;
 	#draws = new Uint32Array(2 * 65_536);
@@ -337,14 +335,18 @@ export class InstanceRenderer {
 	}
 
 	/**
-	 * list mode: uploads this frame's visible list, boxes first, then each set of mesh rows, and records in
-	 * each set where its rows landed. rows past the list capacity are dropped.
+	 * list mode: uploads this frame's visible list, boxes first, then each set of mesh rows, each set's groups
+	 * one after another. rows past the list capacity are dropped.
 	 *
 	 * @param boxes rows to draw as boxes
-	 * @param sets rows of the mesh draws; their `first`, `count` and `layerCounts` are set
-	 * @returns the end of the list
+	 * @param sets rows of the mesh draws, in groups
+	 * @returns where each set's rows landed, by index into `sets`, valid until the next call; entries past the
+	 *   sets are left from earlier calls
 	 */
-	prepareList(boxes: readonly number[], sets: readonly ListedRows[]): number {
+	prepareList(
+		boxes: readonly number[],
+		sets: readonly { readonly rows: readonly (readonly number[])[] }[],
+	): readonly ListedSpan[] {
 		this.#mode = 'list';
 		const list = this.#listData;
 		let at = Math.min(boxes.length, LIST_CAPACITY);
@@ -353,9 +355,12 @@ export class InstanceRenderer {
 		}
 		this.instanceCount = at;
 		this.#drawCount = at > 0 ? 1 : 0;
-		for (const set of sets) {
-			set.first = at;
-			const groups = set.rows;
+		const spans = this.#spans;
+		for (let s = 0; s < sets.length; s++) {
+			const groups = sets[s].rows;
+			const span = (spans[s] ??= { first: 0, count: 0, layerCounts: [] });
+			span.first = at;
+			span.layerCounts.length = Math.max(groups.length - 1, 0);
 			for (let g = 0; g < groups.length; g++) {
 				const rows = groups[g];
 				const count = Math.min(rows.length, LIST_CAPACITY - at);
@@ -363,16 +368,16 @@ export class InstanceRenderer {
 					list[at + i] = rows[i];
 				}
 				at += count;
-				if (g < set.layerCounts.length) {
-					set.layerCounts[g] = at - set.first;
+				if (g < span.layerCounts.length) {
+					span.layerCounts[g] = at - span.first;
 				}
 			}
-			set.count = at - set.first;
+			span.count = at - span.first;
 		}
 		if (at > 0) {
 			this.#device.queue.writeBuffer(this.#list, 0, list, 0, at);
 		}
-		return at;
+		return spans;
 	}
 
 	/** @returns triangles submitted last frame as boxes (before the vertex shader's culling) */

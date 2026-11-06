@@ -7,6 +7,7 @@
 
 import { LookFlags, type MaterialLook } from '../../looks/look.ts';
 import type { MeshBucket } from '../../streaming/mesh-buckets.ts';
+import type { ListedSpan } from '../instances/instance-renderer.ts';
 
 import type { DrawRange, RangeOrder } from './draw-ranges.ts';
 import type { MaterialState } from './material-bindings.ts';
@@ -69,32 +70,37 @@ export const drawRangeOf = (
 /**
  * @returns the bucket's place in the draw order within the opaque, alpha-tested and alpha-blended draws:
  *   cast-only draws, then the other shadow casters, so shadow passes draw a prefix and the main pass skips
- *   one; then face culling and UV format (one pipeline each), geometry, material and submesh. all of it is
- *   fixed for a bucket, so it's computed once and packed into one number (50 bits) to keep the sort cheap
+ *   one; then face culling and UV format (one pipeline each), geometry, material and submesh, packed into one
+ *   number (50 bits) to keep the sort cheap
  */
-const sortKeyOf = (bucket: MeshBucket): number => {
-	if (bucket.sortKey < 0) {
-		let key = bucket.castOnly ? 0 : 1;
-		key = key * 2 + (bucket.look.castsShadows ? 0 : 1);
-		key = key * 4 + FACE_CULLS.indexOf(faceCullOf(bucket));
-		key = key * 2 + UV_FORMATS.indexOf(uvFormatOf(bucket));
-		key = key * 2 ** 21 + Math.min(bucket.geometry.blob, 2 ** 21 - 1);
-		key = key * 2 ** 16 + Math.min(bucket.material, 2 ** 16 - 1);
-		bucket.sortKey = key * 2 ** 8 + Math.min(bucket.submesh, 2 ** 8 - 1);
-	}
-	return bucket.sortKey;
+export const sortKeyOf = (bucket: MeshBucket): number => {
+	let key = bucket.castOnly ? 0 : 1;
+	key = key * 2 + (bucket.look.castsShadows ? 0 : 1);
+	key = key * 4 + FACE_CULLS.indexOf(faceCullOf(bucket));
+	key = key * 2 + UV_FORMATS.indexOf(uvFormatOf(bucket));
+	key = key * 2 ** 21 + Math.min(bucket.geometry.blob, 2 ** 21 - 1);
+	key = key * 2 ** 16 + Math.min(bucket.material, 2 ** 16 - 1);
+	return key * 2 ** 8 + Math.min(bucket.submesh, 2 ** 8 - 1);
 };
 
-const byBindings = (a: MeshBucket, b: MeshBucket): number => sortKeyOf(a) - sortKeyOf(b);
+/** a bucket queued to draw this frame, with where its rows landed in the visible list */
+export interface DrawEntry {
+	bucket: MeshBucket;
+	span: ListedSpan;
+	/** {@link sortKeyOf} the bucket */
+	key: number;
+}
+
+const byBindings = (a: DrawEntry, b: DrawEntry): number => a.key - b.key;
 
 /** 0 for a bucket whose draws write the stencil, else 1 */
-const stencilWriteRank = (bucket: MeshBucket): number => (bucket.look.stencil?.replace === true ? 0 : 1);
+const stencilWriteRank = ({ bucket }: DrawEntry): number => (bucket.look.stencil?.replace === true ? 0 : 1);
 
 /**
  * draw order for effects: as {@link byBindings}, but those that write the stencil first, so the effects
  * testing it see the whole mask
  */
-const byStencilWritesThenBindings = (a: MeshBucket, b: MeshBucket): number =>
+const byStencilWritesThenBindings = (a: DrawEntry, b: DrawEntry): number =>
 	stencilWriteRank(a) - stencilWriteRank(b) || byBindings(a, b);
 
 /** the part of {@link sortKeyOf} above the geometry: the shadow role and the pipeline */
@@ -104,11 +110,11 @@ const PIPELINE_KEY = 2 ** 45;
  * draw order for depth-writing draws: as {@link byBindings} up to the pipeline, then nearest first, so early
  * depth testing skips more of the shading behind
  */
-const byPipelineThenNearest = (a: MeshBucket, b: MeshBucket): number =>
-	Math.floor(sortKeyOf(a) / PIPELINE_KEY) - Math.floor(sortKeyOf(b) / PIPELINE_KEY) || a.nearest - b.nearest;
+const byPipelineThenNearest = (a: DrawEntry, b: DrawEntry): number =>
+	Math.floor(a.key / PIPELINE_KEY) - Math.floor(b.key / PIPELINE_KEY) || a.bucket.nearest - b.bucket.nearest;
 
 /** the comparator of each {@link RangeOrder} */
-export const COMPARATORS: Record<RangeOrder, (a: MeshBucket, b: MeshBucket) => number> = {
+export const COMPARATORS: Record<RangeOrder, (a: DrawEntry, b: DrawEntry) => number> = {
 	pipelineThenNearest: byPipelineThenNearest,
 	bindings: byBindings,
 	stencilWritesThenBindings: byStencilWritesThenBindings,

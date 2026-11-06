@@ -5,10 +5,10 @@ import type { MeshBucket } from '../../streaming/mesh-buckets.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
 import type { MainPassFormat } from '../frame/render-targets.ts';
-import { LIST_CAPACITY } from '../instances/instance-renderer.ts';
+import { LIST_CAPACITY, type ListedSpan } from '../instances/instance-renderer.ts';
 import type { TextureStore } from '../textures/texture-store.ts';
 
-import { COMPARATORS, drawRangeOf } from './draw-order.ts';
+import { COMPARATORS, type DrawEntry, drawRangeOf, sortKeyOf } from './draw-order.ts';
 import {
 	DRAW_RANGES,
 	type DrawPhase,
@@ -60,11 +60,11 @@ interface PreparedDraw {
 	stencil: LookStencil | null;
 }
 
-/** a range's buckets and where its draws landed this frame */
+/** a range's queued buckets and where its draws landed this frame */
 interface PreparedRange {
 	info: DrawRangeInfo;
 	/** this frame's buckets in the range, in draw order */
-	buckets: MeshBucket[];
+	entries: DrawEntry[];
 	/** the range's draws, [start, end) of the prepared draws */
 	start: number;
 	end: number;
@@ -100,13 +100,15 @@ export class MeshRenderer {
 	/** every range, in {@link DRAW_RANGES} order */
 	#ranges: PreparedRange[] = DRAW_RANGES.map((info) => ({
 		info,
-		buckets: [],
+		entries: [],
 		start: 0,
 		end: 0,
 		castOnlyEnd: 0,
 		castersEnd: 0,
 	}));
 	#rangeOf = new Map(this.#ranges.map((range) => [range.info.range, range]));
+	/** the entries queued in the ranges, reused across frames */
+	#entries: DrawEntry[] = [];
 	/** prepared draws in {@link DRAW_RANGES} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
@@ -234,40 +236,55 @@ export class MeshRenderer {
 	/**
 	 * writes this frame's draw parameters.
 	 *
-	 * @param buckets this frame's mesh buckets, placed in the visible list by `InstanceRenderer.prepareList`
+	 * @param buckets this frame's mesh buckets
+	 * @param spans where `InstanceRenderer.prepareList` placed each bucket's rows in the visible list, by index
+	 *   into `buckets`
 	 * @param textures the package's textures
 	 */
-	prepare(buckets: readonly MeshBucket[], textures: TextureStore): void {
+	prepare(buckets: readonly MeshBucket[], spans: readonly ListedSpan[], textures: TextureStore): void {
 		this.clear();
 		for (const range of this.#ranges) {
-			range.buckets.length = 0;
+			range.entries.length = 0;
 		}
-		for (const bucket of buckets) {
-			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
+		let entries = 0;
+		for (let b = 0; b < buckets.length; b++) {
+			const bucket = buckets[b];
+			const span = spans[b];
+			if (span.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
 			}
 			const look = bucket.look;
 			const state = this.#materials.state(bucket.material, look, textures);
 			const range = drawRangeOf(look, { castOnly: bucket.castOnly, stencil: this.#stencil, state });
-			if (range !== null) {
-				this.#range(range).buckets.push(bucket);
+			if (range === null) {
+				continue;
 			}
+			const entry = this.#entries[entries];
+			if (entry === undefined) {
+				this.#entries[entries] = { bucket, span, key: sortKeyOf(bucket) };
+			} else {
+				entry.bucket = bucket;
+				entry.span = span;
+				entry.key = sortKeyOf(bucket);
+			}
+			this.#range(range).entries.push(this.#entries[entries]);
+			entries++;
 		}
 
 		let listStart = LIST_CAPACITY;
 		let listEnd = 0;
 		let d = 0;
 		for (const range of this.#ranges) {
-			range.buckets.sort(COMPARATORS[range.info.order]);
+			range.entries.sort(COMPARATORS[range.info.order]);
 			range.start = d;
 			range.castOnlyEnd = d;
 			range.castersEnd = d;
-			for (const bucket of range.buckets) {
-				if (d >= MAX_DRAWS || !this.#prepareDraw(d, bucket, range.info, textures)) {
+			for (const { bucket, span } of range.entries) {
+				if (d >= MAX_DRAWS || !this.#prepareDraw(d, bucket, span, range.info, textures)) {
 					continue;
 				}
-				listStart = Math.min(listStart, bucket.first);
-				listEnd = Math.max(listEnd, bucket.first + bucket.count);
+				listStart = Math.min(listStart, span.first);
+				listEnd = Math.max(listEnd, span.first + span.count);
 				d++;
 				if (bucket.look.castsShadows) {
 					range.castersEnd = d;
@@ -300,7 +317,13 @@ export class MeshRenderer {
 	 *
 	 * @returns whether it draws (its submesh is resident)
 	 */
-	#prepareDraw(d: number, bucket: MeshBucket, info: DrawRangeInfo, textures: TextureStore): boolean {
+	#prepareDraw(
+		d: number,
+		bucket: MeshBucket,
+		span: ListedSpan,
+		info: DrawRangeInfo,
+		textures: TextureStore,
+	): boolean {
 		const resident = bucket.geometry.resident;
 		const range = resident?.kind === 'geometry' ? resident.submeshes[bucket.submesh] : undefined;
 		if (resident?.kind !== 'geometry' || range === undefined) {
@@ -336,7 +359,7 @@ export class MeshRenderer {
 			params[to + 3] = transform[3];
 		}
 		params.set(look.params, at + 16);
-		this.#drawIdData.fill(d, bucket.first, bucket.first + bucket.count);
+		this.#drawIdData.fill(d, span.first, span.first + span.count);
 
 		// an effect's group also binds the main pass's outputs, so it's built when its pass encodes
 		const material = info.effect ? null : state.group;
@@ -351,9 +374,9 @@ export class MeshRenderer {
 				indexCount: range.indexCount,
 				firstIndex: range.firstIndex,
 				baseVertex: range.baseVertex,
-				first: bucket.first,
-				count: bucket.count,
-				layerCounts: bucket.layerCounts,
+				first: span.first,
+				count: span.count,
+				layerCounts: span.layerCounts,
 				material,
 				cull,
 				uvFormat: resident.uvFormat,
@@ -365,9 +388,9 @@ export class MeshRenderer {
 			draw.indexCount = range.indexCount;
 			draw.firstIndex = range.firstIndex;
 			draw.baseVertex = range.baseVertex;
-			draw.first = bucket.first;
-			draw.count = bucket.count;
-			draw.layerCounts = bucket.layerCounts;
+			draw.first = span.first;
+			draw.count = span.count;
+			draw.layerCounts = span.layerCounts;
 			draw.material = material;
 			draw.cull = cull;
 			draw.uvFormat = resident.uvFormat;
@@ -375,8 +398,8 @@ export class MeshRenderer {
 			draw.stencil = look.stencil;
 		}
 		if (!bucket.castOnly) {
-			this.instanceCount += bucket.count;
-			this.triangles += (bucket.count * range.indexCount) / 3;
+			this.instanceCount += span.count;
+			this.triangles += (span.count * range.indexCount) / 3;
 			if (state.slots[0] !== null) {
 				this.texturedDraws++;
 			}
