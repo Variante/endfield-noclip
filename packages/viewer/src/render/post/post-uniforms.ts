@@ -173,6 +173,8 @@ export interface FrameUniformsInput {
 	/** the render size, px */
 	width: number;
 	height: number;
+	/** the viewer's animation time, s, which the flow noise, water and clouds move by */
+	time: number;
 	frame: number;
 	/** the main pass's subpixel jitter, NDC */
 	jitter: readonly [x: number, y: number];
@@ -199,13 +201,13 @@ export interface FrameUniformsInput {
  * @param input the frame
  */
 export const writeFrameUniforms = (out: Float32Array, input: FrameUniformsInput): void => {
-	const { camera, width, height, settings, environment, flowNoise } = input;
+	const { camera, width, height, time, settings, environment, flowNoise } = input;
 	const set = slotWriter(out);
 	const S = PostSlot;
 	const { forward, right, up } = camera.viewBasis(width / height);
 	set(S.forward, [...forward, camera.near]);
 	set(S.right, [...right, camera.pixelFactor(height)]);
-	set(S.up, [...up, settings.time]);
+	set(S.up, [...up, time]);
 	set(S.eye, [...camera.position, input.frame % 1024]);
 	set(S.viewport, [width, height, 1 / width, 1 / height]);
 	set(S.jitter, [...input.jitter, 0, 0]);
@@ -226,14 +228,11 @@ export const writeFrameUniforms = (out: Float32Array, input: FrameUniformsInput)
 	set(S.froxelSlices, input.froxels?.slices ?? [0, 0, 0, 0]);
 	set(S.froxelRange, [input.froxels?.start ?? 0, 0, 0, 0]);
 	set(S.reflections, [settings.reflections ? 1 : 0, 0, 0, 0]);
-	{
-		const time = settings.time;
-		set(
-			S.flowNoise,
-			flowNoise === null ? [0, 0, 0, 0] : [...flowNoise.velocity.map((v) => v * time), flowNoise.intensity],
-		);
-		set(S.flowNoiseScale, [flowNoise?.tiling ?? 0, flowNoise === null ? 0 : 1 / flowNoise.distance, 0, 0]);
-	}
+	set(
+		S.flowNoise,
+		flowNoise === null ? [0, 0, 0, 0] : [...flowNoise.velocity.map((v) => v * time), flowNoise.intensity],
+	);
+	set(S.flowNoiseScale, [flowNoise?.tiling ?? 0, flowNoise === null ? 0 : 1 / flowNoise.distance, 0, 0]);
 	out[S.cloud * 4 + 3] = environment.cloud !== null && input.cloud ? 1 : 0;
 	out[S.cloudShape * 4 + 3] = settings.debugView === 'clouds' ? 1 : 0;
 };

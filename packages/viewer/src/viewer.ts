@@ -63,12 +63,7 @@ import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
 import { LocalLights } from './render/lighting/local-lights.ts';
 import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
 import { PostProcess } from './render/post/post-process.ts';
-import {
-	type PostSettings,
-	type Tonemapper,
-	effectiveSettings,
-	postExposure,
-} from './render/post/settings.ts';
+import type { PostSettings, Tonemapper } from './render/post/settings.ts';
 import { SETTLE_FRAMES } from './render/post/temporal-aa.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadows/shadow-map.ts';
 import { VolumetricFog } from './render/sky/volumetric-fog.ts';
@@ -609,7 +604,7 @@ export class Viewer {
 		this.#scenePicks = {};
 		const showable = manifest.levels.filter((level) => level.instances > 0);
 		this.#level = showable.find((level) => level.id === initialLevel) ?? showable[0] ?? null;
-		this.#post.autoExposure.reset();
+		this.#post.resetExposure();
 		this.#water.setTable(pkg.water);
 		this.#waterLevels.setVolumes(pkg.water.volumes);
 		this.#lights.setLights(pkg.lights.lights);
@@ -641,10 +636,7 @@ export class Viewer {
 		this.scene?.textures.destroy();
 		this.#meshes.releaseMaterials();
 		// the destroyed store's sky textures
-		this.#post.setCloud(null);
-		this.#post.setFlowNoise(null);
-		this.#post.celestial.setTextures(() => null);
-		this.#post.lensFlares.setTextures(() => null);
+		this.#post.clearSkyTextures();
 		this.#setReflection(this.#noReflection, 1);
 		this.#setShadowRamp(null);
 		this.scene = null;
@@ -712,7 +704,6 @@ export class Viewer {
 			kind: '2d',
 			priority: 1e6,
 		});
-		this.#post.setCloud(cloud?.binding ?? null);
 		// the flow noise is one texture for the whole package, wanted only while an environment drifts
 		const flowNoise =
 			environment.heightFog.flowNoise === null || !this.options.flowNoise
@@ -724,17 +715,15 @@ export class Viewer {
 						kind: '3d',
 						priority: 1e6,
 					});
-		this.#post.setFlowNoise(flowNoise?.binding ?? null);
-
 		const celestialIds = celestialTextures(this.#celestial);
-		this.#post.celestial.setTextures(
-			(slot) =>
+		this.#post.setSkyTextures({
+			cloud: cloud?.binding ?? null,
+			flowNoise: flowNoise?.binding ?? null,
+			celestial: (slot) =>
 				streamWholeTexture({ stream, textures, id: celestialIds[slot], kind: '2d', priority: 1e6 })
 					?.binding ?? null,
-		);
-		this.#post.lensFlares.setTextures((id) =>
-			streamWholeTexture({ stream, textures, id, kind: '2d', priority: 1e6 }),
-		);
+			lensFlare: (id) => streamWholeTexture({ stream, textures, id, kind: '2d', priority: 1e6 }),
+		});
 
 		const reflection = streamWholeTexture({
 			stream,
@@ -849,9 +838,10 @@ export class Viewer {
 		this.#environment = deriveEnvironment(profile);
 		this.#celestial = celestialLook(profile);
 		this.#wetness = wetnessParams(profile?.rain);
-		this.#post.celestial.setLook(this.#celestial);
-		this.#post.lensFlares.setLook(lensFlareLook(profile));
-		this.#post.setEnvironment(this.#environment);
+		this.#post.setEnvironment(this.#environment, {
+			celestial: this.#celestial,
+			lensFlare: lensFlareLook(profile),
+		});
 		this.#fog.setEnvironment(this.#environment, this.camera.near);
 		this.#dirty = true;
 		this.#emitState();
@@ -1040,8 +1030,7 @@ export class Viewer {
 		this.camera.yaw = yaw;
 		this.camera.pitch = pitch;
 		// a cut: the last frames show somewhere else
-		this.#post.taa.reset();
-		this.#post.reflections.reset();
+		this.#post.reset();
 		this.#fog.reset();
 	}
 
@@ -1123,7 +1112,7 @@ export class Viewer {
 		}
 		this.#level = level;
 		this.#updateVisibility();
-		this.#post.autoExposure.reset();
+		this.#post.resetExposure();
 		this.#applyEnvironment();
 		this.#flyOver(level);
 		this.#emitState();
@@ -1306,9 +1295,9 @@ export class Viewer {
 	setOptions(patch: Partial<ViewerOptions>): void {
 		Object.assign(this.options, patch);
 		this.#targets.renderScale = Math.min(1, Math.max(0.25, this.options.renderScale));
-		this.#post.taa.enabled = this.options.antialiasing;
+		this.#post.setAntialiasing(this.options.antialiasing);
 		if (patch.debugView !== undefined || patch.antialiasing !== undefined) {
-			this.#post.taa.reset();
+			this.#post.resetAntialiasing();
 		}
 		if (patch.streamAreas !== undefined) {
 			this.#updateVisibility();
@@ -1428,11 +1417,7 @@ export class Viewer {
 		// keep rendering while the exposure adapts. it meters only while the view changes or settles: water and
 		// particles change what it meters every frame, so a meter that kept running would never let it settle
 		const post = this.#postSettings();
-		const adapting = this.#post.autoExposure.update(
-			post.autoExposure && post.debugView === 'lit' ? this.#environment.autoExposure : null,
-			dt,
-			{ metering: changed || settling },
-		);
+		const adapting = this.#post.adaptExposure(post, dt, { metering: changed || settling });
 		const render = changed || settling || adapting;
 		if (render && options.animate) {
 			this.#time += dt;
@@ -1449,7 +1434,7 @@ export class Viewer {
 			this.#traverseAndPrepare(scene, { prepare: render });
 		}
 		if (render) {
-			this.#lastDraws = this.#render(scene !== null);
+			this.#lastDraws = this.#render(scene !== null, post);
 			this.#frameMs = this.#frameMs * 0.9 + dt * 1000 * 0.1;
 		}
 		if (render || traverse) {
@@ -1604,7 +1589,12 @@ export class Viewer {
 		this.#span('prepare');
 	}
 
-	#render(hasScene: boolean): number {
+	/**
+	 * @param hasScene whether a package is loaded
+	 * @param post this frame's post settings
+	 * @returns the draws encoded
+	 */
+	#render(hasScene: boolean, post: PostSettings): number {
 		const device = this.#gfx.device;
 		const ring = this.#ring;
 		ring.beginFrame();
@@ -1617,7 +1607,7 @@ export class Viewer {
 			);
 		}
 		const uniforms = ring.allocate(FRAME_UNIFORM_BYTES);
-		this.#writeFrameUniforms(uniforms.f32, uniforms.u32, { shadows });
+		this.#writeFrameUniforms(uniforms.f32, uniforms.u32, { shadows, post });
 		// each cascade's frame: the main one with the cascade's view-projection
 		const cascadeOffsets: number[] = [];
 		if (shadows) {
@@ -1732,7 +1722,8 @@ export class Viewer {
 			height: this.#targets.height,
 			outputWidth: this.#targets.outputWidth,
 			outputHeight: this.#targets.outputHeight,
-			settings: this.#postSettings(),
+			settings: post,
+			time: this.#time,
 			frame: this.#frame,
 			froxels,
 			water: this.#water,
@@ -1785,7 +1776,7 @@ export class Viewer {
 		this.#span('encode');
 		device.queue.submit([encoder.finish()]);
 		this.#profiler.afterSubmit();
-		this.#post.autoExposure.afterSubmit();
+		this.#post.afterSubmit();
 		this.#span('submit');
 		return draws;
 	}
@@ -1801,7 +1792,6 @@ export class Viewer {
 			heightFog: options.heightFog,
 			atmosphereFog: options.atmosphereFog,
 			flowNoise: options.flowNoise,
-			time: this.#time,
 			ao: options.ao,
 			reflections: options.reflections,
 			bloom: options.bloom,
@@ -1810,7 +1800,11 @@ export class Viewer {
 		};
 	}
 
-	#writeFrameUniforms(f32: Float32Array, u32: Uint32Array, { shadows }: { shadows: boolean }): void {
+	#writeFrameUniforms(
+		f32: Float32Array,
+		u32: Uint32Array,
+		{ shadows, post }: { shadows: boolean; post: PostSettings },
+	): void {
 		const camera = this.camera;
 		const eye = camera.position;
 		const { width, height, outputWidth, outputHeight } = this.#targets;
@@ -1818,7 +1812,7 @@ export class Viewer {
 		{
 			// shift the image by this frame's subpixel jitter: clip.xy += jitter · clip.w
 			const viewProj = this.#viewProj;
-			const [jx, jy] = this.#post.taa.nextJitter(width, height, outputHeight);
+			const [jx, jy] = this.#post.nextJitter(width, height, outputHeight);
 			for (let column = 0; column < 4; column++) {
 				viewProj[column * 4] += jx * viewProj[column * 4 + 3];
 				viewProj[column * 4 + 1] += jy * viewProj[column * 4 + 3];
@@ -1842,8 +1836,7 @@ export class Viewer {
 			f32[FrameOffsets.ambient] = environment.indirectSpecular;
 			// emitters marked `_IgnorePostExposure` divide out the post exposure (the game's adapted exposure)
 			// the post chain applies, which debug views turn off
-			f32[FrameOffsets.ambient + 1] =
-				1 / postExposure(effectiveSettings(this.#postSettings()), this.#post.autoExposure);
+			f32[FrameOffsets.ambient + 1] = 1 / this.#post.exposure(post);
 			f32[FrameOffsets.ambient + 2] = this.#reflection === this.#noReflection ? 0 : 1;
 			f32[FrameOffsets.ambient + 3] = this.#reflectionMips;
 		}
@@ -1945,7 +1938,7 @@ export class Viewer {
 			cpuPhases: Object.fromEntries(this.#cpuSpans),
 			gpuMs: this.#profiler.milliseconds,
 			gpuPasses: Object.fromEntries(this.#profiler.passes),
-			autoExposureEv: Math.log2(this.#post.autoExposure.exposure),
+			autoExposureEv: this.#post.exposureEv,
 			draws: this.#lastDraws,
 			triangles:
 				(this.options.terrain ? this.#terrain.patchCount * this.#terrain.patchTriangles : 0) +

@@ -23,8 +23,6 @@ export interface PostSettings {
 	atmosphereFog: boolean;
 	/** sway the fog with the environment's flow noise */
 	flowNoise: boolean;
-	/** the viewer's animation time, s, which the flow noise, water and clouds move by */
-	time: number;
 	ao: boolean;
 	/** screen-space reflections */
 	reflections: boolean;

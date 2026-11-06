@@ -1,5 +1,8 @@
+import type { CelestialLook, CelestialTextureSlot } from '../../environment/celestial-look.ts';
 import type { Environment } from '../../environment/environment.ts';
+import type { LensFlareLook } from '../../environment/lens-flare-look.ts';
 import type { Camera } from '../../scene/camera.ts';
+import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
 import { AtmosphereLuts, SkyBinding } from '../sky/atmosphere-luts.ts';
 import { CelestialLayer } from '../sky/celestial.ts';
@@ -35,16 +38,6 @@ interface Sized {
 
 /** owns the post chain's shared uniforms and sampler, and runs its passes in order */
 export class PostProcess {
-	/** the post exposure the game's auto exposure picks; the caller steps it each frame */
-	readonly autoExposure: AutoExposure;
-	/** the antialiasing; the caller jitters the main pass with it */
-	readonly taa: TemporalAA;
-	/** the nebula and planets the composite draws on the sky; the caller sets their look and textures */
-	readonly celestial: CelestialLayer;
-	/** the screen-space reflections; the caller resets their history on cuts */
-	readonly reflections: ScreenSpaceReflections;
-	/** the sun's lens flare; the caller sets its look and textures */
-	readonly lensFlares: LensFlares;
 	/**
 	 * explicit layouts of the post uniforms and of the sky's reads (the sky-view LUT, its sampler and the
 	 * volumetric fog, at their atmosphere.wgsl and sky.wgsl bindings), for passes that also bind the main
@@ -56,8 +49,14 @@ export class PostProcess {
 	#data = new Float32Array(POST_BYTES / 4);
 	#luts: AtmosphereLuts;
 	#ao: AmbientOcclusion;
+	#reflections: ScreenSpaceReflections;
+	/** the nebula, planets and clouds the composite draws on the sky */
+	#celestial: CelestialLayer;
 	#composite: Composite;
 	#lightShafts: LightShafts;
+	#lensFlares: LensFlares;
+	#taa: TemporalAA;
+	#autoExposure: AutoExposure;
 	#bloom: Bloom;
 	#tonemap: Tonemap;
 	#sized: Sized | null = null;
@@ -94,11 +93,11 @@ export class PostProcess {
 			addressModeV: 'clamp-to-edge',
 		});
 		const postUniforms = this.#uniforms;
-		this.autoExposure = new AutoExposure(device);
+		this.#autoExposure = new AutoExposure(device);
 		this.#luts = new AtmosphereLuts(device, postUniforms, sampler);
 		this.#ao = new AmbientOcclusion(device, postUniforms);
-		this.reflections = new ScreenSpaceReflections(device, postUniforms);
-		this.celestial = new CelestialLayer(device, { postUniforms, sampler });
+		this.#reflections = new ScreenSpaceReflections(device, postUniforms);
+		this.#celestial = new CelestialLayer(device, { postUniforms, sampler });
 		this.#composite = new Composite(device, {
 			postUniforms,
 			sampler,
@@ -106,8 +105,8 @@ export class PostProcess {
 			froxels: fog.view,
 		});
 		this.#lightShafts = new LightShafts(device, postUniforms);
-		this.lensFlares = new LensFlares(device);
-		this.taa = new TemporalAA(device, postUniforms);
+		this.#lensFlares = new LensFlares(device);
+		this.#taa = new TemporalAA(device, postUniforms);
 		this.#bloom = new Bloom(device, postUniforms, sampler);
 		this.#tonemap = new Tonemap(device, postUniforms, sampler, swapchainFormat);
 		this.#environment = environment;
@@ -158,28 +157,33 @@ export class PostProcess {
 			(sized === null ? 0 : sized.width * sized.height * 8) +
 			this.#ao.bytes +
 			this.#bloom.bytes +
-			this.taa.bytes +
-			this.reflections.bytes +
+			this.#taa.bytes +
+			this.#reflections.bytes +
 			this.#lightShafts.bytes
 		);
 	}
 
 	/**
-	 * binds the cloud panorama, once it streams in.
+	 * binds the sky's textures as they stream in; what isn't resident yet doesn't draw.
 	 *
-	 * @param cloud the texture's binding, or `null` for none
+	 * @param textures the cloud panorama and the height fog's flow noise (`null` for none), each celestial
+	 *   slot's binding, and each lens flare image's streamed texture by texture-table id
 	 */
-	setCloud(cloud: TextureBinding | null): void {
-		this.celestial.setCloud(cloud);
+	setSkyTextures(textures: {
+		cloud: TextureBinding | null;
+		flowNoise: TextureBinding | null;
+		celestial: (slot: CelestialTextureSlot) => TextureBinding | null;
+		lensFlare: (texture: number) => StreamedTexture | null;
+	}): void {
+		this.#celestial.setCloud(textures.cloud);
+		this.#composite.setFlowNoise(textures.flowNoise);
+		this.#celestial.setTextures(textures.celestial);
+		this.#lensFlares.setTextures(textures.lensFlare);
 	}
 
-	/**
-	 * binds the height fog's flow noise, once it streams in.
-	 *
-	 * @param noise the 3D texture's binding, or `null` for none
-	 */
-	setFlowNoise(noise: TextureBinding | null): void {
-		this.#composite.setFlowNoise(noise);
+	/** unbinds the sky's textures, before the store that holds them is destroyed */
+	clearSkyTextures(): void {
+		this.setSkyTextures({ cloud: null, flowNoise: null, celestial: () => null, lensFlare: () => null });
 	}
 
 	/**
@@ -199,11 +203,82 @@ export class PostProcess {
 	 * sets the environment; the atmosphere LUTs are rebuilt on the next frame.
 	 *
 	 * @param environment the shown level's environment
+	 * @param looks what the environment draws beyond the atmosphere, and its sun's lens flare (`null`: none)
 	 */
-	setEnvironment(environment: Environment): void {
+	setEnvironment(
+		environment: Environment,
+		looks: { celestial: CelestialLook; lensFlare: LensFlareLook | null },
+	): void {
 		this.#environment = environment;
 		this.#luts.invalidate();
 		writeEnvironmentUniforms(this.#data, environment);
+		this.#celestial.setLook(looks.celestial);
+		this.#lensFlares.setLook(looks.lensFlare);
+	}
+
+	/** drops the temporal histories (antialiasing, reflections) after a cut to somewhere else */
+	reset(): void {
+		this.#taa.reset();
+		this.#reflections.reset();
+	}
+
+	/** @param enabled whether the temporal antialiasing jitters and accumulates; off passes the frame through */
+	setAntialiasing(enabled: boolean): void {
+		this.#taa.enabled = enabled;
+	}
+
+	/** drops the antialiasing's history alone, after a change of what the view shows */
+	resetAntialiasing(): void {
+		this.#taa.reset();
+	}
+
+	/**
+	 * advances the antialiasing's jitter. call once per rendered frame, before writing the main pass's
+	 * uniforms.
+	 *
+	 * @param width the main pass's width, px
+	 * @param height the main pass's height, px
+	 * @param outputHeight the output height, px
+	 * @returns this frame's jitter in NDC, to add to the projection (zero with antialiasing off)
+	 */
+	nextJitter(width: number, height: number, outputHeight: number): readonly [x: number, y: number] {
+		return this.#taa.nextJitter(width, height, outputHeight);
+	}
+
+	/** jumps the auto exposure straight to its next reading (a new package or level) */
+	resetExposure(): void {
+		this.#autoExposure.reset();
+	}
+
+	/**
+	 * moves the auto exposure towards its target. call once per frame, before deciding whether to render.
+	 *
+	 * @param settings the post settings
+	 * @param dt seconds since the last frame
+	 * @param options.metering whether this frame's histogram may move the target
+	 * @returns whether the exposure is still moving, so the caller keeps rendering
+	 */
+	adaptExposure(settings: PostSettings, dt: number, options: { metering: boolean }): boolean {
+		const look = effectiveSettings(settings).autoExposure ? this.#environment.autoExposure : null;
+		return this.#autoExposure.update(look, dt, options);
+	}
+
+	/** @returns the auto exposure's adjustment, EV */
+	get exposureEv(): number {
+		return Math.log2(this.#autoExposure.exposure);
+	}
+
+	/**
+	 * @param settings the post settings
+	 * @returns the linear exposure the chain shows the scene at; 1 in debug views
+	 */
+	exposure(settings: PostSettings): number {
+		return postExposure(effectiveSettings(settings), this.#autoExposure);
+	}
+
+	/** starts reading back this frame's auto exposure histogram; call after submitting */
+	afterSubmit(): void {
+		this.#autoExposure.afterSubmit();
 	}
 
 	#ensureSized(
@@ -229,18 +304,18 @@ export class PostProcess {
 		const sceneView = sceneTexture.createView();
 		this.#ao.resize({ depth: scene.depth, width, height });
 		// the reflections run before compositing, so the scene they read still holds last frame's
-		this.reflections.resize({ scene, previousScene: sceneView, width, height });
-		this.celestial.resize({ depth: scene.depth, target: scene.reflection });
+		this.#reflections.resize({ scene, previousScene: sceneView, width, height });
+		this.#celestial.resize({ depth: scene.depth, target: scene.reflection });
 		this.#composite.resize({
 			scene,
 			ao: this.#ao.output,
-			reflections: this.reflections.output.createView(),
+			reflections: this.#reflections.output.createView(),
 			target: sceneView,
 		});
 		this.#lightShafts.resize({ scene, composited: sceneView, width, height });
-		this.lensFlares.resize({ scene, composited: sceneView });
-		this.taa.resize({ scene: sceneView, depth: scene.depth, width, height, outputWidth, outputHeight });
-		const histories = this.taa.histories;
+		this.#lensFlares.resize({ scene, composited: sceneView });
+		this.#taa.resize({ scene: sceneView, depth: scene.depth, width, height, outputWidth, outputHeight });
+		const histories = this.#taa.histories;
 		this.#bloom.resize({ histories, outputWidth, outputHeight });
 		this.#tonemap.resize({ histories, bloom: this.#bloom.result });
 		const sized: Sized = {
@@ -272,6 +347,8 @@ export class PostProcess {
 			outputWidth: number;
 			outputHeight: number;
 			settings: PostSettings;
+			/** the viewer's animation time, s, which the flow noise, water and clouds move by */
+			time: number;
 			frame: number;
 			/** whether the volumetric fog was encoded this frame */
 			froxels: boolean;
@@ -297,14 +374,15 @@ export class PostProcess {
 			camera,
 			width,
 			height,
+			time: input.time,
 			frame: input.frame,
-			jitter: this.taa.jitter,
+			jitter: this.#taa.jitter,
 			settings,
-			exposure: postExposure(settings, this.autoExposure),
+			exposure: postExposure(settings, this.#autoExposure),
 			environment,
 			froxels: input.froxels && settings.heightFog ? this.#fog.sampling : null,
 			flowNoise: this.#drifts(settings) ? environment.heightFog.flowNoise : null,
-			cloud: this.celestial.hasCloud,
+			cloud: this.#celestial.hasCloud,
 		});
 		this.#device.queue.writeBuffer(this.#uniforms, 0, this.#data);
 		this.#luts.encode(encoder, settings.sky);
@@ -312,8 +390,8 @@ export class PostProcess {
 			this.#ao.encode(encoder);
 		}
 		// with reflections off this still clears what composite reads
-		this.reflections.encode(encoder, { camera, look: environment.post.ssr, enabled: settings.reflections });
-		this.celestial.encode(encoder, {
+		this.#reflections.encode(encoder, { camera, look: environment.post.ssr, enabled: settings.reflections });
+		this.#celestial.encode(encoder, {
 			eye: camera.position,
 			sun: environment.sunDirection,
 			sunIlluminance: environment.sunIlluminance,
@@ -356,11 +434,11 @@ export class PostProcess {
 		if (settings.debugView === 'lit') {
 			this.#lightShafts.encode(encoder, { camera, aspect: width / height, look: environment.lightShaft });
 			// the game draws the flare after the shafts, which don't see it
-			this.lensFlares.encode(encoder, { camera, width, height });
+			this.#lensFlares.encode(encoder, { camera, width, height });
 		}
-		const resolved = this.taa.encode(encoder, camera);
+		const resolved = this.#taa.encode(encoder, camera);
 		if (settings.autoExposure) {
-			this.autoExposure.encode(
+			this.#autoExposure.encode(
 				encoder,
 				{ view: sized.historyViews[resolved], width: outputWidth, height: outputHeight },
 				environment.autoExposure,
@@ -379,11 +457,11 @@ export class PostProcess {
 		this.#ao.destroy();
 		this.#bloom.destroy();
 		this.#uniforms.destroy();
-		this.celestial.destroy();
-		this.autoExposure.destroy();
-		this.taa.destroy();
-		this.reflections.destroy();
+		this.#celestial.destroy();
+		this.#autoExposure.destroy();
+		this.#taa.destroy();
+		this.#reflections.destroy();
 		this.#lightShafts.destroy();
-		this.lensFlares.destroy();
+		this.#lensFlares.destroy();
 	}
 }
