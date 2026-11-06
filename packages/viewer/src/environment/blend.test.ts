@@ -351,6 +351,18 @@ it('fades wetness in from dry with the wet side’s settings when only one side 
 	assert.equal(result?.wetnessBasePorosity, 0.8);
 });
 
+it('fades wetness in from dry over a profile without a rain section', () => {
+	const result = blendSections(
+		{ heightFog: { heightFogDensity: 0, enable: true } },
+		{ rain: { enableWetness: true, wetness: 1, wetnessBasePorosity: 0.8 } },
+		['rain'],
+		5,
+	).rain;
+	assert.equal(result?.enableWetness, true);
+	assert.equal(result?.wetness.toFixed(6), '0.250000');
+	assert.equal(result?.wetnessBasePorosity, 0.8);
+});
+
 it('fades the flow noise in from one side, and crossfades noises of different speeds at the halfway point', () => {
 	const fog = (enableFlowNoise: boolean, flowNoiseIntensity: number, flowNoiseSpeed: number) => ({
 		enableFlowNoise,

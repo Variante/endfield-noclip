@@ -392,7 +392,8 @@ const lerpSection = (
 			return lerpCloud(a, b, t, schema);
 		}
 		case 'rain': {
-			return a !== undefined ? lerpRain(a, b, t, schema) : lerpObject(a, b, t, schema);
+			// the section is optional, and a profile without it is dry
+			return lerpRain(a ?? {}, b, t, schema);
 		}
 		case 'heightFog':
 		case 'volumetricFog': {
