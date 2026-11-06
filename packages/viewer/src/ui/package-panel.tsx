@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 
-import { DEV_PACKAGES_INDEX, DEV_PACKAGES_PREFIX, type DevPackage } from '../package/dev-packages.ts';
+import { type DevPackage, fetchDevPackages } from '../package/dev-packages.ts';
 import { sourceFromParam } from '../package/package-param.ts';
 import {
 	type PackageSource,
@@ -18,19 +18,6 @@ export interface OpenPackage {
 	label: string;
 	param: string | null;
 }
-
-const fetchDevPackages = async (): Promise<DevPackage[]> => {
-	const response = await fetch(`${DEV_PACKAGES_PREFIX}${DEV_PACKAGES_INDEX}`);
-	if (!response.ok || !(response.headers.get('content-type') ?? '').includes('json')) {
-		return [];
-	}
-	const body: unknown = await response.json();
-	if (typeof body !== 'object' || body === null || !('packages' in body) || !Array.isArray(body.packages)) {
-		return [];
-	}
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- our own dev endpoint
-	return body.packages as DevPackage[];
-};
 
 /** chooses a package: dev-server packages, a local folder, or one imported into OPFS */
 export const PackagePanel = ({

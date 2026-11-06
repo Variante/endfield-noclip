@@ -35,7 +35,10 @@ the repo's `out/`; set `NOCLIP_PACKAGES=/path` to point it elsewhere
   validators and `cache-control: no-cache`. deployments need range support and revalidation for
   `core.czar`, whose name is fixed. other archives have content-derived names.
 - `GET /packages/index.json` lists subdirectories that hold a core archive, with its size, skipping
-  hidden directories (the packer's staging and replaced packages). it's the one dev-only addition.
+  hidden directories (the packer's staging and replaced packages). it's the one dev-only addition;
+  the package panel reads it through `fetchDevPackages`
+  ([`package/dev-packages.ts`](../../packages/viewer/src/package/dev-packages.ts)), and lists
+  nothing where it's missing.
 
 ## opening
 
