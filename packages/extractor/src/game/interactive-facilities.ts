@@ -131,6 +131,29 @@ interface SettledLook {
 /** the component of jump pads, which place an effect of their own */
 const JUMP_MACHINE_COMPONENTS = ['_JumpMachineComponentDataForMemoryPack'];
 
+/** the component of vertical rope lifts, which set their rope's length from their two ports */
+const VERTICAL_ROPE_COMPONENTS = ['_InteractiveVerticalRopeComponentDataForMemoryPack'];
+
+/** the placement property naming the other port of a vertical rope */
+const TARGET_KEY = 'target';
+
+/**
+ * @param row a vertical rope's port
+ * @param rows placed interactives by id
+ * @returns the float keys its rope component sets before its view states start: `RopeLength`, the height
+ *   between it and the port its `target` property names; none without another placed port
+ */
+export const verticalRopeFloats = (
+	row: LevelInteractive,
+	rows: ReadonlyMap<bigint, LevelInteractive>,
+): Map<string, number> => {
+	const id = row.properties.find((param) => param.key === TARGET_KEY)?.values[0]?.bits;
+	const target = id === undefined || id === row.id ? undefined : rows.get(id);
+	return target === undefined
+		? new Map()
+		: new Map([['RopeLength', Math.abs(row.position[1] - target.position[1])]]);
+};
+
 /**
  * @param name an effect's name
  * @returns the bundle path of its prefab, where the game's effect manager loads it from
@@ -276,6 +299,7 @@ const playerKeys = (template: MemoryPackValue): PlayerKey[] =>
  * @param campfire whether the model's `Enabled` key is the player's activation
  * @param keys the player-set keys the template drives; one whose radius is largest counts
  * @param state the `state` key's value, `null` when nothing sets it
+ * @param floats float keys the interactive's components set before its view states start
  * @returns the model's settled looks, or `null` when it has no view states
  * @throws {FormatError} if a state machine can't settle or a clip can't be read
  */
@@ -285,6 +309,7 @@ const readInteractiveLooks = async (
 	campfire: boolean,
 	keys: readonly PlayerKey[],
 	state: number | null,
+	floats: ReadonlyMap<string, number>,
 ): Promise<InteractiveLooks | null> => {
 	const states = await readViewStates(context, model);
 	if (states === null) {
@@ -292,7 +317,7 @@ const readInteractiveLooks = async (
 	}
 	const activations = campfire ? [false, true] : [null];
 	const settle = (activated: boolean | null, near: boolean) => {
-		const blackboard = new Map<string, boolean | number>();
+		const blackboard = new Map<string, boolean | number>(floats);
 		if (state !== null) {
 			blackboard.set(STATE_KEY, state);
 		}
@@ -1165,6 +1190,8 @@ export const loadInteractiveFacilities = async (
 			radius: number | null;
 			/** the `state` `looks` were settled with, `null` when nothing passes one on */
 			state: number | null;
+			/** whether it's a vertical rope's port, whose look also follows its other port */
+			verticalRope: boolean;
 		}
 	>();
 	// a failed read reports and leaves the model drawn as saved
@@ -1185,10 +1212,16 @@ export const loadInteractiveFacilities = async (
 		campfire: boolean,
 		keys: readonly PlayerKey[],
 		state: number | null,
+		floats: ReadonlyMap<string, number>,
 	): Promise<InteractiveLooks | null> =>
 		looksByModel.getOrInsertComputed(
-			`${model} ${campfire} ${keys.map((entry) => entry.key).join()} ${state}`,
-			() => attempt(model, () => readInteractiveLooks(context, viewsOf(model), campfire, keys, state), null),
+			`${model} ${campfire} ${keys.map((entry) => entry.key).join()} ${state} ${JSON.stringify([...floats])}`,
+			() =>
+				attempt(
+					model,
+					() => readInteractiveLooks(context, viewsOf(model), campfire, keys, state, floats),
+					null,
+				),
 		);
 	// facility forms with view states drawn as they rest (an idle loop keeps playing), by ModelTable id
 	const formPoses = new Map<string, PrefabPose>();
@@ -1216,6 +1249,7 @@ export const loadInteractiveFacilities = async (
 					jumpPad: EntityProperties | null;
 					/** an auto-moving platform's decoded template, `null` for other templates */
 					autoMove: MemoryPackValue | null;
+					verticalRope: boolean;
 			  }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
@@ -1229,7 +1263,7 @@ export const loadInteractiveFacilities = async (
 					// oxlint-disable-next-line no-await-in-loop -- one view state file and a clip per form
 					const looks = await attempt(
 						form.model,
-						() => readInteractiveLooks(context, viewsOf(form.model), false, [], null),
+						() => readInteractiveLooks(context, viewsOf(form.model), false, [], null, new Map()),
 						null,
 					);
 					if (looks !== null) {
@@ -1263,6 +1297,7 @@ export const loadInteractiveFacilities = async (
 							start: startState(decoded),
 							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? entityProperties(decoded) : null,
 							autoMove: isAutoMovePlatform(decoded) ? decoded : null,
+							verticalRope: hasComponent(decoded, VERTICAL_ROPE_COMPONENTS),
 						};
 					},
 					// an unreadable template is drawn as saved
@@ -1274,6 +1309,7 @@ export const loadInteractiveFacilities = async (
 						start: null,
 						jumpPad: null,
 						autoMove: null,
+						verticalRope: false,
 					},
 				);
 				templateKinds.set(data, kind);
@@ -1292,13 +1328,13 @@ export const loadInteractiveFacilities = async (
 				jumpPads.set(key, kind.jumpPad);
 			}
 			if (kind.kind === 'other' && !doodads.has(key)) {
-				const { campfire, keys, start } = kind;
+				const { campfire, keys, start, verticalRope } = kind;
 				const state = start === null ? null : (start.variants.get(key) ?? start.state);
 				// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
-				const looks = await looksFor(model, campfire, keys, state);
+				const looks = await looksFor(model, campfire, keys, state, new Map());
 				if (looks !== null) {
 					const radius = looks.near === null ? null : Math.max(...kind.keys.map((entry) => entry.radius));
-					interactiveLooks.set(key, { model, looks, campfire, keys, radius, state });
+					interactiveLooks.set(key, { model, looks, campfire, keys, radius, state, verticalRope });
 				} else if (kind.animator !== null) {
 					animatorStarts.set(key, kind.animator);
 				}
@@ -1476,6 +1512,8 @@ export const loadInteractiveFacilities = async (
 		return { spline, move };
 	};
 	const scriptControls = new Map<string, ScriptControl>();
+	// a vertical rope's port finds its other port by id
+	const rowsById = new Map(placed.map(({ row }) => [row.id, row]));
 	for (const { path, levelId, levelTag, row, created, spawnedBy } of placed) {
 		// a row created later also needs its level's `created` control on, one a level script owns that script's
 		// control, and one a level script shows and hides its script control
@@ -1672,10 +1710,11 @@ export const loadInteractiveFacilities = async (
 			const { campfire, radius } = rest;
 			let { looks } = rest;
 			// a placement's own `state` overrides its template's
-			const state = rest.state === null ? null : stateOf(row);
-			if (state !== null && state !== rest.state) {
-				// oxlint-disable-next-line no-await-in-loop -- one settle per model and state
-				looks = (await looksFor(rest.model, campfire, rest.keys, state)) ?? looks;
+			const state = (rest.state === null ? null : stateOf(row)) ?? rest.state;
+			const floats = rest.verticalRope ? verticalRopeFloats(row, rowsById) : new Map<string, number>();
+			if (state !== rest.state || floats.size > 0) {
+				// oxlint-disable-next-line no-await-in-loop -- one settle per model, state and rope length
+				looks = (await looksFor(rest.model, campfire, rest.keys, state, floats)) ?? looks;
 			}
 			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
 			const activation = `activation:${row.id}`;

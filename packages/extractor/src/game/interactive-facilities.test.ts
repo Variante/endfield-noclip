@@ -4,7 +4,13 @@ import { test } from 'node:test';
 import type { LevelInteractive } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
-import { entityProperties, jumpPadArrow, startState, stateOf } from './interactive-facilities.ts';
+import {
+	entityProperties,
+	jumpPadArrow,
+	startState,
+	stateOf,
+	verticalRopeFloats,
+} from './interactive-facilities.ts';
 
 const property = (key: string, bits: string): MemoryPackValue => ({
 	key,
@@ -99,4 +105,24 @@ test('a free or locked jump pad places no arrow', () => {
 	const locked = row(null, []);
 	locked.properties = [{ key: 'is_locked', type: 1, values: [{ bits: 1n, text: null }] }];
 	assert.equal(jumpPadArrow(entity, locked), null);
+});
+
+const port = (id: bigint, y: number, target: bigint | null): LevelInteractive => ({
+	...row(null, []),
+	id,
+	template: 'int_rope_port_top_right',
+	position: [88.2, y, 101.7],
+	properties: target === null ? [] : [{ key: 'target', type: 13, values: [{ bits: target, text: null }] }],
+});
+
+test("a vertical rope's length is the height to the port its target names", () => {
+	// indie_race001's lift near 88, 116–123, 102
+	const top = port(12800020498n, 122.7, 12800020500n);
+	const bottom = port(12800020500n, 115.7, null);
+	const rows = new Map([top, bottom].map((entry) => [entry.id, entry]));
+	const [[key, height]] = verticalRopeFloats(top, rows);
+	assert.equal(key, 'RopeLength');
+	assert.ok(Math.abs(height - 7) < 1e-9);
+	assert.deepEqual(verticalRopeFloats(bottom, rows), new Map());
+	assert.deepEqual(verticalRopeFloats(port(1n, 0, 1n), rows), new Map());
 });

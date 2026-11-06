@@ -247,6 +247,38 @@ export const restingEffects = (
 };
 
 /**
+ * the lengths a layer's length behaviours leave set: each sets its GameObject's `VFXAdjustLength` to its
+ * blackboard float, or its constant without one, plus its deviation, in the order the layer enters its
+ * states. one whose float isn't on the blackboard sets nothing. the length stays once its state is left
+ *
+ * @param path the states the layer enters ({@link settledPath})
+ * @param blackboard the values its conditions test
+ * @returns the lengths, by GameObject name
+ */
+export const restingLengths = (
+	path: readonly ViewStateRecord[],
+	blackboard: Blackboard,
+): Map<string, number> => {
+	const lengths = new Map<string, number>();
+	for (const state of path) {
+		for (const behavior of records(state.behaviors)) {
+			const node = text(behavior.nodeName);
+			if (!text(behavior.$type)?.endsWith('_MVSCEffectLengthBehaviorDataForMemoryPack') || !node) {
+				continue;
+			}
+			let value: number | boolean | undefined = Number(behavior.val ?? 0);
+			if (behavior.dependBlackBoard === true) {
+				value = blackboard.get(text(behavior.dependFloatKey) ?? '');
+			}
+			if (typeof value === 'number') {
+				lengths.set(node, value + Number(behavior.deviation ?? 0));
+			}
+		}
+	}
+	return lengths;
+};
+
+/**
  * a settled state's looping clip keeps playing; any other rests on its end pose
  *
  * @param clip an AnimationClip
@@ -324,8 +356,8 @@ export const statesPose = async (
  * @param states the model's view states
  * @param key tells this pose apart from the model's others, for caching
  * @param blackboard the values the state machines test
- * @returns the pose every animator layer settles in under those values, the settled states' names and the
- *   effects they leave playing
+ * @returns the pose every animator layer settles in under those values, with the lengths they leave set, the
+ *   settled states' names and the effects they leave playing
  * @throws {FormatError} if a layer can't settle or a clip can't be read
  */
 export const settledPose = async (
@@ -335,15 +367,25 @@ export const settledPose = async (
 	blackboard: Blackboard,
 ): Promise<{ pose: PrefabPose; states: string[]; effects: RestingEffect[] }> => {
 	const effects: RestingEffect[] = [];
+	const lengths = new Map<string, number>();
 	const settled = records(states.data.modelAnimatorDatas).map((animator) => {
 		const name = text(animator.modelName);
 		const driven = name === '$$ROOT$$' ? null : name;
 		const paths = records(animator.layerFsmDatas).map((layer) => settledPath(layer, blackboard));
 		effects.push(...paths.flatMap((path) => restingEffects(driven, path)));
+		for (const path of paths) {
+			for (const [node, length] of restingLengths(path, blackboard)) {
+				lengths.set(node, length);
+			}
+		}
 		return { animator: driven, states: paths.map((path) => path[path.length - 1]) };
 	});
+	const pose = await statesPose(context, states, key, settled);
 	return {
-		pose: await statesPose(context, states, key, settled),
+		pose:
+			lengths.size === 0
+				? pose
+				: { ...pose, key: `${pose.key} lengths ${JSON.stringify([...lengths])}`, lengths },
 		states: settled.flatMap(({ states: layerStates }) =>
 			layerStates.map((state) => text(state.stateName) ?? ''),
 		),

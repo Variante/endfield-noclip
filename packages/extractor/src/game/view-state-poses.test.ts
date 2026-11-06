@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { restingEffects, settledPath, type ViewStateRecord } from './view-state-poses.ts';
+import { restingEffects, restingLengths, settledPath, type ViewStateRecord } from './view-state-poses.ts';
 
 const effect = (
 	effectId: string,
@@ -82,5 +82,35 @@ test('a persistent effect stays on until a later state switches it off; others e
 	assert.deepEqual(
 		restingEffects(null, path).map((rest) => rest.effect),
 		['kept'],
+	);
+});
+
+const length = (
+	nodeName: string,
+	fields: { key?: string; val?: number; deviation: number },
+): ViewStateRecord => ({
+	$type: 'Beyond_Gameplay_Core_ModelViewStateController_MVSCEffectLengthBehaviorDataForMemoryPack',
+	nodeName,
+	dependBlackBoard: fields.key !== undefined,
+	dependFloatKey: fields.key ?? '',
+	val: fields.val ?? 0,
+	deviation: fields.deviation,
+});
+
+test("the rope lift's length outlasts set_rope, from RopeLength plus its deviation", () => {
+	// int_rope_port_topright_postmodel: start → set_rope → on_idle while `state` > 0
+	const rope = 'P_iprop_com_rope+1_001_02';
+	const path = [
+		state('start', [], 'set_rope'),
+		state('set_rope', [length(rope, { key: 'RopeLength', deviation: 1.4 })], 'on_idle'),
+		state('on_idle', [], null),
+	];
+	assert.deepEqual([...restingLengths(path, new Map([['RopeLength', 7]]))], [[rope, 8.4]]);
+	// without the float, nothing is set
+	assert.deepEqual([...restingLengths(path, new Map())], []);
+	// a constant length is its value plus the deviation
+	assert.deepEqual(
+		[...restingLengths([state('s', [length(rope, { val: 2, deviation: 0.5 })], null)], new Map())],
+		[[rope, 2.5]],
 	);
 });

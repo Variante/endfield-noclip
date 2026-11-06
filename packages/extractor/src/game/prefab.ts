@@ -7,13 +7,14 @@ import type {
 	ClipMotion,
 	ClipTransformValue,
 } from '@endfield-noclip/formats/unity/animation-clip';
-import { parseMaterial } from '@endfield-noclip/formats/unity/material';
+import { type MaterialTextureSlot, parseMaterial } from '@endfield-noclip/formats/unity/material';
 import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
 import {
 	inverseAffine,
 	multiplyMatrices,
 	trsMatrix,
 	transformBounds,
+	transformPoint,
 } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
@@ -37,6 +38,14 @@ import {
 	type ParticleSystemInfo,
 } from '@endfield-noclip/package-format/particles';
 
+import {
+	isAdjustLengthType,
+	isPositionFollowerType,
+	lengthScale,
+	lengthTextureTransform,
+	type LengthTiling,
+	readAdjustLength,
+} from './adjust-length.ts';
 import { animatorDefaultPose } from './animator-defaults.ts';
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 import { isBillboardType, type PrefabBillboard, readBillboard } from './billboard.ts';
@@ -145,6 +154,8 @@ export interface DistanceBands {
 export interface MaterialValues {
 	floats: Record<string, number>;
 	colors: Record<string, [number, number, number, number]>;
+	/** texture scales and offsets, by texture property */
+	textures: Record<string, Pick<MaterialTextureSlot, 'scale' | 'offset'>>;
 }
 
 /** a skeletal animation for a geometry: {@link SkinAnimation} without the box its positions lie in */
@@ -184,6 +195,8 @@ export interface PrefabPose {
 	clips: readonly PoseClip[];
 	/** GameObjects the states switch on or off, by name */
 	active: ReadonlyMap<string, boolean>;
+	/** lengths the states set on GameObjects' `VFXAdjustLength`, by GameObject name; absent when none */
+	lengths?: ReadonlyMap<string, number>;
 	/**
 	 * the root's matrices in the placement's space at evenly spaced times of a loop, for a prefab that moves as
 	 * a whole (an auto-moving platform); absent for one that stays at its placement
@@ -293,6 +306,14 @@ export const readPrefabRenderers = async (
 	const settingOrigins = new Map<string, [number, number, number]>();
 	// every Transform in walk order (parents first), for posing them at each frame of a looping clip
 	const nodes: PosedNode[] = [];
+	// by Transform, the local scale a length the pose sets gives it, found before the Transform is visited
+	const lengthScales = new Map<string, [number, number, number]>();
+	// by `PositionFollower` Transform, the Transform whose position it takes
+	const followers = new Map<string, string>();
+	// by candidate, its GameObject's Transform, for moving the candidates under a follower
+	const candidateTransforms = new Map<(typeof candidates)[number], string>();
+	// by renderer, the textures whose tiling follows a length the pose sets, and that length over its preset
+	const lengthTilings = new Map<string, { tiling: LengthTiling; ratio: number }[]>();
 	// by mesh renderer, its GameObject's Transform: what moves it when a looping clip turns that Transform
 	const rendererTransforms = new Map<string, string>();
 	// by component, the active and enabled force fields: their GameObject's layer and their prefab-space matrix
@@ -407,6 +428,8 @@ export const readPrefabRenderers = async (
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		const movers: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		const fields: { ref: ObjectRef; data: TypeTreeObject }[] = [];
+		// the Transform whose world position this GameObject takes (a `PositionFollower`'s source)
+		let follows: ObjectRef | null = null;
 		let board: TypeTreeObject | null = null;
 		let hasDistanceLod = false;
 		for (const item of arrayField(data, 'm_Component')) {
@@ -430,6 +453,38 @@ export const readPrefabRenderers = async (
 				const moverData = await resolver.read(ref);
 				if (booleanField(moverData, 'm_Enabled')) {
 					movers.push({ ref, data: moverData });
+				}
+			} else if (ref.info.classId === UnityClass.MonoBehaviour && isAdjustLengthType(ref)) {
+				const length = pose?.lengths?.get(name);
+				if (length === undefined) {
+					continue;
+				}
+				const adjust = readAdjustLength(await resolver.read(ref));
+				if (adjust.unread.length > 0) {
+					throw new FormatError(`VFXAdjustLength ${adjust.unread.join(', ')} aren't read`);
+				}
+				for (const pointer of adjust.scaleTargets) {
+					const target = await resolver.resolve(ref, pointer);
+					if (target === null) {
+						continue;
+					}
+					if (transforms.has(objectKey(target))) {
+						throw new FormatError(`VFXAdjustLength on ${name} scales a Transform drawn before it`);
+					}
+					lengthScales.set(objectKey(target), lengthScale(adjust, length));
+				}
+				for (const tiling of adjust.tilings) {
+					const renderer = await resolver.resolve(ref, tiling.renderer);
+					if (renderer !== null) {
+						lengthTilings
+							.getOrInsertComputed(objectKey(renderer), () => [])
+							.push({ tiling, ratio: length / adjust.preset });
+					}
+				}
+			} else if (ref.info.classId === UnityClass.MonoBehaviour && isPositionFollowerType(ref)) {
+				const followerData = await resolver.read(ref);
+				if (booleanField(followerData, 'm_Enabled')) {
+					follows = await resolver.resolve(ref, pptrField(followerData, 'source'));
 				}
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isViewStateControllerType(ref)) {
 				for (const node of await playedEffectNodes(resolver, ref, await resolver.read(ref))) {
@@ -469,6 +524,11 @@ export const readPrefabRenderers = async (
 					rotation: [...xyz(rotation), numberField(rotation, 'w')],
 					scale: xyz(objectField(t, 'm_LocalScale')),
 				};
+		local.scale = lengthScales.get(objectKey(transform.ref)) ?? local.scale;
+		if (follows !== null && !isRoot) {
+			// moved once the whole hierarchy is placed, since its source can come later in the walk
+			followers.set(objectKey(transform.ref), objectKey(follows));
+		}
 		nodes.push({ key: objectKey(transform.ref), parent: parentTransform, saved: { ...local }, below });
 		for (const [i, clip] of (pose?.clips ?? []).entries()) {
 			const path = below[i];
@@ -496,6 +556,7 @@ export const readPrefabRenderers = async (
 			? parent
 			: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 		transforms.set(objectKey(transform.ref), matrix);
+		const ownCandidates = candidates.length;
 		for (const field of fields) {
 			forceFields.set(objectKey(field.ref), {
 				data: field.data,
@@ -731,6 +792,9 @@ export const readPrefabRenderers = async (
 				});
 			}
 		}
+		for (const candidate of candidates.slice(ownCandidates)) {
+			candidateTransforms.set(candidate, objectKey(transform.ref));
+		}
 		for (const pointer of arrayField(t, 'm_Children')) {
 			const child = await resolver.resolve(transform.ref, asPPtr(pointer));
 			if (child !== null) {
@@ -753,6 +817,41 @@ export const readPrefabRenderers = async (
 		}
 	};
 	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), null, true, null, null, [], [], null);
+	// a follower takes its source's position, keeping its own rotation and scale, and moves its subtree with it
+	for (const [follower, source] of followers) {
+		const from = transforms.get(follower);
+		const to = transforms.get(source);
+		if (from === undefined || to === undefined) {
+			throw new FormatError(`PositionFollower follows a Transform outside its prefab`);
+		}
+		const delta = [to[12] - from[12], to[13] - from[13], to[14] - from[14]];
+		const moved = (matrix: Float32Array): Float32Array => {
+			const copy = matrix.slice();
+			for (let axis = 0; axis < 3; axis++) {
+				copy[12 + axis] += delta[axis];
+			}
+			return copy;
+		};
+		const subtree = new Set([follower]);
+		for (const node of nodes) {
+			if (node.parent !== null && subtree.has(node.parent)) {
+				subtree.add(node.key);
+			}
+			if (subtree.has(node.key)) {
+				transforms.set(node.key, moved(transforms.get(node.key) ?? IDENTITY));
+			}
+			if (node.key === follower && node.parent !== null) {
+				// looping clips pose it from here
+				const parentMatrix = transforms.get(node.parent) ?? IDENTITY;
+				node.saved.position = transformPoint(inverseAffine(parentMatrix), [to[12], to[13], to[14]]);
+			}
+		}
+		for (const [candidate, transform] of candidateTransforms) {
+			if (subtree.has(transform)) {
+				candidate.matrix = moved(candidate.matrix);
+			}
+		}
+	}
 	// the fields a played system feels: those it lists, or those on its layers, within this prefab (wind zones
 	// and fields elsewhere in the scene aren't followed)
 	for (const [candidate, { system, forces, emitter, standIn }] of pendingForces) {
@@ -860,7 +959,14 @@ export const readPrefabRenderers = async (
 		for (const material of materials) {
 			// oxlint-disable-next-line no-await-in-loop -- material reads are cached by the resolver
 			materialValues.push(
-				material === null ? null : await posedMaterialValues(resolver, material, candidate.posedMaterials),
+				material === null
+					? null
+					: await posedMaterialValues(
+							resolver,
+							material,
+							candidate.posedMaterials,
+							lengthTilings.get(key) ?? [],
+						),
 			);
 		}
 		result.push({
@@ -893,19 +999,29 @@ const byHash = (names: Iterable<string>): Map<number, string> =>
 
 /**
  * resolves the material values a pose sets on a renderer against one of its materials. clips name properties
- * by a hash of the name, so a value whose property the material doesn't save is left out
+ * by a hash of the name, so a value whose property the material doesn't save is left out; so is the tiling of
+ * a texture it doesn't save
  *
+ * @param tilings textures whose tiling follows a length the pose sets, with that length over its preset
  * @returns the replaced values by name, or `null` when the pose replaces none of this material's
  */
 const posedMaterialValues = async (
 	resolver: AssetResolver,
 	material: ObjectRef,
 	values: readonly ClipMaterialValue[],
+	tilings: readonly { tiling: LengthTiling; ratio: number }[],
 ): Promise<MaterialValues | null> => {
-	if (values.length === 0) {
+	if (values.length === 0 && tilings.length === 0) {
 		return null;
 	}
 	const record = parseMaterial(await resolver.read(material));
+	const textures: MaterialValues['textures'] = {};
+	for (const { tiling, ratio } of tilings) {
+		const slot = record.textures[tiling.texture];
+		if (slot !== undefined) {
+			textures[tiling.texture] = lengthTextureTransform(slot, tiling, ratio);
+		}
+	}
 	const floatNames = byHash([...Object.keys(record.floats), ...Object.keys(record.ints)]);
 	const colorNames = byHash(Object.keys(record.colors));
 	const floats: Record<string, number> = {};
@@ -924,7 +1040,9 @@ const posedMaterialValues = async (
 			colors[name][component] = value;
 		}
 	}
-	return Object.keys(floats).length + Object.keys(colors).length === 0 ? null : { floats, colors };
+	return Object.keys(floats).length + Object.keys(colors).length + Object.keys(textures).length === 0
+		? null
+		: { floats, colors, textures };
 };
 
 /**

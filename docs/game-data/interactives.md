@@ -140,6 +140,38 @@ along the horizontal part of the target minus the pad's position. 237 pad placem
 target. the template's (−8.3, 0.6, −0.07) is used as a world position all the same, so pads that
 keep it point towards about the world origin.
 
+### lengths view states set
+
+a state's length behaviour (`MVSCEffectLengthBehaviorData`) sets the length of the effect-length
+component (`VFXAdjustLength`) on the GameObject `nodeName` names. the length is the blackboard float
+`dependFloatKey` names when `dependBlackBoard` is set (nothing is set while that float is missing),
+else `val`, plus `deviation`. the length stays once its state is left. setting it applies the
+component's ratio `length / presetLength`:
+
+- **scale targets** (`useScaleTransform`): each listed Transform's local scale becomes the ratio
+  along `axisDir` (0 x, 1 y, 2 z) and 1 on the other axes
+- **tiling** (`useTillingOffset`): each listed renderer's property block sets the texture's `_ST`
+  from its material's: along `tillingDir` (0 u, 1 v) the scale is multiplied by the ratio (by its
+  inverse with `revertScale`) and the offset becomes `scale · offset · (1 − ratio)`
+- renderer bounds, particle lifetimes and moved Transforms have switches of their own
+
+a `PositionFollower` moves its GameObject to its `source` Transform's world position every frame,
+keeping its own rotation and scale, which is how something hangs off a stretched part's end.
+
+### vertical rope lifts
+
+a vertical rope lift is two placements of `int_rope_port`: the top port (`int_rope_port_top_right`
+or `_top`), whose arm holds the rope, and the bottom port. the top's `target` property names the
+bottom's logic id. its vertical-rope component (`InteractiveVerticalRopeComponent`) sets the float
+`RopeLength` to the height between the two ports' entities before its view states start. the top
+port's model (`int_rope_port_topright_postmodel`) starts in `start`. at `state` 0 it rests in the
+folded `off_idle`. above 0 it goes through `set_rope`, whose length behaviour sets the rope
+(`P_iprop_com_rope+1_001_02`, preset 0.5 m along y, colour and normal maps tiled along v) to
+`RopeLength` plus 1.4 m, into `on_idle`, which swings the arm 45° out over the bottom port. the
+rope's end block (`P_anm_com_machine+1_001_04`) follows the rope's `rope_mount_point`, so it hangs
+about a metre above the bottom port. as saved, the rope is 0.5 m long and the block sits under the
+arm. indie_race001's lift near 88, 116–123, 102 sets `state` 1, so it starts unrolled.
+
 ### keys the player sets
 
 some blackboard keys follow the player:

@@ -121,6 +121,15 @@ take posed values draws a [posed copy](../package-format.md#materials) of its ma
 facility visual form with view states is posed the same way, under its own model id, with every key
 false (a facility's player-set keys aren't read). doodad-group shells aren't posed.
 
+a pose also carries the [lengths](../game-data/interactives.md#lengths-view-states-set) its layers'
+length behaviours leave set, along every layer's path rather than only its resting state. a vertical
+rope's top port is settled per placement with `RopeLength` from its `target` port. while walking, a
+GameObject whose `VFXAdjustLength` gets a length scales its targets' local scale (before the
+Transform's clips apply) and its renderers' posed materials carry the stretched texture scale and
+offset. a component that also switches renderer bounds, particle lifetimes or moved Transforms fails
+the prefab, which then stands in as a box. `PositionFollower`s are moved once the whole hierarchy is
+placed, together with their subtrees, since the source can come later in the walk.
+
 poses with their own controls:
 
 - **doors**: an interactive is a door when its template has a door component and its model's states
