@@ -9,18 +9,19 @@ like the game, the viewer lights in physical units, pre-exposed:
 `preExposure = 1 / (1.2 · 2^directEV100)`, and the sun, ambient probe and fog colours are all
 pre-exposed, so shaded values reach the tonemapper around 0–2.
 
-[`environment/environment.ts`](../../packages/viewer/src/environment/environment.ts)
-(`deriveEnvironment`) turns a blended profile into the renderer's `Environment`, following the
-game's CPU packing where it's known and approximating it where it isn't
-([open](../game-data/lighting.md#open)). packages without profiles get a built-in default look.
+[`environment/derive.ts`](../../packages/viewer/src/environment/derive.ts) (`deriveEnvironment`)
+turns a blended profile into the renderer's `Environment`, following the game's CPU packing where
+it's known and approximating it where it isn't ([open](../game-data/lighting.md#open)). packages
+without profiles get a built-in default look.
 
 ## sun
 
 the sun's pre-exposed illuminance is `light.directLux · preExposure`. every effect's direction comes
-from its pitch, yaw and mode (`effectPitchYaw` in `environment/environment.ts`), never from the
-shading sun alone, so the [blend](environment.md#blending-at-the-camera) can lerp directions as
-angles. the package leaves out the light fields the game derives from these, which some phases carry
-stale ([sun](../game-data/lighting.md#sun)).
+from its pitch, yaw and mode (`effectPitchYaw` in
+[`environment/sun.ts`](../../packages/viewer/src/environment/sun.ts)), never from the shading sun
+alone, so the [blend](environment.md#blending-at-the-camera) can lerp directions as angles. the
+package leaves out the light fields the game derives from these, which some phases carry stale
+([sun](../game-data/lighting.md#sun)).
 
 direct sun lighting in [`frame.wgsl`](../../packages/viewer/src/render/frame/frame.wgsl)
 (`shade_surface`) is GGX with height-correlated Smith visibility, scaled by

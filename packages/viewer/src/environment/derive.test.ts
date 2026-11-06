@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { type CloudInput, cloudLook, skyViewScale } from './environment.ts';
+import { cloudLook, skyViewScale } from './derive.ts';
+import type { CloudInput } from './profile-input.ts';
 
 // Power Plateau's overcast phase once e3m5 reaches state 3 (Env_map01_lv007_art_overcast_brightness)
 const overcast: CloudInput = {

@@ -39,7 +39,8 @@ import {
 	eyeInLevelVolume,
 	volumeLevelTag,
 } from './environment/blend.ts';
-import { type Environment, deriveEnvironment, windClockRate } from './environment/environment.ts';
+import { deriveEnvironment } from './environment/derive.ts';
+import { type Environment, windClockRate } from './environment/environment.ts';
 import { wetnessParams } from './environment/wetness.ts';
 import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
 import { GpuProfiler } from './gfx/gpu-profiler.ts';

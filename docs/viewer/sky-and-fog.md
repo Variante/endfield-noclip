@@ -9,12 +9,12 @@ how the viewer draws the sky, the layers beyond the atmosphere and the fogs that
 [`atmosphere.wgsl`](../../packages/viewer/src/render/sky/atmosphere.wgsl) builds the transmittance,
 multiple-scattering and per-frame sky-view LUTs of the
 [atmosphere model](../game-data/sky-and-fog.md#sky). the game's LUT scale (`skyViewScale` in
-[`environment/environment.ts`](../../packages/viewer/src/environment/environment.ts)) is applied
-when [`sky.wgsl`](../../packages/viewer/src/render/sky/sky.wgsl) samples the LUT rather than when
-it's rendered, which comes to the same. the sky-view LUT has no ground bounce below the horizon
-(only the multiple-scattering LUT takes the ground albedo), and the global colour adjustment is left
-out. at Power Plateau's overcast the sky stays 15–20 sRGB levels brighter than an in-game shot,
-while Wuling City's matches.
+[`environment/derive.ts`](../../packages/viewer/src/environment/derive.ts)) is applied when
+[`sky.wgsl`](../../packages/viewer/src/render/sky/sky.wgsl) samples the LUT rather than when it's
+rendered, which comes to the same. the sky-view LUT has no ground bounce below the horizon (only the
+multiple-scattering LUT takes the ground albedo), and the global colour adjustment is left out. at
+Power Plateau's overcast the sky stays 15–20 sRGB levels brighter than an in-game shot, while Wuling
+City's matches.
 
 the cloud panorama is drawn in the celestial pass (see
 [beyond the atmosphere](#beyond-the-atmosphere)), with contrast and rotation applied as authored and
@@ -49,7 +49,7 @@ none of the layers is checked against an in-game shot.
 
 the analytic fogs are applied in [`sky.wgsl`](../../packages/viewer/src/render/sky/sky.wgsl) by the
 composite (opaque surfaces and sky) and water passes. the height fog's packed base-2 units are
-`FOG_UNIT` in [`environment/environment.ts`](../../packages/viewer/src/environment/environment.ts).
+`FOG_UNIT` in [`environment/derive.ts`](../../packages/viewer/src/environment/derive.ts).
 
 the volumetric fog's froxels are computed each frame by a compute pass
 ([`render/sky/volumetric-fog.ts`](../../packages/viewer/src/render/sky/volumetric-fog.ts)). it

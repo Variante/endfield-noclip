@@ -19,7 +19,7 @@ import type { Vec2, Vec4 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
 
-import { type SunDirections, towardsEffectLight } from '../../environment/environment.ts';
+import { type SunDirections, towardsEffectLight } from '../../environment/sun.ts';
 import type { Vec3 } from '../../scene/camera.ts';
 
 // #region look

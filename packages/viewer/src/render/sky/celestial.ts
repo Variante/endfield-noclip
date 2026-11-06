@@ -23,7 +23,7 @@ import {
 	type SunDirections,
 	towardsEffectLight,
 	towardsLight,
-} from '../../environment/environment.ts';
+} from '../../environment/sun.ts';
 import { linearRgb } from '../../math/color.ts';
 import type { Vec3 } from '../../scene/camera.ts';
 import { placeholderView, type TextureBinding } from '../textures/texture-store.ts';

@@ -85,7 +85,7 @@ applies the budget.
   pose near the ground to see a level's own look; a high camera gets only the scene's global
   environment.
 - `viewer.scene.pkg.manifest` holds levels, environment profiles, `environmentVolumes` and
-  `environmentPhases`. `await import('/src/render/environment.ts')` gives `deriveEnvironment` for
+  `environmentPhases`. `await import('/src/environment/derive.ts')` gives `deriveEnvironment` for
   checking derived values against a profile.
 - scene states: `viewer.sceneValues` (every control), `viewer.scenePicks`,
   `viewer.conditionResults`, `viewer.setSceneValue(id, value)` (`null` drops the pick).
