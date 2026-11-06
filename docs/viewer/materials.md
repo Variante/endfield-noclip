@@ -143,6 +143,13 @@ into the threshold so the shared alpha-test depth pass still applies, fog comes 
 like everything else, and they're held back until their texture is resident. `_UseMainTexAsAlpha`
 isn't read, and a texture on a UV set other than 0 is dropped.
 
+## forward Lit
+
+[forward Lit](../game-data/materials.md#forward-lit) (`HGRP/LitForward`, the golden treasure chest)
+is drawn as Lit, deferred with everything else, so it reflects the scene's sky cubemap and
+screen-space reflections rather than its own `_CUSTOM_IBL` cubemap, and its metal reads darker than
+the game's. none of Lit's optional layers are read for it.
+
 ## erosion
 
 [erosion rock](../game-data/materials.md#erosion) is drawn by
@@ -166,9 +173,9 @@ operations or texture combinations their look doesn't handle, or sampling a text
 the look doesn't read (sets past 1, past 0 for VFXWater and VFXRefract), lit decals in variants the
 viewer lacks or without a placement or base colour map, additive materials outside the effects,
 since the opaque path can't blend, shaders without a family (`HGRP/CharacterNPR`,
-`Hidden/HGRP/LitEffectBlend`, `HGRP/Foliage/Glow`, `HGRP/LitForward`, `HGRP/ErosionDynamic` and the
-like, which `pack` lists per shader), and materials that didn't convert. stand-ins
-(`DrawRole.Unsupported`) take the same look whatever their material.
+`Hidden/HGRP/LitEffectBlend`, `HGRP/Foliage/Glow`, `HGRP/ErosionDynamic` and the like, which `pack`
+lists per shader), and materials that didn't convert. stand-ins (`DrawRole.Unsupported`) take the
+same look whatever their material.
 
 the extractor decides which materials are unsupported when it
 [describes their surfaces](../package-format.md#materials), and `pack` counts them by shader and

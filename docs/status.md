@@ -173,8 +173,10 @@ packs or renders correctly.
 - shaders without a look, shown as [unsupported](viewer/materials.md#unsupported-materials) and
   counted per shader by `pack`: on map02 `Hidden/HGRP/Effect/VFXInkWashPaint`,
   `HGRP/Effect/VFXRadialBlur`, `HGRP/CharacterNPR` and `…_VFX`, `Hidden/HGRP/LitEffectBlend`,
-  `HGRP/Effect/VFXTransparentDepthOnly`, `HGRP/Foliage/Glow`, `HGRP/LitForward` and the factory
-  placement and outline shaders (28 materials)
+  `HGRP/Effect/VFXTransparentDepthOnly`, `HGRP/Foliage/Glow` and the factory placement and outline
+  shaders
+- forward Lit ([viewer](viewer/materials.md#forward-lit)): the golden treasure chest reflects the
+  scene instead of its own `_CUSTOM_IBL` cubemap; the shader's other variants aren't decoded
 - matte paintings ([viewer](viewer/materials.md#matte-paintings)): `_UseMainTexAsAlpha` isn't read
   (no map01 material sets it)
 - erosion rock ([viewer](viewer/materials.md#erosion)): the soft blend into what lies behind

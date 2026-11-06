@@ -24,6 +24,17 @@ steel display sculpture in Dijiang's hall (`M_prop_map01_zmdlife+1_005_01` on a 
 tangents, metallic from the base alpha, range 1 to 0) is a satin metal at roughness about 0.7 from
 its map's B, not the mirror that `_RoughnessMax` alone would give.
 
+## forward Lit
+
+`HGRP/LitForward` is Lit drawn in a forward pass instead of the GBuffer; in the packages surveyed
+only the golden treasure chest's body uses it (`M_anm_com_treasurechest+1_001_02`, in
+`int_trchest_common_gorgeous_postmodel`). its surface inputs are Lit's: the texture layouts, base
+colour, `0.08 · _Specular` reflectance, and the emission mask, whose emission is also multiplied by
+`_EnableEmissiveMap`. with `_CUSTOM_IBL` its ambient specular comes from the material's own cubemap
+(`_CustomIBL`, the chest's a 128² BC6H environment) times `_CustomIBLIntensity`, in place of the
+scene's reflections, sampled at a mip from the roughness. its other variants (`_THIN_FILM`,
+`_PLANAR_REFLECTION`, `_LAYERBLEND_MASK`) aren't decoded.
+
 ## base colour
 
 the Lit, LitTransparent and foliage shaders start from the base colour map times the linearized
