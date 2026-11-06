@@ -52,12 +52,21 @@ these five classes are the only ones the installed client uses.
 ### how the game applies them
 
 the client always enables streaming scene state 0, then sets streaming state `index + 1` to each
-condition entry's result. a state with no condition entry changes only when the game sets it by
-name; dungeons and scripts that reuse the open-world map are the presumed writers. so a state can
-be:
+condition entry's result, recomputing whenever a condition's inputs change. only states with a
+condition entry are computed, so a state can be:
 
 - **conditioned**: its value follows quest/mission/variable state
-- **condition-less**: off unless something sets it by name, which client data doesn't show
+- **condition-less**: always off under this MapConfig. a dungeon that streams the open world brings
+  its own MapConfig with its own conditions (`dung01_rdg010` conditions `dung01_rdg010_liino*` on
+  map01's streaming scene), so such a state is shown by entering the level whose MapConfig
+  conditions it, not by anything in the open world
+
+a level script (`SetOverrideSceneState` / `RemoveOverrideSceneState`) or a dialogue timeline can
+override a conditioned state by name. the override is transient: it lasts until that state's own
+condition changes value, the MapConfig changes (entering a dungeon) or the scene is rebuilt, and it
+isn't saved. an override of a condition-less state does nothing. every override found targets a
+conditioned state (dung01_rdg010's platform, map02_lv005's rising fields), forcing it while its
+condition holds.
 
 the client holds no player state: quest and mission states and variable values come from the server.
 
@@ -102,10 +111,25 @@ lv009 day/night pair doesn't: day is map variable `State` = 0, and night has no 
 
 ### variables
 
-variables are server state and the client ships no defaults for them (map02's
-`mapVarClientDefaultValues` is empty), so variable-driven states have no offline value. a variable
-test fails while its variable is unset, whatever its operator: a load gate and a MapConfig condition
-alike (so `≠ 1` doesn't hold before the server sets the variable).
+variables are server state, which the server syncs on entering a map. a variable test fails while
+its variable is unset, whatever its operator: a load gate and a MapConfig condition alike (so `≠ 1`
+doesn't hold before the server sets the variable).
+
+map variables are of two kinds:
+
+- **interactive properties**: a template with `useMapVar` publishes its saved properties as map
+  variables of the current map, and `Data/Json/GameplayConfig/AutoNameMapVarTable.json` lists them
+  per map in parallel arrays: the numeric key gates read (`mapVarIntKeyList`), the owning
+  interactive's LevelData logic id (`mapVarBelongEntityList`), the property (`state`, rarely
+  `hp_ratio` or `is_enabled`) and a fresh world's value (`mapVarDefaultValueList`). 275 entries over
+  10 maps (map01 51, map02 158), all from the 11 `useMapVar` templates: blight and sludge cores,
+  anchor-wave cores, Wuling bridges, drawing puzzles, rifts, waterwheels, aqua pipelines, outfalls,
+  monster hearts and the blue sword. other templates save their properties (a door's or a campfire's
+  `state`) per entity where no other content can read them. `AutoNameGlobalVarTable.json`, its
+  global twin, is empty
+- **named variables**: the rest, which MapConfig names (`mapVarNumId2Name`; 241 of map02's 399
+  keys). the client ships no values for them (map02's `mapVarClientDefaultValues` is empty), so
+  their states have no offline value. global variables have no name table in client data
 
 at Origin Lodespring (map01_lv006) the crater's light column takes one effect prefab per value of a
 global variable (0, 2, 3, 4), and an in-game shot matches 2. the red-ringed spires there are gated
@@ -136,8 +160,13 @@ are empty.
 
 a DynamicStreaming entity can carry a view-state controller (`ModelViewStateControllerNewComp`)
 whose `modelIdStrId` names a `ModelViewStateControllerData` file
-([view states](interactives.md#interactive-view-states)). a variable with `controlLoad` 0 writes its
-value to that state machine's int key `state`. every such entity holds exactly one model row with
+([view states](interactives.md#interactive-view-states)). every variable component of an entity,
+whatever its `controlLoad`, applies the variable's value on load and on every change: a value from 0
+to 31 becomes the entity's level, which shows its resource groups by their `logicState` bits as a
+progression level does, and the value goes to the state machine's int key `state` (an interactive
+property other than `state`, such as `hp_ratio`, only sets a key of its name). a global variable
+also sets the entity's Animator to the state `State_<value>`. an unset variable does neither, so the
+entity keeps its starting pose. every view-state entity holds exactly one model row with
 `logicState` 0, so a state changes the prefab's pose and switches, never swaps the prefab. by entity
 type (owners on map01 / map02):
 
@@ -181,10 +210,12 @@ placed with no condition of its own; its template has an `ErosionCoreComponent`,
 as a map-saved property (`useMapVar`), and the component names state 0 inactive, 1 active and 2
 destroyed. map01 has 42 erosion roots, each naming a different placed core and gating on a variable
 of its own (map 2, #3–#44; MapConfig names none), so a destroyed core and its cleansed blight go
-together. that each variable holds its core's `state` is inferred from the shared value 2 and the
-one-to-one pairing; the code that writes it wasn't read. while the variable is unset the blight
-doesn't load. map02's [sludge](#sludge-and-miasma) is paired with its cores the same way, through
-the sludge component's core id.
+together. the variable is the core's `state`: [AutoNameMapVarTable](#variables) gives every root's
+key to the very core its `erosionCoreId` names (42 of 42 on map01, 6 of 6 in dung01_wrdg001), with a
+fresh world's value 0. when a core is destroyed the client unloads its patches at once, before the
+variable syncs. while the variable is unset the blight doesn't load. map02's
+[sludge](#sludge-and-miasma) is paired with its cores the same way, through the sludge component's
+core id.
 
 ## progressions
 
@@ -243,9 +274,13 @@ levels or terminal levels (`KiteStationLevelTable`) map onto the list isn't reco
 every other interactive has one model (its variant's, else its template's; see
 [interactives](interactives.md#placements-and-models)): Dijiang's guest terminal desk and screens,
 for instance. [doors](#doors), [telescopic bridges](#telescopic-bridges) and
-[region walls](#dijiang-region-walls) follow runtime state. rows with another `createState` aren't
-created from client data: Dijiang's Control Nexus terminal is one, so the server creates it; its
-mission condition, `e1m9` completed, only locks interaction with it. Dijiang's operator summon point
+[region walls](#dijiang-region-walls) follow runtime state. the server spawns LevelData
+interactives: it sends each into view with its saved state, which the client joins to the row by
+logic id. the client spawns only the level's `autoSpawnedInteractives` (and level scripts' own
+interactives) itself, and no client code reads a row's `createState`, which reads as the server's
+spawn policy (0 spawned with the level). rows with another `createState` aren't created from client
+data: Dijiang's Control Nexus terminal is one, so the server creates it; its mission condition,
+`e1m9` completed, only locks interaction with it. Dijiang's operator summon point
 (`int_system_spaceship_summon`, in the hall near unity −24, 1, −13) is another: its row is
 `Disable`, no level script, mission or Lua names its id, and its map marker
 (`mark_ss_contact_center`) shows only once the server reports the `SpaceshipSystem` unlock, so the
@@ -282,13 +317,16 @@ placements of the `int_erosion_sludge_core` family (some `empty` variants, presu
 visible core), and loads while its core's variable is 0; patches of one core share it. every drawn
 core (40, all with the `int_erosion_sludge_core_official` model) is named by a patch. the core
 template's component (`ErosionSludgeCoreComponent`) has the blight core's states, 0 inactive, 1
-active and 2 destroyed, so the variable isn't the core's state as on map01, and which value it takes
-once the core is cleared isn't stored. that the core goes with its sludge is inferred from the
-pairing, like map01's. the surface isn't a mesh: each patch has a baked height map
-(`Slu__<level>__<local id>[__n]`, a 128² BC4 `.png` and a `.json` repeating the component's fields,
-under `Assets/Beyond/DynamicAssets/Gameplay/Sludge/`) that the game builds into a voxel heightfield
-over a `sludgeSize`² grid and draws with `M_sludgeV2` or `M_sludgeV2_high`. sprayed sludge grows
-back (`rebornTime`) unless its core is cleared; the variable is the persistent part.
+active and 2 destroyed, and the variable is the core's `state`, as on map01 (AutoNameMapVarTable
+gives every patch's key to the core its sludge component names, 68 of 68 on map02 and 7 of 7 in
+indie_dg016). so a patch loads only while its core is inactive and goes once the core is activated,
+before it's destroyed. two map02 cores (#30, #35) start a fresh world at 1, their sludge hidden.
+what an active core looks like in game isn't checked. the surface isn't a mesh: each patch has a
+baked height map (`Slu__<level>__<local id>[__n]`, a 128² BC4 `.png` and a `.json` repeating the
+component's fields, under `Assets/Beyond/DynamicAssets/Gameplay/Sludge/`) that the game builds into
+a voxel heightfield over a `sludgeSize`² grid and draws with `M_sludgeV2` or `M_sludgeV2_high`.
+sprayed sludge grows back (`rebornTime`) unless its core is cleared; the variable is the persistent
+part.
 
 North Wuling Exclusion Zone's blight miasma (map02_lv008) is five type-51 entities whose resource
 groups hold effects (smoke, dust, fog walls, small fires), each loading while its map variable
@@ -366,9 +404,11 @@ the game sets each group's level at runtime from progression that isn't recovere
 
 an entity with a script-control component stores a default-load flag (0 or 1): 0 means a script must
 explicitly enable it. the entity's global id (its IdComp `uniqueId`) is what level scripts use to
-show and hide it. its leading digits are the idNum of the level that authored the entity (`228…` for
-Wuling City, `404…` for a racing dungeon), not necessarily the level it stands in. event content
-such as a limited-time race course is among these groups.
+show and hide it. the client keeps what a script last set per id for the scene's lifetime (a script
+can set it before the entity streams in), and a map reset clears it; until then the group follows
+its flag. its leading digits are the idNum of the level that authored the entity (`228…` for Wuling
+City, `404…` for a racing dungeon), not necessarily the level it stands in. event content such as a
+limited-time race course is among these groups.
 
 ### what sets a script group
 
@@ -477,11 +517,11 @@ state conditions, mission gates and level scripts.
 
 ## open
 
-- writers of condition-less states: presumably dungeons reusing the map (their own MapConfigs, e.g.
-  `dung01_rdg010`, carry conditions) and level scripts setting or overriding states by name; not
-  traced
-- variable names and offline values: global variables have no known name table, and the server
-  values are unavailable
+- named and global variables' offline values: global variables have no known name table, and the
+  server values are unavailable
+- an entity's level before any variable reaches it (0 or its RootComp state), and what dropping a
+  variable component whose map id isn't the current MapConfig's does to loading in a dungeon that
+  streams the open world
 - `ActivityControlComp` gates: on map01 and map02 every entity's component holds no conditions
   (compare type 255), and no level script reads activity state, so limited-time events reach the
   world only through missions, the scripts of event dungeons and
