@@ -25,6 +25,16 @@ struct View {
 	pad0: u32,
 	pad1: u32,
 	pad2: u32,
+	// last frame's camera-relative view-projection, whose depth the pyramid holds
+	previous: mat4x4f,
+	// this frame's eye minus last frame's
+	eye_delta: vec3f,
+	// 1 to test rows in view against the pyramid
+	occlusion: u32,
+	// the pyramid's first level, texels, and its levels
+	pyramid_size: vec2f,
+	pyramid_levels: u32,
+	near: f32,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -38,6 +48,7 @@ struct View {
 @group(0) @binding(5) var<storage, read_write> list: array<u32>;
 @group(0) @binding(6) var<storage, read_write> draw_ids: array<u32>;
 @group(0) @binding(7) var<storage, read_write> indirect: array<u32>;
+@group(0) @binding(8) var pyramid: texture_2d<f32>;
 
 const ROW_VEC4S = 6u;
 
@@ -45,6 +56,8 @@ const ROW_VEC4S = 6u;
 struct Tested {
 	drawn: bool,
 	in_view: bool,
+	// in view, but behind what last frame drew: it only casts
+	occluded: bool,
 	squared: f32,
 	mirrored: u32,
 	layer: u32,
@@ -88,6 +101,53 @@ fn in_caster_planes(p: vec3f, radius: f32) -> bool {
 	return true;
 }
 
+// whether a sphere was wholly behind last frame's depth, as seen from last frame's camera. bounds that reach off
+// that screen or in front of its near plane count as visible
+fn occluded(p: vec3f, radius: f32) -> bool {
+	let centre = p + view.eye_delta;
+	var low = vec2f(1.0);
+	var high = vec2f(-1.0);
+	var nearest = 0.0;
+	for (var i = 0u; i < 8u; i++) {
+		let corner = centre + radius * vec3f(
+			select(-1.0, 1.0, (i & 1u) != 0u),
+			select(-1.0, 1.0, (i & 2u) != 0u),
+			select(-1.0, 1.0, (i & 4u) != 0u),
+		);
+		let clip = view.previous * vec4f(corner, 1.0);
+		if (clip.w < view.near) {
+			return false;
+		}
+		let ndc = clip.xyz / clip.w;
+		low = min(low, ndc.xy);
+		high = max(high, ndc.xy);
+		nearest = max(nearest, ndc.z);
+	}
+	if (any(low < vec2f(-1.0)) || any(high > vec2f(1.0))) {
+		return false;
+	}
+	// the first level's texels it covers (v down), a texel wider each way for the main pass's jitter
+	let size = view.pyramid_size;
+	let first = vec2i(floor((vec2f(low.x, -high.y) * 0.5 + 0.5) * size)) - 1;
+	let last = vec2i(floor((vec2f(high.x, -low.y) * 0.5 + 0.5) * size)) + 1;
+	let span = max(last.x - first.x, last.y - first.y);
+	// the level where it spans at most three texels each way
+	let level = u32(ceil(log2(f32(max(span, 1)))));
+	if (level >= view.pyramid_levels) {
+		return false;
+	}
+	let edge = vec2i(textureDimensions(pyramid, level)) - 1;
+	let start = clamp(first >> vec2u(level), vec2i(0), edge);
+	let stop = clamp(last >> vec2u(level), vec2i(0), edge);
+	var farthest = 1.0;
+	for (var y = start.y; y <= stop.y; y++) {
+		for (var x = start.x; x <= stop.x; x++) {
+			farthest = min(farthest, textureLoad(pyramid, vec2i(x, y), i32(level)).r);
+		}
+	}
+	return nearest < farthest;
+}
+
 fn test_row(row: u32, flags: u32) -> Tested {
 	var out: Tested;
 	out.drawn = false;
@@ -120,6 +180,7 @@ fn test_row(row: u32, flags: u32) -> Tested {
 	let basis = mat3x3f(rows[at].xyz, rows[at + 1u].xyz, rows[at + 2u].xyz);
 	out.mirrored = select(0u, 1u, determinant(basis) < 0.0);
 	out.layer = first_layer(p, radius);
+	out.occluded = out.in_view && view.occlusion != 0u && occluded(p, radius);
 	out.drawn = true;
 	return out;
 }
@@ -161,7 +222,7 @@ fn cs_count(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index
 			continue;
 		}
 		let c = STATS_WORDS + bucket * COUNTER_WORDS;
-		if (tested.in_view && (flags & SLOT_SHADOW_ONLY) == 0u) {
+		if (tested.in_view && !tested.occluded && (flags & SLOT_SHADOW_ONLY) == 0u) {
 			atomicAdd(&counters[c], 1u);
 		}
 		if (casts && tested.layer < SHADOW_LAYERS) {
@@ -239,7 +300,7 @@ fn cs_write(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index
 		let b = view.buckets_at + bucket * BUCKET_WORDS;
 		let c = STATS_WORDS + bucket * COUNTER_WORDS;
 		let draw = work[b + 4u];
-		if (tested.in_view && (flags & SLOT_SHADOW_ONLY) == 0u) {
+		if (tested.in_view && !tested.occluded && (flags & SLOT_SHADOW_ONLY) == 0u) {
 			let i = atomicAdd(&counters[c + 1u + SHADOW_LAYERS], 1u);
 			if (i < work[b + 1u]) {
 				list[work[b] + i] = row;

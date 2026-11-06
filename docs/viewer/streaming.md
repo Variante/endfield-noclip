@@ -146,6 +146,18 @@ leaves some buckets empty: at a dense Jingyu view (77k rows drawn) 7.1k draws ag
 CPU path, which costs about 0.6 ms more to encode, against 3.4 ms less mesh selection. the in-view
 instance and triangle stats of GPU-culled buckets are read back a few frames late.
 
+with `occlusionCulling` on too (the default), rows in view hidden behind what the main pass drew
+last frame skip it, while still casting shadows. before culling, `depth pyramid` reduces the depth
+buffer, which still holds last frame's depth, into a pyramid of the farthest depth under each texel,
+half its size at the first level
+([`depth-pyramid.ts`](../../packages/viewer/src/render/meshes/depth-pyramid.ts)). each row's
+bounding box goes through last frame's camera; it's hidden when its nearest corner is behind the
+farthest depth over the texels it covers, widened a texel for the jitter, at the level where they
+span at most three texels each way. a box reaching off last frame's screen or in front of its near
+plane is drawn, as is everything on the first frame, after a cut, and when the eye moved over 8 m
+since the last frame. a row coming out from behind something draws a frame late. flying over Jingyu
+it left 4.4M of 6.3M triangles in view and took the GPU from 9.9 to 9.4 ms.
+
 meshes cull the faces their material culls (front faces are clockwise, as Unity's are), with front
 and back swapped for mirrored buckets. each mesh phase, shadows included, has a pipeline per face
 culling and UV format, and draws are sorted by both. the vertex shader dequantizes 16-bit UVs with

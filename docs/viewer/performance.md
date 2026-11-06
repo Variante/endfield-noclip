@@ -31,7 +31,8 @@
 - **rows culled on the GPU.** groups whose LODs are resident hand their rows to a compute pass,
   which writes the visible list and indirect draws ([GPU culling](streaming.md#gpu-culling)). at a
   dense Jingyu view this took the frame from 10.4 to 7.9 ms (mesh selection 7.2 to 3.8 ms, GPU 8.8
-  to 7.4 ms); flying, the frame is bound by the GPU instead.
+  to 7.4 ms). rows in view hidden behind last frame's depth skip the main pass, which took flying
+  over Jingyu from 9.9 to 9.4 ms of GPU time.
 - **the game's detail radius.** detail draws within 256 m and HLOD clusters past it
   ([instance selection](streaming.md#instance-selection)); the screen-space rule this replaced drew
   detail three times as far out. mesh selection scales with the rows in reach, and dense foliage
@@ -77,8 +78,8 @@
 ## optimization candidates
 
 - GPU culling leaves the buckets it picked empty in draws the CPU still encodes; pooling geometry so
-  draws share vertex buffers would make each cheaper, and the culled list could feed occlusion
-  culling against the previous frame's depth.
+  draws share vertex buffers would make each cheaper. flying over Jingyu, preparing and encoding
+  draws take about 5 ms of an 11 ms CPU frame.
 - cache shadow layers across new selections when their fit and casters are unchanged; terrain still
   draws into every layer.
 - reduce the AO blur's reads by packing depth with AO or using `textureGather`.

@@ -34,6 +34,11 @@ export interface ViewerOptions {
 	 */
 	gpuCulling: boolean;
 	/**
+	 * with `gpuCulling`, skip the main pass for rows in view hidden behind the depth the main pass left last
+	 * frame; they still cast shadows
+	 */
+	occlusionCulling: boolean;
+	/**
 	 * detail and conditional scenery draw within this distance of the camera, m; past it, HLOD clusters in the
 	 * game's rings. 256 is the game's at its highest scene detail on PC (96 at its lowest)
 	 */
@@ -107,6 +112,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	unsupportedMaterials: false,
 	missingContent: false,
 	gpuCulling: true,
+	occlusionCulling: true,
 	detailDistance: 256,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,

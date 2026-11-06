@@ -39,6 +39,8 @@ export interface FrameSettings {
 	volumetricFog: boolean;
 	terrain: boolean;
 	wireframe: boolean;
+	/** rows in view hidden behind last frame's depth skip the main pass (`occlusionCulling`) */
+	occlusionCulling: boolean;
 	/** the post chain's settings, as {@link effectiveSettings} leaves them */
 	post: PostSettings;
 }
@@ -57,6 +59,7 @@ export const frameSettings = (
 		heightFog: boolean;
 		terrain: boolean;
 		wireframe: boolean;
+		occlusionCulling: boolean;
 	},
 	scene: boolean,
 	post: PostSettings,
@@ -70,6 +73,7 @@ export const frameSettings = (
 		volumetricFog: scene && lit && options.heightFog,
 		terrain: options.terrain,
 		wireframe: options.wireframe,
+		occlusionCulling: options.occlusionCulling,
 		post: effectiveSettings(post),
 	};
 };
@@ -209,7 +213,12 @@ export const encodeFrame = (
 	systems.irradiance.encode(encoder);
 	const skinned = settings.scene && meshes.animate(encoder, context.time);
 	if (settings.scene) {
-		meshes.cull(encoder);
+		meshes.cull(encoder, {
+			camera,
+			aspect: width / height,
+			depth: { view: targets.scene.depth, width, height },
+			occlusion: settings.occlusionCulling,
+		});
 	}
 	const drawShadows = systems.shadowLayers.update(systems.shadowMap.layers, {
 		shadows: settings.shadows,

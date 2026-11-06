@@ -19,6 +19,9 @@ import { SHADOW_LAYERS } from '../shadows/shadow-map.ts';
 
 import cullWgsl from './instance-cull.wgsl?raw';
 
+/** floats of `View` in instance-cull.wgsl past the selection's part: last frame's camera and the pyramid */
+const OCCLUSION_FLOATS = 24;
+
 /** workgroups along x of a dispatch at most (WebGPU's default limit) */
 const MAX_GROUPS_X = 65_535;
 const KEYS = {
@@ -38,6 +41,18 @@ export interface CullTargets {
 	list: GPUBuffer;
 	/** each visible list entry's draw */
 	drawIds: GPUBuffer;
+}
+
+/** what rows in view are tested against: last frame's depth pyramid and the camera it was drawn with */
+export interface Occlusion {
+	/** the pyramid, its first level's size and its levels */
+	pyramid: { view: GPUTextureView; width: number; height: number; levels: number };
+	/** last frame's camera-relative view-projection, column-major */
+	previous: Float32Array;
+	/** this frame's eye minus last frame's */
+	eyeDelta: readonly [number, number, number];
+	/** the camera's near plane, m */
+	near: number;
 }
 
 /** where a GPU-culled bucket's rows go and how it draws, for {@link InstanceCuller.setBucket} */
@@ -68,7 +83,7 @@ export class InstanceCuller {
 	#pipelines: PipelineCache;
 	#layout: GPUBindGroupLayout;
 	#view: GPUBuffer;
-	#viewData = new Float32Array(VIEW_FLOATS);
+	#viewData = new Float32Array(VIEW_FLOATS + OCCLUSION_FLOATS);
 	#viewWords = new Uint32Array(this.#viewData.buffer);
 	#work: GPUBuffer;
 	#counters: GPUBuffer;
@@ -83,18 +98,17 @@ export class InstanceCuller {
 	/** whether work was committed since the last encode */
 	#pending = false;
 	#group: GPUBindGroup | null = null;
+	/** bound in place of a pyramid while rows aren't tested against one */
+	#noPyramid: GPUTexture;
+	#noPyramidView: GPUTextureView;
 	/** what {@link #group} binds */
 	#bound: {
 		rowsVersion: number;
 		rows: GPUBuffer | null;
 		work: GPUBuffer | null;
 		counters: GPUBuffer | null;
-	} = {
-		rowsVersion: -1,
-		rows: null,
-		work: null,
-		counters: null,
-	};
+		pyramid: GPUTextureView | null;
+	} = { rowsVersion: -1, rows: null, work: null, counters: null, pyramid: null };
 	#targets: () => CullTargets;
 
 	/**
@@ -123,8 +137,16 @@ export class InstanceCuller {
 				storage(5, 'storage'),
 				storage(6, 'storage'),
 				storage(7, 'storage'),
+				{ binding: 8, visibility: compute, texture: { sampleType: 'unfilterable-float' } },
 			],
 		});
+		this.#noPyramid = device.createTexture({
+			label: 'no depth pyramid',
+			size: [1, 1],
+			format: 'r32float',
+			usage: GPUTextureUsage.TEXTURE_BINDING,
+		});
+		this.#noPyramidView = this.#noPyramid.createView();
 		this.#view = device.createBuffer({
 			label: 'instance cull view',
 			size: this.#viewData.byteLength,
@@ -187,6 +209,7 @@ export class InstanceCuller {
 		for (const buffer of [this.#view, this.#work, this.#counters, this.#indirect, this.#statsRead]) {
 			buffer.destroy();
 		}
+		this.#noPyramid.destroy();
 	}
 
 	/**
@@ -262,12 +285,18 @@ export class InstanceCuller {
 		this.#pending = true;
 	}
 
+	/** @returns whether work was committed since the last {@link encode} */
+	get pending(): boolean {
+		return this.#pending;
+	}
+
 	/**
 	 * culls the committed work, if any; encode before anything draws meshes
 	 *
 	 * @param encoder the frame's encoder
+	 * @param occlusion what rows in view are tested against, or `null` to draw every row in view
 	 */
-	encode(encoder: GPUCommandEncoder): void {
+	encode(encoder: GPUCommandEncoder, occlusion: Occlusion | null): void {
 		this.#readStats();
 		const count = this.#pipelines.getCompute(KEYS.count);
 		const args = this.#pipelines.getCompute(KEYS.arguments);
@@ -276,9 +305,25 @@ export class InstanceCuller {
 			return;
 		}
 		this.#pending = false;
+		{
+			const data = this.#viewData;
+			const words = this.#viewWords;
+			const at = VIEW_FLOATS;
+			data.fill(0, at);
+			if (occlusion !== null) {
+				data.set(occlusion.previous, at);
+				data.set(occlusion.eyeDelta, at + 16);
+				words[at + 19] = 1;
+				data[at + 20] = occlusion.pyramid.width;
+				data[at + 21] = occlusion.pyramid.height;
+				words[at + 22] = occlusion.pyramid.levels;
+				data[at + 23] = occlusion.near;
+			}
+			this.#device.queue.writeBuffer(this.#view, at * 4, data, at, OCCLUSION_FLOATS);
+		}
 		encoder.clearBuffer(this.#counters, 0, (STATS_WORDS + this.#bucketCount * COUNTER_WORDS) * 4);
 		const pass = encoder.beginComputePass({ label: 'instance cull' });
-		pass.setBindGroup(0, this.#bindGroup());
+		pass.setBindGroup(0, this.#bindGroup(occlusion?.pyramid.view ?? this.#noPyramidView));
 		const x = Math.min(this.#itemCount, MAX_GROUPS_X);
 		const y = Math.ceil(this.#itemCount / MAX_GROUPS_X);
 		pass.setPipeline(count);
@@ -316,11 +361,12 @@ export class InstanceCuller {
 			});
 	}
 
-	#bindGroup(): GPUBindGroup {
+	#bindGroup(pyramid: GPUTextureView): GPUBindGroup {
 		const targets = this.#targets();
 		const bound = this.#bound;
 		if (
 			this.#group === null ||
+			bound.pyramid !== pyramid ||
 			bound.rowsVersion !== targets.rowsVersion ||
 			bound.rows !== targets.rows ||
 			bound.work !== this.#work ||
@@ -330,6 +376,7 @@ export class InstanceCuller {
 			bound.rows = targets.rows;
 			bound.work = this.#work;
 			bound.counters = this.#counters;
+			bound.pyramid = pyramid;
 			this.#group = this.#device.createBindGroup({
 				label: 'instance cull',
 				layout: this.#layout,
@@ -342,6 +389,7 @@ export class InstanceCuller {
 					{ binding: 5, resource: { buffer: targets.list } },
 					{ binding: 6, resource: { buffer: targets.drawIds } },
 					{ binding: 7, resource: { buffer: this.#indirect } },
+					{ binding: 8, resource: pyramid },
 				],
 			});
 		}

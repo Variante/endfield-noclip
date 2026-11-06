@@ -150,7 +150,7 @@ export class Renderer {
 			post: this.post,
 		};
 		this.pools = [this.terrain, this.instances, this.meshes, this.targets, this.post, this.fog, this.shadows];
-		this.#histories = [this.post, this.fog];
+		this.#histories = [this.post, this.fog, this.meshes];
 		this.#owned = [
 			this.post,
 			this.fog,

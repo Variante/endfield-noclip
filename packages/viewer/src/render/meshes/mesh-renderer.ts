@@ -1,14 +1,17 @@
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { GeometryFlags, LOOK_FLOATS, type LookStencil } from '../../looks/look.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
+import type { Camera } from '../../scene/camera.ts';
 import { type GpuCullWork, INDIRECT_WORDS } from '../../streaming/gpu-cull-work.ts';
 import type { MeshBucket } from '../../streaming/mesh-buckets.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
 import type { MainPassFormat } from '../frame/render-targets.ts';
 import { LIST_CAPACITY, type ListedSpan } from '../instances/instance-renderer.ts';
+import { CAMERA_HISTORY_FLOATS, CameraHistory } from '../post/camera-history.ts';
 import type { TextureStore } from '../textures/texture-store.ts';
 
+import { DepthPyramid } from './depth-pyramid.ts';
 import { COMPARATORS, type DrawEntry, drawRangeOf, sortKeyOf } from './draw-order.ts';
 import {
 	DRAW_RANGES,
@@ -22,7 +25,7 @@ import {
 	type SurfacePass,
 } from './draw-ranges.ts';
 import { releaseGeometry, uploadGeometry } from './geometry-residency.ts';
-import { type CullTargets, type CulledBucket, InstanceCuller } from './instance-culler.ts';
+import { type CullTargets, type CulledBucket, InstanceCuller, type Occlusion } from './instance-culler.ts';
 import { type EffectInputs, type EffectMaterial, MaterialBindings } from './material-bindings.ts';
 import { type PhaseDescriber, prepareMeshPipelines } from './mesh-pipelines.ts';
 import {
@@ -40,6 +43,11 @@ import { VertexBindings } from './vertex-bindings.ts';
 const DRAW_FLOATS = 16 + LOOK_FLOATS;
 /** draws per frame at most; buckets past it aren't drawn */
 const MAX_DRAWS = 16_384;
+/**
+ * how far the eye may move between frames for last frame's depth to still stand for what hides rows, m; past
+ * it (a jump), every row in view draws
+ */
+const OCCLUSION_MAX_MOVE = 8;
 
 interface PreparedDraw {
 	geometry: ResidentGeometry;
@@ -130,6 +138,11 @@ export class MeshRenderer {
 	#drawnSkins = new Set<ResidentSkin>();
 	/** culls the GPU-culled buckets' rows; `null` without `indirect-first-instance` */
 	#culler: InstanceCuller | null;
+	/** last frame's depth, which rows in view are tested against */
+	#pyramid: DepthPyramid;
+	/** the camera last frame's depth was drawn with */
+	#history = new CameraHistory();
+	#previous = new Float32Array(CAMERA_HISTORY_FLOATS);
 	/** what {@link #prepareDraw} hands the culler, reused */
 	#culled: CulledBucket = {
 		first: 0,
@@ -187,6 +200,7 @@ export class MeshRenderer {
 		this.#culler = features.indirectFirstInstance
 			? new InstanceCuller(device, pipelines, () => ({ ...instances.buffers, drawIds: this.#drawIds }))
 			: null;
+		this.#pyramid = new DepthPyramid(device, pipelines);
 		const { describers, effectLayout } = prepareMeshPipelines(device, layouts, pipelines, format);
 		this.#describers = describers;
 		this.#materials = new MaterialBindings(device, layouts.materials, effectLayout);
@@ -228,7 +242,13 @@ export class MeshRenderer {
 	 *   culling buffers
 	 */
 	get bytes(): number {
-		return this.#params.size + this.#drawIds.size + this.#vertexBindings.bytes + (this.#culler?.bytes ?? 0);
+		return (
+			this.#params.size +
+			this.#drawIds.size +
+			this.#vertexBindings.bytes +
+			(this.#culler?.bytes ?? 0) +
+			this.#pyramid.bytes
+		);
 	}
 
 	/** @returns whether the GPU can cull rows (the mesh selection's `gpuCulling`): its passes compiled */
@@ -246,6 +266,12 @@ export class MeshRenderer {
 		this.#vertexBindings.destroy();
 		this.#materials.release();
 		this.#culler?.destroy();
+		this.#pyramid.destroy();
+	}
+
+	/** forgets the camera last frame's depth was drawn with, so the next cull tests nothing against it (a cut) */
+	reset(): void {
+		this.#history.reset();
 	}
 
 	// #endregion
@@ -264,13 +290,45 @@ export class MeshRenderer {
 	}
 
 	/**
-	 * culls the rows of the GPU-culled buckets prepared since the last call; encode before anything draws
-	 * meshes
+	 * culls the rows of the GPU-culled buckets prepared since the last call, testing rows in view against the
+	 * depth the main pass left last frame. call every frame, before anything draws meshes, so it knows which
+	 * camera the depth was drawn with
 	 *
 	 * @param encoder the frame's encoder
+	 * @param frame this frame's unjittered camera and the render size's aspect, the depth buffer (still holding
+	 *   last frame's depth) and its size, and whether to test rows against it
 	 */
-	cull(encoder: GPUCommandEncoder): void {
-		this.#culler?.encode(encoder);
+	cull(
+		encoder: GPUCommandEncoder,
+		frame: {
+			camera: Camera;
+			aspect: number;
+			depth: { view: GPUTextureView; width: number; height: number };
+			occlusion: boolean;
+		},
+	): void {
+		const previous = this.#previous;
+		this.#history.write(previous, frame.camera, frame.aspect);
+		const culler = this.#culler;
+		if (culler !== null) {
+			let occlusion: Occlusion | null = null;
+			const eyeDelta = [previous[16], previous[17], previous[18]] as const;
+			// a 1 in the history's 20th float: no last frame to test against
+			if (
+				culler.pending &&
+				frame.occlusion &&
+				previous[19] === 0 &&
+				Math.hypot(...eyeDelta) < OCCLUSION_MAX_MOVE &&
+				this.#pyramid.encode(encoder, frame.depth)
+			) {
+				const pyramid = this.#pyramid.extent;
+				if (pyramid !== null) {
+					occlusion = { pyramid, previous: previous.subarray(0, 16), eyeDelta, near: frame.camera.near };
+				}
+			}
+			culler.encode(encoder, occlusion);
+		}
+		this.#history.advance();
 	}
 
 	// #endregion
