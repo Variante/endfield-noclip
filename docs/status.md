@@ -370,6 +370,9 @@ packs or renders correctly.
   placement (`unsupported-interactives.json`); effects, particles and billboards on a moving
   platform stay behind; other curve movers (coins, butterflies, kickable balls), which scripts
   start, hold still
+- [crane towers](game-data/interactives.md#crane-towers) draw their placement's starting steps, with
+  the container hung from the hook; the steps the player's operations save on the server aren't
+  offered as controls
 - rows created later (`createState` ≠ 0) draw only with their level's "created during play" toggle,
   off by default; one toggle covers a level's rows, since which of them the server or a script
   creates isn't followed

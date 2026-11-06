@@ -319,3 +319,35 @@ in indie_race001 every moving platform belongs to a level script: script 1280002
 m platforms on spline 25012, a 144 m loop under the crane rails near unity 80, 122, 92, an eighth of
 the loop apart at 4 m/s. the level's own LevelData places eleven more that keep `state` 0, four of
 them (12800025316–19, near 104, 118, 85) without a spline, so those stand still.
+
+## crane towers
+
+a crane puzzle is a tower (`int_crane_tower`, a crane tower component, `CraneTowerComponent`), the
+container it carries (`int_crane_container`, its `_2` and `_stackedThree` variants) and switches
+(`int_crane_controller_2`) whose `target` names the tower. the tower's component parameters (the
+template's, overridden by the placement's own under component type 172) hold three step lists and
+the container's logic id (`target`); the entity properties `state_1`, `state_2` and `state_3` pick a
+step from each, clamped to the list, and the game saves them as the player operates the crane:
+
+| state     | list            | sets                                                       |
+| --------- | --------------- | ---------------------------------------------------------- |
+| `state_1` | `position_list` | the rope length                                            |
+| `state_2` | `rotation_list` | the arm's world yaw (the base Transform's world rotation)  |
+| `state_3` | `euler_angles`  | the hook's world yaw (the header Transform's), independent |
+
+the tower model (`int_crane_tower_postmodel`) has no view states. a MonoBehaviour on its root
+(`InteractiveCraneTowerPostmodelMono`) names the base (`BasePoint`), the hook's header
+(`RotatePoint`), the rope's end (`RopeEnd`, under `RopeStart` 18.07 m up and 22.25 m out along the
+arm), the rope's scale Transform (`ScaleBase`) and the attach point (`AttachPoint`, 1.71 m below the
+header). setting a rope length L sets the scale Transform's local scale to (1, 1, L + 1) and the
+rope end's local position to (0, −L, 0); the yaws set world rotations about the vertical.
+
+on its first tick the tower moves its container to the attach point's world position lowered by the
+container's `height` entity property (4 m when absent; 4.28 for the plain container, 6.6 for
+`_stackedThree`), and gives it the attach point's world rotation, wherever the container was placed.
+so a container's own placement is only where it was authored, often at another rope length.
+map01_lv006's Origin Lodespring has four towers: two containers were authored within about a metre
+of where their towers' starting steps hang them (3500021667 under 3500021670, 3500022098 under
+3500022095); tower 3500021909 (near 479, 58, 224) starts at its shorter rope, so its container
+(3500021665) hangs 5.5 m above where it was authored, and tower 3500021686 (near 420, 59, 192) at
+its longer one, so its container (3500021691) hangs 8.8 m below, just above the ground.

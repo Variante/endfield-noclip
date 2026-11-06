@@ -34,6 +34,13 @@ import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
 import { animatorParameterId, animatorPose } from './animator-defaults.ts';
+import {
+	CRANE_TOWER_COMPONENTS,
+	craneSteps,
+	craneTowerOf,
+	DEFAULT_CONTAINER_HEIGHT,
+	readCraneLook,
+} from './crane-tower.ts';
 import { type CurveMove, curveMoveOf, curvePath, isAutoMovePlatform } from './curve-move.ts';
 import { readDoodadShell, type DoodadShell } from './doodad-shell.ts';
 import { readDoorPoses, type DoorPoses } from './door-poses.ts';
@@ -1234,6 +1241,10 @@ export const loadInteractiveFacilities = async (
 	const jumpPads = new Map<string, EntityProperties>();
 	/** auto-moving platforms' decoded templates and starting `state`, by key */
 	const autoMoves = new Map<string, { template: MemoryPackValue; start: StartState | null }>();
+	/** crane towers' decoded templates, by key */
+	const craneTowers = new Map<string, MemoryPackValue>();
+	/** entity properties of other single-model templates (crane containers among them), by key */
+	const entities = new Map<string, EntityProperties>();
 	{
 		const templateKinds = new Map<
 			string,
@@ -1250,6 +1261,9 @@ export const loadInteractiveFacilities = async (
 					/** an auto-moving platform's decoded template, `null` for other templates */
 					autoMove: MemoryPackValue | null;
 					verticalRope: boolean;
+					/** a crane tower's decoded template, `null` for other templates */
+					craneTower: MemoryPackValue | null;
+					entity: EntityProperties | null;
 			  }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
@@ -1298,6 +1312,8 @@ export const loadInteractiveFacilities = async (
 							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? entityProperties(decoded) : null,
 							autoMove: isAutoMovePlatform(decoded) ? decoded : null,
 							verticalRope: hasComponent(decoded, VERTICAL_ROPE_COMPONENTS),
+							craneTower: hasComponent(decoded, CRANE_TOWER_COMPONENTS) ? decoded : null,
+							entity: entityProperties(decoded),
 						};
 					},
 					// an unreadable template is drawn as saved
@@ -1310,12 +1326,20 @@ export const loadInteractiveFacilities = async (
 						jumpPad: null,
 						autoMove: null,
 						verticalRope: false,
+						craneTower: null,
+						entity: null,
 					},
 				);
 				templateKinds.set(data, kind);
 			}
 			if (kind.kind === 'other' && kind.autoMove !== null) {
 				autoMoves.set(key, { template: kind.autoMove, start: kind.start });
+			}
+			if (kind.kind === 'other' && kind.craneTower !== null) {
+				craneTowers.set(key, kind.craneTower);
+			}
+			if (kind.kind === 'other' && kind.entity !== null) {
+				entities.set(key, kind.entity);
 			}
 			if (kind.kind === 'regionWall') {
 				regionWalls.add(key);
@@ -1514,6 +1538,73 @@ export const loadInteractiveFacilities = async (
 	const scriptControls = new Map<string, ScriptControl>();
 	// a vertical rope's port finds its other port by id
 	const rowsById = new Map(placed.map(({ row }) => [row.id, row]));
+	// a crane tower starts at its steps and hangs its container from its hook, wherever that was placed
+	/** by tower row id, its look */
+	const craneLooks = new Map<bigint, PrefabPose>();
+	/** by container row id, where its tower hangs it */
+	const hung = new Map<bigint, { position: [number, number, number]; rotation: [number, number, number] }>();
+	for (const { path, row } of placed) {
+		const template = craneTowers.get(row.template);
+		const entity = entities.get(row.template);
+		const form = authored.get(row.template)?.forms[0];
+		if (template === undefined || entity === undefined || form === undefined) {
+			continue;
+		}
+		const source = `${path}#${row.id}`;
+		const tower = craneTowerOf(template, row);
+		const state = (key: string) =>
+			Number(BigInt.asIntN(32, entityProperty(entity, row, key)?.[0]?.bits ?? 0n));
+		const steps = tower && craneSteps(tower, [state('state_1'), state('state_2'), state('state_3')]);
+		if (tower === null || steps === null) {
+			unsupported.push({ path: source, reason: 'crane tower has an empty step list; drawn as saved' });
+			continue;
+		}
+		const scale = row.modelScale > 0 ? row.modelScale : form.scale;
+		// oxlint-disable-next-line no-await-in-loop -- a few towers per map, each read once
+		const look = await attempt(
+			form.prefab,
+			async () => {
+				const resolver = await context.resolver();
+				const root = await resolver.findUnique(
+					{ hash: hashOf(form.prefab), path: form.prefab },
+					UnityClass.GameObject,
+				);
+				return readCraneLook(
+					resolver,
+					root,
+					form.prefab,
+					{
+						position: row.position,
+						rotation: unityEulerQuaternion(row.rotation),
+						scale: row.scale.map((axis) => axis * scale),
+					},
+					steps,
+				);
+			},
+			null,
+		);
+		if (look === null) {
+			unsupported.push({
+				path: source,
+				reason: 'crane tower prefab has no crane MonoBehaviour; drawn as saved',
+			});
+			continue;
+		}
+		craneLooks.set(row.id, look.pose);
+		const container = tower.target === null ? undefined : rowsById.get(tower.target);
+		const containerEntity = container && entities.get(container.template);
+		if (container === undefined || containerEntity === undefined) {
+			unsupported.push({ path: source, reason: `crane tower's container ${tower.target} isn't placed` });
+			continue;
+		}
+		const height = entityProperty(containerEntity, container, 'height')?.[0]?.bits;
+		const drop = height === undefined ? DEFAULT_CONTAINER_HEIGHT : atomFloat(height);
+		const [x, y, z] = look.attach.position;
+		hung.set(container.id, {
+			position: [x, y - drop, z],
+			rotation: quaternionUnityEuler(look.attach.rotation),
+		});
+	}
 	for (const { path, levelId, levelTag, row, created, spawnedBy } of placed) {
 		// a row created later also needs its level's `created` control on, one a level script owns that script's
 		// control, and one a level script shows and hides its script control
@@ -1599,11 +1690,13 @@ export const loadInteractiveFacilities = async (
 					};
 				}
 			}
+			// a crane's container hangs where its tower puts it
+			const hang = hung.get(row.id);
 			models.push({
 				model: {
 					pathHash: hashOf(model.prefab),
-					position: row.position,
-					rotation: row.rotation,
+					position: hang?.position ?? row.position,
+					rotation: hang?.rotation ?? row.rotation,
 					scale: scales,
 				},
 				levelTag,
@@ -1824,6 +1917,11 @@ export const loadInteractiveFacilities = async (
 			if (mask !== 0) {
 				place(template.forms[0], { alternatives: [[{ control: nexus.control.id, mask: mask >>> 0 }]] }, null);
 			}
+			continue;
+		}
+		const crane = craneLooks.get(row.id);
+		if (crane !== undefined) {
+			place(template.forms[0], { alternatives: [[]] }, crane);
 			continue;
 		}
 		if (template.name === null) {

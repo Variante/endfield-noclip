@@ -235,3 +235,17 @@ those frames, so every mesh renderer gets a `rigid` motion and skinned ones a `s
 [looping clips](#looping-clips). a platform that turns along the curve, waits at knots, eases, or
 stops at its target (mode 0) is reported in `unsupported-interactives.json` and stays at its
 placement.
+
+### crane towers
+
+a [crane tower](../game-data/interactives.md#crane-towers)
+([crane-tower.ts](../../packages/extractor/src/game/crane-tower.ts)) is posed from its starting
+steps before the placements are drawn. `craneTowerOf` merges the tower component's parameters with
+the placement's own (component type 172), the `state_*` entity properties pick the steps, and
+`readCraneLook` walks the prefab for the postmodel MonoBehaviour's five Transforms. the pose is one
+clip on the prefab root: the rope's scale Transform, the rope end's position, and the base and hook
+rotations, each world yaw turned into a local rotation under its parent's posed world rotation. the
+same walk gives the attach point's world position and rotation; the tower's `target` container is
+drawn there, lowered by its `height`, instead of at its own placement. a tower whose step list is
+empty or whose prefab lacks the MonoBehaviour is reported in `unsupported-interactives.json` and
+drawn as saved; one whose container isn't placed is posed and reported.
