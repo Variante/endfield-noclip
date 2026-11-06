@@ -10,7 +10,7 @@ export const DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
  * {@link DEPTH_FORMAT} plus a stencil buffer, cleared to 0 and written only by the effects that mask each
  * other (`LookStencil` in looks/look.ts); needs the `depth32float-stencil8` feature
  */
-export const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth32float-stencil8';
+const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth32float-stencil8';
 
 /** the nearest water surface's depth (reversed-Z like the main pass's) */
 export const WATER_DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
@@ -31,7 +31,7 @@ export const HDR_FORMAT: GPUTextureFormat = 'rgba16float';
 export const WATER_FOAM_FORMAT: GPUTextureFormat = 'rgba8unorm';
 
 /** what lit surfaces hand the screen-space reflections, packed (`pack_reflection_surface` in frame.wgsl) */
-export const REFLECTION_SURFACE_FORMAT: GPUTextureFormat = 'rg32uint';
+const REFLECTION_SURFACE_FORMAT: GPUTextureFormat = 'rg32uint';
 
 /**
  * the main pass's colour targets, in `@location` order: radiance, its ambient part, the sky reflection the
