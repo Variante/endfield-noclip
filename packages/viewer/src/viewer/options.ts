@@ -1,5 +1,5 @@
 import type { DebugView } from '../render/frame/debug-views.ts';
-import type { Tonemapper } from '../render/post/settings.ts';
+import type { PostSettings, Tonemapper } from '../render/post/settings.ts';
 
 /** user-facing switches */
 export interface ViewerOptions {
@@ -130,3 +130,23 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	environmentPin: null,
 	debugView: 'lit',
 };
+
+/**
+ * @param options the viewer's options
+ * @param scene whether a package is loaded; auto exposure needs one
+ * @returns the post chain's settings
+ */
+export const postSettings = (options: ViewerOptions, scene: boolean): PostSettings => ({
+	exposure: options.exposure,
+	autoExposure: options.autoExposure && scene,
+	tonemapper: options.tonemapper,
+	sky: options.sky,
+	heightFog: options.heightFog,
+	atmosphereFog: options.atmosphereFog,
+	flowNoise: options.flowNoise,
+	ao: options.ao,
+	reflections: options.reflections,
+	bloom: options.bloom,
+	vignette: options.vignette,
+	debugView: options.debugView,
+});

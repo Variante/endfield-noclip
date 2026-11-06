@@ -1,23 +1,23 @@
 # performance
 
-- **redraw only when dirty.** `#tick` renders when the camera moved, the canvas resized, an option
-  or scene value changed (`#dirty`), the stream's `version` changed, a pipeline finished compiling,
-  or `continuous` is on. showing the page again also marks it dirty, because Firefox re-shows a
-  hidden tab's last frame with red and blue swapped until a new one is presented. after any of those
-  it renders 32 more frames of the same view (`SETTLE_FRAMES`) so the temporal antialiasing
-  converges, unless `antialiasing` is off. it also renders while the auto exposure is still moving
-  (or waiting on its first histogram), but meters new histograms only while the view changes or
-  settles, so it eases to a fixed target and stops even though water and particles change what it
-  would meter every frame. only loading keeps it rendering indefinitely; animated content (scrolling
-  textures, water, clouds, particles, drifting [flow noise](../game-data/sky-and-fog.md#flow-noise))
-  moves on the frames that render anyway and stops when they do. it all reads one animation clock
-  that advances by the frame time only on rendered frames (and only with the `animate` option on),
-  so it resumes where it stopped instead of jumping by the time the view idled. frames that only
-  settle or adapt reuse the last selection, unless it drew particles or spinning rows and `animate`
-  is on, which are re-evaluated so they keep moving until the view idles. it traverses without
-  rendering while streaming is in progress (`!stream.idle`), and does nothing at all when the view
-  is still and streaming is idle. the environment re-blends only when the eye, its settings or a
-  fade changed.
+- **redraw only when dirty.** the frame loop (`Viewer`'s `#tick`) renders when the camera moved, the
+  canvas resized, an option or scene value changed (`#dirty`), the stream's `version` changed, a
+  pipeline finished compiling, or `continuous` is on. showing the page again also marks it dirty,
+  because Firefox re-shows a hidden tab's last frame with red and blue swapped until a new one is
+  presented. after any of those it renders 32 more frames of the same view (`SETTLE_FRAMES`) so the
+  temporal antialiasing converges, unless `antialiasing` is off. it also renders while the auto
+  exposure is still moving (or waiting on its first histogram), but meters new histograms only while
+  the view changes or settles, so it eases to a fixed target and stops even though water and
+  particles change what it would meter every frame. only loading keeps it rendering indefinitely;
+  animated content (scrolling textures, water, clouds, particles, drifting
+  [flow noise](../game-data/sky-and-fog.md#flow-noise)) moves on the frames that render anyway and
+  stops when they do. it all reads one animation clock that advances by the frame time only on
+  rendered frames (and only with the `animate` option on), so it resumes where it stopped instead of
+  jumping by the time the view idled. frames that only settle or adapt reuse the last selection,
+  unless it drew particles or spinning rows and `animate` is on, which are re-evaluated so they keep
+  moving until the view idles. it traverses without rendering while streaming is in progress
+  (`!stream.idle`), and does nothing at all when the view is still and streaming is idle. the
+  environment re-blends only when the eye, its settings or a fade changed.
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
   panels don't re-render on a still view.
 - **one traversal, many passes.** selection runs once per frame; shadow layers reuse its buckets.

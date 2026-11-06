@@ -1,6 +1,7 @@
 # streaming and selection
 
-each frame that does work runs one traversal (`#traverseAndPrepare` in `viewer/viewer.ts`):
+each frame that does work runs one traversal (`Traversal.run` in
+[`viewer/traversal.ts`](../../packages/viewer/src/viewer/traversal.ts)):
 
 1. `Selector.run` walks the tile tree for terrain patches and instance row ranges, and the selected
    blocks' spinning rows are turned ([per-instance LOD](#per-instance-lod)).
