@@ -95,6 +95,10 @@ export class Viewer {
 	#water: WaterRenderer;
 	/** the systems whose GPU pools and targets the stats sum */
 	readonly #pools: readonly { readonly bytes: number }[];
+	/** the systems that carry frames over (temporal antialiasing, reflections, fog), dropped on a cut */
+	readonly #histories: readonly { reset(): void }[];
+	/** the systems the viewer owns, freed on {@link destroy} in order */
+	readonly #owned: readonly { destroy(): void }[];
 	#waterLevels = new WaterLevels();
 	/** the package's scene controls and the visibility groups they show */
 	readonly #sceneState: SceneState;
@@ -209,6 +213,20 @@ export class Viewer {
 			this.#post,
 			this.#fog,
 			this.#shadows,
+		];
+		this.#histories = [this.#post, this.#fog];
+		this.#owned = [
+			this.#post,
+			this.#fog,
+			this.#lights,
+			this.#irradiance,
+			this.#water,
+			this.#meshes,
+			this.#instances,
+			this.#terrain,
+			this.#shadows,
+			this.#pool,
+			this.#targets,
 		];
 		this.#frameSystems = {
 			targets: this.#targets,
@@ -430,8 +448,9 @@ export class Viewer {
 		this.camera.yaw = yaw;
 		this.camera.pitch = pitch;
 		// a cut: the last frames show somewhere else
-		this.#post.reset();
-		this.#fog.reset();
+		for (const history of this.#histories) {
+			history.reset();
+		}
 	}
 
 	/** re-poses the first view over the ground once the coarse terrain lands; drops it if the camera moved */
@@ -996,17 +1015,9 @@ export class Viewer {
 		document.removeEventListener('visibilitychange', this.#onVisibilityChange);
 		this.unload();
 		this.controls.destroy();
-		this.#post.destroy();
-		this.#fog.destroy();
-		this.#lights.destroy();
-		this.#irradiance.destroy();
-		this.#water.destroy();
-		this.#meshes.destroy();
-		this.#instances.destroy();
-		this.#terrain.destroy();
-		this.#shadows.destroy();
-		this.#pool.destroy();
-		this.#targets.destroy();
+		for (const system of this.#owned) {
+			system.destroy();
+		}
 		destroyPlaceholders(this.#gfx.device);
 		this.#gfx.device.destroy();
 	}
