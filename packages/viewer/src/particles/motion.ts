@@ -77,9 +77,9 @@ const MAX_STEPS = 600;
 
 /** where a stepped particle had got to: its age, its own velocity and how far it had moved */
 export interface SteppedState {
-	age: number;
-	own: Vec3;
-	offset: Vec3;
+	readonly age: number;
+	readonly own: Readonly<Vec3>;
+	readonly offset: Readonly<Vec3>;
 }
 
 /**
@@ -93,39 +93,43 @@ export interface SteppedState {
  *   the forces (which change its own velocity in place, given the step's age, how far it had moved and the
  *   step's length) or `null`, the extra velocity at an age and a distance moved from the start, its age and
  *   lifetime, in seconds, and the state to continue from (one at or before `age`, else the birth)
- * @returns how far it has moved by `age`, its velocity then, and the state to continue from later
+ * @returns how far it has moved by `age`, its velocity then, and the state to continue from later, which
+ *   holds the same `offset`: neither may be changed
  */
 export const steppedPath = (path: {
 	limit: { info: ParticleSpeedLimitInfo; r: number } | null;
-	start: Vec3;
-	acceleration: Vec3;
-	push: ((age: number, moved: Vec3, own: Vec3, step: number) => void) | null;
-	extra: (age: number, moved: Vec3) => Vec3;
+	start: Readonly<Vec3>;
+	acceleration: Readonly<Vec3>;
+	push: ((age: number, moved: Readonly<Vec3>, own: Vec3, step: number) => void) | null;
+	/** its result is read before the next call, so it may reuse one array */
+	extra: (age: number, moved: Readonly<Vec3>) => Readonly<Vec3>;
 	age: number;
 	life: number;
 	from?: SteppedState;
 }): { offset: Vec3; velocity: Vec3; state: SteppedState } => {
 	const { limit, acceleration, push, extra, age, life } = path;
-	const from =
-		path.from !== undefined && path.from.age <= age
-			? path.from
-			: { age: 0, own: path.start, offset: [0, 0, 0] as Vec3 };
-	const span = age - from.age;
+	const from = path.from !== undefined && path.from.age <= age ? path.from : null;
+	const fromAge = from?.age ?? 0;
+	const fromOwn = from?.own ?? path.start;
+	const own: Vec3 = [fromOwn[0], fromOwn[1], fromOwn[2]];
+	const offset: Vec3 = from === null ? [0, 0, 0] : [from.offset[0], from.offset[1], from.offset[2]];
+	const span = age - fromAge;
 	const steps = span > 0 ? Math.min(Math.ceil(span * PARTICLE_STEP_RATE), MAX_STEPS) : 0;
 	const h = steps > 0 ? span / steps : 0;
 	const pull = limit === null ? 0 : 1 - (1 - limit.info.dampen) ** (h * PARTICLE_STEP_RATE);
-	const own: Vec3 = [...from.own];
-	const offset: Vec3 = [...from.offset];
+	const whole: Vec3 = [0, 0, 0];
 	for (let i = 1; i <= steps; i++) {
-		const t = from.age + i * h;
+		const t = fromAge + i * h;
 		for (let axis = 0; axis < 3; axis++) {
 			own[axis] += acceleration[axis] * h;
 		}
 		// the forces see the age and place from before this step
 		push?.(t - h, offset, own, h);
 		const added = extra(t, offset);
-		const whole: Vec3 = [own[0] + added[0], own[1] + added[1], own[2] + added[2]];
-		const speed = Math.hypot(...whole);
+		for (let axis = 0; axis < 3; axis++) {
+			whole[axis] = own[axis] + added[axis];
+		}
+		const speed = Math.hypot(whole[0], whole[1], whole[2]);
 		const cap = limit === null ? Infinity : evaluateMinMax(limit.info.limit, livedAt(t, life), limit.r);
 		if (speed > cap) {
 			const scale = (speed + (cap - speed) * pull) / speed;
@@ -142,7 +146,7 @@ export const steppedPath = (path: {
 	return {
 		offset,
 		velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]],
-		state: { age, own: [...own], offset: [...offset] },
+		state: { age, own, offset },
 	};
 };
 

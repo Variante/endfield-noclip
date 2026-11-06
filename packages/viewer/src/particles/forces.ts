@@ -7,7 +7,7 @@ import {
 import type { Vec3 } from '../scene/camera.ts';
 
 import { evaluateMinMax } from './curves.ts';
-import { times3 } from './vector-math.ts';
+import { times3Into } from './vector-math.ts';
 
 /** a force field ready to step: its matrices as 3×3 rows plus a translation */
 export interface PreparedField {
@@ -69,7 +69,7 @@ export interface ForceRandoms {
  */
 export const applyForces = (
 	forces: { multiplier: MinMaxCurveInfo; fields: readonly PreparedField[] },
-	position: Vec3,
+	position: Readonly<Vec3>,
 	own: Vec3,
 	lived: number,
 	size: number,
@@ -77,29 +77,35 @@ export const applyForces = (
 	dt: number,
 ): void => {
 	const m = evaluateMinMax(forces.multiplier, lived, r.multiplier);
+	const { p, push, n, turn, q, back, tangent } = scratch;
 	for (const field of forces.fields) {
 		const { info, toField, toFieldOffset, fromField } = field;
-		const local = times3(toField, position);
-		const p: Vec3 = [local[0] + toFieldOffset[0], local[1] + toFieldOffset[1], local[2] + toFieldOffset[2]];
-		const d = Math.hypot(...p);
+		times3Into(p, toField, position[0], position[1], position[2]);
+		for (let axis = 0; axis < 3; axis++) {
+			p[axis] = p[axis] + toFieldOffset[axis];
+		}
+		const d = Math.hypot(p[0], p[1], p[2]);
 		const { startRange: start, endRange: end } = info;
 		if (d < start || d > end) {
 			continue;
 		}
 		const tf = end > start ? Math.max((d - start) / (end - start), 0) : 0;
-		if (info.direction.some((curve) => curve.scalar !== 0)) {
-			const push = times3(
+		const direction = info.direction;
+		if (direction[0].scalar !== 0 || direction[1].scalar !== 0 || direction[2].scalar !== 0) {
+			times3Into(
+				push,
 				fromField,
-				info.direction.map((curve, axis) => evaluateMinMax(curve, tf, r.direction[axis])),
+				evaluateMinMax(direction[0], tf, r.direction[0]),
+				evaluateMinMax(direction[1], tf, r.direction[1]),
+				evaluateMinMax(direction[2], tf, r.direction[2]),
 			);
 			for (let axis = 0; axis < 3; axis++) {
 				own[axis] += push[axis] * m * dt;
 			}
 		}
 		if (info.gravity.scalar !== 0) {
-			let n = times3(fromField, p);
-			const length = Math.hypot(...n);
-			n = length > 1e-15 ? [n[0] / length, n[1] / length, n[2] / length] : [0, 0, 0];
+			times3Into(n, fromField, p[0], p[1], p[2]);
+			unitOrZero(n);
 			const sign = d < start + info.gravityFocus * (end - start) ? -1 : 1;
 			const pull = -evaluateMinMax(info.gravity, tf, r.gravity) * m * dt * PARTICLE_STEP_RATE * sign;
 			for (let axis = 0; axis < 3; axis++) {
@@ -117,21 +123,21 @@ export const applyForces = (
 				sx = Math.sin(ax),
 				cz = Math.cos(az),
 				sz = Math.sin(az);
-			// rows of Rx(ax) · Rz(az)
-			const turn = tilt
-				? [cz, -sz, 0, cx * sz, cx * cz, -sx, sx * sz, sx * cz, cx]
-				: [1, 0, 0, 0, 1, 0, 0, 0, 1];
-			const q = times3(turn, p);
+			if (tilt) {
+				setTilt(turn, cx, sx, cz, sz);
+			} else {
+				setIdentity(turn);
+			}
+			times3Into(q, turn, p[0], p[1], p[2]);
 			// ŷ × q, turned back by the tilt's transpose
-			const c: Vec3 = [q[2], 0, -q[0]];
-			const back: Vec3 = [
-				turn[0] * c[0] + turn[3] * c[1] + turn[6] * c[2],
-				turn[1] * c[0] + turn[4] * c[1] + turn[7] * c[2],
-				turn[2] * c[0] + turn[5] * c[1] + turn[8] * c[2],
-			];
-			let tangent = times3(fromField, back);
-			const length = Math.hypot(...tangent);
-			tangent = length > 1e-15 ? [tangent[0] / length, tangent[1] / length, tangent[2] / length] : [0, 0, 0];
+			const c0 = q[2],
+				c1 = 0,
+				c2 = -q[0];
+			back[0] = turn[0] * c0 + turn[3] * c1 + turn[6] * c2;
+			back[1] = turn[1] * c0 + turn[4] * c1 + turn[7] * c2;
+			back[2] = turn[2] * c0 + turn[5] * c1 + turn[8] * c2;
+			times3Into(tangent, fromField, back[0], back[1], back[2]);
+			unitOrZero(tangent);
 			const k = attraction * dt * PARTICLE_STEP_RATE;
 			for (let axis = 0; axis < 3; axis++) {
 				own[axis] += (tangent[axis] * speed - own[axis]) * k;
@@ -139,7 +145,7 @@ export const applyForces = (
 		}
 		if (info.drag.scalar !== 0) {
 			const amount = evaluateMinMax(info.drag, tf, r.drag);
-			const s = Math.hypot(...own);
+			const s = Math.hypot(own[0], own[1], own[2]);
 			const k =
 				(info.dragBySize ? Math.PI * (size / 2) ** 2 : 1) * amount * (info.dragByVelocity ? s * s : 1);
 			const kept = s > 1e-15 ? Math.max(0, s - k * m * dt) / s : 0;
@@ -147,5 +153,46 @@ export const applyForces = (
 				own[axis] *= kept;
 			}
 		}
+	}
+};
+
+// applyForces runs for every field on every step of every stepped particle, so it works in these
+const vec3 = (): Vec3 => [0, 0, 0];
+const scratch = {
+	p: vec3(),
+	push: vec3(),
+	n: vec3(),
+	/** the swirl's tilt, as 3×3 rows */
+	turn: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+	q: vec3(),
+	back: vec3(),
+	tangent: vec3(),
+};
+
+/** scales `v` to unit length in place, or zeroes it when it has almost none */
+const unitOrZero = (v: Vec3): void => {
+	const length = Math.hypot(v[0], v[1], v[2]);
+	for (let axis = 0; axis < 3; axis++) {
+		v[axis] = length > 1e-15 ? v[axis] / length : 0;
+	}
+};
+
+/** sets `out` to Rx(ax) · Rz(az) as 3×3 rows, from the angles' cosines and sines */
+const setTilt = (out: number[], cx: number, sx: number, cz: number, sz: number): void => {
+	out[0] = cz;
+	out[1] = -sz;
+	out[2] = 0;
+	out[3] = cx * sz;
+	out[4] = cx * cz;
+	out[5] = -sx;
+	out[6] = sx * sz;
+	out[7] = sx * cz;
+	out[8] = cx;
+};
+
+/** sets `out` to the identity as 3×3 rows */
+const setIdentity = (out: number[]): void => {
+	for (let i = 0; i < 9; i++) {
+		out[i] = i % 4 === 0 ? 1 : 0;
 	}
 };
