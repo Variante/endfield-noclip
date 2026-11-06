@@ -7,7 +7,7 @@
 
 import type { EffectNearFade, EffectTexture } from '@endfield-noclip/package-format/surfaces';
 
-import { LOOK_FLOATS } from '../look.ts';
+import { emptySlots, type LookSlots, placeTexture } from '../look.ts';
 
 /** a look's {@link EffectRow.slotBits} role value for a texture that isn't sampled */
 export const ROLE_NONE = 7;
@@ -43,9 +43,8 @@ export const EffectKind = {
 } as const;
 
 /**
- * float offsets of an effect look's parameters (`MaterialLook.params`), {@link LOOK_FLOATS} of them; the
- * shader reads them as vec4 rows. the last row is free past {@link EffectRow.customScroll}, as are floats
- * 138–143
+ * float offsets of an effect look's parameters (`MaterialLook.params`), `LOOK_FLOATS` of them; the shader
+ * reads them as vec4 rows. the last row is free past {@link EffectRow.customScroll}, as are floats 138–143
  */
 export const EffectRow = {
 	/** tint rgb (times its intensity), alpha */
@@ -160,16 +159,8 @@ export const SLOT_NO_BASE = 128;
  */
 export const slotDisturb = (share: number): number => Math.round(Math.max(share, 0) * 1024) * 256;
 
-/** what an effect look puts in `MaterialLook` besides its parameters */
-export interface EffectLook {
-	/** texture id per slot, or -1 */
-	textures: number[];
-	/** largest UV scale per slot, for streaming */
-	uvScales: number[];
-	/** a 3D texture sampled besides the slots, or -1 */
-	volumeTexture: number;
-	params: Float32Array;
-}
+/** what an effect's builder fills of its `MaterialLook`; `material-looks.ts` adds the flags and draw state */
+export type EffectLook = LookSlots;
 
 /**
  * fills a slot's texture, UV transform, scroll and rotation, and role bits
@@ -180,9 +171,8 @@ export interface EffectLook {
  * @param bits the slot's {@link EffectRow.slotBits}
  */
 export const setSlot = (look: EffectLook, i: number, texture: EffectTexture, bits: number): void => {
-	look.textures[i] = texture.texture;
-	look.uvScales[i] = Math.max(Math.abs(texture.scale[0]), Math.abs(texture.scale[1]), 1e-3);
-	look.params.set([...texture.scale, ...texture.offset], EffectRow.uv + i * 4);
+	// the mesh looks' UV rows, which EffectRow.uv shares
+	placeTexture(look, i, texture);
 	look.params.set([...texture.scroll, ...texture.rotation], EffectRow.anim + i * 4);
 	look.params.set(texture.customScroll, EffectRow.customScroll + i * 2);
 	look.params[EffectRow.slotBits + i] = bits;
@@ -202,24 +192,18 @@ export const still = (texture: number): EffectTexture => ({
 });
 
 /**
- * @param slots how many slots the look has
  * @returns a new effect look with no textures, identity UV transforms and no animation, for a family's
  *   builder to fill
  */
-export const emptyEffect = (slots: number): EffectLook => {
-	const params = new Float32Array(LOOK_FLOATS);
-	for (let i = 0; i < slots; i++) {
+export const emptyEffect = (): EffectLook => {
+	const look = emptySlots();
+	const { params } = look;
+	for (let i = 0; i < look.textures.length; i++) {
 		params[EffectRow.slotBits + i] = ROLE_NONE;
-		params.set([1, 1, 0, 0], EffectRow.uv + i * 4);
 		params.set([0, 0, 1, 0], EffectRow.anim + i * 4);
 	}
 	params[EffectRow.decal + 3] = 1;
-	return {
-		textures: Array.from({ length: slots }, () => -1),
-		uvScales: Array.from({ length: slots }, () => 1),
-		volumeTexture: -1,
-		params,
-	};
+	return look;
 };
 
 /**

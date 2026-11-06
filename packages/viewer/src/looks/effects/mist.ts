@@ -52,7 +52,7 @@ export const MIST_NOISE_SLOT = 1;
  * @returns its look
  */
 export const mistCardLook = (card: MistCardSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	setSlot(
 		look,
@@ -84,7 +84,7 @@ export const mistCardLook = (card: MistCardSurface): EffectLook => {
  * @returns its look
  */
 export const mistVolumeLook = (volume: MistVolumeSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	params.set(volume.color, MistRow.color);
 	params.set([volume.exponent, volume.density, volume.edgeFade, volume.nearFade], MistRow.volume);

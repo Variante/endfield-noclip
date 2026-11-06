@@ -1,6 +1,6 @@
 /**
- * the looks of the HGRP shaders besides Lit that draw through the mesh shader's surface path: erosion rock,
- * VFXDitherAlpha's dithered surfaces and matte paintings
+ * the looks besides Lit that draw through the mesh shader's surface path: erosion rock, VFXDitherAlpha's
+ * dithered surfaces and matte paintings
  *
  * @module
  */
@@ -13,7 +13,7 @@ import type {
 	TiledTexture,
 } from '@endfield-noclip/package-format/surfaces';
 
-import { emptyLook, LookFlags, LookRow, type MaterialLook, SLOT_FLAGS, setTexture } from './look.ts';
+import { emptyLook, LookFlags, LookRow, type MaterialLook, setTexture, setTiledTexture } from './look.ts';
 
 // #region erosion
 
@@ -68,14 +68,13 @@ export const erosionLook = (surface: ErosionSurface, cull: MaterialCull): Materi
 		[6, textures.noisePattern === null ? null : { ...textures.noisePattern, tiling: 1 }],
 	];
 	for (const [i, texture] of slots) {
-		if (texture === null) {
-			continue;
+		if (texture !== null) {
+			setTiledTexture(look, i, texture.texture, texture.tiling, 0);
 		}
-		look.textures[i] = texture.texture;
-		// the ramp is sampled at its finest level whatever its size on screen
-		look.uvScales[i] = i === 3 ? 0 : Math.max(Math.abs(texture.tiling), 1e-3);
-		look.flags |= SLOT_FLAGS[i];
-		params.set([texture.tiling, texture.tiling, 0, 0], LookRow.uv + i * 4);
+	}
+	// the ramp is sampled at its finest level whatever its size on screen
+	if (textures.flowRamp !== null) {
+		look.uvScales[3] = 0;
 	}
 	params.set([...surface.baseColor, -1], ErosionRow.base);
 	params.set(

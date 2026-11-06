@@ -109,7 +109,7 @@ const setSoftBody = (look: EffectLook, body: EffectSoftBody): void => {
  * @returns its look
  */
 export const stackLook = (stack: EffectStackSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	stack.layers.forEach((layer, i) => {
 		if (layer !== null) {

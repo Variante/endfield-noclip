@@ -260,32 +260,61 @@ export const LookRow = {
 export const alphaTextureOf = (look: MaterialLook): number =>
 	look.textures[(look.flags & LookFlags.AlphaNormal) !== 0 ? 1 : 0];
 
+/** the part of a look that holds its textures and draw parameters, all an effect's own builder fills */
+export type LookSlots = Pick<MaterialLook, 'textures' | 'uvScales' | 'volumeTexture' | 'params'>;
+
 /**
- * @param options.drawn {@link MaterialLook.drawn}
- * @returns a new opaque, shadow-casting look that culls no faces, with no textures and identity UV
- *   transforms, for a look builder to fill
+ * @returns new slots, one per {@link SLOTS} entry, with no textures and identity UV transforms, and
+ *   parameters zeroed otherwise
  */
-export const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
+export const emptySlots = (): LookSlots => {
 	const params = new Float32Array(LOOK_FLOATS);
 	for (let i = 0; i < SLOTS.length; i++) {
 		params.set([1, 1, 0, 0], LookRow.uv + i * 4);
 	}
 	return {
-		drawn,
-		unsupported: false,
-		cutout: false,
-		transparent: false,
-		cull: 'none',
-		castsShadows: true,
 		textures: SLOTS.map(() => -1),
 		uvScales: SLOTS.map(() => 1),
 		volumeTexture: -1,
-		flags: 0,
 		params,
-		stencil: null,
-		relight: false,
-		screen: null,
 	};
+};
+
+/**
+ * @param options.drawn {@link MaterialLook.drawn}
+ * @returns a new opaque, shadow-casting look that culls no faces, with no textures and identity UV
+ *   transforms, for a look builder to fill
+ */
+export const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => ({
+	drawn,
+	unsupported: false,
+	cutout: false,
+	transparent: false,
+	cull: 'none',
+	castsShadows: true,
+	...emptySlots(),
+	flags: 0,
+	stencil: null,
+	relight: false,
+	screen: null,
+});
+
+/**
+ * binds a texture to slot `i` with its UV transform (the slot's row of {@link LookRow.uv}, which effect looks
+ * share), streamed for the larger of its scales
+ *
+ * @param look the look to change
+ * @param i the slot
+ * @param texture the texture and its UV scale and offset
+ */
+export const placeTexture = (
+	look: LookSlots,
+	i: number,
+	texture: Pick<TextureSlot, 'texture' | 'scale' | 'offset'>,
+): void => {
+	look.textures[i] = texture.texture;
+	look.uvScales[i] = Math.max(Math.abs(texture.scale[0]), Math.abs(texture.scale[1]), 1e-3);
+	look.params.set([...texture.scale, ...texture.offset], LookRow.uv + i * 4);
 };
 
 /**
@@ -296,10 +325,8 @@ export const emptyLook = ({ drawn }: { drawn: boolean }): MaterialLook => {
  * @param slot the texture and its UV set and transform
  */
 export const setTexture = (look: MaterialLook, i: number, slot: TextureSlot): void => {
-	look.textures[i] = slot.texture;
-	look.uvScales[i] = Math.max(Math.abs(slot.scale[0]), Math.abs(slot.scale[1]), 1e-3);
+	placeTexture(look, i, slot);
 	look.flags |= SLOT_FLAGS[i] | (slot.uv << (UV1_SHIFT + i));
-	look.params.set([...slot.scale, ...slot.offset], LookRow.uv + i * 4);
 };
 
 /**
@@ -318,8 +345,5 @@ export const setTiledTexture = (
 	tiling: number,
 	uv: number,
 ): void => {
-	look.textures[i] = texture;
-	look.uvScales[i] = Math.max(Math.abs(tiling), 1e-3);
-	look.flags |= SLOT_FLAGS[i] | (uv << (UV1_SHIFT + i));
-	look.params.set([tiling, tiling, 0, 0], LookRow.uv + i * 4);
+	setTexture(look, i, { texture, uv, scale: [tiling, tiling], offset: [0, 0] });
 };

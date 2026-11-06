@@ -47,7 +47,7 @@ export const WaterFoamFlags = {
  * @returns its look
  */
 export const waterFoamLook = (foam: WaterFoamSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	const { textures } = foam;
 	[textures.base, textures.disturb, textures.mask, textures.dissolve].forEach((texture, i) => {

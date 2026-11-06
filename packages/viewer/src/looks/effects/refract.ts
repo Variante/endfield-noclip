@@ -48,7 +48,7 @@ const polarBits = (polar: boolean): number => (polar ? SlotSource.Polar : SlotSo
  * @returns its look
  */
 export const refractLook = (refract: RefractSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	setSlot(look, 0, refract.refraction, polarBits(refract.refractionPolar));
 	if (refract.mask !== null) {

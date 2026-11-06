@@ -52,7 +52,7 @@ export const SixWayFlags = {
  * @returns its look
  */
 export const sixWaySmokeLook = (smoke: SixWaySmokeSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	setSlot(look, 0, smoke.positive, ROLE_NONE);
 	// the negative lightmap samples at the positive one's UVs, which the shader takes from slot 0's rows

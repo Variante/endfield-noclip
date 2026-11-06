@@ -39,7 +39,7 @@ export const BeamRow = {
  * @returns its look
  */
 export const lightBeamLook = (beam: LightBeamSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	const additive = beam.additive ? 1 : 0;
 	params.set(beam.color, BeamRow.color);

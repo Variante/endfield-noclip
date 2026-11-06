@@ -68,7 +68,7 @@ export const WaterSheetFlags = {
  * @returns its look
  */
 export const waterSheetLook = (sheet: WaterSheetSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	const { textures } = sheet;
 	const slots = [

@@ -73,7 +73,7 @@ export const DECAL_PBR_SLOT = 1;
  * @returns its look
  */
 export const litDecalLook = (decal: LitDecalSurface): EffectLook => {
-	const look = emptyEffect(7);
+	const look = emptyEffect();
 	const params = look.params;
 	setSlot(look, 0, still(decal.base), ROLE_NONE);
 	if (decal.pbr !== null) {
