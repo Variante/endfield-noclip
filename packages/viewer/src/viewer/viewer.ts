@@ -12,12 +12,7 @@ import {
 	zonesAround,
 	zonesAt,
 } from '@endfield-noclip/package-format/stream-areas';
-import {
-	isTerrainHole,
-	TERRAIN_HOLE_BIT,
-	TERRAIN_PAGE_SAMPLES,
-	terrainHeight,
-} from '@endfield-noclip/package-format/terrain';
+import { isTerrainHole, TERRAIN_PAGE_SAMPLES, terrainHeight } from '@endfield-noclip/package-format/terrain';
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
@@ -51,8 +46,11 @@ import type { PackageSource } from '../package/package-source.ts';
 import { type ViewerPackage, openViewerPackage } from '../package/viewer-package.ts';
 import { ParticleField } from '../particles/particle-rows.ts';
 import { type BindLayouts, createBindLayouts } from '../render/frame/bind-layouts.ts';
-import { DEBUG_VIEWS } from '../render/frame/debug-views.ts';
-import { FRAME_UNIFORM_BYTES, FrameOffsets } from '../render/frame/frame-uniforms.ts';
+import {
+	FRAME_UNIFORM_BYTES,
+	FrameOffsets,
+	writeFrameUniforms,
+} from '../render/frame/frame-uniform-writer.ts';
 import { RenderTargets } from '../render/frame/render-targets.ts';
 import { InstanceRenderer } from '../render/instances/instance-renderer.ts';
 import { IrradianceVolume } from '../render/lighting/irradiance-volume.ts';
@@ -209,7 +207,6 @@ export class Viewer {
 	 */
 	#unsettledPose: CameraPose | null = null;
 	#lastDraws = 0;
-	#viewProj = new Float32Array(16);
 	/** frames still to render so the temporal antialiasing settles after the view stopped changing */
 	#settleFrames = 0;
 	/** whether the last mesh selection drew particles, which frames of a still view re-evaluate */
@@ -1415,7 +1412,32 @@ export class Viewer {
 			? this.#lights.prepare(this.camera, this.#targets.width, this.#targets.height)
 			: NO_LOCAL_LIGHTS;
 		const uniforms = ring.allocate(FRAME_UNIFORM_BYTES);
-		this.#writeFrameUniforms(uniforms.f32, uniforms.u32, { shadows, post, lights });
+		const { width, height, outputWidth, outputHeight } = this.#targets;
+		writeFrameUniforms(uniforms.f32, uniforms.u32, {
+			camera: this.camera,
+			jitter: this.#post.nextJitter(width, height, outputHeight),
+			width,
+			height,
+			outputWidth,
+			outputHeight,
+			time: this.#time,
+			windClock: this.#windClock,
+			environment: this.#environment,
+			wetness: this.#wetness,
+			exposure: this.#post.exposure(post),
+			bound: {
+				reflection: this.#reflection !== this.#noReflection,
+				shadowRamp: this.#shadowRamp !== this.#noShadowRamp,
+				cloudShadow: this.#cloudShadow !== this.#noCloudShadow,
+			},
+			reflectionMips: this.#reflectionMips,
+			terrain: this.scene?.pkg.manifest.terrain,
+			shadowMap: this.#shadows,
+			shadows,
+			irradiance: this.#irradiance.centers(),
+			lights,
+			options: this.options,
+		});
 		// each cascade's frame: the main one with the cascade's view-projection
 		const cascadeOffsets: number[] = [];
 		if (shadows) {
@@ -1607,130 +1629,6 @@ export class Viewer {
 			vignette: options.vignette,
 			debugView: options.debugView,
 		};
-	}
-
-	#writeFrameUniforms(
-		f32: Float32Array,
-		u32: Uint32Array,
-		{ shadows, post, lights }: { shadows: boolean; post: PostSettings; lights: Readonly<LocalLightFrame> },
-	): void {
-		const camera = this.camera;
-		const eye = camera.position;
-		const { width, height, outputWidth, outputHeight } = this.#targets;
-		camera.writeViewProjection(width / height, this.#viewProj);
-		{
-			// shift the image by this frame's subpixel jitter: clip.xy += jitter · clip.w
-			const viewProj = this.#viewProj;
-			const [jx, jy] = this.#post.nextJitter(width, height, outputHeight);
-			for (let column = 0; column < 4; column++) {
-				viewProj[column * 4] += jx * viewProj[column * 4 + 3];
-				viewProj[column * 4 + 1] += jy * viewProj[column * 4 + 3];
-			}
-		}
-		f32.set(this.#viewProj, FrameOffsets.viewProj);
-		{
-			const at = FrameOffsets.eye;
-			f32[at] = eye[0];
-			f32[at + 1] = eye[1];
-			f32[at + 2] = eye[2];
-			f32[at + 3] = this.#time;
-		}
-		{
-			const environment = this.#environment;
-			f32.set(environment.sunDirection, FrameOffsets.sun);
-			f32[FrameOffsets.sun + 3] = 1;
-			f32.set(environment.sunIlluminance, FrameOffsets.sunColor);
-			f32[FrameOffsets.sunColor + 3] = environment.sunSpecular;
-			f32.set(environment.sh, FrameOffsets.sh);
-			f32[FrameOffsets.ambient] = environment.indirectSpecular;
-			// emitters marked `_IgnorePostExposure` divide out the post exposure (the game's adapted exposure)
-			// the post chain applies, which debug views turn off
-			f32[FrameOffsets.ambient + 1] = 1 / this.#post.exposure(post);
-			f32[FrameOffsets.ambient + 2] = this.#reflection === this.#noReflection ? 0 : 1;
-			f32[FrameOffsets.ambient + 3] = this.#reflectionMips;
-		}
-		{
-			const at = FrameOffsets.viewport;
-			f32[at] = outputWidth;
-			f32[at + 1] = outputHeight;
-			f32[at + 2] = camera.pixelFactor(outputHeight);
-			f32[at + 3] = this.options.minBoxPixels;
-		}
-		const terrain = this.scene?.pkg.manifest.terrain;
-		if (terrain != null) {
-			const at = FrameOffsets.terrain;
-			f32[at] = terrain.baseHeight - eye[1];
-			f32[at + 1] = terrain.heightScale / TERRAIN_HOLE_BIT;
-			u32[at + 2] = TERRAIN_HOLE_BIT;
-		}
-		{
-			const at = FrameOffsets.flags;
-			u32[at] = this.options.wireframe ? 1 : 0;
-			u32[at + 1] = DEBUG_VIEWS.indexOf(this.options.debugView);
-			u32[at + 2] = 0;
-			u32[at + 3] = 0;
-		}
-		f32[FrameOffsets.params] = this.options.outlineMetres;
-		// below the output size, textures sample as sharp as the output needs; the history gathers the detail
-		f32[FrameOffsets.params + 1] = Math.log2(height / outputHeight);
-		this.#shadows.layers.forEach((layer, i) => {
-			f32.set(layer.sample, FrameOffsets.shadowMatrices + i * 16);
-			f32.set(layer.sphere, FrameOffsets.shadowSpheres + i * 4);
-		});
-		f32.set(this.#shadows.fade, FrameOffsets.shadowFade);
-		f32[FrameOffsets.shadowFade + 3] = shadows ? 1 : 0;
-		{
-			const shadow = this.#environment.shadow;
-			f32.set(this.#shadows.penumbra(shadow.softness), FrameOffsets.shadowPenumbra);
-			const at = FrameOffsets.shadowLook;
-			f32[at] = shadow.strength;
-			f32[at + 1] = shadow.override;
-			f32[at + 2] = shadow.attenuation;
-			f32[at + 3] = this.#shadowRamp === this.#noShadowRamp ? 0 : 1;
-		}
-		{
-			const cloud = this.#environment.cloudShadow;
-			const at = FrameOffsets.cloudShadow;
-			const on =
-				cloud !== null &&
-				this.#cloudShadow !== this.#noCloudShadow &&
-				this.options.cloudShadows &&
-				this.options.debugView === 'lit';
-			f32.fill(0, at, at + 16);
-			if (on) {
-				f32.set(cloud.center, at);
-				f32[at + 3] = 1;
-				f32[at + 4] = cloud.start;
-				f32[at + 5] = cloud.start + cloud.width;
-				f32[at + 6] = cloud.scale;
-				f32.set(cloud.flow, at + 8);
-				f32[at + 10] = cloud.alpha;
-				f32[at + 11] = cloud.farScale;
-				f32.set(cloud.projection, at + 12);
-			}
-		}
-		f32.set(this.#wetness, FrameOffsets.wetness);
-		{
-			const { wind } = this.#environment;
-			f32.set([this.#windClock, wind.intensity, ...wind.direction], FrameOffsets.wind);
-		}
-		this.#irradiance.centers().forEach((center, i) => {
-			const at = FrameOffsets.irradiance + i * 4;
-			f32.set(center ?? [0, 0, 0], at);
-			f32[at + 3] = center !== null && this.options.irradiance ? 1 : 0;
-		});
-		{
-			const at = FrameOffsets.localLights;
-			f32[at] = lights.count;
-			f32[at + 1] = lights.tilesX;
-			f32[at + 2] = lights.tilesY;
-			f32[at + 3] = camera.near;
-			f32.set(camera.forward(), FrameOffsets.viewForward);
-			f32.set(camera.right(), FrameOffsets.viewRight);
-			f32.set(camera.up(), FrameOffsets.viewUp);
-			f32[FrameOffsets.renderSize] = width;
-			f32[FrameOffsets.renderSize + 1] = height;
-		}
 	}
 
 	/** refreshes {@link stats}, notifying subscribers only if something changed */

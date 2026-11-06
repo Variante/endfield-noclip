@@ -36,6 +36,9 @@
   uniform buffer in 3 per-frame regions, sub-allocated at `minUniformBufferOffsetAlignment`. callers
   fill CPU views; `flush` uploads the frame's region in one `writeBuffer`, and draws bind group 0 at
   a dynamic offset. a frame needs the main block plus one per shadow layer.
+  [`render/frame/frame-uniform-writer.ts`](../../packages/viewer/src/render/frame/frame-uniform-writer.ts)
+  holds the block's layout and packs it from plain inputs; a shadow layer's block is a copy with the
+  layer's view-projection.
 - **bind layouts**
   ([`render/frame/bind-layouts.ts`](../../packages/viewer/src/render/frame/bind-layouts.ts)): group
   0 is the frame (uniforms, shadow map, reflection cubemap, irradiance clipmaps, shadow ramp, local

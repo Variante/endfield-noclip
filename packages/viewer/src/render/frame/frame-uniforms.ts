@@ -1,5 +1,6 @@
 /**
- * the TS side of `frame.wgsl`'s `Frame` struct.
+ * the WGSL every family shares: `frame.wgsl`'s `Frame` struct and lighting helpers, with the TS constants
+ * they read. the struct's layout and writer are in `frame-uniform-writer.ts`.
  *
  * @module
  */
@@ -32,48 +33,3 @@ export const FRAME_WGSL = [
 	clipmapWgsl,
 	frameWgsl,
 ].join('\n');
-
-/** byte size of `Frame` */
-export const FRAME_UNIFORM_BYTES = 928;
-
-/** float offsets of `Frame` fields */
-export const FrameOffsets = {
-	// camera
-	viewProj: 0,
-	eye: 16,
-	viewForward: 20,
-	viewRight: 24,
-	viewUp: 28,
-	viewport: 32,
-	renderSize: 36,
-	// lighting
-	sun: 40,
-	sunColor: 44,
-	/** 7 vec4s */
-	sh: 48,
-	ambient: 76,
-	/** three vec4s: irradiance clipmap centres, w = filled */
-	irradiance: 80,
-	/** light count, tiles across and down, near plane */
-	localLights: 92,
-	// terrain and debug
-	terrain: 96,
-	/** u32 */
-	flags: 100,
-	params: 104,
-	// shadows
-	/** four mat4s */
-	shadowMatrices: 108,
-	shadowFade: 172,
-	shadowPenumbra: 176,
-	/** four vec4s */
-	shadowSpheres: 180,
-	shadowLook: 196,
-	// weather
-	/** four vec4s, see `Frame.cloud_shadow` */
-	cloudShadow: 200,
-	/** three vec4s, see `Frame.wetness` */
-	wetness: 216,
-	/** see `Frame.wind` */
-	wind: 228,
-} as const;
