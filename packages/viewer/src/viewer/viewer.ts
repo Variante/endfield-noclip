@@ -9,6 +9,7 @@ import { windClockRate } from '../environment/environment.ts';
 import { type GfxDevice, createGfxDevice } from '../gfx/device.ts';
 import { GpuProfiler } from '../gfx/gpu-profiler.ts';
 import { PipelineCache } from '../gfx/pipeline-cache.ts';
+import { destroyPlaceholders } from '../gfx/placeholders.ts';
 import { UniformRing } from '../gfx/uniform-ring.ts';
 import { DecodePool } from '../package/decode-pool.ts';
 import type { PackageSource } from '../package/package-source.ts';
@@ -1006,6 +1007,7 @@ export class Viewer {
 		this.#shadows.destroy();
 		this.#pool.destroy();
 		this.#targets.destroy();
+		destroyPlaceholders(this.#gfx.device);
 		this.#gfx.device.destroy();
 	}
 

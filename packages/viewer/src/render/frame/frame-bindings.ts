@@ -1,7 +1,9 @@
+import { placeholder } from '../../gfx/placeholders.ts';
+import { LINEAR_CLAMP_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import type { IrradianceVolume } from '../lighting/irradiance-volume.ts';
 import type { LocalLights } from '../lighting/local-lights.ts';
 import { SHADOW_FORMAT, type ShadowMap } from '../shadows/shadow-map.ts';
-import { type TextureBinding, placeholderView } from '../textures/texture-store.ts';
+import type { TextureBinding } from '../textures/texture-store.ts';
 
 import { FRAME_UNIFORM_BYTES } from './frame-uniform-writer.ts';
 
@@ -48,20 +50,23 @@ export class FrameBindings {
 	constructor(device: GPUDevice, sources: FrameSources) {
 		this.#device = device;
 		this.#sources = sources;
-		this.#shadowPlaceholder = placeholderView(device, {
-			label: 'shadow placeholder',
-			dimension: '2d-array',
-			format: SHADOW_FORMAT,
-		});
+		this.#shadowPlaceholder = device
+			.createTexture({
+				label: 'shadow placeholder',
+				size: [1, 1, 1],
+				format: SHADOW_FORMAT,
+				usage: GPUTextureUsage.TEXTURE_BINDING,
+			})
+			.createView({ dimension: '2d-array' });
 		this.#noReflection = {
-			view: placeholderView(device, { label: 'no reflection', dimension: 'cube' }),
-			sampler: device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' }),
+			view: placeholder(device, 'black', 'cube'),
+			sampler: sampler(device, LINEAR_CLAMP_MIPMAPPED),
 			version: -1,
 		};
 		this.#reflection = this.#noReflection;
 		this.#placeholders = {
-			shadowRamp: placeholderView(device, { label: 'no shadow ramp', dimension: '2d' }),
-			cloudShadow: placeholderView(device, { label: 'no cloud shadow', dimension: '2d' }),
+			shadowRamp: placeholder(device, 'black', '2d'),
+			cloudShadow: placeholder(device, 'black', '2d'),
 		};
 		this.#views = { ...this.#placeholders };
 		[this.main, this.shadow] = this.#groups();

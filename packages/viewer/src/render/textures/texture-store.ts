@@ -61,29 +61,6 @@ const viewDimension = (kind: ReadyTexture['kind']): GPUTextureViewDimension => {
 const blockAligned = (value: number, block: number): number => Math.ceil(value / block) * block;
 
 /**
- * @param device the device
- * @param options the label, the view dimension, and the format (`rgba8unorm` by default)
- * @returns a view of a 1×1 zeroed texture (six layers for a cube), bound where a texture is missing
- */
-export const placeholderView = (
-	device: GPUDevice,
-	{
-		label,
-		dimension,
-		format = 'rgba8unorm',
-	}: { label: string; dimension: '2d' | '2d-array' | 'cube' | '3d'; format?: GPUTextureFormat },
-): GPUTextureView =>
-	device
-		.createTexture({
-			label,
-			size: [1, 1, dimension === 'cube' ? 6 : 1],
-			dimension: dimension === '3d' ? '3d' : '2d',
-			format,
-			usage: GPUTextureUsage.TEXTURE_BINDING,
-		})
-		.createView({ dimension });
-
-/**
  * texture residency for one package; integrated mips must form a contiguous run down to 1×1. binding versions
  * change when integration or eviction replaces a GPU texture.
  */
