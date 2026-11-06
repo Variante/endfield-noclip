@@ -40,6 +40,9 @@ the post profile, not a Unity `VolumeProfile`.
   other.
 - `planBlend` works out the volumes and factors at the camera, and a key of them; the viewer blends
   the sections (`applyBlend`) only when the key changes.
+  [`viewer/environment-state.ts`](../../packages/viewer/src/viewer/environment-state.ts) re-plans
+  only when the eye, the volume settings, the condition results or a fade changed, and hands the
+  renderers one derived look (environment, celestial layers, lens flare, wetness) per change.
 - visit volumes in ascending priority, then shape kind (global, box, prism). the game's order among
   equal priorities isn't known, so this tie-break is an assumption. the order and the shape tests
   are

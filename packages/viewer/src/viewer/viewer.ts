@@ -4,7 +4,7 @@ import {
 	resolveSceneValues,
 } from '@endfield-noclip/package-format/conditions';
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
-import type { LevelEnvironment, LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
+import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
 import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import {
 	areasShownIn,
@@ -19,18 +19,8 @@ import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
 import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
 import { instanceRowKinds } from '../content/row-kinds.ts';
-import {
-	type AppliedVolume,
-	applyBlend,
-	EnvironmentFades,
-	eyeInLevelVolume,
-	planBlend,
-} from '../environment/blend.ts';
-import { type CelestialLook, NO_CELESTIAL, celestialLook } from '../environment/celestial-look.ts';
-import { deriveEnvironment } from '../environment/derive.ts';
-import { type Environment, windClockRate } from '../environment/environment.ts';
-import { lensFlareLook } from '../environment/lens-flare-look.ts';
-import { wetnessParams } from '../environment/wetness.ts';
+import { type AppliedVolume, eyeInLevelVolume } from '../environment/blend.ts';
+import { windClockRate } from '../environment/environment.ts';
 import { type GfxDevice, createGfxDevice } from '../gfx/device.ts';
 import { GpuProfiler } from '../gfx/gpu-profiler.ts';
 import { PipelineCache } from '../gfx/pipeline-cache.ts';
@@ -71,6 +61,7 @@ import type { ResidentInstances } from '../streaming/resident.ts';
 import { type InstanceRange, Selector } from '../streaming/selection.ts';
 import { StreamManager } from '../streaming/stream-manager.ts';
 
+import { EnvironmentState } from './environment-state.ts';
 import { DEFAULT_OPTIONS, type ViewerOptions } from './options.ts';
 import { updateSkyTextures } from './sky-textures.ts';
 import { type ViewerStats, FrameTimes, STATS_INTERVAL, collectStats, emptyStats } from './stats.ts';
@@ -139,21 +130,8 @@ export class Viewer {
 	/** the systems whose GPU pools and targets the stats sum */
 	readonly #pools: readonly { readonly bytes: number }[];
 	#waterLevels = new WaterLevels();
-	/** the shown level's look */
-	#environment: Environment = deriveEnvironment(null);
-	/** the nebula and planets of {@link #environment}'s profile */
-	#celestial: CelestialLook = NO_CELESTIAL;
-	/** `Frame.wetness` for {@link #environment}'s profile */
-	#wetness: Float32Array = wetnessParams(undefined);
-	/** the shown level's base environment, which the volumes blend over */
-	#baseEnvironment: LevelEnvironment | null = null;
-	/** what the environment was last blended for */
-	#blendEye: Vec3 = [Infinity, Infinity, Infinity];
-	#blendSettings = '';
-	#blendKey: string | null = null;
-	#appliedVolumes: AppliedVolume[] = [];
-	/** the time-faded volumes' fade state for the camera */
-	readonly #fades = new EnvironmentFades();
+	/** the shown level's environment, blended at the camera */
+	readonly #environment = new EnvironmentState();
 	#pool: DecodePool;
 	#listeners = new Set<() => void>();
 	#raf = 0;
@@ -245,14 +223,9 @@ export class Viewer {
 		this.#instances = new InstanceRenderer(device, this.#layouts, this.#pipelines, format, INSTANCE_ROWS);
 		this.#meshes = new MeshRenderer(device, this.#layouts, this.#pipelines, this.#instances, format);
 		this.#fog = new VolumetricFog(device, this.#pipelines, this.#layouts.frame);
-		this.#fog.setEnvironment(this.#environment, this.camera.near);
-		this.#post = new PostProcess(
-			device,
-			this.#pipelines,
-			gfx.presentationFormat,
-			this.#environment,
-			this.#fog,
-		);
+		const { environment } = this.#environment.look;
+		this.#fog.setEnvironment(environment, this.camera.near);
+		this.#post = new PostProcess(device, this.#pipelines, gfx.presentationFormat, environment, this.#fog);
 		this.#water = new WaterRenderer(device, this.#pipelines, {
 			frame: this.#layouts.frame,
 			...this.#post.skyLayouts,
@@ -449,7 +422,7 @@ export class Viewer {
 		this.#scenePicks = {};
 		this.#sceneValues = {};
 		this.options.environmentPin = null;
-		this.#fades.reset();
+		this.#environment.fades.reset();
 		this.#setIrradiance(EMPTY_IRRADIANCE, []);
 		this.#water.setTable(null);
 		this.#waterLevels.setVolumes([]);
@@ -471,79 +444,46 @@ export class Viewer {
 
 	/** lights the scene with the shown level's environment, or the defaults */
 	#applyEnvironment(): void {
-		this.#baseEnvironment = this.#level?.environment ?? null;
-		this.#blendKey = null;
-		this.#fades.reset();
-		this.#blendEnvironment(true, 0);
+		this.#environment.setBase(this.#level?.environment ?? null);
+		this.#blendEnvironment({ force: true, dt: 0 });
 	}
 
 	/**
 	 * re-blends the environment volumes at the camera when it moved, a fade is running or the options changed,
 	 * and relights the scene if the result differs
 	 *
-	 * @param force blend even if nothing changed
-	 * @param dt seconds since the last frame, which time-faded volumes advance by
+	 * @param options.force blend even if nothing changed
+	 * @param options.dt seconds since the last frame, which time-faded volumes advance by
 	 */
-	#blendEnvironment(force: boolean, dt: number): void {
-		const options = this.options;
-		const eye = this.camera.position;
-		const settings = `${options.environmentVolumes}|${options.environmentPin}|${this.#conditionResults.join()}`;
-		const last = this.#blendEye;
-		if (
-			!force &&
-			settings === this.#blendSettings &&
-			!this.#fades.animating &&
-			eye[0] === last[0] &&
-			eye[1] === last[1] &&
-			eye[2] === last[2]
-		) {
+	#blendEnvironment({ force, dt }: { force: boolean; dt: number }): void {
+		const look = this.#environment.update(
+			{
+				manifest: this.scene?.pkg.manifest,
+				eye: this.camera.position,
+				volumes: this.options.environmentVolumes,
+				pinnedPhase: this.options.environmentPin,
+				loaded: this.#conditionResults,
+				dt,
+			},
+			{ force },
+		);
+		if (look === null) {
 			return;
 		}
-		this.#blendEye = [...eye];
-		this.#blendSettings = settings;
-		const manifest = this.scene?.pkg.manifest;
-		const base = this.#baseEnvironment;
-		const plan =
-			manifest === undefined || base === null
-				? null
-				: planBlend(
-						manifest,
-						base,
-						eye,
-						{
-							volumes: options.environmentVolumes,
-							pinnedPhase: options.environmentPin,
-							loaded: this.#conditionResults,
-						},
-						{ fades: this.#fades, dt },
-					);
-		const key = plan?.key ?? '';
-		this.#appliedVolumes = plan?.applied ?? [];
-		if (key === this.#blendKey) {
-			return;
-		}
-		this.#blendKey = key;
-		const profile = plan === null ? null : applyBlend(plan);
-		this.#environment = deriveEnvironment(profile);
-		this.#celestial = celestialLook(profile);
-		this.#wetness = wetnessParams(profile?.rain);
-		this.#post.setEnvironment(this.#environment, {
-			celestial: this.#celestial,
-			lensFlare: lensFlareLook(profile),
-		});
-		this.#fog.setEnvironment(this.#environment, this.camera.near);
+		this.#post.setEnvironment(look.environment, look);
+		this.#fog.setEnvironment(look.environment, this.camera.near);
 		this.#dirty = true;
 		this.#emitState();
 	}
 
 	/** @returns the name of the environment profile lighting the shown level, or `null` for the defaults */
 	get environmentName(): string | null {
-		return this.#environment.name;
+		return this.#environment.look.environment.name;
 	}
 
 	/** @returns the environment volumes applied at the camera, in order */
 	get appliedVolumes(): readonly AppliedVolume[] {
-		return this.#appliedVolumes;
+		return this.#environment.applied;
 	}
 
 	/** @returns the phases the volumes listed for the shown level apply, for pinning one: index and name */
@@ -889,7 +829,7 @@ export class Viewer {
 		this.#scenePicks = {};
 		this.#waterLevels.reset();
 		this.options.environmentPin = null;
-		this.#fades.reset();
+		this.#environment.fades.reset();
 		this.#updateVisibility();
 		this.#emitState();
 	}
@@ -1054,7 +994,7 @@ export class Viewer {
 		);
 		this.#followStreamAreas();
 		const resized = this.#targets.update();
-		this.#blendEnvironment(false, dt);
+		this.#blendEnvironment({ force: false, dt });
 		this.#times.span('controls');
 		const scene = this.scene;
 		const options = this.options;
@@ -1085,7 +1025,7 @@ export class Viewer {
 		const render = changed || settling || adapting;
 		if (render && options.animate) {
 			this.#time += dt;
-			this.#windClock += windClockRate(this.#environment.wind) * dt;
+			this.#windClock += windClockRate(this.#environment.look.environment.wind) * dt;
 		}
 		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
 		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
@@ -1154,11 +1094,12 @@ export class Viewer {
 		const aspect = this.#targets.outputWidth / this.#targets.outputHeight;
 		const planes = this.camera.frustumPlanes(aspect, this.#planes);
 		const shadows = options.shadows && options.debugView === 'lit';
+		const { environment, celestial } = this.#environment.look;
 		const view = {
 			camera: this.camera,
 			planes,
 			pixelFactor: this.camera.pixelFactor(this.#targets.outputHeight),
-			casters: shadows ? offscreenCasters(planes, this.#environment.sunDirection) : null,
+			casters: shadows ? offscreenCasters(planes, environment.sunDirection) : null,
 		};
 		const selection = scene.selector.run(
 			view,
@@ -1178,7 +1119,7 @@ export class Viewer {
 		if (shadows) {
 			// mesh selection groups instances by the shadow layers they reach; #render fits the same layers again,
 			// which changes nothing while the camera holds still
-			this.#shadows.fit(this.camera, aspect, this.#environment.sunDirection);
+			this.#shadows.fit(this.camera, aspect, environment.sunDirection);
 		}
 		if (scene.meshes !== null && options.instances) {
 			meshSelection = scene.meshes.run(selection.instances, {
@@ -1207,7 +1148,7 @@ export class Viewer {
 		this.#times.span('mesh select');
 		updateSkyTextures(
 			{ stream, textures: scene.textures, flowNoise: scene.pkg.manifest.heightFogFlowNoise ?? null },
-			{ environment: this.#environment, celestial: this.#celestial, flowNoise: options.flowNoise },
+			{ environment, celestial, flowNoise: options.flowNoise },
 			{ post: this.#post, bindings: this.#bindings },
 		);
 		if (options.water) {
@@ -1217,7 +1158,7 @@ export class Viewer {
 				stream,
 				geometries: scene.pkg.geometries.entries,
 				textures: scene.textures,
-				sun: this.#environment.sunRaw,
+				sun: environment.sunRaw,
 				volumeOffsets: this.#waterLevels.offsets,
 			});
 		} else {
@@ -1258,13 +1199,10 @@ export class Viewer {
 		const device = this.#gfx.device;
 		const ring = this.#ring;
 		ring.beginFrame();
+		const { environment, wetness } = this.#environment.look;
 		const shadows = hasScene && this.options.shadows && this.options.debugView === 'lit';
 		if (shadows) {
-			this.#shadows.fit(
-				this.camera,
-				this.#targets.width / this.#targets.height,
-				this.#environment.sunDirection,
-			);
+			this.#shadows.fit(this.camera, this.#targets.width / this.#targets.height, environment.sunDirection);
 		}
 		const lit = hasScene && this.options.localLights && this.options.debugView === 'lit';
 		const lights = lit
@@ -1281,8 +1219,8 @@ export class Viewer {
 			outputHeight,
 			time: this.#time,
 			windClock: this.#windClock,
-			environment: this.#environment,
-			wetness: this.#wetness,
+			environment,
+			wetness,
 			exposure: this.#post.exposure(post),
 			bindings: this.#bindings,
 			terrain: this.scene?.pkg.manifest.terrain,
