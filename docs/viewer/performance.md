@@ -23,6 +23,9 @@
   only when its name or the applied volumes' phases and rounded weights change, which only the
   settings panel follows: the blend changes on most frames while the camera moves, and each
   re-render of the scene conditions panel takes over 100 ms on map02.
+- **culled in groups.** the mesh selection rejects groups of 32 rows by their bounds before testing
+  rows ([per-instance LOD](streaming.md#per-instance-lod)); on map02 this took 15–30% off its time
+  at dense views, where most rows walked are drawn.
 - **capped particles replayed in steps of a lifetime.** an emitter whose cap turns emissions away
   replays a few lifetimes of emissions when it first shows. a full system jumps to the moment its
   first particle dies, and the live ones are counted with a heap of end times: some map02 effects

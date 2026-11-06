@@ -87,8 +87,13 @@ wheel starts from its stored pose at the clock's zero; the game's phase is its g
 [`streaming/mesh-selection.ts`](../../packages/viewer/src/streaming/mesh-selection.ts) runs on the
 CPU over the selected row ranges, with the sphere and shadow layer tests of
 [`instance-culling.ts`](../../packages/viewer/src/streaming/instance-culling.ts) and the chain slots
-and buckets of [`mesh-buckets.ts`](../../packages/viewer/src/streaming/mesh-buckets.ts). per
-instance it:
+and buckets of [`mesh-buckets.ts`](../../packages/viewer/src/streaming/mesh-buckets.ts). it first
+tests each group of 32 consecutive rows of a block
+([`row-groups.ts`](../../packages/viewer/src/streaming/row-groups.ts), built on a block's first
+selection) against the same rules with the group's bounds: its sphere, its largest row radius and
+its farthest LOD reach. a group that fails one has no row that passes it, so it's skipped whole.
+rows are in placement order, which keeps a group's rows close together (a median radius of 20 m on
+map02); groups holding spinning rows are never skipped. per instance it:
 
 1. culls by projected bounding-sphere radius (`minBoxPixels`, default 1.5 px) and by frustum planes;
 2. computes Unity's LODGroup metric (object size relative to screen height, the size being twice the

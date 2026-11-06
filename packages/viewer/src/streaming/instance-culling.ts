@@ -45,6 +45,31 @@ export const sphereInPlanes = (
 };
 
 /**
+ * @param planes camera-relative planes, (normal, distance) each
+ * @param floats how many of `planes`' floats to test, 4 per plane
+ * @param x the sphere's camera-relative centre
+ * @param y
+ * @param z
+ * @param radius the sphere's radius
+ * @returns whether the sphere is wholly inside the planes
+ */
+export const sphereInsidePlanes = (
+	planes: Float64Array,
+	floats: number,
+	x: number,
+	y: number,
+	z: number,
+	radius: number,
+): boolean => {
+	for (let p = 0; p < floats; p += 4) {
+		if (planes[p] * x + planes[p + 1] * y + planes[p + 2] * z + planes[p + 3] < radius) {
+			return false;
+		}
+	}
+	return true;
+};
+
+/**
  * each layer draws the instances whose first layer is it or an earlier one: that holds every caster it needs,
  * plus a few near the camera that only the nearer layers need.
  *

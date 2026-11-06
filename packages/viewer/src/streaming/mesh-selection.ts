@@ -9,7 +9,7 @@ import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow
 import type { TextureStore } from '../render/textures/texture-store.ts';
 import type { Plane } from '../scene/camera.ts';
 
-import { firstRunAt, firstShadowLayer, sphereInPlanes } from './instance-culling.ts';
+import { firstRunAt, firstShadowLayer, sphereInPlanes, sphereInsidePlanes } from './instance-culling.ts';
 import {
 	BUCKET_LIFETIME,
 	type ChainSlot,
@@ -18,6 +18,15 @@ import {
 	bucketIndex,
 	slotHidden,
 } from './mesh-buckets.ts';
+import type { ResidentInstances } from './resident.ts';
+import {
+	GROUP_FLOATS,
+	GROUP_ROWS,
+	GroupFloat,
+	buildRowGroups,
+	chainReach,
+	mirroredRows,
+} from './row-groups.ts';
 import type { CasterVolume, InstanceRange } from './selection.ts';
 import type { StreamManager } from './stream-manager.ts';
 import { TextureRequests } from './texture-requests.ts';
@@ -88,9 +97,24 @@ export class MeshSelector {
 	#ready: Uint8Array;
 	/** per geometry: the highest priority it was wanted with that frame */
 	#wanted: Float64Array;
+	/** this frame's camera inputs, for {@link #selectRows} */
+	#view: MeshView | null = null;
 	#planes = new Float64Array(4 * 5);
+	/** floats of {@link #planes} in use this frame */
+	#planeFloats = 0;
 	#casterPlanes = new Float64Array(4 * 5);
+	/** floats of {@link #casterPlanes} in use this frame, 0 without casters */
+	#casterFloats = 0;
+	#casterDistance = 0;
 	#pending: ChainSlot[] = [];
+	/** the block being selected's origin relative to the eye, for {@link #selectRows} */
+	#ox = 0;
+	#oy = 0;
+	#oz = 0;
+	/** each resident block's row groups and mirrored rows, built on its first selection */
+	readonly #groups = new WeakMap<ResidentInstances, { bounds: Float32Array; mirrored: Uint8Array }>();
+	/** per chain, its reach per metre of size ({@link chainReach}), `NaN` until first asked */
+	readonly #reaches: Float64Array;
 
 	/** @param init tables and residency */
 	constructor(init: MeshSelectorInit) {
@@ -104,6 +128,7 @@ export class MeshSelector {
 		this.#checkedFrame = new Int32Array(count).fill(-1);
 		this.#ready = new Uint8Array(count);
 		this.#wanted = new Float64Array(count);
+		this.#reaches = new Float64Array(init.chains.length).fill(Number.NaN);
 	}
 
 	/**
@@ -114,167 +139,74 @@ export class MeshSelector {
 	run(ranges: readonly InstanceRange[], view: MeshView): MeshSelection {
 		const frame = ++this.#frame;
 		const selection = this.selection;
-		const buckets = selection.buckets;
-		const boxes = selection.boxes;
-		buckets.length = 0;
-		boxes.length = 0;
+		selection.buckets.length = 0;
+		selection.boxes.length = 0;
 		selection.particles = false;
-		const { eye, pixelFactor, viewportHeight, minPixels, casters, shadowLayers } = view;
+		this.#view = view;
+		const { eye, pixelFactor, viewportHeight, minPixels, casters } = view;
 		const planes = this.#planes;
 		const planeFloats = Math.min(view.planes.length * 4, planes.length);
 		for (let p = 0; p < planeFloats; p++) {
 			planes[p] = view.planes[p >> 2][p & 3];
 		}
+		this.#planeFloats = planeFloats;
 		const casterPlanes = this.#casterPlanes;
 		let casterFloats = 0;
-		let casterDistance = 0;
 		if (casters !== null) {
 			casterFloats = Math.min(casters.planes.length * 4, casterPlanes.length);
 			for (let p = 0; p < casterFloats; p++) {
 				casterPlanes[p] = casters.planes[p >> 2][p & 3];
 			}
-			casterDistance = casters.distance;
+			this.#casterDistance = casters.distance;
 		}
-		const pending = this.#pending;
+		this.#casterFloats = casterFloats;
+		const reachScale = pixelFactor / viewportHeight;
 
 		for (const { item, first, count } of ranges) {
 			const instances = item.resident;
 			if (instances?.kind !== 'instances') {
 				continue;
 			}
-			const f32 = instances.rowsF32;
-			const cull = instances.cull;
-			const ox = instances.origin[0] - eye[0];
-			const oy = instances.origin[1] - eye[1];
-			const oz = instances.origin[2] - eye[2];
-			const runs = instances.runs;
+			const ox = (this.#ox = instances.origin[0] - eye[0]);
+			const oy = (this.#oy = instances.origin[1] - eye[1]);
+			const oz = (this.#oz = instances.origin[2] - eye[2]);
+			const { bounds: groups, mirrored } = this.#groupsOf(instances);
 			const end = first + count;
-			for (let r = firstRunAt(runs, first); r < runs.length; r += 3) {
-				const runFirst = runs[r + 1];
-				const runEnd = runFirst + runs[r + 2];
-				if (runFirst >= end) {
-					break;
-				}
-				if (runEnd <= first) {
+			for (let g = Math.floor(first / GROUP_ROWS); g * GROUP_ROWS < end; g++) {
+				// each of #selectRows' rejections, tested on the group's bounds: a group that fails one holds no row
+				// that passes it
+				const at = g * GROUP_FLOATS;
+				const gx = ox + groups[at + GroupFloat.center];
+				const gy = oy + groups[at + GroupFloat.center + 1];
+				const gz = oz + groups[at + GroupFloat.center + 2];
+				const nearest = Math.max(
+					Math.sqrt(gx * gx + gy * gy + gz * gz) - groups[at + GroupFloat.centersRadius],
+					0.1,
+				);
+				const rowPixels = (groups[at + GroupFloat.rowRadius] * pixelFactor) / nearest;
+				if (rowPixels < minPixels || nearest > groups[at + GroupFloat.reach] * reachScale) {
 					continue;
 				}
-				const slots = this.#buckets.slots(runs[r]);
-				const box = this.#buckets.drawsBox(runs[r]);
-				// effect distance bands measure from the effect's origin, in the instance's frame
-				const origin = this.#chains[runs[r]].distanceOrigin;
-				const last = Math.min(end, runEnd);
-				for (let i = Math.max(first, runFirst); i < last; i++) {
-					const at = i * ROW_WORDS;
-					const x = ox + f32[at + 12];
-					const y = oy + f32[at + 13];
-					const z = oz + f32[at + 14];
-					const radius = cull[i * CULL_FLOATS];
-					const distance = Math.max(Math.sqrt(x * x + y * y + z * z), 0.1);
-					if ((radius * pixelFactor) / distance < minPixels) {
-						continue;
-					}
-					let castOnly = false;
-					if (!sphereInPlanes(planes, planeFloats, x, y, z, radius)) {
-						if (
-							casterFloats === 0 ||
-							(radius * pixelFactor) / distance < CASTER_MIN_PIXELS ||
-							distance - radius > casterDistance ||
-							!sphereInPlanes(casterPlanes, casterFloats, x, y, z, radius)
-						) {
-							continue;
-						}
-						castOnly = true;
-					}
-					// Unity's LODGroup metric: the object's size relative to the screen height
-					const relative = (2 * cull[i * CULL_FLOATS + 1] * pixelFactor) / (distance * viewportHeight);
-					let squared = relative * relative;
-					if (origin !== null) {
-						// rows hold the transform's top three rows, row-major, translation relative to the block
-						const [px, py, pz] = origin;
-						const dx = ox + f32[at] * px + f32[at + 1] * py + f32[at + 2] * pz + f32[at + 3];
-						const dy = oy + f32[at + 4] * px + f32[at + 5] * py + f32[at + 6] * pz + f32[at + 7];
-						const dz = oz + f32[at + 8] * px + f32[at + 9] * py + f32[at + 10] * pz + f32[at + 11];
-						squared = dx * dx + dy * dy + dz * dz;
-					}
-					const priority = relative * viewportHeight * (castOnly ? CASTER_PRIORITY : 1);
-
-					let pendingCount = 0;
-					let ready = true;
-					let lod = -1;
-					for (let s = 0; s < slots.length; s++) {
-						const slot = slots[s];
-						if (slotHidden(slot, view) || !(squared > slot.minSquared && squared <= slot.maxSquared)) {
-							continue;
-						}
-						lod = slot.lod;
-						if (castOnly && !slot.castsShadows) {
-							continue;
-						}
-						if (this.#geometryReady(slot.geometry, priority, frame)) {
-							pending[pendingCount++] = slot;
-						} else {
-							ready = false;
-						}
-					}
-					if (lod < 0) {
-						continue;
-					}
-					const row = instances.alloc.start + i;
-					if (!ready) {
-						pendingCount = this.#residentLod(slots, lod, { castOnly, view });
-						if (pendingCount === 0) {
-							if (box && !castOnly) {
-								boxes.push(row);
-							}
-							continue;
-						}
-					}
-					const group =
-						shadowLayers === null ? SHADOW_LAYERS : firstShadowLayer(shadowLayers, x, y, z, radius);
-					// the sign of the transform's determinant (its rows are the matrix rows)
-					const mirrored =
-						f32[at] * (f32[at + 5] * f32[at + 10] - f32[at + 6] * f32[at + 9]) -
-							f32[at + 1] * (f32[at + 4] * f32[at + 10] - f32[at + 6] * f32[at + 8]) +
-							f32[at + 2] * (f32[at + 4] * f32[at + 9] - f32[at + 5] * f32[at + 8]) <
-						0
-							? 1
-							: 0;
-					for (let p = 0; p < pendingCount; p++) {
-						const slot = pending[p];
-						const cast = castOnly || slot.shadowOnly;
-						const bucket =
-							slot.buckets[bucketIndex(mirrored, cast)] ?? this.#buckets.bucketOf(slot, mirrored, cast);
-						if (bucket.frame !== frame) {
-							bucket.frame = frame;
-							for (const rows of bucket.rows) {
-								rows.length = 0;
-							}
-							bucket.pixels = 0;
-							bucket.nearest = Infinity;
-							buckets.push(bucket);
-						}
-						if (slot.particles === null) {
-							bucket.rows[group].push(row);
-						} else {
-							const particles = this.#particles.rows(instances, i, slot.particles, frame, view.particles);
-							selection.particles = true;
-							for (const particle of particles) {
-								bucket.rows[group].push(particle);
-							}
-						}
-						if (priority > bucket.pixels) {
-							bucket.pixels = priority;
-						}
-						if (distance - radius < bucket.nearest) {
-							bucket.nearest = distance - radius;
-						}
-					}
+				const radius = groups[at + GroupFloat.radius];
+				if (
+					!sphereInPlanes(planes, planeFloats, gx, gy, gz, radius) &&
+					(casterFloats === 0 ||
+						rowPixels < CASTER_MIN_PIXELS ||
+						!sphereInPlanes(casterPlanes, casterFloats, gx, gy, gz, radius))
+				) {
+					continue;
 				}
+				// every row of a group wholly in view is in view too
+				const inside = sphereInsidePlanes(planes, planeFloats, gx, gy, gz, radius);
+				this.#selectRows(instances, Math.max(first, g * GROUP_ROWS), Math.min(end, (g + 1) * GROUP_ROWS), {
+					inside,
+					mirrored,
+				});
 			}
 		}
 
 		const texturePixels = 2 ** -view.textureBias;
-		for (const bucket of buckets) {
+		for (const bucket of selection.buckets) {
 			const look = bucket.look;
 			if (bucket.castOnly) {
 				// a shadow needs only the texture holding the alpha it's cut out by
@@ -301,6 +233,187 @@ export class MeshSelector {
 			this.#buckets.prune(frame);
 		}
 		return selection;
+	}
+
+	/** @returns the block's row groups and mirrored rows, built on first use */
+	#groupsOf(instances: ResidentInstances): { bounds: Float32Array; mirrored: Uint8Array } {
+		return this.#groups.getOrInsertComputed(instances, () => ({
+			bounds: buildRowGroups(
+				{
+					rowsF32: instances.rowsF32,
+					cull: instances.cull,
+					runs: instances.runs,
+					moving: instances.spins?.rows ?? null,
+				},
+				(chain) => this.#reach(chain),
+			),
+			mirrored: mirroredRows(instances.rowsF32, instances.cull.length / CULL_FLOATS),
+		}));
+	}
+
+	/** @returns the chain's reach per metre of size, over every slot it may draw */
+	#reach(chain: number): number {
+		let reach = this.#reaches[chain];
+		if (Number.isNaN(reach)) {
+			let minSquared: number | null = null;
+			for (const slot of this.#buckets.slots(chain)) {
+				minSquared = minSquared === null ? slot.minSquared : Math.min(minSquared, slot.minSquared);
+			}
+			reach = chainReach(minSquared, this.#chains[chain].distanceOrigin !== null);
+			this.#reaches[chain] = reach;
+		}
+		return reach;
+	}
+
+	/**
+	 * culls, LOD-selects and buckets a block's rows `[first, end)` for this frame's view, the block's origin
+	 * relative to the eye being {@link #ox}, {@link #oy}, {@link #oz}
+	 *
+	 * @param group `inside` when the rows' group is wholly in view, so no row needs the frustum test, and the
+	 *   block's mirrored rows
+	 */
+	#selectRows(
+		instances: ResidentInstances,
+		first: number,
+		end: number,
+		{ inside, mirrored: mirroredRow }: { inside: boolean; mirrored: Uint8Array },
+	): void {
+		const view = this.#view;
+		if (view === null) {
+			return;
+		}
+		const ox = this.#ox;
+		const oy = this.#oy;
+		const oz = this.#oz;
+		const frame = this.#frame;
+		const { buckets, boxes } = this.selection;
+		const { pixelFactor, viewportHeight, minPixels, shadowLayers } = view;
+		const planes = this.#planes;
+		const planeFloats = this.#planeFloats;
+		const casterPlanes = this.#casterPlanes;
+		const casterFloats = this.#casterFloats;
+		const casterDistance = this.#casterDistance;
+		const pending = this.#pending;
+		const f32 = instances.rowsF32;
+		const cull = instances.cull;
+		const runs = instances.runs;
+		for (let r = firstRunAt(runs, first); r < runs.length; r += 3) {
+			const runFirst = runs[r + 1];
+			const runEnd = runFirst + runs[r + 2];
+			if (runFirst >= end) {
+				break;
+			}
+			if (runEnd <= first) {
+				continue;
+			}
+			const slots = this.#buckets.slots(runs[r]);
+			const box = this.#buckets.drawsBox(runs[r]);
+			// effect distance bands measure from the effect's origin, in the instance's frame
+			const origin = this.#chains[runs[r]].distanceOrigin;
+			const last = Math.min(end, runEnd);
+			for (let i = Math.max(first, runFirst); i < last; i++) {
+				const at = i * ROW_WORDS;
+				const x = ox + f32[at + 12];
+				const y = oy + f32[at + 13];
+				const z = oz + f32[at + 14];
+				const radius = cull[i * CULL_FLOATS];
+				const distance = Math.max(Math.sqrt(x * x + y * y + z * z), 0.1);
+				if ((radius * pixelFactor) / distance < minPixels) {
+					continue;
+				}
+				let castOnly = false;
+				if (!inside && !sphereInPlanes(planes, planeFloats, x, y, z, radius)) {
+					if (
+						casterFloats === 0 ||
+						(radius * pixelFactor) / distance < CASTER_MIN_PIXELS ||
+						distance - radius > casterDistance ||
+						!sphereInPlanes(casterPlanes, casterFloats, x, y, z, radius)
+					) {
+						continue;
+					}
+					castOnly = true;
+				}
+				// Unity's LODGroup metric: the object's size relative to the screen height
+				const relative = (2 * cull[i * CULL_FLOATS + 1] * pixelFactor) / (distance * viewportHeight);
+				let squared = relative * relative;
+				if (origin !== null) {
+					// rows hold the transform's top three rows, row-major, translation relative to the block
+					const [px, py, pz] = origin;
+					const dx = ox + f32[at] * px + f32[at + 1] * py + f32[at + 2] * pz + f32[at + 3];
+					const dy = oy + f32[at + 4] * px + f32[at + 5] * py + f32[at + 6] * pz + f32[at + 7];
+					const dz = oz + f32[at + 8] * px + f32[at + 9] * py + f32[at + 10] * pz + f32[at + 11];
+					squared = dx * dx + dy * dy + dz * dz;
+				}
+				const priority = relative * viewportHeight * (castOnly ? CASTER_PRIORITY : 1);
+
+				let pendingCount = 0;
+				let ready = true;
+				let lod = -1;
+				for (let s = 0; s < slots.length; s++) {
+					const slot = slots[s];
+					if (
+						!(squared > slot.minSquared && squared <= slot.maxSquared) ||
+						(slot.hiddenBy !== null && slotHidden(slot, view))
+					) {
+						continue;
+					}
+					lod = slot.lod;
+					if (castOnly && !slot.castsShadows) {
+						continue;
+					}
+					if (this.#geometryReady(slot.geometry, priority, frame)) {
+						pending[pendingCount++] = slot;
+					} else {
+						ready = false;
+					}
+				}
+				if (lod < 0) {
+					continue;
+				}
+				const row = instances.alloc.start + i;
+				if (!ready) {
+					pendingCount = this.#residentLod(slots, lod, { castOnly, view });
+					if (pendingCount === 0) {
+						if (box && !castOnly) {
+							boxes.push(row);
+						}
+						continue;
+					}
+				}
+				const group = shadowLayers === null ? SHADOW_LAYERS : firstShadowLayer(shadowLayers, x, y, z, radius);
+				const mirrored = mirroredRow[i] === 1 ? 1 : 0;
+				for (let p = 0; p < pendingCount; p++) {
+					const slot = pending[p];
+					const cast = castOnly || slot.shadowOnly;
+					const bucket =
+						slot.buckets[bucketIndex(mirrored, cast)] ?? this.#buckets.bucketOf(slot, mirrored, cast);
+					if (bucket.frame !== frame) {
+						bucket.frame = frame;
+						for (const rows of bucket.rows) {
+							rows.length = 0;
+						}
+						bucket.pixels = 0;
+						bucket.nearest = Infinity;
+						buckets.push(bucket);
+					}
+					if (slot.particles === null) {
+						bucket.rows[group].push(row);
+					} else {
+						const particles = this.#particles.rows(instances, i, slot.particles, frame, view.particles);
+						this.selection.particles = true;
+						for (const particle of particles) {
+							bucket.rows[group].push(particle);
+						}
+					}
+					if (priority > bucket.pixels) {
+						bucket.pixels = priority;
+					}
+					if (distance - radius < bucket.nearest) {
+						bucket.nearest = distance - radius;
+					}
+				}
+			}
+		}
 	}
 
 	/**
