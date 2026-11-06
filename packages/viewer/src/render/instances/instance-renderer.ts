@@ -16,6 +16,7 @@
  */
 
 import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from '../../content/instance-rows.ts';
+import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type { RangeAllocation } from '../../gfx/range-allocator.ts';
@@ -24,8 +25,9 @@ import type { Vec3 } from '../../scene/camera.ts';
 import type { ResidentInstances } from '../../streaming/resident.ts';
 import type { InstanceRange } from '../../streaming/selection.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
+import { describeFill, describeWire } from '../frame/fill-and-wire.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
-import { DEPTH_COMPARE, type MainPassFormat } from '../frame/render-targets.ts';
+import type { MainPassFormat } from '../frame/render-targets.ts';
 
 import boxesWgsl from './instance-boxes.wgsl?raw';
 
@@ -70,7 +72,7 @@ export class InstanceRenderer {
 	#blocks: GPUBuffer;
 	#blockOrigins = new Float64Array(BLOCK_SLOTS * 3);
 	#blockData = new Float32Array(BLOCK_SLOTS * 4);
-	#freeSlots: number[] = [];
+	#freeSlots = freeSlots(BLOCK_SLOTS);
 	#liveSlots = 0;
 	#list: GPUBuffer;
 	#listData = new Uint32Array(LIST_CAPACITY);
@@ -101,9 +103,6 @@ export class InstanceRenderer {
 		this.#device = device;
 		this.#pipelines = pipelines;
 		this.#layout = layouts.instances;
-		for (let slot = BLOCK_SLOTS - 1; slot >= 0; slot--) {
-			this.#freeSlots.push(slot);
-		}
 		this.#pool = new GrowableBuffer(device, {
 			label: 'instance rows',
 			unitBytes: ROW_BYTES,
@@ -135,29 +134,30 @@ export class InstanceRenderer {
 			ranges: { fill: 'boxes/fill', wire: 'boxes/wire' },
 			list: { fill: 'boxes/list-fill', wire: 'boxes/list-wire' },
 		};
-		const describe = (lines: boolean, list: boolean): GPURenderPipelineDescriptor => {
-			const constants = { USE_LIST: list ? 1 : 0 };
-			return {
-				layout: layouts.instancesPipeline,
-				vertex: { module, entryPoint: lines ? 'vs_wire' : 'vs_fill', constants },
-				fragment: {
-					module,
-					entryPoint: lines ? 'fs_wire' : 'fs_fill',
-					targets: format.targets,
-				},
-				// generated boxes aren't wound consistently; they're closed, so culling would only halve fill cost
-				primitive: { topology: lines ? 'line-list' : 'triangle-list', cullMode: 'none' },
-				depthStencil: {
-					format: format.depth,
-					depthWriteEnabled: !lines,
-					depthCompare: lines ? 'greater-equal' : DEPTH_COMPARE,
-				},
-			};
-		};
-		void pipelines.prepare(this.#keys.ranges.fill, () => describe(false, false));
-		void pipelines.prepare(this.#keys.ranges.wire, () => describe(true, false));
-		void pipelines.prepare(this.#keys.list.fill, () => describe(false, true));
-		void pipelines.prepare(this.#keys.list.wire, () => describe(true, true));
+		const layout = layouts.instancesPipeline;
+		const targets = format.targets;
+		for (const mode of ['ranges', 'list'] as const) {
+			const constants = { USE_LIST: mode === 'list' ? 1 : 0 };
+			void pipelines.prepare(this.#keys[mode].fill, () =>
+				describeFill(
+					format,
+					{
+						layout,
+						vertex: { module, entryPoint: 'vs_fill', constants },
+						fragment: { module, entryPoint: 'fs_fill', targets },
+					},
+					// generated boxes aren't wound consistently; they're closed, so culling would only halve fill cost
+					{ cullMode: 'none' },
+				),
+			);
+			void pipelines.prepare(this.#keys[mode].wire, () =>
+				describeWire(format, {
+					layout,
+					vertex: { module, entryPoint: 'vs_wire', constants },
+					fragment: { module, entryPoint: 'fs_wire', targets },
+				}),
+			);
+		}
 	}
 
 	#createBindGroup(): GPUBindGroup {

@@ -8,6 +8,7 @@ import {
 	type TerrainSplatInfo,
 } from '@endfield-noclip/package-format/terrain';
 
+import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type {
@@ -25,8 +26,9 @@ import type {
 } from '../../streaming/resident.ts';
 import type { TerrainPatch } from '../../streaming/selection.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
+import { describeFill, describeWire } from '../frame/fill-and-wire.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
-import { DEPTH_COMPARE, type MainPassFormat } from '../frame/render-targets.ts';
+import type { MainPassFormat } from '../frame/render-targets.ts';
 import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 
 import terrainWgsl from './terrain.wgsl?raw';
@@ -40,6 +42,8 @@ const PAGE_BYTES = PAGE_WORDS * 4;
 /** height page slots the pool starts with (8 MiB); a level's view holds a few hundred pages */
 const INITIAL_HEIGHT_SLOTS = 1024;
 const PATCH_FLOATS = 20;
+const FILL_KEY = 'terrain/fill';
+const WIRE_KEY = 'terrain/wire';
 const SHADOW_KEY = 'terrain/shadow';
 
 /** splat page slots; leaves within `DETAIL_DISTANCE` need a few dozen */
@@ -128,13 +132,13 @@ export class TerrainRenderer {
 	#heightsVersion = -1;
 	#albedo: GPUTexture;
 	#normal: GPUTexture;
-	#freeSurfaceSlots: number[] = [];
+	#freeSurfaceSlots: number[];
 	#surfaceBytes: number;
 	#surfaceSampler: GPUSampler;
 	#detailControl: GPUTexture;
 	#detailTint: GPUTexture;
 	#detailIndex: GPUBuffer;
-	#freeDetailSlots: number[] = [];
+	#freeDetailSlots: number[];
 	#detailBytes: number;
 	/** the package's layer textures, params and how many of the textures have arrived */
 	#layers: {
@@ -146,6 +150,8 @@ export class TerrainRenderer {
 		targets: Map<number, { texture: GPUTexture; layer: number }[]>;
 		uploaded: Set<number>;
 	} | null = null;
+	/** 1-layer stand-ins for the layers, created while a package has none */
+	#placeholders: { diffuse: GPUTexture; normal: GPUTexture; params: GPUBuffer } | null = null;
 	#layerSampler: GPUSampler;
 	#patches: GPUBuffer;
 	#patchCapacity: number;
@@ -157,8 +163,6 @@ export class TerrainRenderer {
 	#wireCount: number;
 	#bindGroup: GPUBindGroup;
 	#pipelines: PipelineCache;
-	#fillKey: string;
-	#wireKey: string;
 
 	/**
 	 * @param device the device
@@ -187,9 +191,7 @@ export class TerrainRenderer {
 		});
 		// without BC the arrays are 1-layer placeholders, so the bind group stays valid
 		const surfaceSlots = this.surfaces ? Math.min(SURFACE_SLOTS, device.limits.maxTextureArrayLayers) : 0;
-		for (let slot = surfaceSlots - 1; slot >= 0; slot--) {
-			this.#freeSurfaceSlots.push(slot);
-		}
+		this.#freeSurfaceSlots = freeSlots(surfaceSlots);
 		const surfaceTexture = (label: string): GPUTexture =>
 			device.createTexture({
 				label,
@@ -218,9 +220,7 @@ export class TerrainRenderer {
 
 		// splat pages need BC for the tint and the layer textures; without it the pool stays empty
 		const detailSlots = this.surfaces ? Math.min(DETAIL_SLOTS, device.limits.maxTextureArrayLayers) : 0;
-		for (let slot = detailSlots - 1; slot >= 0; slot--) {
-			this.#freeDetailSlots.push(slot);
-		}
+		this.#freeDetailSlots = freeSlots(detailSlots);
 		this.#detailControl = device.createTexture({
 			label: 'terrain splat control',
 			size: this.surfaces ? [SURFACE_SIDE, SURFACE_SIDE, detailSlots] : [4, 4, 1],
@@ -256,30 +256,22 @@ export class TerrainRenderer {
 		this.#bindGroup = this.#createBindGroup();
 
 		const module = pipelines.module('terrain', FRAME_WGSL + LAYOUT_WGSL + '\n' + terrainWgsl);
-		this.#fillKey = 'terrain/fill';
-		this.#wireKey = 'terrain/wire';
-		const describe = (lines: boolean): GPURenderPipelineDescriptor => ({
-			layout: layouts.terrainPipeline,
-			vertex: { module, entryPoint: 'vs_main' },
-			fragment: {
-				module,
-				entryPoint: lines ? 'fs_wire' : 'fs_main',
-				targets: format.targets,
-			},
-			primitive: lines
-				? { topology: 'line-list' }
-				: { topology: 'triangle-list', frontFace: 'cw', cullMode: 'back' },
-			depthStencil: {
-				format: format.depth,
-				depthWriteEnabled: !lines,
-				depthCompare: lines ? 'greater-equal' : DEPTH_COMPARE,
-			},
-		});
-		void pipelines.prepare(this.#fillKey, () => describe(false));
-		void pipelines.prepare(this.#wireKey, () => describe(true));
+		const layout = layouts.terrainPipeline;
+		const vertex = { module, entryPoint: 'vs_main' };
+		const targets = format.targets;
+		void pipelines.prepare(FILL_KEY, () =>
+			describeFill(
+				format,
+				{ layout, vertex, fragment: { module, entryPoint: 'fs_main', targets } },
+				{ frontFace: 'cw', cullMode: 'back' },
+			),
+		);
+		void pipelines.prepare(WIRE_KEY, () =>
+			describeWire(format, { layout, vertex, fragment: { module, entryPoint: 'fs_wire', targets } }),
+		);
 		void pipelines.prepare(SHADOW_KEY, () => ({
-			layout: layouts.terrainPipeline,
-			vertex: { module, entryPoint: 'vs_main' },
+			layout,
+			vertex,
 			fragment: { module, entryPoint: 'fs_shadow', targets: [] },
 			primitive: { topology: 'triangle-list' },
 			depthStencil: SHADOW_DEPTH_STATE,
@@ -309,8 +301,6 @@ export class TerrainRenderer {
 			],
 		});
 	}
-
-	#placeholders: { diffuse: GPUTexture; normal: GPUTexture; params: GPUBuffer } | null = null;
 
 	/** 1-layer stand-ins that keep the bind group valid while a package has no layers */
 	#placeholderLayers(): { diffuse: GPUTexture; normal: GPUTexture; params: GPUBuffer } {
@@ -641,7 +631,7 @@ export class TerrainRenderer {
 	 * @returns draw calls issued
 	 */
 	encode(pass: GPURenderPassEncoder): number {
-		return this.#encode(pass, this.#fillKey, this.#fillIndices, this.#fillCount);
+		return this.#encode(pass, FILL_KEY, this.#fillIndices, this.#fillCount);
 	}
 
 	/**
@@ -661,7 +651,7 @@ export class TerrainRenderer {
 	 * @returns draw calls issued
 	 */
 	encodeWireframe(pass: GPURenderPassEncoder): number {
-		return this.#encode(pass, this.#wireKey, this.#wireIndices, this.#wireCount);
+		return this.#encode(pass, WIRE_KEY, this.#wireIndices, this.#wireCount);
 	}
 
 	#encode(pass: GPURenderPassEncoder, key: string, indices: GPUBuffer, indexCount: number): number {
