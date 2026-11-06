@@ -88,7 +88,6 @@ test('a claimed variable takes no generic control, and only an unread variable c
 		name: `#${key}`,
 		compare: 1,
 		target: 2,
-		unsetFails: true,
 	});
 	game.note([gate(5)]);
 	assert.equal(game.claimVariable(gate(5)), null);
@@ -112,7 +111,6 @@ test('a variable a MapConfig condition names and one a gate numbers share a cont
 		name: 'stateflower',
 		compare: 0,
 		target: 1,
-		unsetFails: false,
 	};
 	const gated = gateCondition({ kind: 'mapVar', key: 125, compare: 0, value: 1, mapId: 85 });
 	game.note([named, gated]);
@@ -130,23 +128,26 @@ test('a variable a MapConfig condition names and one a gate numbers share a cont
 	);
 });
 
-test('a MapConfig variable test reads an unset variable as 0, so it has no unset value', () => {
+test('a MapConfig variable test fails while the variable is unset, even one that 0 passes', () => {
 	const game = new GameState();
+	// map02_lv009's day: State = 0
 	const day: GameCondition = {
 		kind: 'mapVar',
 		mapId: 'map02',
 		name: 'State',
 		compare: 0,
 		target: 0,
-		unsetFails: false,
 	};
-	game.note([day]);
-	assert.deepEqual(game.requirements(day), [[{ control: 'mapVar:map02:State', mask: 0b10 }]]);
+	const notNight: GameCondition = { ...day, compare: 1, target: 1 };
+	game.note([day, notNight]);
+	assert.deepEqual(game.requirements(day), [[{ control: 'mapVar:map02:State', mask: 0b100 }]]);
 	assert.deepEqual(
 		game.controls()[0].values.map(({ label }) => label),
-		['< 0', '= 0', '> 0'],
+		['unset', '< 0', '= 0', '= 1', '> 1'],
 	);
-	assert.equal(game.evaluate(day), true);
+	// ≠ 1 holds for every set value but 1, and not while unset
+	assert.deepEqual(game.requirements(notNight), [[{ control: 'mapVar:map02:State', mask: 0b10110 }]]);
+	assert.equal(game.evaluate(day), false);
 });
 
 test('conjunctions merge requirements on the same control and drop impossible ones', () => {

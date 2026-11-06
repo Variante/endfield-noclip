@@ -103,8 +103,9 @@ lv009 day/night pair doesn't: day is map variable `State` = 0, and night has no 
 ### variables
 
 variables are server state and the client ships no defaults for them (map02's
-`mapVarClientDefaultValues` is empty), so variable-driven states have no offline value. a load gate
-fails while its variable is unset.
+`mapVarClientDefaultValues` is empty), so variable-driven states have no offline value. a variable
+test fails while its variable is unset, whatever its operator: a load gate and a MapConfig condition
+alike (so `≠ 1` doesn't hold before the server sets the variable).
 
 at Origin Lodespring (map01_lv006) the crater's light column takes one effect prefab per value of a
 global variable (0, 2, 3, 4), and an in-game shot matches 2. the red-ringed spires there are gated

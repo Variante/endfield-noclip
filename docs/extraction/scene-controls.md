@@ -106,9 +106,8 @@ under these defaults, the map01 example in
 ## variables
 
 a variable's control takes one value per range of values the scene's conditions tell apart: below,
-at and between the values they compare it against, and above the highest. a load gate fails while
-its variable is unset, so a variable some gate reads also has an "unset" value; a MapConfig test
-reads an unset variable as 0 (an assumption).
+at and between the values they compare it against, and above the highest, plus "unset", which fails
+every test ([variables](../game-data/scene-states.md#variables)).
 
 the default is the highest compared value, on the reading that the story moves variables forward
 (erosion cleansed, machines repaired, the last stage of a staged change). the guess fails at Origin

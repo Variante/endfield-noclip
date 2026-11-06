@@ -20,20 +20,13 @@ import { sceneControl } from './scene-control.ts';
 // #region conditions
 
 /**
- * a condition on game state: a MapConfig condition or a load gate. `unsetFails` marks a load gate's variable
- * test, which fails while the variable is unset; MapConfig tests read an unset variable as 0 (an assumption)
+ * a condition on game state: a MapConfig condition or a load gate. a variable test fails while the variable
+ * is unset, whatever its operator, in both
  */
 export type GameCondition =
 	| { kind: 'quest' | 'mission'; id: string; compare: CompareOperator; target: number }
-	| {
-			kind: 'mapVar';
-			mapId: string;
-			name: string;
-			compare: CompareOperator;
-			target: number;
-			unsetFails: boolean;
-	  }
-	| { kind: 'globalVar'; name: string; compare: CompareOperator; target: number; unsetFails: boolean }
+	| { kind: 'mapVar'; mapId: string; name: string; compare: CompareOperator; target: number }
+	| { kind: 'globalVar'; name: string; compare: CompareOperator; target: number }
 	| { kind: 'all' | 'any'; reverse: boolean; conditions: GameCondition[] };
 
 /**
@@ -55,7 +48,7 @@ export const mapConfigCondition = (condition: SceneCondition): GameCondition => 
 		}
 		case 'mapVar':
 		case 'globalVar': {
-			return { ...condition, unsetFails: false };
+			return condition;
 		}
 		case 'all':
 		case 'any': {
@@ -89,7 +82,6 @@ export const gateCondition = (gate: DynamicGate): GameCondition => {
 				name: `#${gate.key}`,
 				compare: operator(gate.compare),
 				target: gate.value,
-				unsetFails: true,
 			};
 		}
 		case 'mapVar': {
@@ -99,7 +91,6 @@ export const gateCondition = (gate: DynamicGate): GameCondition => {
 				name: `#${gate.key}`,
 				compare: operator(gate.compare),
 				target: gate.value,
-				unsetFails: true,
 			};
 		}
 	}
@@ -193,8 +184,6 @@ interface Variable {
 	/** the control's name */
 	label: string;
 	targets: Set<number>;
-	/** whether a test tells an unset variable apart from 0 */
-	unset: boolean;
 	/** fixed on first use; `null` until then */
 	ranges: Range[] | null;
 }
@@ -290,17 +279,12 @@ export class GameState {
 						kind: condition.kind,
 						label,
 						targets: new Set(),
-						unset: false,
 						ranges: null,
 					}));
-					if (
-						variable.ranges !== null &&
-						(!variable.targets.has(condition.target) || (condition.unsetFails && !variable.unset))
-					) {
+					if (variable.ranges !== null && !variable.targets.has(condition.target)) {
 						throw new Error(`variable ${id} noted after its values were fixed`);
 					}
 					variable.targets.add(condition.target);
-					variable.unset ||= condition.unsetFails;
 					break;
 				}
 				case 'all':
@@ -468,11 +452,7 @@ export class GameState {
 				const ranges = this.#ranges(id);
 				return leaf(
 					id,
-					ranges.map(({ value }) =>
-						value === null
-							? !condition.unsetFails && compare(0, condition.compare, condition.target)
-							: compare(value, condition.compare, condition.target),
-					),
+					ranges.map(({ value }) => value !== null && compare(value, condition.compare, condition.target)),
 					ranges.map((_, index) => index),
 					negate,
 				);
@@ -532,14 +512,14 @@ export class GameState {
 const COMPLETED = 3;
 
 /**
- * @returns the variable's distinguishable ranges: unset when a test tells it apart, then below, at and
- *   between the compared targets, and above the highest
+ * @returns the variable's distinguishable ranges: unset, which fails every test, then below, at and between
+ *   the compared targets, and above the highest
  * @throws {RangeError} past 32 values
  */
 const variableRanges = (variable: Variable): Range[] => {
 	// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
 	const targets = [...variable.targets].sort((a, b) => a - b);
-	const ranges: Range[] = variable.unset ? [{ label: 'unset', value: null }] : [];
+	const ranges: Range[] = [{ label: 'unset', value: null }];
 	ranges.push({ label: `< ${targets[0]}`, value: targets[0] - 1 });
 	for (const [i, target] of targets.entries()) {
 		ranges.push({ label: `= ${target}`, value: target });
