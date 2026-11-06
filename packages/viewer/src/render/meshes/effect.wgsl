@@ -1,4 +1,4 @@
-// scene effect meshes (effect-looks.ts, docs/game-data/effects.md), accumulated into the transparent pass's
+// scene effect meshes (looks/effects/, docs/game-data/effects.md), accumulated into the transparent pass's
 // targets like alpha-blended meshes: VFXBaseV2 surfaces and VFXWater sheets (`fs_effect`), VFXDecal boxes
 // (`fs_effect_decal`), FogSimple mist cards (`fs_mist_card`) and VFXFakeVolumeFog boxes (`fs_mist_volume`); lit
 // decals that only change the surface add to the main pass's radiance instead (`fs_decal_relight`).
@@ -11,7 +11,7 @@
 // rect decal placements (`DecalPlacements` in package-format): colour, then UV scale and offset
 @group(1) @binding(3) var<storage, read> effect_placements: array<array<vec4f, 2>>;
 // mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 44 rows (`EffectRow`, `WaterSheetRow` or
-// `MistRow` in effect-looks.ts)
+// `MistRow` in mist.ts)
 @group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 48>>;
 @group(2) @binding(1) var<storage, read> effect_draw_ids: array<u32>;
 @group(3) @binding(0) var fx_tex0: texture_2d<f32>;
@@ -40,7 +40,7 @@
 @group(3) @binding(19) var fx_background: texture_2d<f32>;
 @group(3) @binding(20) var fx_background_samp: sampler;
 
-// rows of the look (`EffectRow` in effect-looks.ts, in vec4s)
+// rows of the look (`EffectRow` in effect-look.ts, in vec4s)
 const FX_TINT = 0u;
 const FX_UV = 1u;
 const FX_ANIM = 8u;
@@ -64,15 +64,15 @@ const FX_EDGE_COLOR = 32u;
 const FX_EDGE = 33u;
 const FX_EDGE_ALPHA = 34u;
 // the texture stack's per-slot custom data shifts (u, v), from row 36 on (`EffectRow.customScroll` in
-// effect-looks.ts)
+// effect-look.ts)
 const FX_CUSTOM_SCROLL = 36u;
-// the slot of the vertex offset's texture (`OFFSET_SLOT` in effect-looks.ts)
+// the slot of the vertex offset's texture (`OFFSET_SLOT` in stack.ts)
 const FX_OFFSET_SLOT = 6u;
-// how the vertex stage moves vertices (`VertexMotion` in effect-looks.ts)
+// how the vertex stage moves vertices (`VertexMotion` in stack.ts)
 const FX_MOTION_OFFSET = 1.0;
 const FX_MOTION_SOFT_BODY = 2.0;
 
-// texture roles (`EffectRole` in effect-looks.ts)
+// texture roles (`EffectRole` in effect-look.ts)
 const ROLE_DISTURB1 = 0u;
 const ROLE_DISTURB2 = 1u;
 const ROLE_WEIGHT = 2u;
@@ -81,12 +81,12 @@ const ROLE_BLEND = 4u;
 const ROLE_DISSOLVE = 5u;
 const ROLE_NONE = 7u;
 const SLOT_RED_ALPHA = 16u;
-// two bits of `SlotSource` (effect-looks.ts): UV0, UV1, polar, screen
+// two bits of `SlotSource` (effect-look.ts): UV0, UV1, polar, screen
 const SLOT_SOURCE_SHIFT = 5u;
 const SLOT_NO_BASE = 128u;
 
 // the share of the distortion a slot's UVs take, in 1/1024ths above the low byte (`slotDisturb` in
-// effect-looks.ts)
+// effect-look.ts)
 fn slot_disturb(bits: u32) -> f32 {
 	return f32(bits >> 8u) / 1024.0;
 }
@@ -175,7 +175,7 @@ fn fx_camera_pull(rel: vec3f, pull: f32) -> vec3f {
 	return -rel / max(camera_distance, 1e-6) * (min(max(0.0, camera_distance - 1.0), pull) + 0.001);
 }
 
-// VFXBaseV2's soft-body animation (`VertexMotion.SoftBody` in effect-looks.ts): the object-space position moved
+// VFXBaseV2's soft-body animation (`VertexMotion.SoftBody` in stack.ts): the object-space position moved
 // by the position texture's texel at UV1's column and the current frame's row. vertices with UV1's v at most
 // 0.1 collapse to the object's origin, as the game's do
 fn fx_soft_body(id: u32, p: vec3f, uv1: vec2f) -> vec3f {
@@ -248,7 +248,7 @@ fn fx_polar(centred: vec2f) -> vec2f {
 	return vec2f((atan2(centred.x, centred.y) + PI) / (2.0 * PI), 2.0 * length(centred));
 }
 
-// the UVs a texture slot can start from (`SlotSource` in effect-looks.ts), with their screen gradients
+// the UVs a texture slot can start from (`SlotSource` in effect-look.ts), with their screen gradients
 struct FxBases {
 	uv: array<vec2f, 4>,
 	dx: array<vec2f, 4>,
@@ -574,10 +574,10 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 
 // #region refraction
 
-// `EffectKind.Refract` (effect-looks.ts), in FX_UNFOGGED's y
+// `EffectKind.Refract` (effect-look.ts), in FX_UNFOGGED's y
 const FX_KIND_REFRACT = 4.0;
 
-// rows of a VFXRefract look (`RefractRow` in effect-looks.ts, in vec4s)
+// rows of a VFXRefract look (`RefractRow` in refract.ts, in vec4s)
 const RF_REFRACT = 17u;
 const RF_REFRACT2 = 18u;
 const RF_RB = 19u;
@@ -680,10 +680,10 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 
 // #region water sheets
 
-// `EffectKind.WaterSheet` (effect-looks.ts), in FX_UNFOGGED's y
+// `EffectKind.WaterSheet` (effect-look.ts), in FX_UNFOGGED's y
 const FX_KIND_WATER_SHEET = 1.0;
 
-// rows of a VFXWater look (`WaterSheetRow` in effect-looks.ts, in vec4s)
+// rows of a VFXWater look (`WaterSheetRow` in water-sheet.ts, in vec4s)
 const WS_FLAGS = 17u;
 const WS_DISTURB = 18u;
 const WS_DISTURB_USE = 19u;
@@ -911,10 +911,10 @@ fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, 
 
 // #region six-way smoke
 
-// `EffectKind.SixWaySmoke` (effect-looks.ts), in FX_UNFOGGED's y
+// `EffectKind.SixWaySmoke` (effect-look.ts), in FX_UNFOGGED's y
 const FX_KIND_SIX_WAY = 6.0;
 
-// rows of a six-way smoke look (`SixWayRow` in effect-looks.ts, in vec4s)
+// rows of a six-way smoke look (`SixWayRow` in six-way-smoke.ts, in vec4s)
 const SW_FLAGS = 17u;
 const SW_DISTURB = 18u;
 const SW_DISTURB_USE = 19u;
@@ -1054,7 +1054,7 @@ fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 
 // #region water foam
 
-// rows of a WaterDecal look (`WaterFoamRow` in effect-looks.ts, in vec4s)
+// rows of a WaterDecal look (`WaterFoamRow` in water-foam.ts, in vec4s)
 const WF_TINT = 17u;
 const WF_DISTURB = 18u;
 const WF_USE = 19u;
@@ -1250,9 +1250,9 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 
 // #region lit decals
 
-// `EffectKind.LitDecal` (effect-looks.ts)
+// `EffectKind.LitDecal` (effect-look.ts)
 const FX_KIND_LIT_DECAL = 2.0;
-// rows of a lit decal look (`DecalLitRow` in effect-looks.ts, in vec4s)
+// rows of a lit decal look (`DecalLitRow` in lit-decal.ts, in vec4s)
 const LD_SURFACE = 17u;
 const LD_WRITES = 18u;
 const LD_PBR = 19u;
@@ -1295,7 +1295,7 @@ struct LitDecal {
 	emission: vec3f,
 }
 
-// `HGRP/DecalLit` boxes (`decalLitLook` in effect-looks.ts) over a surface of normal `n` and roughness `roughness`
+// `HGRP/DecalLit` boxes (`litDecalLook` in lit-decal.ts) over a surface of normal `n` and roughness `roughness`
 // at camera-relative `rel` (with its screen gradients): the base colour tinted by the placement's colour, its
 // alpha times the opacity (faded on surfaces facing away from the box's y). where the material's colour masks
 // let it, the PBR map's roughness, normal, metallic and occlusion replace the surface's. `uv` is the box's
@@ -1491,7 +1491,7 @@ fn fs_decal_relight(in: EffectOut) -> @location(0) vec4f {
 
 // #region mist
 
-// rows of a mist look (`MistRow` in effect-looks.ts, in vec4s)
+// rows of a mist look (`MistRow` in mist.ts, in vec4s)
 const MIST_COLOR = 0u;
 const MIST_CARD = 8u;
 const MIST_WIND = 9u;
@@ -1644,10 +1644,10 @@ fn mist_origin(in: EffectOut) -> vec3f {
 
 // #region light beams
 
-// `EffectKind.Beam` (effect-looks.ts), in FX_UNFOGGED's y
+// `EffectKind.Beam` (effect-look.ts), in FX_UNFOGGED's y
 const FX_KIND_BEAM = 3.0;
 
-// rows of a light beam's look (`BeamRow` in effect-looks.ts, in vec4s)
+// rows of a light beam's look (`BeamRow` in light-beam.ts, in vec4s)
 const BM_COLOR = 0u;
 const BM_CONE = 1u;
 const BM_DIRECTION = 2u;

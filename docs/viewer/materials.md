@@ -9,8 +9,9 @@ viewer packs into a look
 surface kind: Lit in [`lit-look.ts`](../../packages/viewer/src/looks/lit-look.ts), erosion, dithered
 surfaces and matte paintings in
 [`special-looks.ts`](../../packages/viewer/src/looks/special-looks.ts), [effects](effects.md) in
-their own modules), shaded in [`mesh.wgsl`](../../packages/viewer/src/render/meshes/mesh.wgsl);
-what's left out is in [status](../status.md).
+[`effects/`](../../packages/viewer/src/looks/effects)), shaded in
+[`mesh.wgsl`](../../packages/viewer/src/render/meshes/mesh.wgsl); what's left out is in
+[status](../status.md).
 
 the mesh shader has seven texture slots (`SLOTS` in
 [`looks/look.ts`](../../packages/viewer/src/looks/look.ts); the frame group takes the rest of
@@ -105,7 +106,7 @@ sorting, and layers far apart in depth share one fog distance.
 
 the viewer has no GBuffer, so it draws a [decal](../game-data/materials.md#decals) like the VFXDecal
 boxes ([effects](effects.md#vfxbasev2-and-vfxdecal)): the box's back faces without a depth test, in
-the transparent pass ([`litDecalLook`](../../packages/viewer/src/looks/effect-looks.ts),
+the transparent pass ([`litDecalLook`](../../packages/viewer/src/looks/effects/lit-decal.ts),
 `fx_lit_decal` in [`effect.wgsl`](../../packages/viewer/src/render/meshes/effect.wgsl)). it takes
 the surface's normal and roughness from the main pass where the masks keep them, shades the decal
 like any surface, and lays it over by its alpha. placements of one material share its look and draw

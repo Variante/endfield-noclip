@@ -1,7 +1,8 @@
 # scene effects
 
 how the viewer draws the effects [game-data/effects.md](../game-data/effects.md) describes, and the
-[light beams](#light-beams) ([`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts),
+[light beams](#light-beams) ([`looks/effects/`](../../packages/viewer/src/looks/effects), a module
+per family beside the rows they share in `effect-look.ts`, and
 [`effect.wgsl`](../../packages/viewer/src/render/meshes/effect.wgsl)). the extractor reads each
 effect material's properties and keywords into a [surface](../package-format.md#materials)
 ([game/material-effects.ts](../../packages/extractor/src/game/material-effects.ts)), or marks it
@@ -33,7 +34,8 @@ what's left out is in [status](../status.md).
 - [soft-body animations](../game-data/effects.md#soft-body-animation) also take the vertex offset's
   slot for their position texture, its UV and scroll rows holding the UV1 scales and the playback's
   cycles per second and phase (a held frame is a still phase), and the offset rows the bounds, frame
-  count and camera pull (`VertexMotion` in `effect-looks.ts`). the rotation texture isn't read:
+  count and camera pull (`VertexMotion` in
+  [`stack.ts`](../../packages/viewer/src/looks/effects/stack.ts)). the rotation texture isn't read:
   materials with lighting or a Fresnel term, which would read the turned normals, stay unsupported,
   as do those with a vertex offset, a sixth sample texture or particle-driven playback.
 - the [edge colour](../game-data/effects.md#edge-colour) compares the fragment's view depth with the
@@ -105,24 +107,24 @@ unsupported.
 ## waterfalls
 
 VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `effect.wgsl`; `waterSheetLook` in
-[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `_BlendMode` 1 sheets draw
-into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the unlit
-share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave falls,
-far below the game's. the normal map's frame comes from the UVs' screen derivatives rather than mesh
-tangents. `VFX_WATER_SIMPLE_LIGHT` sheets are lit the full way, and textures on UV sets other than 0
-are unsupported.
+[`water-sheet.ts`](../../packages/viewer/src/looks/effects/water-sheet.ts)). `_BlendMode` 1 sheets
+draw into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the
+unlit share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave
+falls, far below the game's. the normal map's frame comes from the UVs' screen derivatives rather
+than mesh tangents. `VFX_WATER_SIMPLE_LIGHT` sheets are lit the full way, and textures on UV sets
+other than 0 are unsupported.
 
 ## six-way smoke
 
 [six-way smoke](../game-data/effects.md#six-way-smoke) draws through `fs_effect`, which hands it to
 `six_way_smoke` in `effect.wgsl` (`sixWaySmokeLook` in
-[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). the positive lightmap takes
-slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask, blend and
-dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and its object
-x axis made square to it. the sun takes the viewer's light colour over π, as Lit's diffuse does, and
-the shadow is sampled per pixel without the game's ramp texture. a mask or dissolve switched to UV
-set 1 reads UV0 on particles (`_InParticle`), as the UV2 stream holds the same UVs without a texture
-sheet, and stays unsupported on meshes.
+[`six-way-smoke.ts`](../../packages/viewer/src/looks/effects/six-way-smoke.ts)). the positive
+lightmap takes slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask,
+blend and dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and
+its object x axis made square to it. the sun takes the viewer's light colour over π, as Lit's
+diffuse does, and the shadow is sampled per pixel without the game's ramp texture. a mask or
+dissolve switched to UV set 1 reads UV0 on particles (`_InParticle`), as the UV2 stream holds the
+same UVs without a texture sheet, and stays unsupported on meshes.
 
 ## mist
 
@@ -141,8 +143,8 @@ blend.
 
 [light beams](../game-data/lighting.md#light-beams) draw through `fs_effect`, which hands them to
 `light_beam` (`lightBeamLook` in
-[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `vs_effect` shapes the cone
-first (`beam_vertex`); the fragment stage takes the beam's own frame and the camera's from the
+[`light-beam.ts`](../../packages/viewer/src/looks/effects/light-beam.ts)). `vs_effect` shapes the
+cone first (`beam_vertex`); the fragment stage takes the beam's own frame and the camera's from the
 instance's inverse transform rather than extra varyings. additive beams draw into the glow,
 unfogged; alpha-blended ones join the weighted blend, fogged by the composite under `VLB_USE_FOG`.
 the 3D noise, the per-renderer scale and the global tint are left out, and the colour isn't scaled

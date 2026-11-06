@@ -66,7 +66,7 @@ struct Draw {
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
 	// the HDR colours the emissive map's G, B and A add (rgb); effect looks use these rows and the rest for
-	// their own (`EffectRow` in effect-looks.ts)
+	// their own (`EffectRow` in effects/effect-look.ts)
 	emissive_channels: array<vec4f, 3>,
 	effect_only: array<vec4f, 9>,
 }
@@ -91,7 +91,7 @@ const PARALLAX_NOISE_MAP = 131072u;
 const EROSION = 33554432u;
 // `HGRP/Foliage/Leaf` (`leafParams` in lit-look.ts)
 const FOLIAGE_LEAF = 134217728u;
-// a scene effect, drawn by effect.wgsl; its rows are laid out by effect-looks.ts
+// a scene effect, drawn by effect.wgsl; its rows are laid out by looks/effects/
 const EFFECT = 268435456u;
 // `_LAYERBLEND_TOP` or `_LAYERBLEND_MASK` (`layerBlendParams` in lit-look.ts): the parallax slots and rows hold
 // the layer, and a mask map sits in the emissive slot

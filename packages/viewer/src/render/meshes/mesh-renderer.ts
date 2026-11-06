@@ -1,5 +1,5 @@
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
-import { OFFSET_SLOT } from '../../looks/effect-looks.ts';
+import { OFFSET_SLOT } from '../../looks/effects/stack.ts';
 import {
 	GeometryFlags,
 	LOOK_FLOATS,

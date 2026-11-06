@@ -1,19 +1,15 @@
 import type { MaterialCull, MaterialTable } from '@endfield-noclip/package-format/materials';
 import type { EffectStencil, StencilMaskSurface } from '@endfield-noclip/package-format/surfaces';
 
-import {
-	type EffectLook,
-	lightBeamLook,
-	litDecalLook,
-	mistCardLook,
-	mistVolumeLook,
-	multipliesScene,
-	refractLook,
-	sixWaySmokeLook,
-	stackLook,
-	waterFoamLook,
-	waterSheetLook,
-} from './effect-looks.ts';
+import type { EffectLook } from './effects/effect-look.ts';
+import { lightBeamLook } from './effects/light-beam.ts';
+import { litDecalLook } from './effects/lit-decal.ts';
+import { mistCardLook, mistVolumeLook } from './effects/mist.ts';
+import { refractLook } from './effects/refract.ts';
+import { sixWaySmokeLook } from './effects/six-way-smoke.ts';
+import { multipliesScene, stackLook } from './effects/stack.ts';
+import { waterFoamLook } from './effects/water-foam.ts';
+import { waterSheetLook } from './effects/water-sheet.ts';
 import { litLook } from './lit-look.ts';
 import {
 	emptyLook,
