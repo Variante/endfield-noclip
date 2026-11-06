@@ -241,6 +241,22 @@ export class StreamManager {
 	}
 
 	/**
+	 * sums every resident blob, for inspection; walks every item, so don't call it per frame
+	 *
+	 * @returns {@link StreamStats.residentBytes} split by residency kind
+	 */
+	residentByKind(): Partial<Record<Resident['kind'], number>> {
+		const bytes: Partial<Record<Resident['kind'], number>> = {};
+		for (const item of this.#items) {
+			const resident = item?.resident;
+			if (resident != null) {
+				bytes[resident.kind] = (bytes[resident.kind] ?? 0) + resident.bytes;
+			}
+		}
+		return bytes;
+	}
+
+	/**
 	 * @param blob blob index
 	 * @returns the item, if it was ever requested
 	 */
