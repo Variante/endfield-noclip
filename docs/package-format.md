@@ -782,9 +782,10 @@ only quest and mission controls carry a `story` place, and only script and water
 state, a variable's range, a progression's level or form index, a water volume's fill index, or 0/1
 for on/off controls. only controls some group requires, directly or through a derived scene state,
 are listed, plus every water level control, which gates nothing; a derived state passes its level
-tags on to the quests and variables it reads. quests, missions and variables come first in
-`controls`, every derived control comes after the controls it reads, and water level controls come
-last.
+tags on to the quests and variables it reads. every derived control comes after the controls it
+reads in `controls`; the packer's
+[control registry](../packages/extractor/src/pack/control-registry.ts) orders, prunes and finishes
+them.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
   `conditionalSets[derived]` holds, and its `rule` gives that condition in words (`RuleText`: text

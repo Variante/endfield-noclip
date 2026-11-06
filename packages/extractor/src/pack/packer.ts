@@ -24,7 +24,6 @@ import {
 import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import { encodeBlobTable } from '@endfield-noclip/package-format/blob-table';
 import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs';
-import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import {
 	EnvironmentBlendMode,
 	type EnvironmentPhaseInfo,
@@ -64,11 +63,9 @@ import type { MaterialTable } from '@endfield-noclip/package-format/materials';
 import type {
 	ConditionalSetInfo,
 	ControlDriver,
-	ProximityInfo,
 	SceneControl,
 	ScriptControl,
 	StatesInfo,
-	VisibilityGroup,
 } from '@endfield-noclip/package-format/states';
 import { streamAreaControl, type StreamAreasInfo } from '@endfield-noclip/package-format/stream-areas';
 import type { TerrainSplatInfo, TerrainInfo } from '@endfield-noclip/package-format/terrain';
@@ -148,7 +145,7 @@ import { BlobDir } from './blob-file.ts';
 import { BlobStore, type PutOptions } from './blob-store.ts';
 import { aabbBounds, growBounds, squareOverlapsRect } from './bounds.ts';
 import { ChainTable } from './chains.ts';
-import { sourceVisibility } from './chunk-sources.ts';
+import { ControlRegistry } from './control-registry.ts';
 import { ConvertPool } from './convert-pool.ts';
 import {
 	type EnvironmentPlan,
@@ -438,7 +435,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			}),
 		]);
 		timer.end('environments and water');
-		const lights = gateByScene(entities.collected, scene, {
+		const lights = gateByScene(entities.collected.states, scene, {
 			environments,
 			water,
 			waterDrivers: entities.waterDrivers,
@@ -462,7 +459,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 				const condition = sceneStateBakeCondition(names, (name) => stateIndices.get(name));
 				return condition === null
 					? null
-					: entities.collected.group(0, entities.collected.condition(condition));
+					: entities.collected.states.group(0, entities.collected.states.condition(condition));
 			},
 		});
 		const irradianceRegions = await packIrradianceRegions(context.vfs, store, {
@@ -899,7 +896,7 @@ const collectEntities = async (
 		/** whether a scene state gates it, so no HLOD stands in for it */
 		stateGated: boolean;
 	}): void => {
-		const condition = visibility === null ? null : collected.condition(visibility);
+		const condition = visibility === null ? null : collected.states.condition(visibility);
 		if (hlod !== null && !stateGated) {
 			const tier = Number(hlod[1]);
 			const candidates = hlodCandidates({
@@ -1114,7 +1111,7 @@ const collectEntities = async (
 	);
 	counts.gatedRenderers = gatedRows.size;
 	for (const { rows, tag, name, file, global, hlod, sources } of gatedRows.values()) {
-		const visibility = collected.sourceVisibility(sources);
+		const visibility = collected.states.sourceVisibility(sources);
 		// HLOD clusters stand in for the rows of their own area, so area-only content keeps HLOD refinement;
 		// scene-state content has no HLODs and streams as conditional detail
 		const stateGated = visibility !== null && sources.some((source) => source.sceneState !== 0);
@@ -1137,7 +1134,7 @@ const collectEntities = async (
 		counts[`dynamic_${key}`] = count;
 	}
 	counts.dynamicRenderers = 0;
-	collected.controls = dynamic.controls;
+	collected.states.add(...dynamic.controls);
 	/** script-controlled dynamic entities' controls by global id */
 	const scripted = new Map(
 		mapDefined(dynamic.controls, (control): [string, ScriptControl] | undefined =>
@@ -1149,10 +1146,10 @@ const collectEntities = async (
 	/** by {@link waterActionTarget}, the drivers of the script action setting a water fill */
 	const waterDrivers = new Map<string, ControlDriver[]>();
 	for (const index of dynamic.sceneStates) {
-		collected.sceneStates.add(index);
+		collected.states.sceneStates.add(index);
 	}
 	for (const area of dynamic.areas) {
-		collected.areas.add(area);
+		collected.states.areas.add(area);
 	}
 	const addStructure = (
 		row: InstanceInput,
@@ -1288,7 +1285,7 @@ const collectEntities = async (
 		for (const [id, control] of facilities.scriptControls) {
 			if (!scripted.has(id)) {
 				scripted.set(id, control);
-				collected.controls.push(control);
+				collected.states.add(control);
 			}
 		}
 		counts.scriptInteractives = facilities.scriptControls.size;
@@ -1321,7 +1318,7 @@ const collectEntities = async (
 			}
 			control.rule = scene.game.describe(condition);
 			control.assumption = 'set by its level scripts’ quest checks when they run';
-			control.derived = collected.condition({ alternatives: scene.game.requirements(condition) });
+			control.derived = collected.states.condition({ alternatives: scene.game.requirements(condition) });
 			counts.scriptGroupsDerived++;
 		}
 		// a group one script sets as the player enters and leaves a volume follows the camera through a proximity
@@ -1350,7 +1347,7 @@ const collectEntities = async (
 					derived: null,
 				});
 				for (const { position, radius } of rule.spheres) {
-					collected.proximities.push({ control: nearness, position, radius });
+					collected.states.proximities.push({ control: nearness, position, radius });
 				}
 			}
 			control.rule = [
@@ -1358,7 +1355,7 @@ const collectEntities = async (
 				{ control: nearness, text: 'the player is inside its level script’s trigger volume' },
 			];
 			control.assumption = 'follows the camera, as its level script follows the player';
-			control.derived = collected.condition({
+			control.derived = collected.states.condition({
 				alternatives: [[{ control: nearness, mask: rule.inside ? 2 : 1 }]],
 			});
 			counts.scriptGroupsByVolume++;
@@ -1425,14 +1422,13 @@ const collectEntities = async (
 			if (cabin !== undefined) {
 				control.rule = ['open while ', { control: cabin, text: 'its cabin slot' }, ' is built'];
 				control.assumption = 'follows its Dijiang cabin slot';
-				control.derived = collected.condition({ alternatives: [[{ control: cabin, mask: 2 }]] });
+				control.derived = collected.states.condition({ alternatives: [[{ control: cabin, mask: 2 }]] });
 			}
 		}
 		counts.doors = facilities.doors.length;
 		counts.cabinDoors = linked.size;
 	}
-	// doors derived from cabin slots come after them
-	collected.facilities = [
+	collected.states.add(
 		...facilities.progressions,
 		...facilities.created,
 		...facilities.activities,
@@ -1441,8 +1437,8 @@ const collectEntities = async (
 		...facilities.bridges,
 		...facilities.proximityControls,
 		...volumeProximities,
-	];
-	collected.proximities.push(...facilities.proximities);
+	);
+	collected.states.proximities.push(...facilities.proximities);
 	counts.bridges = facilities.bridges.length;
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
@@ -1677,7 +1673,10 @@ const collectEntities = async (
 		skipped: skipped.rows(),
 		placedVolumes: placed.volumes,
 		cabinRooms: cabins.rooms.map(({ control, levelTag, position, roomType }) => ({
-			group: collected.group(levelTag, collected.condition({ alternatives: [[{ control, mask: 2 }]] })),
+			group: collected.states.group(
+				levelTag,
+				collected.states.condition({ alternatives: [[{ control, mask: 2 }]] }),
+			),
 			position,
 			roomType,
 		})),
@@ -1699,22 +1698,14 @@ const defaultValues = (
 	progressions: readonly SceneControl[],
 ): Record<string, number> => {
 	const enabled = defaultSceneStates(scene.sceneStates, scene.game);
-	const states = new Set([...collected.sceneStates, ...scene.sceneStates.map(({ index }) => index)]);
-	return resolveSceneValues(
-		{
-			controls: [
-				...scene.game.controls(),
-				...[...states].map((index) =>
-					Object.assign(unnamedSceneStateControl(index), { default: Number(enabled.has(index)) }),
-				),
-				...progressions,
-				...collected.controls,
-				...collected.facilities,
-			],
-			conditionalSets: collected.conditions,
-		},
-		{},
-	);
+	const states = new Set([...collected.states.sceneStates, ...scene.sceneStates.map(({ index }) => index)]);
+	return collected.states.defaults([
+		...scene.game.controls(),
+		...[...states].map((index) =>
+			Object.assign(unnamedSceneStateControl(index), { default: Number(enabled.has(index)) }),
+		),
+		...progressions,
+	]);
 };
 
 /**
@@ -1741,7 +1732,7 @@ const progressionControls = async (
  * states of the files holding them), and adds the scene state controls: one per MapConfig state, derived from
  * its condition, plus any state an expression requires that the MapConfig doesn't name
  *
- * @param collected the entity pass's collector; its conditions, groups and controls are extended
+ * @param states the entity pass's controls, conditions and groups; extended
  * @param scene the scene's MapConfig states and game state
  * @param inputs planned environments (volume groups and controls are filled in), planned water (surface
  *   groups and volume controls), the drivers of the scripts that set water fills, and the entity pass's
@@ -1749,7 +1740,7 @@ const progressionControls = async (
  * @returns the lights table
  */
 const gateByScene = (
-	collected: Collector,
+	states: ControlRegistry,
 	scene: Pick<SceneIndex, 'sceneStates' | 'game'>,
 	inputs: {
 		environments: EnvironmentPlan;
@@ -1762,49 +1753,49 @@ const gateByScene = (
 	for (const [i, volume] of environments.volumes.entries()) {
 		const { levelTag, sceneStates, condition } = environments.volumeOwners[i];
 		// a prefab volume loads with its placement; chunk volumes with the scene states of their files
-		const loads = condition ?? (sceneStates.length === 0 ? null : collected.stateVisibility(sceneStates));
+		const loads = condition ?? (sceneStates.length === 0 ? null : states.stateVisibility(sceneStates));
 		if (volume.phase === null) {
-			volume.group = collected.group(levelTag, loads === null ? null : collected.condition(loads));
+			volume.group = states.groupOf(levelTag, loads);
 			continue;
 		}
 		const control = environmentVolumeControl(i, volume);
-		collected.controls.push(control);
+		states.add(control);
 		volume.control = control.id;
 		const on = [[{ control: control.id, mask: 2 }]];
-		volume.group = collected.group(
-			levelTag,
-			collected.condition({ alternatives: loads === null ? on : allOf(loads.alternatives, on) }),
-		);
+		volume.group = states.groupOf(levelTag, {
+			alternatives: loads === null ? on : allOf(loads.alternatives, on),
+		});
 	}
 	for (const [i, surface] of water.table.surfaces.entries()) {
 		const { levelTag, sources } = water.surfaceOwners[i];
 		surface.group =
-			sources === null ? collected.group(levelTag, null) : collected.groupOfSources(levelTag, sources);
+			sources === null ? states.group(levelTag, null) : states.groupOfSources(levelTag, sources);
 		if (surface.kind === 'volume') {
 			const control = waterLevelControlOf(
 				water.table.volumes[surface.volume],
 				water.levelSources[surface.volume],
 				waterDrivers,
-				levelTag,
 			);
 			if (control !== null) {
-				collected.valueControls.push(control);
+				// it moves the volume's surface rather than gating content; a volume may have several surfaces
+				if (states.get(control.id) === undefined) {
+					states.add(control);
+				}
+				states.keep(control.id, [levelTag]);
 			}
 		}
 	}
 	const lightsTable = lights.finish(
-		(levelTag, sources) => collected.groupOfSources(levelTag, sources),
-		(levelTag, visibility) => collected.group(levelTag, collected.condition(visibility)),
+		(levelTag, sources) => states.groupOfSources(levelTag, sources),
+		(levelTag, visibility) => states.groupOf(levelTag, visibility),
 	);
-	const controls = sceneStateControls(scene.sceneStates, scene.game, (formula) =>
-		collected.condition(formula),
-	);
+	const controls = sceneStateControls(scene.sceneStates, scene.game, (formula) => states.condition(formula));
 	const named = new Set(controls.map((control) => control.id));
-	const unnamed = [...collected.sceneStates]
+	const unnamed = [...states.sceneStates]
 		.filter((index) => !named.has(sceneStateControl(index)))
 		.toSorted((a, b) => a - b)
 		.map(unnamedSceneStateControl);
-	collected.controls = [...collected.controls, ...controls, ...unnamed];
+	states.add(...controls, ...unnamed);
 	return lightsTable;
 };
 
@@ -1834,7 +1825,6 @@ const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo):
  * @param volume a water volume's table entry
  * @param sources where each of its levels comes from
  * @param drivers by {@link waterActionTarget}, what runs each script action setting a fill
- * @param levelTag the level owning the volume
  * @returns its `waterLevel` control, at the authored fill and listing what sets each fill; `null` when no
  *   script sets another fill
  */
@@ -1842,7 +1832,6 @@ const waterLevelControlOf = (
 	volume: WaterVolumeEntry,
 	sources: readonly WaterLevelSource[],
 	drivers: ReadonlyMap<string, ControlDriver[]>,
-	levelTag: number,
 ): SceneControl | null => {
 	if (volume.control === null) {
 		return null;
@@ -1866,7 +1855,7 @@ const waterLevelControlOf = (
 		assumption: 'the authored fill, before any script runs',
 		followsCamera: false,
 		drivers: found,
-		levelTags: [levelTag],
+		levelTags: [],
 		values: volume.levels.map(({ fraction }, value) => ({
 			value,
 			label: `${Math.round(fraction * 100)}% (${(volume.base + volume.heightMax * fraction).toFixed(1)} m)${
@@ -2132,7 +2121,7 @@ const sceneStates = async (
 	const levels = (partition?.levels ?? []).map((level, i) =>
 		levelInfo(level, scene, collected, environments[i] ?? null),
 	);
-	const areas = [...collected.areas]
+	const areas = [...collected.states.areas]
 		.toSorted((a, b) => a - b)
 		.map((area): SceneControl => ({
 			kind: 'area',
@@ -2149,90 +2138,20 @@ const sceneStates = async (
 			default: 1,
 			derived: null,
 		}));
-	const states: StatesInfo = {
-		// quests, missions and variables first: scene states derive from them
-		controls: [
-			...scene.game.controls(),
-			...progressions,
-			...collected.facilities,
-			...areas,
-			...collected.controls,
-		],
-		conditionalSets: collected.conditions,
-		groups: collected.groups,
-		streamAreas: await streamAreasInfo(world, scene.options.scene, collected.areas),
-		proximities: [],
-		missions: [],
-		mainStory: [],
-	};
-	// water levels gate no content, so they're kept whatever groups require
-	const controls = [...finishControls(states), ...collected.valueControls];
-	const kept = new Set(controls.map((control) => control.id));
+	const { states } = collected;
+	states.add(...scene.game.controls(), ...progressions, ...areas);
+	const { controls, proximities } = states.finish();
 	const missions = await labelStory(world, controls);
 	return {
 		levels,
-		...states,
 		controls,
-		proximities: collected.proximities.filter((proximity) => kept.has(proximity.control)),
+		conditionalSets: states.conditions,
+		groups: states.groups,
+		streamAreas: await streamAreasInfo(world, scene.options.scene, states.areas),
+		proximities,
 		missions,
 		mainStory: mainStoryOrder(missions),
 	};
-};
-
-/**
- * fills in each required control's level tags (those of what it gates) and, for derived controls, the default
- * its formula gives under the other defaults; the controls are modified in place
- *
- * @param states every control the scene defined, inputs before the controls derived from them
- * @returns the controls some visibility group requires, directly or through a derived control
- * @throws {Error} if two controls share an id or a requirement names no control
- */
-const finishControls = (states: StatesInfo): SceneControl[] => {
-	const byId = new Map<string, SceneControl>();
-	for (const control of states.controls) {
-		if (byId.has(control.id)) {
-			throw new Error(`duplicate scene control ${control.id}`);
-		}
-		byId.set(control.id, control);
-	}
-	const tags = new Map<string, Set<number>>();
-	const note = (set: number, levelTags: Iterable<number>): void => {
-		for (const requirements of states.conditionalSets[set].alternatives) {
-			for (const { control } of requirements) {
-				if (!byId.has(control)) {
-					throw new Error(`a visibility expression requires unknown control ${control}`);
-				}
-				const current = tags.getOrInsertComputed(control, () => new Set<number>());
-				for (const tag of levelTags) {
-					current.add(tag);
-				}
-			}
-		}
-	};
-	for (const { levelTag, condition } of states.groups) {
-		if (condition !== null) {
-			note(condition, [levelTag]);
-		}
-	}
-	// derived controls come after their inputs, so walking backwards reaches a chain's inputs last
-	for (const control of states.controls.toReversed()) {
-		const gated = tags.get(control.id);
-		if (control.derived !== null && gated !== undefined) {
-			note(control.derived, gated);
-		}
-	}
-	const used = states.controls.filter((control) => tags.has(control.id));
-	for (const control of used) {
-		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
-		control.levelTags = [...tags.get(control.id)!].sort((a, b) => a - b);
-	}
-	const values = resolveSceneValues({ ...states, controls: used }, {});
-	for (const control of used) {
-		if (control.derived !== null) {
-			control.default = values[control.id];
-		}
-	}
-	return used;
 };
 
 /**
@@ -2630,68 +2549,13 @@ class Collector {
 	readonly tagInstances = new Map<number, number>();
 	/** world bounds of packed instances by level tag */
 	readonly tagBounds = new Map<number, Bounds>();
-
-	readonly groups: VisibilityGroup[] = [];
-	readonly #groupIds = new Map<string, number>();
-
-	constructor() {
-		this.group(0, null);
-	}
-
-	/**
-	 * @param levelTag the owning level's tag, 0 for shared content
-	 * @param condition index into {@link conditions}, or `null` for content that always loads
-	 * @returns the visibility group's index, shared by equal owners and conditions
-	 */
-	group(levelTag: number, condition: number | null): number {
-		return this.#groupIds.getOrInsertComputed(`${levelTag}/${condition}`, () => {
-			this.groups.push({ levelTag, condition });
-			return this.groups.length - 1;
-		});
-	}
-
-	/**
-	 * @param levelTag the owning level's tag
-	 * @param states MapConfig scene state indices that load the content; empty when it always loads
-	 * @returns the visibility group of content loading with any of them
-	 */
-	groupOfStates(levelTag: number, states: readonly number[]): number {
-		return this.group(levelTag, states.length === 0 ? null : this.condition(this.stateVisibility(states)));
-	}
-
-	/**
-	 * @param sources the chunk files holding some content
-	 * @returns when it loads (see {@link sourceVisibility}), noting the scene states and stream areas it needs
-	 */
-	sourceVisibility(sources: readonly ChunkSource[]): ConditionalSetInfo | null {
-		const visibility = sourceVisibility(sources);
-		if (visibility !== null) {
-			for (const { sceneState, area } of sources) {
-				if (sceneState !== 0) {
-					this.sceneStates.add(sceneState - 1);
-				}
-				if (area !== 0) {
-					this.areas.add(area);
-				}
-			}
-		}
-		return visibility;
-	}
-
-	/**
-	 * @param levelTag the owning level's tag
-	 * @param sources the chunk files holding the content
-	 * @returns the visibility group of content loading with any of those files
-	 */
-	groupOfSources(levelTag: number, sources: readonly ChunkSource[]): number {
-		const visibility = this.sourceVisibility(sources);
-		return this.group(levelTag, visibility === null ? null : this.condition(visibility));
-	}
+	/** the scene controls, conditional sets and visibility groups the rows name */
+	readonly states = new ControlRegistry();
 
 	/**
 	 * adds a row HLODs stand in for
 	 *
-	 * @param condition index into {@link conditions} for rows of a stream area, else `null`
+	 * @param condition a conditional set index for rows of a stream area, else `null`
 	 */
 	addDetail(
 		level: number,
@@ -2701,7 +2565,7 @@ class Collector {
 		name: string,
 		file: number,
 	): void {
-		this.#addDetail(this.group(level, condition), false, key, row, name, file);
+		this.#addDetail(this.states.group(level, condition), false, key, row, name, file);
 		this.#countInstance(level);
 	}
 
@@ -2722,32 +2586,6 @@ class Collector {
 		push(group, row, 0, name, file);
 	}
 
-	readonly conditions: ConditionalSetInfo[] = [];
-	/** script, logic and scene state controls */
-	controls: SceneControl[] = [];
-	/** facility form and resource node controls */
-	facilities: SceneControl[] = [];
-	/** controls that gate no content (water levels), listed with the level tags they're given */
-	valueControls: SceneControl[] = [];
-	/** where each interactive's proximity control counts the player as near */
-	proximities: ProximityInfo[] = [];
-	/** MapConfig scene state indices some visibility expression requires */
-	readonly sceneStates = new Set<number>();
-	/** stream areas some visibility expression requires */
-	readonly areas = new Set<number>();
-	readonly #conditionIds = new Map<string, number>();
-
-	/**
-	 * @param indices MapConfig scene state indices
-	 * @returns visibility while any of them is active
-	 */
-	stateVisibility(indices: readonly number[]): ConditionalSetInfo {
-		for (const index of indices) {
-			this.sceneStates.add(index);
-		}
-		return { alternatives: indices.map((index) => [{ control: sceneStateControl(index), mask: 2 }]) };
-	}
-
 	addConditional(
 		level: number,
 		key: TileKey,
@@ -2756,34 +2594,11 @@ class Collector {
 		visibility: ConditionalSetInfo,
 		file: number,
 	): void {
-		this.#addDetail(this.group(level, this.condition(visibility)), true, key, row, name, file);
+		this.#addDetail(this.states.groupOf(level, visibility), true, key, row, name, file);
 		this.#countInstance(level);
 	}
 
-	/**
-	 * @param visibility a visibility expression
-	 * @returns its index in {@link conditions}, shared by equivalent expressions
-	 */
-	condition(visibility: ConditionalSetInfo): number {
-		// canonical order at both levels, so equivalent expressions share one set
-		const alternatives = [
-			...new Map(
-				visibility.alternatives.map((requirements) => {
-					const sorted = requirements.toSorted((a, b) => a.control.localeCompare(b.control));
-					return [JSON.stringify(sorted), sorted];
-				}),
-			),
-		]
-			.toSorted(([a], [b]) => Number(a > b) - Number(a < b))
-			.map(([, requirements]) => requirements);
-		const serialized = JSON.stringify(alternatives);
-		return this.#conditionIds.getOrInsertComputed(
-			serialized,
-			() => this.conditions.push({ alternatives }) - 1,
-		);
-	}
-
-	/** @param condition index into {@link conditions} for clusters of a stream area, else `null` */
+	/** @param condition a conditional set index for clusters of a stream area, else `null` */
 	addHlod(
 		level: number,
 		condition: number | null,
@@ -2793,7 +2608,7 @@ class Collector {
 		name: string,
 		file: number,
 	): void {
-		const group = this.hlod.getOrInsertComputed(this.group(level, condition), newGroup);
+		const group = this.hlod.getOrInsertComputed(this.states.group(level, condition), newGroup);
 		const sortKey = nodeSortKey(key);
 		push(group, row, sortKey, name, file);
 		const node = this.hlodNodes.get(sortKey);
@@ -2809,7 +2624,7 @@ class Collector {
 	 * @param condition index into {@link conditions} for Global chunks of scene states, else `null`
 	 */
 	addGlobal(level: number, condition: number | null, row: InstanceInput, name: string, file: number): void {
-		push(this.global.getOrInsertComputed(this.group(level, condition), newGroup), row, 0, name, file);
+		push(this.global.getOrInsertComputed(this.states.group(level, condition), newGroup), row, 0, name, file);
 		this.#countInstance(level);
 	}
 
