@@ -3,25 +3,30 @@ import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
 import { type Camera, type Plane, boxInFrustum, distanceToBox } from '../scene/camera.ts';
 import { type TileNode, type TileTree, isLeaf } from '../scene/tile-tree.ts';
-import type { ViewerOptions } from '../viewer.ts';
 
 import type { ContentItem, StreamManager } from './stream-manager.ts';
 
 // #region types
 
-/** what the traversal draws and refines */
-export type SelectionOptions = Pick<
-	ViewerOptions,
-	| 'maxSse'
-	| 'terrainPixels'
-	| 'terrain'
-	| 'terrainSurface'
-	| 'terrainSplat'
-	| 'instances'
-	| 'detail'
-	| 'global'
-	| 'hlodTiers'
->;
+/** what the traversal draws and refines (the viewer's options of the same names) */
+export interface SelectionOptions {
+	terrain: boolean;
+	/** want terrain surface pages */
+	terrainSurface: boolean;
+	/** want terrain splat pages near the camera */
+	terrainSplat: boolean;
+	instances: boolean;
+	/** refine leaves into their detail blocks, and draw conditional content */
+	detail: boolean;
+	/** draw the manifest's global refs */
+	global: boolean;
+	/** enabled HLOD tiers 0–2 */
+	hlodTiers: readonly [boolean, boolean, boolean];
+	/** instance refinement threshold, px */
+	maxSse: number;
+	/** terrain sample spacing target, px */
+	terrainPixels: number;
+}
 
 /** a resident surface page and the node it covers */
 export interface SurfaceSource {
