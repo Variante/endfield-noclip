@@ -1,5 +1,6 @@
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 
+import type { RowKinds, RowSpins } from '../content/instance-rows.ts';
 import type { RangeAllocation } from '../gfx/range-allocator.ts';
 import type { DecodePool } from '../package/decode-pool.ts';
 import type {
@@ -16,7 +17,6 @@ import type {
 } from '../package/decode-protocol.ts';
 import { PackageChangedError } from '../package/package-source.ts';
 import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
-import type { RowKinds, RowSpins } from '../render/instance-rows.ts';
 import type { ResidentSkin } from '../render/skin-animation.ts';
 
 // #region types

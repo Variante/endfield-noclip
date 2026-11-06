@@ -1,6 +1,6 @@
+import type { Environment, VolumetricFog as VolumetricFogLook } from '../environment/environment.ts';
 import type { Camera, Vec3 } from '../scene/camera.ts';
 
-import type { Environment, VolumetricFog as VolumetricFogLook } from './environment.ts';
 import { FRAME_WGSL } from './frame-uniforms.ts';
 import fogWgsl from './shaders/volumetric-fog.wgsl?raw';
 import { halton } from './temporal-aa.ts';

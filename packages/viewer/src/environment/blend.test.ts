@@ -13,7 +13,7 @@ import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package
 
 import type { Vec3 } from '../scene/camera.ts';
 
-import { blendEnvironment, EnvironmentFades, eyeInLevelVolume } from './environment-blend.ts';
+import { blendEnvironment, EnvironmentFades, eyeInLevelVolume } from './blend.ts';
 
 // only the fields the blend reads; sections are opaque records to it
 const phase = (name: string, density: number): EnvironmentPhaseInfo =>

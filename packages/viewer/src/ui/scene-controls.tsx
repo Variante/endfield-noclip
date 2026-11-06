@@ -16,7 +16,7 @@ import {
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
 
-import { volumeCondition, volumeLevelTag } from '../render/environment-blend.ts';
+import { volumeCondition, volumeLevelTag } from '../environment/blend.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { Drivers } from './drivers.tsx';

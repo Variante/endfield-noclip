@@ -64,7 +64,7 @@ neither loads.
 
 before it runs, the selected blocks' [spinning rows](../package-format.md#instance-block-inst-efin)
 are turned to the viewer's clock (`turnRows` in
-[instance-rows.ts](../../packages/viewer/src/render/instance-rows.ts)): their transform and bounds
+[instance-rows.ts](../../packages/viewer/src/content/instance-rows.ts)): their transform and bounds
 centre are rewritten from the stored ones in the CPU copy, and the block's span of rows from the
 first spinning row to the last is written to the GPU again. while any selected block has spinning
 rows, frames that render traverse again, as with particles, so the shadows follow. every wheel

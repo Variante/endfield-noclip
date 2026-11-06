@@ -2,9 +2,9 @@ import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances';
 import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 
-import { CULL_FLOATS, ROW_WORDS } from '../render/instance-rows.ts';
-import { type MaterialLook, alphaTextureOf, unsupportedLook } from '../render/materials.ts';
-import type { ParticleField, ParticleView } from '../render/particles.ts';
+import { CULL_FLOATS, ROW_WORDS } from '../content/instance-rows.ts';
+import { type MaterialLook, alphaTextureOf, unsupportedLook } from '../looks/materials.ts';
+import type { ParticleField, ParticleView } from '../particles/particles.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadow-map.ts';
 import type { TextureBinding, TextureStore } from '../render/texture-store.ts';
 import type { Plane, Vec3 } from '../scene/camera.ts';

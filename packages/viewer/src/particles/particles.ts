@@ -21,11 +21,6 @@ import {
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
 
-import type { RangeAllocation } from '../gfx/range-allocator.ts';
-import type { Vec3 } from '../scene/camera.ts';
-import type { ResidentInstances } from '../streaming/stream-manager.ts';
-
-import { linearRgb } from './color.ts';
 import {
 	ROW_WORDS,
 	RowBillboard,
@@ -34,7 +29,11 @@ import {
 	packRowColor,
 	packRowCustom,
 	rowSheet,
-} from './instance-rows.ts';
+} from '../content/instance-rows.ts';
+import type { RangeAllocation } from '../gfx/range-allocator.ts';
+import { linearRgb } from '../math/color.ts';
+import type { Vec3 } from '../scene/camera.ts';
+import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 /**
  * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the

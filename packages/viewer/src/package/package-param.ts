@@ -1,5 +1,5 @@
-import { DEV_PACKAGES_PREFIX } from '../package/dev-packages.ts';
-import { type PackageSource, httpSource } from '../package/package-source.ts';
+import { DEV_PACKAGES_PREFIX } from './dev-packages.ts';
+import { type PackageSource, httpSource } from './package-source.ts';
 
 /**
  * @param value a `?package=` value: a dev package name, or a URL/path of a package directory

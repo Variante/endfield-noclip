@@ -1,7 +1,7 @@
 # scene effects
 
 how the viewer draws the effects [game-data/effects.md](../game-data/effects.md) describes, and the
-[light beams](#light-beams) ([`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts),
+[light beams](#light-beams) ([`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts),
 [`shaders/effect.wgsl`](../../packages/viewer/src/render/shaders/effect.wgsl)). the extractor reads
 each effect material's properties and keywords into a [surface](../package-format.md#materials)
 ([game/material-effects.ts](../../packages/extractor/src/game/material-effects.ts)), or marks it
@@ -72,7 +72,7 @@ roughness either.
 ## portals
 
 [portals](../game-data/effects.md#portals) draw with a stencil buffer
-([`materials.ts`](../../packages/viewer/src/render/materials.ts), `LookStencil`). an opaque mask
+([`materials.ts`](../../packages/viewer/src/looks/materials.ts), `LookStencil`). an opaque mask
 writes only the stencil, at the end of the main pass, tested against the depth there, and isn't
 shaded or written to depth. in the transparent pass, effects that write the stencil draw before the
 rest, and each effect's stencil state and depth test pick a pipeline variant. stencil operations
@@ -81,7 +81,7 @@ other than keep and replace are unsupported, and portals need the GPU's `depth32
 ## solid effects
 
 VFXDitherAlpha shades through the opaque mesh path
-([`materials.ts`](../../packages/viewer/src/render/materials.ts), `ditheredLook`). its
+([`materials.ts`](../../packages/viewer/src/looks/materials.ts), `ditheredLook`). its
 [dither](../game-data/effects.md#solid-effects) is an alpha test in the cutout depth pass
 (`fs_cutout_depth` in `shaders/mesh.wgsl`), for materials without `_USE_MAIN2` in the default
 `_DitherAlphaMode`; with `_UseMainTexAsAlpha` only unlit ones, which test the texture through the
@@ -105,18 +105,18 @@ unsupported.
 ## waterfalls
 
 VFXWater sheets are drawn by `fs_effect` (`water_sheet` in `shaders/effect.wgsl`; `waterSheetLook`
-in [`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `_BlendMode` 1 sheets
-draw into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the
-unlit share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave
-falls, far below the game's. the normal map's frame comes from the UVs' screen derivatives rather
-than mesh tangents. `VFX_WATER_SIMPLE_LIGHT` sheets are lit the full way, and textures on UV sets
-other than 0 are unsupported.
+in [`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `_BlendMode` 1 sheets draw
+into the glow. the [post-exposure division](../game-data/effects.md#waterfalls) applies to the unlit
+share only, since on the lit share it darkens sheets in dark places, such as Jingyu's cave falls,
+far below the game's. the normal map's frame comes from the UVs' screen derivatives rather than mesh
+tangents. `VFX_WATER_SIMPLE_LIGHT` sheets are lit the full way, and textures on UV sets other than 0
+are unsupported.
 
 ## six-way smoke
 
 [six-way smoke](../game-data/effects.md#six-way-smoke) draws through `fs_effect`, which hands it to
 `six_way_smoke` in `shaders/effect.wgsl` (`sixWaySmokeLook` in
-[`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). the positive lightmap takes
+[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). the positive lightmap takes
 slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask, blend and
 dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and its object
 x axis made square to it. the sun takes the viewer's light colour over π, as Lit's diffuse does, and
@@ -141,7 +141,7 @@ blend.
 
 [light beams](../game-data/lighting.md#light-beams) draw through `fs_effect`, which hands them to
 `light_beam` (`lightBeamLook` in
-[`effect-looks.ts`](../../packages/viewer/src/render/effect-looks.ts)). `vs_effect` shapes the cone
+[`effect-looks.ts`](../../packages/viewer/src/looks/effect-looks.ts)). `vs_effect` shapes the cone
 first (`beam_vertex`); the fragment stage takes the beam's own frame and the camera's from the
 instance's inverse transform rather than extra varyings. additive beams draw into the glow,
 unfogged; alpha-blended ones join the weighted blend, fogged by the composite under `VLB_USE_FOG`.

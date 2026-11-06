@@ -9,12 +9,12 @@ how the viewer draws the sky, the layers beyond the atmosphere and the fogs that
 [`shaders/atmosphere.wgsl`](../../packages/viewer/src/render/shaders/atmosphere.wgsl) builds the
 transmittance, multiple-scattering and per-frame sky-view LUTs of the
 [atmosphere model](../game-data/sky-and-fog.md#sky). the game's LUT scale (`skyViewScale` in
-[`render/environment.ts`](../../packages/viewer/src/render/environment.ts)) is applied when
-[`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl) samples the LUT rather than
-when it's rendered, which comes to the same. the sky-view LUT has no ground bounce below the horizon
-(only the multiple-scattering LUT takes the ground albedo), and the global colour adjustment is left
-out. at Power Plateau's overcast the sky stays 15–20 sRGB levels brighter than an in-game shot,
-while Wuling City's matches.
+[`environment/environment.ts`](../../packages/viewer/src/environment/environment.ts)) is applied
+when [`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl) samples the LUT rather
+than when it's rendered, which comes to the same. the sky-view LUT has no ground bounce below the
+horizon (only the multiple-scattering LUT takes the ground albedo), and the global colour adjustment
+is left out. at Power Plateau's overcast the sky stays 15–20 sRGB levels brighter than an in-game
+shot, while Wuling City's matches.
 
 the cloud panorama is drawn in the celestial pass (see
 [beyond the atmosphere](#beyond-the-atmosphere)), with contrast and rotation applied as authored and
@@ -52,7 +52,7 @@ none of the layers is checked against an in-game shot.
 the analytic fogs are applied in
 [`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl) by the composite (opaque
 surfaces and sky) and water passes. the height fog's packed base-2 units are `FOG_UNIT` in
-[`render/environment.ts`](../../packages/viewer/src/render/environment.ts).
+[`environment/environment.ts`](../../packages/viewer/src/environment/environment.ts).
 
 the volumetric fog's froxels are computed each frame by a compute pass
 ([`render/volumetric-fog.ts`](../../packages/viewer/src/render/volumetric-fog.ts)). it slices depth

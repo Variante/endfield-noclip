@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { DEV_PACKAGES_INDEX, DEV_PACKAGES_PREFIX, type DevPackage } from '../package/dev-packages.ts';
+import { sourceFromParam } from '../package/package-param.ts';
 import {
 	type PackageSource,
 	directorySource,
@@ -11,7 +12,6 @@ import {
 } from '../package/package-source.ts';
 
 import { formatBytes } from './format.ts';
-import { sourceFromParam } from './package-param.ts';
 
 /** the open package: its source's label, and its `?package=` value if it has one */
 export interface OpenPackage {

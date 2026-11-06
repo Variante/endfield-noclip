@@ -1,9 +1,9 @@
+import type { Environment } from '../environment/environment.ts';
 import { type SceneTextures, HDR_FORMAT } from '../gfx/render-targets.ts';
 import type { Camera } from '../scene/camera.ts';
 
 import { AutoExposure } from './auto-exposure.ts';
 import { CelestialLayer } from './celestial.ts';
-import type { Environment } from './environment.ts';
 import type { DebugView } from './frame-uniforms.ts';
 import { LensFlares } from './lens-flare.ts';
 import { LightShafts } from './light-shafts.ts';

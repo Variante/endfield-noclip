@@ -40,7 +40,7 @@ behind the sun occludes it in the viewer's depth buffer.
 
 ## auto exposure
 
-[`render/exposure.ts`](../../packages/viewer/src/render/exposure.ts) and
+[`environment/exposure.ts`](../../packages/viewer/src/environment/exposure.ts) and
 [`render/auto-exposure.ts`](../../packages/viewer/src/render/auto-exposure.ts) follow the
 [game's metering](../game-data/post-processing.md#auto-exposure). the viewer reads the histogram
 back a frame or two late, as the game does, renders while the exposure moves, and jumps straight to
@@ -62,7 +62,7 @@ stretch.
 URP's vignette (post profile `vignette`, without the game's extra mode and fields) in HDR before
 grading.
 
-[`render/color-grading.ts`](../../packages/viewer/src/render/color-grading.ts) packs
+[`environment/color-grading.ts`](../../packages/viewer/src/environment/color-grading.ts) packs
 `colorGradingConfig` as [described](../game-data/post-processing.md#colour-grading-and-tonemapping),
 without the colour curves, which the package doesn't carry. where the game bakes grading and curve
 into a LogC LUT, the viewer evaluates them per pixel. it also offers Khronos PBR Neutral and a

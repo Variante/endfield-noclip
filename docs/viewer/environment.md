@@ -31,7 +31,7 @@ satisfy.
 
 ## blending at the camera
 
-[`render/environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts) follows the
+[`environment/blend.ts`](../../packages/viewer/src/environment/blend.ts) follows the
 [game's blend](../game-data/environment.md#blending-at-the-camera). a "profile" here is a phase plus
 the post profile, not a Unity `VolumeProfile`.
 
@@ -82,9 +82,9 @@ aren't extracted. falling rain and snow aren't drawn, and `snowConfig` isn't pac
 ### wetness
 
 `rain_wet_surface` ([`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl), fed
-by [`render/wetness.ts`](../../packages/viewer/src/render/wetness.ts)) wets the mesh and terrain
-surfaces as the [game's deferred lighting](../game-data/environment.md#wetness) does. the one-sided
-`enableWetness` blend is `lerpRain` in
-[`environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts). the rain occlusion
-map isn't rendered, so every surface counts as open to the sky, and its range is taken as 100 m; the
+by [`environment/wetness.ts`](../../packages/viewer/src/environment/wetness.ts)) wets the mesh and
+terrain surfaces as the [game's deferred lighting](../game-data/environment.md#wetness) does. the
+one-sided `enableWetness` blend is `lerpRain` in
+[`environment/blend.ts`](../../packages/viewer/src/environment/blend.ts). the rain occlusion map
+isn't rendered, so every surface counts as open to the sky, and its range is taken as 100 m; the
 coverage edges have no jitter, and walls don't run with water nor normal-mapped dips flood.

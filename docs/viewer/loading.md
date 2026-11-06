@@ -78,10 +78,10 @@ reports no errors, so `decompressZstd` checks the decoded length and throws on a
 
 ## URL parameters
 
-| parameter | meaning                                                                                                                                                                                                                       |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package` | a dev package name (served from `/packages/<name>/`), or a URL/path of a package directory if it starts with `/`, `./`, `../`, `http:/` or `https:/` ([`ui/package-param.ts`](../../packages/viewer/src/ui/package-param.ts)) |
-| `level`   | the level id to show first. if it isn't in the package or has no instances, the first level with instances is shown                                                                                                           |
+| parameter | meaning                                                                                                                                                                                                                                 |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package` | a dev package name (served from `/packages/<name>/`), or a URL/path of a package directory if it starts with `/`, `./`, `../`, `http:/` or `https:/` ([`package/package-param.ts`](../../packages/viewer/src/package/package-param.ts)) |
+| `level`   | the level id to show first. if it isn't in the package or has no instances, the first level with instances is shown                                                                                                                     |
 
 the app keeps both in sync with `history.replaceState`, so a reload or a shared link reopens the
 same package and level. packages opened from local folders have no `package` value.

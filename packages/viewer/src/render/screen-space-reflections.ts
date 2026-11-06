@@ -1,7 +1,6 @@
+import type { PostLook } from '../environment/environment.ts';
 import { HDR_FORMAT, type SceneTextures } from '../gfx/render-targets.ts';
 import type { Camera, Vec3 } from '../scene/camera.ts';
-
-import type { PostLook } from './environment.ts';
 
 /** byte size of `Ssr` in ssr.wgsl */
 const UNIFORM_BYTES = 112;

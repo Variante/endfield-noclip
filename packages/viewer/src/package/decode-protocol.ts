@@ -1,6 +1,6 @@
 import type { BlobCodec } from '@endfield-noclip/package-format/blobs';
 
-import type { InstanceRows, RowKinds } from '../render/instance-rows.ts';
+import type { InstanceRows, RowKinds } from '../content/instance-rows.ts';
 
 interface RequestBase {
 	id: number;

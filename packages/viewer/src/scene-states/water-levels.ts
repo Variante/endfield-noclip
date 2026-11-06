@@ -8,9 +8,8 @@
 
 import type { WaterVolumeEntry } from '@endfield-noclip/package-format/water';
 
+import { ROW_WORDS } from '../content/instance-rows.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
-
-import { ROW_WORDS } from './instance-rows.ts';
 
 /** a floating row of a resident block */
 interface FloatingRow {

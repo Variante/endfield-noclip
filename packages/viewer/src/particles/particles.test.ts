@@ -16,10 +16,17 @@ import {
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
 
+import {
+	ROW_WORDS,
+	RowBillboard,
+	RowWord,
+	packRowColor,
+	packRowCustom,
+	rowSheet,
+} from '../content/instance-rows.ts';
 import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
-import { ROW_WORDS, RowBillboard, RowWord, packRowColor, packRowCustom, rowSheet } from './instance-rows.ts';
 import {
 	PARTICLE_FLOATS,
 	ParticleField,

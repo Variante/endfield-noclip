@@ -26,10 +26,10 @@ import type {
 } from '@endfield-noclip/package-format/environment';
 import type { Color, Vec2 } from '@endfield-noclip/package-format/values';
 
+import { linearRgb, srgbToLinear } from '../math/color.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { type ColorGradingInput, type Grading, NEUTRAL_GRADING, gradingLook } from './color-grading.ts';
-import { linearRgb, srgbToLinear } from './color.ts';
 import { type AutoExposureInput, type AutoExposureSettings, autoExposureLook } from './exposure.ts';
 
 // #region profile input

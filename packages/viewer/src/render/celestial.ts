@@ -18,10 +18,15 @@ import type {
 } from '@endfield-noclip/package-format/environment';
 import type { Color, Vec4 } from '@endfield-noclip/package-format/values';
 
+import {
+	exposedSunIntensity,
+	type SunDirections,
+	towardsEffectLight,
+	towardsLight,
+} from '../environment/environment.ts';
+import { linearRgb } from '../math/color.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
-import { linearRgb } from './color.ts';
-import { exposedSunIntensity, type SunDirections, towardsEffectLight, towardsLight } from './environment.ts';
 import { placeholderView, type TextureBinding } from './texture-store.ts';
 
 // #region look

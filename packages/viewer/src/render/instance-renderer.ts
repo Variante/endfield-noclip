@@ -15,6 +15,7 @@
  * @module
  */
 
+import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from '../content/instance-rows.ts';
 import type { BindLayouts } from '../gfx/bind-layouts.ts';
 import { GrowableBuffer } from '../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../gfx/pipeline-cache.ts';
@@ -26,7 +27,6 @@ import type { InstanceRange } from '../streaming/selection.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { FRAME_WGSL } from './frame-uniforms.ts';
-import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from './instance-rows.ts';
 import boxesWgsl from './shaders/instance-boxes.wgsl?raw';
 
 /** rows the mega buffer starts with (10 MiB) */

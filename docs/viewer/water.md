@@ -69,7 +69,7 @@ it differs from the game in that:
 
 ## water volumes
 
-[water-levels.ts](../../packages/viewer/src/render/water-levels.ts) holds each
+[water-levels.ts](../../packages/viewer/src/scene-states/water-levels.ts) holds each
 [water volume](../game-data/water.md#water-volumes)'s fill. a volume's surface is packed at its
 authored fill; the water renderer raises its transform and bounds by the difference, and the
 floaters' instance rows (the package names each by block blob and row) move by the same amount, in

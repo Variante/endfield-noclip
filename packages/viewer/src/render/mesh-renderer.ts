@@ -7,13 +7,7 @@ import {
 	TRANSPARENT_TARGETS,
 	WATER_FOAM_FORMAT,
 } from '../gfx/render-targets.ts';
-import type { DecodedGeometry } from '../package/decode-protocol.ts';
-import type { MeshBucket } from '../streaming/mesh-selection.ts';
-import type { ResidentGeometry } from '../streaming/stream-manager.ts';
-
-import { OFFSET_SLOT } from './effect-looks.ts';
-import { FRAME_WGSL } from './frame-uniforms.ts';
-import { LIST_CAPACITY } from './instance-renderer.ts';
+import { OFFSET_SLOT } from '../looks/effect-looks.ts';
 import {
 	LOOK_FLOATS,
 	LookFlags,
@@ -21,7 +15,13 @@ import {
 	type MaterialLook,
 	SLOTS,
 	SLOT_FLAGS,
-} from './materials.ts';
+} from '../looks/materials.ts';
+import type { DecodedGeometry } from '../package/decode-protocol.ts';
+import type { MeshBucket } from '../streaming/mesh-selection.ts';
+import type { ResidentGeometry } from '../streaming/stream-manager.ts';
+
+import { FRAME_WGSL } from './frame-uniforms.ts';
+import { LIST_CAPACITY } from './instance-renderer.ts';
 import effectWgsl from './shaders/effect.wgsl?raw';
 import meshWgsl from './shaders/mesh.wgsl?raw';
 import { SHADOW_DEPTH_STATE } from './shadow-map.ts';

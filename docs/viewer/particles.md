@@ -7,7 +7,7 @@ how the viewer plays the billboards and particle systems that
 
 rows of a billboard chain ([assets](../game-data/assets.md#billboards)) turn to the camera on the
 GPU. when an instance block is uploaded, `markBillboardRows`
-([`render/instance-rows.ts`](../../packages/viewer/src/render/instance-rows.ts)) sets their
+([`content/instance-rows.ts`](../../packages/viewer/src/content/instance-rows.ts)) sets their
 `RowBillboard` bits by chain run, and `row_basis` in `frame.wgsl` multiplies the stored rotation by
 the camera's (`Facing`) or by its heading about the vertical (`Upright`) in every mesh and effect
 vertex stage, shadows included. the cull and LOD tests use the stored bounds, which already hold
@@ -23,12 +23,12 @@ placements.
 a chain draw that names a particle system ([package format](../package-format.md#particles)) makes
 its instance an emitter: the emitter culls and streams its geometry like any instance, but its
 bucket takes the rows of its live particles instead of its own
-([`render/particles.ts`](../../packages/viewer/src/render/particles.ts)). `ParticleField` keeps as
-many rows per emitter as the package's emission bound, up to `min(maxParticles, 1024)`, in the
-instance buffer, using the emitter's block origin, and rewrites them once per frame the emitter is
-selected. so every mesh shader draws particles unchanged, and shadow and effect passes need nothing
-of their own. each particle's colour goes into its row's colour word (`RowWord.color` in
-[`render/instance-rows.ts`](../../packages/viewer/src/render/instance-rows.ts), RGBA8, white for
+([`particles/particles.ts`](../../packages/viewer/src/particles/particles.ts)). `ParticleField`
+keeps as many rows per emitter as the package's emission bound, up to `min(maxParticles, 1024)`, in
+the instance buffer, using the emitter's block origin, and rewrites them once per frame the emitter
+is selected. so every mesh shader draws particles unchanged, and shadow and effect passes need
+nothing of their own. each particle's colour goes into its row's colour word (`RowWord.color` in
+[`content/instance-rows.ts`](../../packages/viewer/src/content/instance-rows.ts), RGBA8, white for
 other rows), where it multiplies the mesh's vertex colours in the mesh and effect shaders. a
 renderer with several meshes is several emitters at one place; they share their random values, so
 each draws the particles that picked its mesh.

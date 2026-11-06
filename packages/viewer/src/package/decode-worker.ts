@@ -19,7 +19,7 @@ import {
 
 import { MeshoptDecoder } from 'meshoptimizer/decoder';
 
-import { buildInstanceRows } from '../render/instance-rows.ts';
+import { buildInstanceRows } from '../content/instance-rows.ts';
 
 import type {
 	DecodedGeometry,

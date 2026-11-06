@@ -1,10 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 
+import { sourceFromParam } from './package/package-param.ts';
 import type { PackageSource } from './package/package-source.ts';
 import { CameraReadout } from './ui/camera-readout.tsx';
 import { LevelsPanel } from './ui/levels-panel.tsx';
 import { type OpenPackage, PackagePanel } from './ui/package-panel.tsx';
-import { sourceFromParam } from './ui/package-param.ts';
 import { SceneControls } from './ui/scene-controls.tsx';
 import { SettingsPanel } from './ui/settings-panel.tsx';
 import { StatsPanel } from './ui/stats-panel.tsx';

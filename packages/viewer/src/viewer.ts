@@ -23,26 +23,6 @@ import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
-import { type BindLayouts, createBindLayouts } from './gfx/bind-layouts.ts';
-import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
-import { GpuProfiler } from './gfx/gpu-profiler.ts';
-import { PipelineCache } from './gfx/pipeline-cache.ts';
-import { RenderTargets } from './gfx/render-targets.ts';
-import { UniformRing } from './gfx/uniform-ring.ts';
-import { DecodePool } from './package/decode-pool.ts';
-import type { PackageSource } from './package/package-source.ts';
-import { CORE_ARCHIVE_INDEX, type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
-import { type CelestialLook, NO_CELESTIAL, celestialLook, celestialTextures } from './render/celestial.ts';
-import {
-	type AppliedVolume,
-	blendEnvironment,
-	EnvironmentFades,
-	eyeInLevelVolume,
-	volumeLevelTag,
-} from './render/environment-blend.ts';
-import { type Environment, deriveEnvironment, windClockRate } from './render/environment.ts';
-import { DEBUG_VIEWS, type DebugView, FRAME_UNIFORM_BYTES, FrameOffsets } from './render/frame-uniforms.ts';
-import { InstanceRenderer } from './render/instance-renderer.ts';
 import {
 	markBillboardRows,
 	ROW_BYTES,
@@ -51,22 +31,42 @@ import {
 	type RowKinds,
 	type TierSpan,
 	turnRows,
-} from './render/instance-rows.ts';
+} from './content/instance-rows.ts';
+import {
+	type AppliedVolume,
+	blendEnvironment,
+	EnvironmentFades,
+	eyeInLevelVolume,
+	volumeLevelTag,
+} from './environment/blend.ts';
+import { type Environment, deriveEnvironment, windClockRate } from './environment/environment.ts';
+import { wetnessParams } from './environment/wetness.ts';
+import { type BindLayouts, createBindLayouts } from './gfx/bind-layouts.ts';
+import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
+import { GpuProfiler } from './gfx/gpu-profiler.ts';
+import { PipelineCache } from './gfx/pipeline-cache.ts';
+import { RenderTargets } from './gfx/render-targets.ts';
+import { UniformRing } from './gfx/uniform-ring.ts';
+import { materialLooks } from './looks/materials.ts';
+import { DecodePool } from './package/decode-pool.ts';
+import type { PackageSource } from './package/package-source.ts';
+import { CORE_ARCHIVE_INDEX, type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
+import { ParticleField } from './particles/particles.ts';
+import { type CelestialLook, NO_CELESTIAL, celestialLook, celestialTextures } from './render/celestial.ts';
+import { DEBUG_VIEWS, type DebugView, FRAME_UNIFORM_BYTES, FrameOffsets } from './render/frame-uniforms.ts';
+import { InstanceRenderer } from './render/instance-renderer.ts';
 import { IrradianceVolume } from './render/irradiance-volume.ts';
 import { lensFlareLook } from './render/lens-flare-layout.ts';
 import { LocalLights } from './render/local-lights.ts';
-import { materialLooks } from './render/materials.ts';
 import { MeshRenderer } from './render/mesh-renderer.ts';
-import { ParticleField } from './render/particles.ts';
 import { type PostSettings, PostProcess, type Tonemapper, postExposure } from './render/post-process.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadow-map.ts';
 import { SETTLE_FRAMES } from './render/temporal-aa.ts';
 import { TerrainRenderer } from './render/terrain-renderer.ts';
 import { type TextureBinding, TextureStore, placeholderView } from './render/texture-store.ts';
 import { VolumetricFog } from './render/volumetric-fog.ts';
-import { WaterLevels, type WaterVolumeState } from './render/water-levels.ts';
 import { WaterRenderer } from './render/water-renderer.ts';
-import { wetnessParams } from './render/wetness.ts';
+import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.ts';
 import { Camera, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
