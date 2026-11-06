@@ -136,8 +136,9 @@ export class SkinAnimator {
 	 * @param encoder the frame's encoder
 	 * @param skins the animated geometries drawn this frame
 	 * @param time seconds of the viewer's clock; every geometry plays from the same start
+	 * @returns whether any geometry was skinned
 	 */
-	encode(encoder: GPUCommandEncoder, skins: Iterable<ResidentSkin>, time: number): void {
+	encode(encoder: GPUCommandEncoder, skins: Iterable<ResidentSkin>, time: number): boolean {
 		let pass: GPUComputePassEncoder | null = null;
 		for (const skin of skins) {
 			const { a, b, blend } = skinFrame(time, skin.frameCount, skin.frameRate);
@@ -158,5 +159,6 @@ export class SkinAnimator {
 			pass.dispatchWorkgroups(Math.ceil(skin.vertexCount / WORKGROUP));
 		}
 		pass?.end();
+		return pass !== null;
 	}
 }

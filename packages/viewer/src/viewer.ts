@@ -1641,9 +1641,7 @@ export class Viewer {
 
 		const encoder = this.#profiler.instrument(device.createCommandEncoder({ label: 'frame' }));
 		this.#irradiance.encode(encoder);
-		if (hasScene) {
-			this.#meshes.animate(encoder, this.#time);
-		}
+		const skinned = hasScene && this.#meshes.animate(encoder, this.#time);
 		let draws = 0;
 		// the layers hold what they drew last until the casters or a layer's fit change; frames that only settle
 		// the antialiasing or drift the fog redraw nothing there
@@ -1656,8 +1654,8 @@ export class Viewer {
 				}
 			});
 		}
-		// an animated caster moves every frame
-		const drawShadows = this.#shadowsStale || this.#meshes.animating;
+		// an animated caster moves whenever the clock does
+		const drawShadows = this.#shadowsStale || skinned;
 		// pipelines still compiling would leave casters out
 		this.#shadowsStale = !shadows || this.#pipelines.compiling > 0;
 		(drawShadows ? cascadeOffsets : []).forEach((offset, i) => {

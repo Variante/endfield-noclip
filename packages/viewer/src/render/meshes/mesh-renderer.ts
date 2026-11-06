@@ -201,19 +201,15 @@ export class MeshRenderer {
 
 	// #region animation
 
-	/** whether this frame draws an animated geometry, so the shadows it casts must be drawn again */
-	get animating(): boolean {
-		return this.#drawnSkins.size > 0;
-	}
-
 	/**
 	 * skins the animated geometries this frame draws at the time's frame; encode before anything draws meshes
 	 *
 	 * @param encoder the frame's encoder
 	 * @param time seconds of the viewer's clock
+	 * @returns whether a drawn geometry moved, so the shadows it casts must be drawn again
 	 */
-	animate(encoder: GPUCommandEncoder, time: number): void {
-		this.#skins.encode(encoder, this.#drawnSkins, time);
+	animate(encoder: GPUCommandEncoder, time: number): boolean {
+		return this.#skins.encode(encoder, this.#drawnSkins, time);
 	}
 
 	// #endregion
