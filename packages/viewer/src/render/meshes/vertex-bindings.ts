@@ -2,6 +2,18 @@ import type { ResidentGeometry } from '../../streaming/resident.ts';
 
 import type { VertexStreams } from './draw-ranges.ts';
 
+/** a geometry's quantized positions, at location 0 */
+export const POSITION_STREAM: GPUVertexBufferLayout = {
+	arrayStride: 8,
+	attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }],
+};
+
+/** a geometry's octahedral normals, at location 1 */
+export const NORMAL_STREAM: GPUVertexBufferLayout = {
+	arrayStride: 4,
+	attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }],
+};
+
 /** bytes per vertex of the zero buffer bound in place of missing streams (the widest are float UVs) */
 const ZERO_STRIDE = 8;
 /** vertices the zero buffer starts with */

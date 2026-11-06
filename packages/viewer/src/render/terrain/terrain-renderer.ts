@@ -31,6 +31,7 @@ import type { BindLayouts } from '../frame/bind-layouts.ts';
 import { describeFill, describeWire } from '../frame/fill-and-wire.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import type { MainPassFormat } from '../frame/render-targets.ts';
+import { wgslConst } from '../shaders/wgsl-const.ts';
 import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 
 import terrainWgsl from './terrain.wgsl?raw';
@@ -63,10 +64,6 @@ const SURFACE_SLOTS = 1024;
 const SURFACE_FORMAT: GPUTextureFormat = 'bc3-rgba-unorm';
 /** bytes of one BC3 surface image */
 const SURFACE_IMAGE_BYTES = (SURFACE_SIDE / 4) ** 2 * 16;
-
-/** @returns a typed WGSL constant declaration */
-const wgslConst = (name: string, type: 'i32' | 'u32' | 'f32', value: number): string =>
-	'const ' + name + ': ' + type + ' = ' + String(value) + ';';
 
 /** the package's terrain layout as the constants terrain.wgsl reads */
 const LAYOUT_WGSL = [

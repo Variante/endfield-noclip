@@ -51,7 +51,10 @@
   ([`render/meshes/mesh-pipelines.ts`](../../packages/viewer/src/render/meshes/mesh-pipelines.ts)
   for the meshes, whose phases and passes are listed in
   [`draw-ranges.ts`](../../packages/viewer/src/render/meshes/draw-ranges.ts)). a draw or dispatch
-  whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is.
+  whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is. common
+  blend components are in [`gfx/blend.ts`](../../packages/viewer/src/gfx/blend.ts), and the position
+  and normal vertex streams' layouts, which water shares with the meshes, in
+  [`vertex-bindings.ts`](../../packages/viewer/src/render/meshes/vertex-bindings.ts).
 - **buffers** ([`gfx/buffers.ts`](../../packages/viewer/src/gfx/buffers.ts)): buffers that start
   with data (index buffers, configs, fixed per-pass uniforms) are filled mapped at creation rather
   than through a queue write; a pass's own uniform block is a `UNIFORM | COPY_DST` buffer it

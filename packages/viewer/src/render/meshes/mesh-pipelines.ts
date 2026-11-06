@@ -1,3 +1,4 @@
+import { ADD, ALPHA_OVER, KEEP, PREMULTIPLIED_OVER } from '../../gfx/blend.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { OFFSET_SLOT } from '../../looks/effects/stack.ts';
 import { SLOTS } from '../../looks/look.ts';
@@ -16,6 +17,7 @@ import { type DrawPhase, PHASES, type VertexStreams } from './draw-ranges.ts';
 import effectWgsl from './effect.wgsl?raw';
 import meshWgsl from './mesh.wgsl?raw';
 import { type FaceCull, FRONT_FACE, type UvFormat, VARIANTS, pipelineKey } from './pipeline-variants.ts';
+import { NORMAL_STREAM, POSITION_STREAM } from './vertex-bindings.ts';
 
 /** a phase's pipeline descriptor for a face culling and UV format */
 export type PhaseDescriber = (cull: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor;
@@ -68,10 +70,7 @@ const createEffectLayout = (device: GPUDevice): GPUBindGroupLayout =>
 /** @returns the vertex state of a mesh pipeline reading `streams` with UVs in `uvFormat` */
 const meshVertex = (module: GPUShaderModule, uvFormat: UvFormat, streams: VertexStreams): GPUVertexState => {
 	const uvStride = uvFormat === 'unorm16x2' ? 4 : 8;
-	const position: GPUVertexBufferLayout = {
-		arrayStride: 8,
-		attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }],
-	};
+	const position = POSITION_STREAM;
 	const uvs: GPUVertexBufferLayout[] = [
 		{ arrayStride: uvStride, attributes: [{ shaderLocation: 2, offset: 0, format: uvFormat }] },
 		{ arrayStride: uvStride, attributes: [{ shaderLocation: 4, offset: 0, format: uvFormat }] },
@@ -89,7 +88,7 @@ const meshVertex = (module: GPUShaderModule, uvFormat: UvFormat, streams: Vertex
 				entryPoint: 'vs_main',
 				buffers: [
 					position,
-					{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }] },
+					NORMAL_STREAM,
 					...uvs,
 					{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: 'snorm8x4' }] },
 					{ arrayStride: 4, attributes: [{ shaderLocation: 5, offset: 0, format: 'unorm8x4' }] },
@@ -218,7 +217,7 @@ export const prepareMeshPipelines = (
 				format: HDR_FORMAT,
 				blend: {
 					color: { srcFactor: 'dst', dstFactor: 'zero', operation: 'add' },
-					alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+					alpha: KEEP,
 				},
 			},
 		],
@@ -231,8 +230,8 @@ export const prepareMeshPipelines = (
 			{
 				format: HDR_FORMAT,
 				blend: {
-					color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-					alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+					color: ALPHA_OVER,
+					alpha: KEEP,
 				},
 			},
 		],
@@ -246,7 +245,7 @@ export const prepareMeshPipelines = (
 		{
 			format: WATER_FOAM_FORMAT,
 			blend: {
-				color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+				color: PREMULTIPLIED_OVER,
 				alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 			},
 		},
@@ -262,8 +261,8 @@ export const prepareMeshPipelines = (
 			{
 				format: HDR_FORMAT,
 				blend: {
-					color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-					alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+					color: ADD,
+					alpha: KEEP,
 				},
 				writeMask: GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE,
 			},

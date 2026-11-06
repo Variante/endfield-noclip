@@ -1,4 +1,5 @@
 import type { LightShaftLook } from '../../environment/environment.ts';
+import { ADDITIVE } from '../../gfx/blend.ts';
 import { createBufferWithData, createUniformBuffer } from '../../gfx/buffers.ts';
 import {
 	type FullscreenPass,
@@ -64,14 +65,13 @@ export class LightShafts {
 		const module = postShaderModule(device, 'light shafts', [luminanceWgsl, lightShaftsWgsl]);
 		const pipeline = (label: string, entryPoint: string, target: GPUColorTargetState): GPURenderPipeline =>
 			fullscreenPipeline(device, { label, module, entryPoint, targets: [target] });
-		const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' };
 		this.#pipelines = {
 			downsample: pipeline('light shaft downsample', 'fs_downsample', { format: HDR_FORMAT }),
 			blur: pipeline('light shaft blur', 'fs_blur', { format: HDR_FORMAT }),
 			// the game adds the colour only
 			apply: pipeline('light shaft apply', 'fs_apply', {
 				format: HDR_FORMAT,
-				blend: { color: add, alpha: add },
+				blend: ADDITIVE,
 				writeMask: GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE,
 			}),
 		};

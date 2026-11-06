@@ -19,6 +19,7 @@ import {
 	WATER_DEPTH_FORMAT,
 	WATER_FOAM_FORMAT,
 } from '../frame/render-targets.ts';
+import { NORMAL_STREAM, POSITION_STREAM } from '../meshes/vertex-bindings.ts';
 import { postCommonSource } from '../post/shader-source.ts';
 import screenSpaceWgsl from '../shaders/common/screen-space.wgsl?raw';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
@@ -192,11 +193,8 @@ export class WaterRenderer {
 		const vertex: GPUVertexState = {
 			module,
 			entryPoint: 'vs_water',
-			buffers: [
-				{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }] },
-				// octahedral normals; meshes without them bind their positions here, which the shader ignores
-				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }] },
-			],
+			// meshes without normals bind their positions as them, which the shader ignores
+			buffers: [POSITION_STREAM, NORMAL_STREAM],
 		};
 		// seen from below too
 		const primitive: GPUPrimitiveState = { topology: 'triangle-list', cullMode: 'none' };

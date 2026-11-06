@@ -1,3 +1,5 @@
+import { ADDITIVE } from '../../gfx/blend.ts';
+
 /**
  * reversed-Z depth: 1 at the near plane, 0 at infinity; cleared to 0 and tested with `greater`. with a
  * stencil buffer, {@link DEPTH_STENCIL_FORMAT} instead
@@ -53,13 +55,7 @@ const MAIN_TARGETS: GPUColorTargetState[] = [
  * can fog them at about their own distance
  */
 export const TRANSPARENT_TARGETS: GPUColorTargetState[] = [
-	{
-		format: HDR_FORMAT,
-		blend: {
-			color: { srcFactor: 'one', dstFactor: 'one' },
-			alpha: { srcFactor: 'one', dstFactor: 'one' },
-		},
-	},
+	{ format: HDR_FORMAT, blend: ADDITIVE },
 	{
 		format: 'r8unorm',
 		blend: {
@@ -67,20 +63,8 @@ export const TRANSPARENT_TARGETS: GPUColorTargetState[] = [
 			alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src' },
 		},
 	},
-	{
-		format: HDR_FORMAT,
-		blend: {
-			color: { srcFactor: 'one', dstFactor: 'one' },
-			alpha: { srcFactor: 'one', dstFactor: 'one' },
-		},
-	},
-	{
-		format: 'r16float',
-		blend: {
-			color: { srcFactor: 'one', dstFactor: 'one' },
-			alpha: { srcFactor: 'one', dstFactor: 'one' },
-		},
-	},
+	{ format: HDR_FORMAT, blend: ADDITIVE },
+	{ format: 'r16float', blend: ADDITIVE },
 ];
 
 /** what a main-pass pipeline needs to know of the targets */

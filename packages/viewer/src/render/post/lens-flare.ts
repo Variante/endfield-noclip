@@ -1,6 +1,7 @@
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { type LensFlareLook, lensFlareTextures } from '../../environment/lens-flare-look.ts';
+import { ADD, ALPHA_OVER, PREMULTIPLIED_OVER } from '../../gfx/blend.ts';
 import { createUniformBuffer } from '../../gfx/buffers.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_CLAMP_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
@@ -22,10 +23,10 @@ const CELESTIAL_OCCLUSION = Math.tan(0.0576);
 
 /** per element blend mode: additive, screen, premultiplied, lerp */
 const BLENDS: GPUBlendComponent[] = [
-	{ srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+	ADD,
 	{ srcFactor: 'one', dstFactor: 'one-minus-src', operation: 'add' },
-	{ srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-	{ srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+	PREMULTIPLIED_OVER,
+	ALPHA_OVER,
 ];
 
 /** owns the flare's pipelines, quad buffer and texture bindings */
