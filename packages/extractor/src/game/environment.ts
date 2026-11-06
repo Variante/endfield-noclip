@@ -35,7 +35,7 @@ import type { WorldIndex } from './world-index.ts';
 
 // which environment a level is lit by. the game has no per-level setting, only environment volumes blended by
 // priority at the camera, so a level's base environment is the volume that wins over most of the level's
-// cells (docs/extraction.md#the-levels-base-environment); `world env <level>` shows the vote.
+// cells (docs/extraction/environments.md#the-levels-base-environment); `world env <level>` shows the vote.
 
 // #region scene volumes
 
@@ -176,7 +176,7 @@ export interface LevelEnvironmentChoice {
 /**
  * chooses a base environment by 2D coverage of the level's cells, falling back to the scene's global volume.
  * respects scene-state and default prefab loading, but assumes loaded volumes are enabled by scripts.
- * sampling and tie rules: `docs/extraction.md#the-levels-base-environment`.
+ * sampling and tie rules: `docs/extraction/environments.md#the-levels-base-environment`.
  *
  * @param level ownership tag and cells to sample
  * @param volumes the scene's volumes

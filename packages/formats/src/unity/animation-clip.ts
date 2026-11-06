@@ -238,6 +238,9 @@ interface StreamedKey {
 /** what each scalar of a clip's curves animates: a Transform attribute (1–4) or `0` for anything else */
 type ScalarKinds = Uint8Array;
 
+// the 16-bit dense decode follows Sora-Core's `NativeGenericScalarSampler`
+// (https://github.com/SaigyoujiYusora/Sora-Core, MIT).
+
 /** the dense block's 16-bit encoding, Hypergryph's (`m_ACLType` 16) */
 const DENSE_PACKED16 = 16;
 
@@ -500,7 +503,7 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
  * an ACL-compressed clip's Transform motion: one ACL transform track per animated Transform. the sub-track
  * masks say which tracks take a position, rotation or scale binding: the k-th binding of a kind is the k-th
  * track whose bit for that kind is set ([ACL-compressed
- * clips](../../../../docs/game-data/assets.md#acl-compressed-clips))
+ * clips](../../../../docs/game-data/animation.md#acl-compressed-clips))
  *
  * @throws {FormatError} for Euler bindings, masks that don't match the bindings, or a buffer
  *   {@link decodeAclTransforms} can't read

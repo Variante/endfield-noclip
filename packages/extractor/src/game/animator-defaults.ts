@@ -20,7 +20,7 @@ import type { AssetResolver, ObjectRef } from './assets.ts';
 import type { PoseClip, PrefabPose } from './prefab.ts';
 import { loopingMotion } from './view-state-poses.ts';
 
-// what a prefab's own Animators play when nothing drives them: docs/game-data/assets.md#scenery-animators
+// what a prefab's own Animators play when nothing drives them: docs/game-data/animation.md#scenery-animators
 
 /** `m_ClipID` of a blend tree node without a clip */
 const NO_CLIP = 0xffff_ffff;

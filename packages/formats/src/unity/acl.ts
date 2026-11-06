@@ -22,7 +22,7 @@
 
 import { FormatError } from '../binary/binary-reader.ts';
 
-// layout: docs/game-data/assets.md#acl-compressed-clips
+// layout: docs/game-data/animation.md#acl-compressed-clips
 
 /** `buffer_tag32::compressed_tracks` */
 const TAG = 0xac11_ac11;

@@ -14,7 +14,7 @@ import {
 
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
 
-// effects a prefab's view states never show at rest: docs/game-data/assets.md#one-shot-effects
+// effects a prefab's view states never show at rest: docs/game-data/effects.md#one-shot-effects
 
 const fieldNames = (ref: ObjectRef): Set<string> =>
 	new Set(ref.info.type?.nodes.filter((node) => node.level === 1).map((node) => node.name));
@@ -108,7 +108,7 @@ export const isEffectSettingType = (ref: ObjectRef): boolean => fieldNames(ref).
  * @param setting an `EffectSetting` (see {@link isEffectSettingType})
  * @param data its fields
  * @returns keys of the GameObjects its LOD table switches. the table keeps each one off when it was saved off
- *   (docs/game-data/assets.md#effect-lod-tables), so those never show. empty when the setting is disabled
+ *   (docs/game-data/effects.md#effect-lod-tables), so those never show. empty when the setting is disabled
  */
 export const effectLodNodes = async (
 	resolver: AssetResolver,
@@ -171,7 +171,7 @@ export interface EffectDistanceLod {
  * @param resolver bundle reader
  * @param setting an `EffectSetting` (see {@link isEffectSettingType})
  * @param data its fields
- * @returns the distances its GameObjects show at (docs/game-data/assets.md#effect-lod-tables), or `null` when
+ * @returns the distances its GameObjects show at (docs/game-data/effects.md#effect-lod-tables), or `null` when
  *   the setting is disabled or doesn't switch by distance
  * @throws {FormatError} on a malformed LOD entry or distance band
  */

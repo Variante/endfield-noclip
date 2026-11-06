@@ -13,7 +13,7 @@ import type {
 } from '@endfield-noclip/package-format/states';
 
 // shares quest, mission and variable controls across MapConfig conditions and dynamic load gates.
-// conditions are disjunctions of conjunctions. defaults: docs/extraction.md#defaults.
+// conditions are disjunctions of conjunctions. defaults: docs/extraction/scene-controls.md#defaults.
 
 // #region conditions
 

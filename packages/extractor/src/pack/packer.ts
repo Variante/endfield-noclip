@@ -946,7 +946,7 @@ const collectEntities = async (
 	};
 
 	// rect decals draw the decal cube with their material, their row carrying their placement's colour and UV
-	// transform (docs/package-format.md#instance-blocks; the game's decals: docs/game-data/materials.md#decals)
+	// transform (docs/package-format.md#instance-block-inst-efin; the game's decals: docs/game-data/materials.md#decals)
 	const [cubeHash] = await world.hashesOf(DECAL_CUBE_PATH);
 	const decalDraw = (decal: RectDecal, materialHash: bigint): ChainDraw | null => {
 		if (cubeHash === undefined) {

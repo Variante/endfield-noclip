@@ -15,7 +15,7 @@ import { VfsGroup } from '../hg/vfs.ts';
 import type { PoseClip, PrefabPose } from './prefab.ts';
 
 // model view states (`ModelViewStateControllerData`) and the poses they settle in.
-// rules: docs/game-data/assets.md#interactive-view-states.
+// rules: docs/game-data/interactives.md#interactive-view-states.
 
 const ROOT = 'Beyond_Gameplay_Core_ModelViewStateController_MVSCModelViewStateControllerDataForMemoryPack';
 

@@ -17,7 +17,7 @@ import { type AssetResolver, type ObjectRef, objectKey } from './assets.ts';
 import type { PoseClip, PrefabPose } from './prefab.ts';
 
 // settled looks of a telescopic bridge (`InteractiveTelescopicPostmodelMono`): retracted, or extended by a
-// number of platform pieces. layout: docs/game-data/assets.md#telescopic-bridges.
+// number of platform pieces. layout: docs/game-data/interactives.md#telescopic-bridges.
 
 /** a telescopic bridge's looks, each drawn as placements of its own prefab in a pose */
 export interface TelescopicPoses {
