@@ -1,4 +1,5 @@
 import { createBufferWithData } from '../../gfx/buffers.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type { DecodedSkin } from '../../package/decode-protocol.ts';
 import octahedralWgsl from '../shaders/common/octahedral.wgsl?raw';
 
@@ -8,6 +9,7 @@ import skinWgsl from './skin.wgsl?raw';
 /** bytes of `Skin` in skin.wgsl */
 const PARAMS_BYTES = 112;
 const WORKGROUP = 64;
+const PIPELINE_KEY = 'skin';
 /** `NONE` in skin.wgsl: a stream the geometry lacks */
 const NONE = 0xff_ff_ff_ff;
 
@@ -33,17 +35,32 @@ export interface ResidentSkin {
 /** skins animated geometries into their own vertex buffers before they're drawn */
 export class SkinAnimator {
 	#device: GPUDevice;
-	#pipeline: GPUComputePipeline;
+	#pipelines: PipelineCache;
+	/** explicit, so geometries can be bound while the pipeline compiles */
+	#layout: GPUBindGroupLayout;
 
-	/** @param device the device */
-	constructor(device: GPUDevice) {
+	/**
+	 * @param device the device
+	 * @param pipelines the pipeline cache, which compiles the skinning pass
+	 */
+	constructor(device: GPUDevice, pipelines: PipelineCache) {
 		this.#device = device;
-		const module = device.createShaderModule({ label: 'skin', code: octahedralWgsl + '\n' + skinWgsl });
-		this.#pipeline = device.createComputePipeline({
+		this.#pipelines = pipelines;
+		const compute = GPUShaderStage.COMPUTE;
+		const layout = device.createBindGroupLayout({
 			label: 'skin',
-			layout: 'auto',
-			compute: { module, entryPoint: 'cs_skin' },
+			entries: [
+				{ binding: 0, visibility: compute, buffer: { type: 'uniform' } },
+				{ binding: 1, visibility: compute, buffer: { type: 'read-only-storage' } },
+				{ binding: 2, visibility: compute, buffer: { type: 'read-only-storage' } },
+				{ binding: 3, visibility: compute, buffer: { type: 'storage' } },
+			],
 		});
+		this.#layout = layout;
+		void pipelines.prepareCompute(PIPELINE_KEY, () => ({
+			layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+			compute: { module: pipelines.module('skin', octahedralWgsl + '\n' + skinWgsl), entryPoint: 'cs_skin' },
+		}));
 	}
 
 	/**
@@ -107,7 +124,7 @@ export class SkinAnimator {
 		});
 		const group = device.createBindGroup({
 			label: `${label} skin`,
-			layout: this.#pipeline.getBindGroupLayout(0),
+			layout: this.#layout,
 			entries: [
 				{ binding: 0, resource: { buffer: params } },
 				{ binding: 1, resource: { buffer: source } },
@@ -131,7 +148,7 @@ export class SkinAnimator {
 
 	/**
 	 * skins each geometry at the time's frame, before anything draws them; a geometry whose vertices already
-	 * hold that frame is skipped
+	 * hold that frame is skipped. nothing is skinned while the pipeline compiles
 	 *
 	 * @param encoder the frame's encoder
 	 * @param skins the animated geometries drawn this frame
@@ -139,6 +156,10 @@ export class SkinAnimator {
 	 * @returns whether any geometry was skinned
 	 */
 	encode(encoder: GPUCommandEncoder, skins: Iterable<ResidentSkin>, time: number): boolean {
+		const pipeline = this.#pipelines.getCompute(PIPELINE_KEY);
+		if (pipeline === undefined) {
+			return false;
+		}
 		let pass: GPUComputePassEncoder | null = null;
 		for (const skin of skins) {
 			const { a, b, blend } = skinFrame(time, skin.frameCount, skin.frameRate);
@@ -154,7 +175,7 @@ export class SkinAnimator {
 			// only the frame fields change
 			this.#device.queue.writeBuffer(skin.params, 0, words, 0, 5);
 			pass ??= encoder.beginComputePass({ label: 'skin' });
-			pass.setPipeline(this.#pipeline);
+			pass.setPipeline(pipeline);
 			pass.setBindGroup(0, skin.group);
 			pass.dispatchWorkgroups(Math.ceil(skin.vertexCount / WORKGROUP));
 		}

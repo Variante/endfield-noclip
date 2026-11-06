@@ -45,9 +45,10 @@
 - **pipeline cache** ([`gfx/pipeline-cache.ts`](../../packages/viewer/src/gfx/pipeline-cache.ts)):
   modules by label, pipelines by a state key such as `mesh/opaque/back/unorm16x2`, compiled with
   `createRenderPipelineAsync` (or `createComputePipelineAsync` through `prepareCompute`, for the
-  volumetric fog, the irradiance update and the auto exposure's histogram), so they compile once per
-  session rather than per package. renderers `prepare` the pipelines they use at construction, so
-  streaming compiles nothing; only the stencil variants of effect pipelines compile on first use
+  volumetric fog, the irradiance update, the auto exposure's histogram and the skinning of animated
+  geometry), so they compile once per session rather than per package. renderers `prepare` the
+  pipelines they use at construction, so streaming compiles nothing; only the stencil variants of
+  effect pipelines compile on first use
   ([`render/meshes/mesh-pipelines.ts`](../../packages/viewer/src/render/meshes/mesh-pipelines.ts)
   for the meshes, whose phases and passes are listed in
   [`draw-ranges.ts`](../../packages/viewer/src/render/meshes/draw-ranges.ts)). a draw or dispatch

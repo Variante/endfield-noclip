@@ -141,7 +141,7 @@ export class MeshRenderer {
 		this.#pipelines = pipelines;
 		this.#instances = instances;
 		this.#stencil = format.stencil;
-		this.#skins = new SkinAnimator(device);
+		this.#skins = new SkinAnimator(device, pipelines);
 		this.#vertexBindings = new VertexBindings(device);
 		this.#params = device.createBuffer({
 			label: 'mesh draws',
