@@ -460,9 +460,15 @@ export class Viewer {
 		});
 		this.#instances = new InstanceRenderer(device, this.#layouts, this.#pipelines, format, INSTANCE_ROWS);
 		this.#meshes = new MeshRenderer(device, this.#layouts, this.#pipelines, this.#instances, format);
-		this.#fog = new VolumetricFog(device, this.#layouts.frame);
+		this.#fog = new VolumetricFog(device, this.#pipelines, this.#layouts.frame);
 		this.#fog.setEnvironment(this.#environment, this.camera.near);
-		this.#post = new PostProcess(device, gfx.presentationFormat, this.#environment, this.#fog);
+		this.#post = new PostProcess(
+			device,
+			this.#pipelines,
+			gfx.presentationFormat,
+			this.#environment,
+			this.#fog,
+		);
 		this.#water = new WaterRenderer(device, { frame: this.#layouts.frame, ...this.#post.skyLayouts });
 		this.#pool = new DecodePool(Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) >> 1)));
 		this.controls = new NoclipControls(this.camera, canvas);

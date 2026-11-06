@@ -1,6 +1,7 @@
 import type { CelestialLook, CelestialTextureSlot } from '../../environment/celestial-look.ts';
 import type { Environment } from '../../environment/environment.ts';
 import type { LensFlareLook } from '../../environment/lens-flare-look.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type { Camera } from '../../scene/camera.ts';
 import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
@@ -68,12 +69,14 @@ export class PostProcess {
 
 	/**
 	 * @param device the device
+	 * @param pipelines the pipeline cache, which compiles the auto exposure's histogram pass
 	 * @param swapchainFormat the canvas format the final pass writes
 	 * @param environment the environment to start with
 	 * @param fog the volumetric fog, which the caller encodes before {@link encode}
 	 */
 	constructor(
 		device: GPUDevice,
+		pipelines: PipelineCache,
 		swapchainFormat: GPUTextureFormat,
 		environment: Environment,
 		fog: VolumetricFog,
@@ -93,7 +96,7 @@ export class PostProcess {
 			addressModeV: 'clamp-to-edge',
 		});
 		const postUniforms = this.#uniforms;
-		this.#autoExposure = new AutoExposure(device);
+		this.#autoExposure = new AutoExposure(device, pipelines);
 		this.#luts = new AtmosphereLuts(device, postUniforms, sampler);
 		this.#ao = new AmbientOcclusion(device, postUniforms);
 		this.#reflections = new ScreenSpaceReflections(device, postUniforms);

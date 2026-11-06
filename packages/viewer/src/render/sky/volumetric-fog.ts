@@ -1,4 +1,5 @@
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { halton } from '../../math/sequence.ts';
 import { scale } from '../../math/vec3.ts';
 import type { Camera, Vec3 } from '../../scene/camera.ts';
@@ -26,6 +27,7 @@ const JITTER_PHASES = 16;
 /** byte size of `VolumetricFog` in volumetric-fog.wgsl */
 const UNIFORM_BYTES = 17 * 16;
 const WORKGROUP = 8;
+const PIPELINE_KEY = 'volumetric fog';
 
 /** how a view depth maps onto the grid's slices: `s = log2(z · scale + offset) · perDoubling` */
 interface Slices {
@@ -84,15 +86,16 @@ export class VolumetricFog {
 	#index = 0;
 	/** the view the last written history was laid over; `null` when there's no history to reproject */
 	#previous: GridView | null = null;
-	#pipeline: GPUComputePipeline | null = null;
+	#pipelines: PipelineCache;
 	#look: VolumetricFogLook | null = null;
 	#slices: Slices | null = null;
 
 	/**
 	 * @param device the device
+	 * @param pipelines the pipeline cache, which compiles the froxel pass
 	 * @param frameLayout the shared frame layout (group 0), for the sun's shadow and the ambient probe
 	 */
-	constructor(device: GPUDevice, frameLayout: GPUBindGroupLayout) {
+	constructor(device: GPUDevice, pipelines: PipelineCache, frameLayout: GPUBindGroupLayout) {
 		this.#device = device;
 		const grid = (label: string): GPUTexture =>
 			device.createTexture({
@@ -142,18 +145,14 @@ export class VolumetricFog {
 			});
 		const [a, b] = this.#history;
 		this.#groups = [group(a, b), group(b, a)];
-		void device
-			.createComputePipelineAsync({
-				label: 'volumetric fog',
-				layout: device.createPipelineLayout({ bindGroupLayouts: [frameLayout, layout] }),
-				compute: {
-					module: device.createShaderModule({ label: 'volumetric fog', code: FRAME_WGSL + fogWgsl }),
-					entryPoint: 'cs_froxels',
-				},
-			})
-			.then((pipeline) => {
-				this.#pipeline = pipeline;
-			});
+		this.#pipelines = pipelines;
+		void pipelines.prepareCompute(PIPELINE_KEY, () => ({
+			layout: device.createPipelineLayout({ bindGroupLayouts: [frameLayout, layout] }),
+			compute: {
+				module: pipelines.module('volumetric fog', FRAME_WGSL + fogWgsl),
+				entryPoint: 'cs_froxels',
+			},
+		}));
 	}
 
 	/** @returns bytes of the grid and its history */
@@ -234,8 +233,8 @@ export class VolumetricFog {
 		encoder: GPUCommandEncoder,
 		input: { frameGroup: GPUBindGroup; frameOffset: number; camera: Camera; aspect: number; frame: number },
 	): boolean {
-		const pipeline = this.#pipeline;
-		if (pipeline === null || this.#slices === null) {
+		const pipeline = this.#pipelines.getCompute(PIPELINE_KEY);
+		if (pipeline === undefined || this.#slices === null) {
 			return false;
 		}
 		const { camera, aspect } = input;

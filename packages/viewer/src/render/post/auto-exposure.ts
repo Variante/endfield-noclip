@@ -5,6 +5,7 @@ import {
 	meteredExposure,
 	targetExposure,
 } from '../../environment/exposure.ts';
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 
 import autoExposureWgsl from './auto-exposure.wgsl?raw';
 
@@ -17,13 +18,14 @@ const WEIGHT_SCALE = 1024;
 const CENTRE_WEIGHT = 0.75;
 /** the exposure counts as settled once within this many EV of its target */
 const SETTLED_EV = 0.01;
+const PIPELINE_KEY = 'auto exposure histogram';
 
 /** the histogram pass, its readback and the exposure it drives */
 export class AutoExposure {
 	/** the post exposure (linear) the scene is shown at, before the viewer's exposure option */
 	exposure = 1;
 	#device: GPUDevice;
-	#pipeline: GPUComputePipeline;
+	#pipelines: PipelineCache;
 	#uniforms: GPUBuffer;
 	#bins: GPUBuffer;
 	/** readback buffers not waiting on a map */
@@ -37,15 +39,17 @@ export class AutoExposure {
 	/** whether new histograms may move the target; see {@link update} */
 	#metering = true;
 
-	/** @param device the device */
-	constructor(device: GPUDevice) {
+	/**
+	 * @param device the device
+	 * @param pipelines the pipeline cache, which compiles the histogram pass
+	 */
+	constructor(device: GPUDevice, pipelines: PipelineCache) {
 		this.#device = device;
-		const module = device.createShaderModule({ label: 'auto exposure', code: autoExposureWgsl });
-		this.#pipeline = device.createComputePipeline({
-			label: 'auto exposure histogram',
+		this.#pipelines = pipelines;
+		void pipelines.prepareCompute(PIPELINE_KEY, () => ({
 			layout: 'auto',
-			compute: { module, entryPoint: 'cs_histogram' },
-		});
+			compute: { module: pipelines.module('auto exposure', autoExposureWgsl), entryPoint: 'cs_histogram' },
+		}));
 		this.#uniforms = device.createBuffer({
 			label: 'auto exposure params',
 			size: 32,
@@ -72,7 +76,8 @@ export class AutoExposure {
 	}
 
 	/**
-	 * encodes the histogram of this frame's scene, unless both readback buffers are still in flight.
+	 * encodes the histogram of this frame's scene, unless its pipeline is compiling or both readback buffers
+	 * are still in flight.
 	 *
 	 * @param encoder this frame's encoder
 	 * @param scene the lit scene before bloom and tonemapping, and its size in pixels
@@ -84,6 +89,10 @@ export class AutoExposure {
 		settings: AutoExposureSettings,
 	): void {
 		if (settings.mode === 'manual' || (!this.#metering && this.#metered !== null)) {
+			return;
+		}
+		const pipeline = this.#pipelines.getCompute(PIPELINE_KEY);
+		if (pipeline === undefined) {
 			return;
 		}
 		const readback = this.#idle.pop();
@@ -103,7 +112,7 @@ export class AutoExposure {
 			this.#group = {
 				view,
 				group: this.#device.createBindGroup({
-					layout: this.#pipeline.getBindGroupLayout(0),
+					layout: pipeline.getBindGroupLayout(0),
 					entries: [
 						{ binding: 0, resource: view },
 						{ binding: 1, resource: { buffer: this.#uniforms } },
@@ -114,7 +123,7 @@ export class AutoExposure {
 		}
 		encoder.clearBuffer(this.#bins);
 		const pass = encoder.beginComputePass({ label: 'auto exposure histogram' });
-		pass.setPipeline(this.#pipeline);
+		pass.setPipeline(pipeline);
 		pass.setBindGroup(0, this.#group.group);
 		pass.dispatchWorkgroups(Math.ceil(width / WORKGROUP_PIXELS), Math.ceil(height / WORKGROUP_PIXELS));
 		pass.end();
