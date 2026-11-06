@@ -411,8 +411,9 @@ layers that read their entities from Global are why HLOD clusters and water deca
 Global chunk files. a lower priority loads first, then the nearer cells. where an entity's layer is
 stored in the chunk files isn't found (the InitChunkData schema is native).
 
-the radii come from the PC settings, by scene detail preset (1000 lowest to 5000 highest; 2000 takes
-1000's; values in brackets are inherited from a lower preset, which is assumed):
+the radii come from the PC settings, by scene detail preset (1000 lowest to 5000 highest, 4000 being
+the high preset and 5000 very high; 2000 takes 1000's; values in brackets are inherited from a lower
+preset, which is assumed):
 
 | radius, m   | 1000 | 3000 | 4000  | 5000  |
 | ----------- | ---- | ---- | ----- | ----- |

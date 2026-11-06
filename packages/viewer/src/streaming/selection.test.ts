@@ -315,7 +315,7 @@ it('streams what is near the camera first, then the focused cells, then the rest
 
 it('refines each HLOD tier inside the next finer tier radius, and leaves without HLOD within the detail', () => {
 	assert.equal(hlodRing(0, 256, true), 256);
-	assert.equal(hlodRing(1, 256, false), 640);
+	assert.equal(hlodRing(1, 256, false), 512);
 	assert.equal(hlodRing(2, 256, false), 1024);
 	// a detail distance past a ring widens it, so detail never shows past the clusters standing in for it
 	assert.equal(hlodRing(1, 800, false), 800);

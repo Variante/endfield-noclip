@@ -38,8 +38,8 @@ camera, and has its controls listed first in the
 REPLACE refinement on the game's [HLOD rings](../game-data/world.md#streaming-layers), by the
 distance from the camera to the node's bounds (`hlodRing`):
 
-- a node holding HLOD tier 0 refines within `detailDistance` (default 256 m, the game's at its
-  highest PC preset), tier 1 within HLOD0's radius (640 m) and tier 2 within HLOD1's (1024 m), each
+- a node holding HLOD tier 0 refines within `detailDistance` (default 160 m, the game's at its high
+  PC preset, 4000), tier 1 within HLOD0's radius (512 m) and tier 2 within HLOD1's (1024 m), each
   widened to `detailDistance` if that's larger. HLOD2 keeps drawing past the game's 2048 m, so an
   overview isn't empty. a node with no shown HLOD always refines, and a leaf with none refines
   within `detailDistance`.

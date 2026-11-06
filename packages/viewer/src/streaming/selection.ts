@@ -88,10 +88,10 @@ export interface SelectionView {
 // #endregion
 
 /**
- * the game's HLOD0 and HLOD1 load radii on PC at its highest scene detail, m: a tier's clusters give way to
- * the next finer tier inside the finer tier's radius (`docs/game-data/world.md#streaming-layers`)
+ * the game's HLOD0 and HLOD1 load radii on PC at its high scene detail (4000), m: a tier's clusters give way
+ * to the next finer tier inside the finer tier's radius (`docs/game-data/world.md#streaming-layers`)
  */
-const HLOD_RADII = [640, 1024] as const;
+const HLOD_RADII = [512, 1024] as const;
 
 /**
  * @param tier the HLOD tier a node holds, or `null` for a node without HLOD

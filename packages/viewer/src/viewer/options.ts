@@ -40,7 +40,7 @@ export interface ViewerOptions {
 	occlusionCulling: boolean;
 	/**
 	 * detail and conditional scenery draw within this distance of the camera, m; past it, HLOD clusters in the
-	 * game's rings. 256 is the game's at its highest scene detail on PC (96 at its lowest)
+	 * game's rings. 160 is the game's at its high scene detail on PC (256 at very high, 96 at its lowest)
 	 */
 	detailDistance: number;
 	/** terrain sample spacing target, px */
@@ -113,7 +113,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	missingContent: false,
 	gpuCulling: true,
 	occlusionCulling: true,
-	detailDistance: 256,
+	detailDistance: 160,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,
 	outlineMetres: 60,
