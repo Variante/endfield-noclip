@@ -1,4 +1,5 @@
 import brdfWgsl from '../frame/brdf.wgsl?raw';
+import noiseWgsl from '../shaders/common/noise.wgsl?raw';
 
 import commonWgsl from './post-common.wgsl?raw';
 
@@ -17,11 +18,11 @@ export const postCommonSource = (uniformsGroup: number): string => {
 
 /**
  * @param parts WGSL sources after the shared post ones
- * @returns a post pass's shader source: the shared BRDF terms and the `Post` uniforms at group 0, then
- *   `parts`
+ * @returns a post pass's shader source: the shared BRDF terms, the gradient noise and the `Post` uniforms at
+ *   group 0, then `parts`
  */
 const postShaderSource = (parts: readonly string[]): string =>
-	[brdfWgsl, postCommonSource(0), ...parts].join('\n');
+	[brdfWgsl, noiseWgsl, postCommonSource(0), ...parts].join('\n');
 
 /**
  * @param device the device

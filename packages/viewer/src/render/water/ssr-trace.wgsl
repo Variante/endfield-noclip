@@ -1,7 +1,7 @@
 // the water pass's reflection march, the same screen-space march as the game's (and ssr.wgsl's `fs_march`): the
 // mirror ray is projected to the screen, stretched to its edge and stepped in equal steps of uv and device depth,
-// so it has no reach limit in metres. needs post-common.wgsl and a `depth_texture` (the main pass's depth)
-// declared by the pass.
+// so it has no reach limit in metres. needs post-common.wgsl and shaders/common/screen-space.wgsl (with its
+// `depth_texture`).
 
 // PC high quality's `ssrRayMarchingSampleCount`, which glossy surfaces such as water always take
 const SSR_STEPS = 32.0;
@@ -10,21 +10,6 @@ const SSR_STEPS = 32.0;
 const SSR_FADE_ON_SCREEN = 0.1;
 const SSR_FADE_MIRROR_MUL = 2.0;
 const SSR_FADE_MIRROR_ADD = -1.0;
-
-// a camera-relative point on the main pass's (jittered) targets: xy uv, z device depth
-fn ssr_project(rel: vec3f) -> vec3f {
-	let d = dot(rel, post.forward.xyz);
-	let right = post.right.xyz;
-	let up = post.up.xyz;
-	let ndc = vec2f(dot(rel, right) / dot(right, right), dot(rel, up) / dot(up, up)) / d + post.jitter.xy;
-	return vec3f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, post.forward.w / d);
-}
-
-// the main pass's (reversed-Z) device depth under a uv, 0 for the sky
-fn ssr_device_depth(uv: vec2f) -> f32 {
-	let px = clamp(vec2i(uv * post.viewport.xy), vec2i(0), vec2i(post.viewport.xy) - 1);
-	return textureLoad(depth_texture, px, 0);
-}
 
 struct SsrHit {
 	// where the ray hit, on the main pass's targets
@@ -62,7 +47,7 @@ fn ssr_trace(start_rel: vec3f, r: vec3f, n: vec3f, px: vec2f) -> SsrHit {
 		if (longest < 1.0) {
 			offset = 1.0 / (longest + 0.001);
 		} else {
-			offset = ign(px + vec2f(2.083, 4.867) * post.eye.w);
+			offset = gradient_noise(px + vec2f(2.083, 4.867) * post.eye.w);
 		}
 	}
 	var position = start + step * offset;

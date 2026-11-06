@@ -2,6 +2,7 @@ import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/f
 import { halton } from '../../math/sequence.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
+import colorWgsl from '../shaders/common/color.wgsl?raw';
 
 import { CAMERA_HISTORY_FLOATS, CameraHistory } from './camera-history.ts';
 import { postShaderModule } from './shader-source.ts';
@@ -53,7 +54,7 @@ export class TemporalAA {
 		this.#device = device;
 		this.#pipeline = fullscreenPipeline(device, {
 			label: 'taa',
-			module: postShaderModule(device, 'taa', [taaWgsl]),
+			module: postShaderModule(device, 'taa', [colorWgsl, taaWgsl]),
 			entryPoint: 'fs_taa',
 			targets: [{ format: HDR_FORMAT }],
 		});

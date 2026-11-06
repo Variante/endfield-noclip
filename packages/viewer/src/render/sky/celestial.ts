@@ -16,6 +16,7 @@ import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/f
 import type { Vec3 } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 import { postShaderModule } from '../post/shader-source.ts';
+import colorWgsl from '../shaders/common/color.wgsl?raw';
 import { placeholderView, type TextureBinding } from '../textures/texture-store.ts';
 
 import celestialWgsl from './celestial.wgsl?raw';
@@ -62,7 +63,7 @@ export class CelestialLayer {
 		this.#device = device;
 		this.#pipeline = fullscreenPipeline(device, {
 			label: 'celestial',
-			module: postShaderModule(device, 'celestial', [celestialWgsl]),
+			module: postShaderModule(device, 'celestial', [colorWgsl, celestialWgsl]),
 			entryPoint: 'fs_celestial',
 			targets: [{ format: HDR_FORMAT }],
 		});

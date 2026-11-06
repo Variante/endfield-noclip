@@ -154,8 +154,3 @@ fn view_depth(depth: f32) -> f32 {
 fn luminance(c: vec3f) -> f32 {
 	return dot(c, vec3f(0.2126, 0.7152, 0.0722));
 }
-
-// Jimenez' interleaved gradient noise
-fn ign(p: vec2f) -> f32 {
-	return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715))));
-}

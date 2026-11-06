@@ -1,4 +1,5 @@
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import colorWgsl from '../shaders/common/color.wgsl?raw';
 
 import { postShaderModule } from './shader-source.ts';
 import tonemapWgsl from './tonemap.wgsl?raw';
@@ -28,7 +29,7 @@ export class Tonemap {
 		this.#sampler = sampler;
 		this.#pipeline = fullscreenPipeline(device, {
 			label: 'tonemap',
-			module: postShaderModule(device, 'tonemap', [tonemapWgsl]),
+			module: postShaderModule(device, 'tonemap', [colorWgsl, tonemapWgsl]),
 			entryPoint: 'fs_tonemap',
 			targets: [{ format: swapchainFormat }],
 		});

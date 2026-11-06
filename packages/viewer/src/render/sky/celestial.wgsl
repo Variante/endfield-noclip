@@ -2,7 +2,7 @@
 // (HGRP/SkydomeStar) and the ray-traced planet (HGRP/Planet/PlanetBillboard). each is a function of the view
 // direction alone; the game shades them all in its one sky-dome draw. this pass renders them at the sky pixels
 // into a target the composite reads, which keeps the composite under the sampled-texture limit
-// (docs/game-data/sky-and-fog.md#beyond-the-atmosphere). needs post-common.wgsl.
+// (docs/game-data/sky-and-fog.md#beyond-the-atmosphere). needs post-common.wgsl and shaders/common/color.wgsl.
 
 // a planet painted on the sky dome: a sphere at unit distance whose angular size comes from its radius
 struct SkyPlanet {
@@ -267,11 +267,6 @@ fn rgb_to_hsv(c: vec3f) -> vec3f {
 	let d = q.x - min(q.w, q.y);
 	let e = 1e-10;
 	return vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
-fn hsv_to_rgb(c: vec3f) -> vec3f {
-	let p = abs(fract(c.xxx + vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
-	return c.z * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), c.y);
 }
 
 // the planet's atmosphere rim: single scattering in a shell above its surface, seen from the camera

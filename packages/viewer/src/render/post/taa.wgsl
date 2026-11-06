@@ -2,7 +2,7 @@
 // jittered sample per pixel at the render size; each output pixel reconstructs the current frame from the 3×3
 // samples around it, reprojects last frame's output through the depth buffer (the scenery is static, so the
 // camera's motion is all the motion there is), clips that history to the current neighbourhood and blends.
-// needs post-common.wgsl.
+// needs post-common.wgsl and shaders/common/color.wgsl.
 
 struct Taa {
 	// last frame's camera-relative view-projection, unjittered
@@ -25,14 +25,6 @@ struct Taa {
 const FILTER = 2.29;
 // the clipping box's half size in standard deviations of the neighbourhood
 const CLIP_SIGMA = 1.25;
-
-fn to_ycocg(c: vec3f) -> vec3f {
-	return vec3f(dot(c, vec3f(0.25, 0.5, 0.25)), dot(c, vec3f(0.5, 0.0, -0.5)), dot(c, vec3f(-0.25, 0.5, -0.25)));
-}
-
-fn from_ycocg(c: vec3f) -> vec3f {
-	return vec3f(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
-}
 
 // HDR samples weighted down by their brightness at the shown exposure, so a lone bright sample can't dominate the
 // filters and flicker (Karis); `expand` undoes it

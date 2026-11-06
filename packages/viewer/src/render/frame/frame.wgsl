@@ -104,11 +104,6 @@ const POISSON = array<vec2f, 16>(
 	vec2f(0.14383161, -0.14100790),
 );
 
-// interleaved gradient noise (Jimenez) at a pixel
-fn gradient_noise(px: vec2f) -> f32 {
-	return fract(52.9829189 * fract(dot(px, vec2f(0.06711056, 0.00583715))));
-}
-
 // the position pushed off the surface by about a texel of the layer, against acne
 fn shadow_receiver(rel: vec3f, normal: vec3f, layer: u32) -> vec3f {
 	let texel = 2.0 * sqrt(frame.shadow_spheres[layer].w) / f32(textureDimensions(shadow_map).x);

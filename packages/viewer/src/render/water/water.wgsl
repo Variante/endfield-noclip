@@ -3,7 +3,7 @@
 // fade with distance, foam, the water column's absorption and scattering, caustics on the ground below, a
 // distortion of the view through it, and reflections from the screen-space march or the sky. see
 // docs/viewer/water.md. needs frame.wgsl, then post-common.wgsl (its uniforms at group 3), atmosphere.wgsl,
-// sky.wgsl and ssr-trace.wgsl.
+// sky.wgsl, shaders/common/screen-space.wgsl and ssr-trace.wgsl.
 
 struct WaterSurface {
 	// object-to-world rows, translation relative to the eye

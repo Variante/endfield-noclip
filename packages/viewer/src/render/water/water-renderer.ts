@@ -13,6 +13,7 @@ import {
 	WATER_FOAM_FORMAT,
 } from '../frame/render-targets.ts';
 import { postCommonSource } from '../post/shader-source.ts';
+import screenSpaceWgsl from '../shaders/common/screen-space.wgsl?raw';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
 import skyWgsl from '../sky/sky.wgsl?raw';
 import { type TextureBinding, type TextureStore, placeholderView } from '../textures/texture-store.ts';
@@ -69,7 +70,9 @@ export interface WaterContext {
  *   uniforms moved to group 3
  */
 const waterShaderSource = (): string =>
-	[FRAME_WGSL, postCommonSource(3), atmosphereWgsl, skyWgsl, ssrTraceWgsl, waterWgsl].join('\n');
+	[FRAME_WGSL, postCommonSource(3), atmosphereWgsl, skyWgsl, screenSpaceWgsl, ssrTraceWgsl, waterWgsl].join(
+		'\n',
+	);
 
 /** the foam the boxes leave on the water surface */
 interface FoamTargets {

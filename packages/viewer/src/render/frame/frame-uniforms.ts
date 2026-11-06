@@ -5,12 +5,13 @@
  */
 
 import clipmapWgsl from '../lighting/irradiance-clipmap.wgsl?raw';
+import noiseWgsl from '../shaders/common/noise.wgsl?raw';
 
 import brdfWgsl from './brdf.wgsl?raw';
 import frameWgsl from './frame.wgsl?raw';
 
 /** WGSL source of the frame uniforms and shared lighting helpers, prepended to every family */
-export const FRAME_WGSL = brdfWgsl + clipmapWgsl + frameWgsl;
+export const FRAME_WGSL = brdfWgsl + noiseWgsl + clipmapWgsl + frameWgsl;
 
 /** byte size of `Frame` */
 export const FRAME_UNIFORM_BYTES = 928;

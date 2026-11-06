@@ -1,5 +1,5 @@
 // the last pass: exposure, bloom, vignette, colour grading, tonemapping and display encoding into the
-// swapchain. needs post-common.wgsl.
+// swapchain. needs post-common.wgsl and, from shaders/common/, noise.wgsl and color.wgsl.
 //
 // the grading and curve are the game's (its LUT builder under TONEMAPPING_ACES_MODIFIED): URP's grading in
 // ACEScg with a luminance contrast, then a rational fit of ACES. the game bakes them into a 32³ LogC LUT; here
@@ -54,12 +54,6 @@ fn rgb_to_hsv(c: vec3f) -> vec3f {
 	let d = q.x - min(q.w, q.y);
 	let e = 1e-4;
 	return vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
-fn hsv_to_rgb(c: vec3f) -> vec3f {
-	let k = vec4f(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-	let p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
-	return c.z * mix(k.xxx, clamp(p - k.xxx, vec3f(0.0), vec3f(1.0)), c.y);
 }
 
 // linear sRGB in, graded ACEScg out (≥ 0)
@@ -177,6 +171,6 @@ fn fs_tonemap(in: FullscreenOut) -> @location(0) vec4f {
 		}
 	}
 	// ±half a step of dither against banding in the sky
-	let noise = (ign(in.position.xy + post.eye.w * 5.588238) - 0.5) / 255.0;
+	let noise = (gradient_noise(in.position.xy + post.eye.w * 5.588238) - 0.5) / 255.0;
 	return vec4f(srgb_encode(color) + noise, 1.0);
 }

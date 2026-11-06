@@ -103,7 +103,10 @@ what each post pass computes is in [post-processing](post-processing.md) and
   ([`render/water/water-renderer.ts`](../../packages/viewer/src/render/water/water-renderer.ts),
   [water](water.md)). it's the one post pass with an explicit layout, because it also binds the main
   pass's frame group for the sun shadow, irradiance volume and sky reflection; its shader moves the
-  post uniforms to group 3.
+  post uniforms to group 3
+  ([`render/post/shader-source.ts`](../../packages/viewer/src/render/post/shader-source.ts)). WGSL
+  helpers that several shaders share (noise, colour conversions, the screen-space projection) are in
+  [`render/shaders/common/`](../../packages/viewer/src/render/shaders/common/).
 - **debug views** (`albedo`, `normals`, `roughness`, `ambient`, and `clouds` for the raw cloud
   panorama) show the main pass as it is: no shadows, local lights, cloud shadows, exposure,
   tonemapping, fog, AO, reflections, bloom, light shafts, lens flare or water. temporal antialiasing

@@ -2,7 +2,8 @@
 // `fs_march` follows each lit pixel's mirror ray through the depth buffer into last frame's composited scene,
 // `fs_temporal` filters the hit colour and fade over frames, `fs_downsample` builds a depth-aware pyramid of both,
 // and `fs_resolve` blurs by the reflected cone's footprint and writes the change to the radiance (composite adds
-// it before occlusion and fog). see docs/viewer/lighting.md#screen-space-reflections. needs post-common.wgsl.
+// it before occlusion and fog). see docs/viewer/lighting.md#screen-space-reflections. needs post-common.wgsl and,
+// from shaders/common/, noise.wgsl, color.wgsl and screen-space.wgsl.
 
 struct Ssr {
 	// last frame's camera-relative view-projection, unjittered
@@ -73,24 +74,6 @@ fn reflection_surface_at(px: vec2i) -> ReflectionSurface {
 	return s;
 }
 
-fn texel_of(uv: vec2f) -> vec2i {
-	return clamp(vec2i(uv * post.viewport.xy), vec2i(0), vec2i(post.viewport.xy) - 1);
-}
-
-// the main pass's (reversed-Z) device depth under a uv, 0 for the sky
-fn device_depth(uv: vec2f) -> f32 {
-	return textureLoad(depth_texture, texel_of(uv), 0);
-}
-
-// a camera-relative point on the main pass's (jittered) targets: xy uv, z device depth
-fn project(rel: vec3f) -> vec3f {
-	let d = dot(rel, post.forward.xyz);
-	let right = post.right.xyz;
-	let up = post.up.xyz;
-	let ndc = vec2f(dot(rel, right) / dot(right, right), dot(rel, up) / dot(up, up)) / d + post.jitter.xy;
-	return vec3f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, post.forward.w / d);
-}
-
 // the camera-relative point at a uv and device depth
 fn unproject(uv: vec2f, depth: f32) -> vec3f {
 	return view_ray(uv) * view_depth(depth);
@@ -106,7 +89,7 @@ fn previous_uv(rel: vec3f) -> vec2f {
 // the screen motion (this frame's uv minus last frame's) of the surface under a uv; none for the sky or without a
 // last frame
 fn motion_at(uv: vec2f) -> vec2f {
-	let depth = device_depth(uv);
+	let depth = ssr_device_depth(uv);
 	if (depth <= 0.0 || ssr.eye_delta.w > 0.5) {
 		return vec2f(0.0);
 	}
@@ -120,14 +103,6 @@ fn compress(c: vec3f) -> vec3f {
 
 fn expand(c: vec3f) -> vec3f {
 	return c / max(1.0 - max(max(c.r, c.g), c.b), 1e-4);
-}
-
-fn to_ycocg(c: vec3f) -> vec3f {
-	return vec3f(dot(c, vec3f(0.25, 0.5, 0.25)), dot(c, vec3f(0.5, 0.0, -0.5)), dot(c, vec3f(-0.25, 0.5, -0.25)));
-}
-
-fn from_ycocg(c: vec3f) -> vec3f {
-	return vec3f(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 }
 
 // #region march
@@ -179,7 +154,7 @@ fn fs_march(in: FullscreenOut) -> March {
 	if (dot(end_rel, post.forward.xyz) <= post.forward.w) {
 		return out;
 	}
-	let end = project(end_rel);
+	let end = ssr_project(end_rel);
 	let start_ndc = vec2f(start.x * 2.0 - 1.0, 1.0 - start.y * 2.0);
 	var delta = vec3f((end.x - start.x) * 2.0, (start.y - end.y) * 2.0, end.z - start.z);
 	{
@@ -197,18 +172,18 @@ fn fs_march(in: FullscreenOut) -> March {
 		if (longest < 1.0) {
 			offset = 1.0 / (longest + 0.001);
 		} else {
-			offset = ign(vec2f(px) + 0.5 + vec2f(2.083, 4.867) * post.eye.w);
+			offset = gradient_noise(vec2f(px) + 0.5 + vec2f(2.083, 4.867) * post.eye.w);
 		}
 	}
 	var position = start + step * offset;
-	var last = position.z - device_depth(position.xy);
+	var last = position.z - ssr_device_depth(position.xy);
 	var hit = false;
 	for (var i = 0.0; i < steps; i += 4.0) {
 		var diff: array<f32, 4>;
 		var found = -1;
 		for (var k = 0; k < 4; k++) {
 			let tap = position + step * f32(k + 1);
-			diff[k] = tap.z - device_depth(tap.xy);
+			diff[k] = tap.z - ssr_device_depth(tap.xy);
 			// a hit lies behind the depth buffer's surface by less than two steps' depth
 			if (found < 0 && abs(diff[k] + tolerance) < tolerance) {
 				found = k;
@@ -250,9 +225,9 @@ fn fs_march(in: FullscreenOut) -> March {
 		let towards_camera = -v;
 		let pick = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(s.normal.z) < 0.999);
 		let t = normalize(cross(pick, s.normal));
-		let center = project(p - towards_camera * reach).xy * post.viewport.xy;
-		let a = project(cone_edge(p, towards_camera, cross(t, towards_camera), theta, reach)).xy * post.viewport.xy;
-		let b = project(cone_edge(p, towards_camera, cross(cross(s.normal, t), towards_camera), theta, reach)).xy *
+		let center = ssr_project(p - towards_camera * reach).xy * post.viewport.xy;
+		let a = ssr_project(cone_edge(p, towards_camera, cross(t, towards_camera), theta, reach)).xy * post.viewport.xy;
+		let b = ssr_project(cone_edge(p, towards_camera, cross(cross(s.normal, t), towards_camera), theta, reach)).xy *
 			post.viewport.xy;
 		let footprint = sqrt(dot(center - a, center - a) + dot(center - b, center - b)) * 0.5;
 		out.weight.y = clamp(log2(footprint), 0.0, ssr.march.y) / ssr.march.y;
