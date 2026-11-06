@@ -125,6 +125,11 @@ export const EffectRow = {
 	/** 1 when the particle's custom data's w scales the distortion (`EffectStackSurface.particleDisturb`) */
 	particleDisturb: 137,
 	/**
+	 * the vertex offset's mask (`EffectVertexOffsetMask`): its slot, then its strength (0 without a mask, which
+	 * leaves the offset whole)
+	 */
+	offsetMask: 138,
+	/**
 	 * the texture stack, per slot: its UVs' shift (u, v) per unit of the particle's custom data
 	 * (`StackLayer.customScroll`), 14 floats over rows 36–39
 	 */

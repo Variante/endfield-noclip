@@ -98,6 +98,14 @@ and every vertex is also pulled towards the camera by up to `_VertCameraOffset` 
 the whole offset is scaled by `1 − _InParticle`, so it never moves particles, and a mesh material
 left at the default `_InParticle` of 1 doesn't move either.
 
+`_USE_VERTOFFSETMASK` scales the offset, but not the pull towards the camera, by `1 − p·(1 − m)`,
+where `p = _OffsetMaskPower / 5` and m is `_OffsetMaskTex`'s red at the offset texture's UVs, after
+the mask's own `_ST`, scrolled by `_OffsetMaskSpeed`. the fragment stage doesn't read it. the glow
+over the collectible pieces (`M_fx_interactive_collection_2102` in `int_collection_piece_postmodel`)
+pushes its vertices up to 1.2 m along world y (`_OffsetDir` 0.1 times `_OffsetIntensity` 12.15) by a
+flow texture, masked by a star texture at a power of 3; Jingyu's butterflies and waterfalls and
+Wuling's ink drops use it too.
+
 `_USE_BRIGHT` with `_BrightType` 0 and no `_BrightCenter` (w 0) adds `_BrightColor` and a UV wobble
 within `_OuterRadius` of the player. the teal streams winding between Wuling City's floating pillars
 (`M_fx_map02_zhenlie_*`, map02_lv002) use both.

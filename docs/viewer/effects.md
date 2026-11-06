@@ -15,6 +15,10 @@ what's left out is in [status](../status.md).
 
 - VFXBaseV2's sixth sample texture takes the vertex offset's slot, and the vertex stage samples the
   offset texture from the look's seventh slot.
+- a [vertex offset mask](../game-data/effects.md#vertex-offset-and-brightening) takes the highest
+  sample slot the stack leaves empty (`EffectVertexOffsetMask.slot`), with no role, so the fragment
+  stage skips it; the vertex stage reads its slot and strength from `EffectRow.offsetMask`. with all
+  five sample slots taken the material stays unsupported.
 - a sample texture switched on without one bound keeps its role over an unset slot, which binds
   white, when the shader's default is white; with another default it's left out.
 - each slot's share of the distortion (`*UseDisturb`) rides in its slot bits above the low byte, in

@@ -1,6 +1,5 @@
 import { ADD, ALPHA_OVER, KEEP, PREMULTIPLIED_OVER } from '../../gfx/blend.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
-import { OFFSET_SLOT } from '../../looks/effects/stack.ts';
 import { SLOTS } from '../../looks/look.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
@@ -34,24 +33,22 @@ interface MeshPipelines {
 	effectLayout: GPUBindGroupLayout;
 }
 
-/** the shader stages that read an effect texture slot */
-const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
-	slot === OFFSET_SLOT ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : GPUShaderStage.FRAGMENT;
-
 /** @returns the layout of the effect pipelines' group 3 */
-const createEffectLayout = (device: GPUDevice): GPUBindGroupLayout =>
-	device.createBindGroupLayout({
+const createEffectLayout = (device: GPUDevice): GPUBindGroupLayout => {
+	// the vertex stage samples the vertex offset's texture and its mask, which takes whichever slot the stack
+	// leaves free
+	const slotStages = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+	return device.createBindGroupLayout({
 		label: 'effect materials',
 		entries: [
-			// the vertex stage samples the VFXBaseV2 vertex offset's texture
 			...SLOTS.map((_, binding) => ({
 				binding,
-				visibility: stagesOfSlot(binding),
+				visibility: slotStages,
 				texture: { sampleType: 'float' as const },
 			})),
 			...SLOTS.map((_, i) => ({
 				binding: SLOTS.length + i,
-				visibility: stagesOfSlot(i),
+				visibility: slotStages,
 				sampler: { type: 'filtering' as const },
 			})),
 			{ binding: 14, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
@@ -67,6 +64,7 @@ const createEffectLayout = (device: GPUDevice): GPUBindGroupLayout =>
 			{ binding: 20, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
 		],
 	});
+};
 
 /** @returns the vertex state of a mesh pipeline reading `streams` with UVs in `uvFormat` */
 const meshVertex = (module: GPUShaderModule, uvFormat: UvFormat, streams: VertexStreams): GPUVertexState => {

@@ -80,6 +80,11 @@ const setVertexOffset = (look: EffectLook, offset: EffectVertexOffset): void => 
 	params.set([...offset.direction, offset.space], EffectRow.offsetDir);
 	params.set([offset.intensity, offset.bias, offset.vertexAlphaWeight, offset.cameraPull], EffectRow.offset);
 	params.set([VertexMotion.Offset, offset.uv1 ? 1 : 0], EffectRow.offsetMode);
+	if (offset.mask !== null) {
+		// the fragment stage skips the slot, which has no role
+		setSlot(look, offset.mask.slot, offset.mask.texture, ROLE_NONE);
+		params.set([offset.mask.slot, offset.mask.strength], EffectRow.offsetMask);
+	}
 };
 
 /** the soft-body animation's slot and rows ({@link VertexMotion}) */

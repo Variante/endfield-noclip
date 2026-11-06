@@ -663,6 +663,49 @@ describe('VFXBaseV2', () => {
 			bias: 0,
 			vertexAlphaWeight: 0,
 			cameraPull: 0,
+			mask: null,
+		});
+	});
+
+	it('masks a vertex offset from a sample slot the stack leaves free', () => {
+		// the collectible pieces' glow (`M_fx_interactive_collection_2102`) masks its offset by a star texture
+		// each sample texture bound as a mask, drawn only with its keyword
+		const samples = [0, 1, 2, 3, 4];
+		const masked = (keywords: string[] = []) =>
+			stackOf({
+				keywords: ['_USE_VERTOFFSET', '_USE_VERTOFFSETMASK', ...keywords],
+				slots: {
+					_MainTex: slot(1),
+					_OffsetTex: slot(2),
+					_OffsetMaskTex: slot(3, [2, 2]),
+					...Object.fromEntries(samples.map((n) => [`_SampleTex${n}`, slot(10 + n)])),
+				},
+				floats: {
+					_InParticle: 0,
+					_OffsetIntensity: 12,
+					_OffsetMaskPower: 3,
+					...Object.fromEntries(samples.map((n) => [`_SampleTex${n}UseWeight3`, 1])),
+				},
+				vectors: { _OffsetMaskSpeed: [0.1, 0, 1, 1] },
+			});
+		const stack = ofKind(masked(), 'effectStack');
+		assert.deepEqual(stack.offset?.mask, {
+			texture: {
+				texture: 3,
+				scale: [2, 2],
+				offset: [0, 0],
+				scroll: [0.1, 0],
+				rotation: [1, 0],
+				customScroll: [0, 0],
+			},
+			slot: 5,
+			strength: 3 * 0.2,
+		});
+		// a fifth sample texture takes slot 5, so the mask moves down
+		assert.equal(ofKind(masked(['_SAMPLE_TEX4']), 'effectStack').offset?.mask?.slot, 4);
+		assert.deepEqual(masked(samples.map((n) => `_SAMPLE_TEX${n}`)), {
+			kind: 'unsupported',
+			reason: 'a vertex offset mask with every sample slot taken',
 		});
 	});
 

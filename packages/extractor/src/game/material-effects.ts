@@ -14,6 +14,7 @@ import type {
 	EffectTexture,
 	EffectUvSource,
 	EffectVertexOffset,
+	EffectVertexOffsetMask,
 	FadeRange,
 	LightBeamSurface,
 	LitDecalSurface,
@@ -318,6 +319,46 @@ const vertexOffsetOf = (reader: MaterialReader): EffectVertexOffset | null => {
 		bias: float('_Bi_Offset', 0),
 		vertexAlphaWeight: 0,
 		cameraPull: 0,
+		mask: null,
+	};
+};
+
+/** the stack slots a vertex offset's mask can take: the sample textures', but the sixth's (the offset's own) */
+const MASK_SLOTS = [5, 4, 3, 2, 1];
+
+/**
+ * VFXBaseV2's mask on the vertex offset (`_USE_VERTOFFSETMASK`), drawn from a slot the stack leaves empty
+ *
+ * @param reader the material's properties
+ * @param layers the stack's slots
+ * @returns the mask, `null` without one or where it changes nothing (an unset white texture), or
+ *   `unsupported`
+ */
+const offsetMaskOf = (
+	reader: MaterialReader,
+	layers: readonly (StackLayer | null)[],
+): EffectVertexOffsetMask | UnsupportedSurface | null => {
+	const { float, colorOrVector: color, has } = reader;
+	if (!has('_USE_VERTOFFSETMASK')) {
+		return null;
+	}
+	const bound = reader.slot('_OffsetMaskTex');
+	if (bound === undefined) {
+		// a red of 1 leaves the offset whole
+		return reader.shader.textures['_OffsetMaskTex'] === 'white'
+			? null
+			: unsupported('a vertex offset mask without its texture');
+	}
+	const slot = MASK_SLOTS.find((i) => layers[i] === null);
+	if (slot === undefined) {
+		return unsupported('a vertex offset mask with every sample slot taken');
+	}
+	return {
+		// sampled at the offset texture's UVs, scrolled by its speed's xy (zw scroll by custom data, only on
+		// particles, where the offset is off)
+		texture: effectTexture(bound, (color('_OffsetMaskSpeed') ?? [0, 0]).slice(0, 2)),
+		slot,
+		strength: float('_OffsetMaskPower', 0) * 0.2,
 	};
 };
 
@@ -449,6 +490,10 @@ const baseKeywordDrawn = (keyword: string, reader: MaterialReader): boolean => {
 		case '_SAMPLE_TEX5': {
 			// the sixth sample texture takes the vertex offset's slot
 			return vertexOffsetOf(reader) === null;
+		}
+		case '_USE_VERTOFFSETMASK': {
+			// drawn by `offsetMaskOf`, which rejects the materials it can't draw
+			return true;
 		}
 		case '_USE_WATER_BLEND': {
 			// the blend changes only what lies below `_WaterHeight`, which the viewer marks unsupported per fragment
@@ -591,6 +636,11 @@ export const describeVfxBase = (
 	}
 	const shared = sharedOf(reader, intensity);
 	const offset = vertexOffsetOf(reader);
+	// the mask only scales the offset, so without one it changes nothing
+	const mask = offset === null ? null : offsetMaskOf(reader, layers);
+	if (mask !== null && 'kind' in mask) {
+		return mask;
+	}
 	return {
 		kind: 'effectStack',
 		variant: 'base',
@@ -650,6 +700,7 @@ export const describeVfxBase = (
 						...offset,
 						vertexAlphaWeight: float('_UseVertexColorAlphaAsVertOffsetWeight', 0),
 						cameraPull: float('_VertCameraOffset', 0),
+						mask,
 					},
 		softBody,
 		waterBlendBelow: waterBlendOf(reader),

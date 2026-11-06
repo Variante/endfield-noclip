@@ -62,6 +62,7 @@ const FX_OFFSET_MODE = 30u;
 const FX_UNFOGGED = 31u;
 const FX_EDGE_COLOR = 32u;
 const FX_EDGE = 33u;
+// z, w: the vertex offset mask's slot and strength (`EffectRow.offsetMask`)
 const FX_EDGE_ALPHA = 34u;
 // the texture stack's per-slot custom data shifts (u, v), from row 36 on (`EffectRow.customScroll` in
 // effect-look.ts)
@@ -165,8 +166,44 @@ fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, rel: vec3f, uv: vec4f, v
 	let speed = fx_row(id, FX_ANIM + FX_OFFSET_SLOT).xy;
 	let base = select(uv.xy, uv.zw, fx_row(id, FX_OFFSET_MODE).y != 0.0);
 	let t = textureSampleLevel(fx_tex6, fx_samp6, base * st.xy + st.zw + speed * frame.eye.w, 0.0).r;
-	let weight = (1.0 - params.z) + vertex_alpha * params.z;
+	var weight = (1.0 - params.z) + vertex_alpha * params.z;
+	// `_USE_VERTOFFSETMASK`: the mask's red at the same UVs, through its own `_ST` and scroll
+	let mask = fx_row(id, FX_EDGE_ALPHA).zw;
+	if (mask.y != 0.0) {
+		let slot = u32(mask.x);
+		let mask_st = fx_row(id, FX_UV + slot);
+		let mask_speed = fx_row(id, FX_ANIM + slot).xy;
+		let r = fx_sample_level(slot, base * mask_st.xy + mask_st.zw + mask_speed * frame.eye.w).r;
+		weight *= 1.0 - mask.y * (1.0 - r);
+	}
 	return dir * params.x * (t * (1.0 + params.y) - params.y) * weight + fx_camera_pull(rel, params.w);
+}
+
+// a stack slot sampled at its top mip, for the vertex stage
+fn fx_sample_level(slot: u32, uv: vec2f) -> vec4f {
+	switch slot {
+		case 0u: {
+			return textureSampleLevel(fx_tex0, fx_samp0, uv, 0.0);
+		}
+		case 1u: {
+			return textureSampleLevel(fx_tex1, fx_samp1, uv, 0.0);
+		}
+		case 2u: {
+			return textureSampleLevel(fx_tex2, fx_samp2, uv, 0.0);
+		}
+		case 3u: {
+			return textureSampleLevel(fx_tex3, fx_samp3, uv, 0.0);
+		}
+		case 4u: {
+			return textureSampleLevel(fx_tex4, fx_samp4, uv, 0.0);
+		}
+		case 5u: {
+			return textureSampleLevel(fx_tex5, fx_samp5, uv, 0.0);
+		}
+		default: {
+			return textureSampleLevel(fx_tex6, fx_samp6, uv, 0.0);
+		}
+	}
 }
 
 // VFXBaseV2's pull towards the camera: up to `pull` metres past the first, plus 1 mm

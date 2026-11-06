@@ -238,10 +238,11 @@ packs or renders correctly.
   (FogSimple, VFXFakeVolumeFog). other effect shaders (VFXAdvance, …) and these shaders' undrawn
   variants show as [unsupported](viewer/materials.md#unsupported-materials)
   - VFXBaseV2 and VFXDecal: additive blend states, `_BlendMode` 2 outside a multiplying blend or
-    with a stencil, the sixth sample texture alongside a vertex offset, object-relative screen UVs,
-    brightening that is a scan line or centred on a fixed point (the player-centred one is left
-    out), rigid-body, fluid and particle vertex animation, soft bodies that are lit, take a Fresnel
-    term or a vertex offset, or play from particle data (the Aurelyne blob is unchecked in game),
+    with a stencil, the sixth sample texture alongside a vertex offset, a vertex offset mask
+    alongside all five other sample textures, object-relative screen UVs, brightening that is a scan
+    line or centred on a fixed point (the player-centred one is left out), rigid-body, fluid and
+    particle vertex animation, soft bodies that are lit, take a Fresnel term or a vertex offset, or
+    play from particle data (the Aurelyne blob is unchecked in game),
     [water blending](game-data/effects.md#water-blending) (fragments below the authored height show
     the checker; the height a water surface would set isn't followed), VFXDecal's
     `_USE_IN_PARTICLE`, lighting, parallax and 3D-texture variants, and local lights and the

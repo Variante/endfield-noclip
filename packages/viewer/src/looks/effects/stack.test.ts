@@ -235,6 +235,8 @@ test('a stack’s vertex offset takes the offset slot and rows, and its stencil 
 						bias: 0,
 						vertexAlphaWeight: 0,
 						cameraPull: 0,
+						// the collectible pieces' glow (`M_fx_interactive_collection_2102`) masks its offset
+						mask: { texture: texture(4, { scale: [2, 2] }), slot: 5, strength: 0.6 },
 					},
 					alphaPower: 3,
 				}),
@@ -275,6 +277,15 @@ test('a stack’s vertex offset takes the offset slot and rows, and its stencil 
 	assert.deepEqual([...moved.params.subarray(EffectRow.offsetDir, EffectRow.offsetDir + 4)], [0, 1, 0, 1]);
 	assert.equal(moved.params[EffectRow.offset], 0.5);
 	assert.deepEqual([...moved.params.subarray(EffectRow.offsetMode, EffectRow.offsetMode + 2)], [1, 1]);
+	// the mask takes its slot without a role, which the fragment stage skips
+	assert.equal(moved.textures[5], 4);
+	assert.equal(moved.params[EffectRow.slotBits + 5], ROLE_NONE);
+	assert.deepEqual([...moved.params.subarray(EffectRow.uv + 20, EffectRow.uv + 22)], [2, 2]);
+	assert.deepEqual(
+		[...moved.params.subarray(EffectRow.offsetMask, EffectRow.offsetMask + 2)],
+		[5, Math.fround(0.6)],
+	);
+	assert.equal(portal.params[EffectRow.offsetMask + 1], 0);
 	assert.equal(moved.params[EffectRow.decal + 3], 3);
 	assert.deepEqual(
 		[portal.stencil?.compare, portal.stencil?.depthCompare, portal.queue],

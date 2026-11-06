@@ -631,6 +631,21 @@ export interface EffectVertexOffset {
 	vertexAlphaWeight: number;
 	/** the most it pulls vertices towards the camera, in metres (VFXBaseV2) */
 	cameraPull: number;
+	/** VFXBaseV2's `_USE_VERTOFFSETMASK`; `null` without */
+	mask: EffectVertexOffsetMask | null;
+}
+
+/**
+ * a mask on VFXBaseV2's vertex offset: the offset (not the camera pull) is scaled by `1 − strength · (1 −
+ * r)`, r the mask texture's red at the offset texture's UV set
+ */
+export interface EffectVertexOffsetMask {
+	/** read after its `_ST`, unscaled and unrotated */
+	texture: EffectTexture;
+	/** the stack slot it's drawn from, one {@link EffectStackSurface.layers} leaves empty (1–5) */
+	slot: number;
+	/** `_OffsetMaskPower / 5` */
+	strength: number;
 }
 
 /**
