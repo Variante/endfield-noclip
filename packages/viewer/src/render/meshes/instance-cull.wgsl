@@ -1,8 +1,9 @@
 // GPU culling of the instance rows the mesh selection leaves to it (gpu-cull-work.ts): each row is tested as
-// MeshSelector's #selectRows tests it (size, frustum or caster volume, LOD band, first shadow layer), counted
-// into its buckets, and written into the visible list where the CPU made room for the bucket. constants come
-// from instance-culler.ts: ITEM_WORDS, SLOT_WORDS, BUCKET_WORDS, COUNTER_WORDS, INDIRECT_WORDS, STATS_WORDS,
-// SHADOW_LAYERS, BLOCK_SLOT_BITS, NO_BUCKET, ITEM_INSIDE, SLOT_CASTS, SLOT_SHADOW_ONLY, MAX_GROUPS_X
+// MeshSelector's #selectRows tests it (size, frustum or caster volume, LOD band, first shadow layer) and
+// appended to its buckets' regions of the visible list, where the CPU made room for them. constants come
+// from instance-culler.ts: ITEM_WORDS, SLOT_WORDS, BUCKET_WORDS, BUCKET_DRAW, COUNTER_WORDS, INDIRECT_WORDS, STATS_WORDS,
+// SHADOW_LAYERS, BLOCK_SLOT_BITS, NO_BUCKET, ITEM_INSIDE, SLOT_CASTS, SLOT_SHADOW_ONLY, SLOT_REALTIME, SLOT_STATIC,
+// MAX_GROUPS_X
 
 struct View {
 	planes: array<vec4f, 5>,
@@ -190,82 +191,21 @@ fn item_of(group: vec3u) -> u32 {
 	return group.x + group.y * MAX_GROUPS_X;
 }
 
-@compute @workgroup_size(32)
-fn cs_count(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
-	let item = item_of(group);
-	if (item >= view.item_count) {
-		return;
-	}
-	let at = item * ITEM_WORDS;
-	let packed = work[at + 1u];
-	if (lane >= (packed & 255u)) {
-		return;
-	}
-	let row = work[at] + lane;
-	let tested = test_row(row, packed);
-	if (!tested.drawn) {
-		return;
-	}
-	let slots = view.slots_at + work[at + 2u] * SLOT_WORDS;
-	for (var s = 0u; s < work[at + 3u]; s++) {
-		let slot = slots + s * SLOT_WORDS;
-		if (!(tested.squared > bitcast<f32>(work[slot]) && tested.squared <= bitcast<f32>(work[slot + 1u]))) {
-			continue;
-		}
-		let flags = work[slot + 2u];
-		let casts = (flags & SLOT_CASTS) != 0u;
-		if (!tested.in_view && !casts) {
-			continue;
-		}
-		let bucket = work[slot + 3u + tested.mirrored];
-		if (bucket == NO_BUCKET) {
-			continue;
-		}
-		let c = STATS_WORDS + bucket * COUNTER_WORDS;
-		if (tested.in_view && !tested.occluded && (flags & SLOT_SHADOW_ONLY) == 0u) {
-			atomicAdd(&counters[c], 1u);
-		}
-		if (casts && tested.layer < SHADOW_LAYERS) {
-			atomicAdd(&counters[c + 1u + tested.layer], 1u);
-		}
-	}
-}
-
-// writes each bucket's indirect arguments from its counts, clamped to the room it has, and sums the stats
-@compute @workgroup_size(64)
-fn cs_arguments(@builtin(global_invocation_id) id: vec3u) {
-	let bucket = id.x;
-	if (bucket >= view.bucket_count) {
-		return;
-	}
+// appends a row to one of a bucket's regions (`region` 0 for its rows in view, 1 + layer for a shadow
+// layer's casters), if it has room
+fn append(bucket: u32, region: u32, row: u32) {
 	let b = view.buckets_at + bucket * BUCKET_WORDS;
-	let c = STATS_WORDS + bucket * COUNTER_WORDS;
-	let index_count = work[b + 5u];
-	let first_index = work[b + 6u];
-	let base_vertex = work[b + 7u];
-	let out = bucket * INDIRECT_WORDS;
-	let in_view = min(atomicLoad(&counters[c]), work[b + 1u]);
-	indirect[out] = index_count;
-	indirect[out + 1u] = in_view;
-	indirect[out + 2u] = first_index;
-	indirect[out + 3u] = base_vertex;
-	indirect[out + 4u] = work[b];
-	var casters = 0u;
-	for (var layer = 0u; layer < SHADOW_LAYERS; layer++) {
-		casters += atomicLoad(&counters[c + 1u + layer]);
-		let draw = out + 5u + layer * 5u;
-		indirect[draw] = index_count;
-		indirect[draw + 1u] = min(casters, work[b + 3u]);
-		indirect[draw + 2u] = first_index;
-		indirect[draw + 3u] = base_vertex;
-		indirect[draw + 4u] = work[b + 2u];
-	}
-	if (in_view > 0u) {
-		atomicAdd(&counters[0], in_view);
-		atomicAdd(&counters[1], in_view * (index_count / 3u));
+	let i = atomicAdd(&counters[STATS_WORDS + bucket * COUNTER_WORDS + region], 1u);
+	if (i < work[b + region * 2u + 1u]) {
+		let at = work[b + region * 2u] + i;
+		list[at] = row;
+		draw_ids[at] = work[b + BUCKET_DRAW];
 	}
 }
 
+// tests a row and appends it to each of its slots' buckets: to the rows in view, and to the casters of every
+// layer from its first on that the slot casts into (the sharp cascades take realtime casters, the far layer
+// static ones)
 @compute @workgroup_size(32)
 fn cs_write(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
 	let item = item_of(group);
@@ -297,27 +237,43 @@ fn cs_write(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index
 		if (bucket == NO_BUCKET) {
 			continue;
 		}
-		let b = view.buckets_at + bucket * BUCKET_WORDS;
-		let c = STATS_WORDS + bucket * COUNTER_WORDS;
-		let draw = work[b + 4u];
 		if (tested.in_view && !tested.occluded && (flags & SLOT_SHADOW_ONLY) == 0u) {
-			let i = atomicAdd(&counters[c + 1u + SHADOW_LAYERS], 1u);
-			if (i < work[b + 1u]) {
-				list[work[b] + i] = row;
-				draw_ids[work[b] + i] = draw;
+			append(bucket, 0u, row);
+		}
+		if (casts) {
+			for (var layer = tested.layer; layer < SHADOW_LAYERS; layer++) {
+				let takes = select(SLOT_REALTIME, SLOT_STATIC, layer == SHADOW_LAYERS - 1u);
+				if ((flags & takes) != 0u) {
+					append(bucket, 1u + layer, row);
+				}
 			}
 		}
-		if (casts && tested.layer < SHADOW_LAYERS) {
-			// the casters of earlier layers come first, so each layer draws a prefix
-			var offset = 0u;
-			for (var layer = 0u; layer < tested.layer; layer++) {
-				offset += atomicLoad(&counters[c + 1u + layer]);
-			}
-			let i = offset + atomicAdd(&counters[c + 2u + SHADOW_LAYERS + tested.layer], 1u);
-			if (i < work[b + 3u]) {
-				list[work[b + 2u] + i] = row;
-				draw_ids[work[b + 2u] + i] = draw;
-			}
+	}
+}
+
+// writes each bucket's indirect arguments from its counts, clamped to the room it has, and sums the stats
+@compute @workgroup_size(64)
+fn cs_arguments(@builtin(global_invocation_id) id: vec3u) {
+	let bucket = id.x;
+	if (bucket >= view.bucket_count) {
+		return;
+	}
+	let b = view.buckets_at + bucket * BUCKET_WORDS;
+	let c = STATS_WORDS + bucket * COUNTER_WORDS;
+	let index_count = work[b + BUCKET_DRAW + 1u];
+	let first_index = work[b + BUCKET_DRAW + 2u];
+	let base_vertex = work[b + BUCKET_DRAW + 3u];
+	for (var region = 0u; region <= SHADOW_LAYERS; region++) {
+		let count = min(atomicLoad(&counters[c + region]), work[b + region * 2u + 1u]);
+		let out = bucket * INDIRECT_WORDS + region * 5u;
+		indirect[out] = index_count;
+		indirect[out + 1u] = count;
+		indirect[out + 2u] = first_index;
+		indirect[out + 3u] = base_vertex;
+		indirect[out + 4u] = work[b + region * 2u];
+		if (region == 0u && count > 0u) {
+			atomicAdd(&counters[0], count);
+			atomicAdd(&counters[1], count * (index_count / 3u));
 		}
 	}
 }

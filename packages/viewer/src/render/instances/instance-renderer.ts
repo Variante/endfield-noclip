@@ -411,7 +411,11 @@ export class InstanceRenderer {
 			}
 			const span = (spans[s] ??= { first: 0, count: 0, layerCounts: [] });
 			span.first = at;
-			span.count = Math.min(gpu.rows + gpu.shadowRows, LIST_CAPACITY - at);
+			let room = gpu.rows;
+			for (const rows of gpu.layerRows) {
+				room += rows;
+			}
+			span.count = Math.min(room, LIST_CAPACITY - at);
 			span.layerCounts.length = 0;
 			at += span.count;
 		}

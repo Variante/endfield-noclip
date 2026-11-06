@@ -24,11 +24,9 @@ const OCCLUSION_FLOATS = 24;
 
 /** workgroups along x of a dispatch at most (WebGPU's default limit) */
 const MAX_GROUPS_X = 65_535;
-const KEYS = {
-	count: 'instance cull/count',
-	arguments: 'instance cull/arguments',
-	write: 'instance cull/write',
-};
+const KEYS = { write: 'instance cull/write', arguments: 'instance cull/arguments' };
+/** where a bucket's draw index and submesh range start among its words, past its regions */
+const BUCKET_DRAW = 2 * (1 + SHADOW_LAYERS);
 
 /** the buffers the culler reads and writes besides its own */
 export interface CullTargets {
@@ -60,9 +58,9 @@ export interface CulledBucket {
 	/** where its rows in view start in the visible list, and how many fit */
 	first: number;
 	room: number;
-	/** where its shadow casters start, and how many fit */
-	shadowFirst: number;
-	shadowRoom: number;
+	/** per shadow layer, where its casters start, and how many fit */
+	layerFirst: number[];
+	layerRoom: number[];
 	/** its draw's index into the draw parameters */
 	draw: number;
 	indexCount: number;
@@ -164,6 +162,7 @@ export class InstanceCuller {
 			wgslConst('ITEM_WORDS', 'u32', ITEM_WORDS),
 			wgslConst('SLOT_WORDS', 'u32', SLOT_WORDS),
 			wgslConst('BUCKET_WORDS', 'u32', BUCKET_WORDS),
+			wgslConst('BUCKET_DRAW', 'u32', BUCKET_DRAW),
 			wgslConst('COUNTER_WORDS', 'u32', COUNTER_WORDS),
 			wgslConst('INDIRECT_WORDS', 'u32', INDIRECT_WORDS),
 			wgslConst('STATS_WORDS', 'u32', STATS_WORDS),
@@ -173,15 +172,16 @@ export class InstanceCuller {
 			wgslConst('ITEM_INSIDE', 'u32', ItemFlags.Inside),
 			wgslConst('SLOT_CASTS', 'u32', SlotFlags.Casts),
 			wgslConst('SLOT_SHADOW_ONLY', 'u32', SlotFlags.ShadowOnly),
+			wgslConst('SLOT_REALTIME', 'u32', SlotFlags.Realtime),
+			wgslConst('SLOT_STATIC', 'u32', SlotFlags.Static),
 			wgslConst('MAX_GROUPS_X', 'u32', MAX_GROUPS_X),
 			cullWgsl,
 		].join('\n');
 		const module = pipelines.module('instance cull', code);
 		const layout = device.createPipelineLayout({ bindGroupLayouts: [this.#layout] });
 		for (const [key, entryPoint] of [
-			[KEYS.count, 'cs_count'],
-			[KEYS.arguments, 'cs_arguments'],
 			[KEYS.write, 'cs_write'],
+			[KEYS.arguments, 'cs_arguments'],
 		] as const) {
 			void pipelines.prepareCompute(key, () => ({ layout, compute: { module, entryPoint } }));
 		}
@@ -236,12 +236,14 @@ export class InstanceCuller {
 		const at = index * BUCKET_WORDS;
 		data[at] = bucket.first;
 		data[at + 1] = bucket.room;
-		data[at + 2] = bucket.shadowFirst;
-		data[at + 3] = bucket.shadowRoom;
-		data[at + 4] = bucket.draw;
-		data[at + 5] = bucket.indexCount;
-		data[at + 6] = bucket.firstIndex;
-		data[at + 7] = bucket.baseVertex;
+		for (let layer = 0; layer < SHADOW_LAYERS; layer++) {
+			data[at + 2 + layer * 2] = bucket.layerFirst[layer];
+			data[at + 3 + layer * 2] = bucket.layerRoom[layer];
+		}
+		data[at + BUCKET_DRAW] = bucket.draw;
+		data[at + BUCKET_DRAW + 1] = bucket.indexCount;
+		data[at + BUCKET_DRAW + 2] = bucket.firstIndex;
+		data[at + BUCKET_DRAW + 3] = bucket.baseVertex;
 	}
 
 	/**
@@ -298,10 +300,9 @@ export class InstanceCuller {
 	 */
 	encode(encoder: GPUCommandEncoder, occlusion: Occlusion | null): void {
 		this.#readStats();
-		const count = this.#pipelines.getCompute(KEYS.count);
-		const args = this.#pipelines.getCompute(KEYS.arguments);
 		const write = this.#pipelines.getCompute(KEYS.write);
-		if (!this.#pending || count === undefined || args === undefined || write === undefined) {
+		const args = this.#pipelines.getCompute(KEYS.arguments);
+		if (!this.#pending || write === undefined || args === undefined) {
 			return;
 		}
 		this.#pending = false;
@@ -326,12 +327,10 @@ export class InstanceCuller {
 		pass.setBindGroup(0, this.#bindGroup(occlusion?.pyramid.view ?? this.#noPyramidView));
 		const x = Math.min(this.#itemCount, MAX_GROUPS_X);
 		const y = Math.ceil(this.#itemCount / MAX_GROUPS_X);
-		pass.setPipeline(count);
+		pass.setPipeline(write);
 		pass.dispatchWorkgroups(x, y);
 		pass.setPipeline(args);
 		pass.dispatchWorkgroups(Math.ceil(this.#bucketCount / 64));
-		pass.setPipeline(write);
-		pass.dispatchWorkgroups(x, y);
 		pass.end();
 		if (!this.#statsCopied && !this.#statsMapping) {
 			encoder.copyBufferToBuffer(this.#counters, 0, this.#statsRead, 0, STATS_WORDS * 4);

@@ -9,6 +9,7 @@ import type { BindLayouts } from '../frame/bind-layouts.ts';
 import type { MainPassFormat } from '../frame/render-targets.ts';
 import { LIST_CAPACITY, type ListedSpan } from '../instances/instance-renderer.ts';
 import { CAMERA_HISTORY_FLOATS, CameraHistory } from '../post/camera-history.ts';
+import { SHADOW_LAYERS } from '../shadows/shadow-map.ts';
 import type { TextureStore } from '../textures/texture-store.ts';
 
 import { DepthPyramid } from './depth-pyramid.ts';
@@ -60,9 +61,8 @@ interface PreparedDraw {
 	layerCounts: readonly number[];
 	/** for a GPU-culled bucket, the byte offset of its indirect arguments; -1 for one of listed rows */
 	indirect: number;
-	/** for a GPU-culled bucket, the first shadow layer its casters reach, and the room it has for them */
-	firstLayer: number;
-	shadowRoom: number;
+	/** for a GPU-culled bucket, per shadow layer, the room it has for casters (owned by the draw) */
+	layerRooms: number[];
 	/** the material group; `null` for an effect until its pass builds it */
 	material: GPUBindGroup | null;
 	/** the pipeline variant for its face culling and its geometry's UV format ({@link variantOf}) */
@@ -147,8 +147,8 @@ export class MeshRenderer {
 	#culled: CulledBucket = {
 		first: 0,
 		room: 0,
-		shadowFirst: 0,
-		shadowRoom: 0,
+		layerFirst: Array.from({ length: SHADOW_LAYERS }, () => 0),
+		layerRoom: Array.from({ length: SHADOW_LAYERS }, () => 0),
 		draw: 0,
 		indexCount: 0,
 		firstIndex: 0,
@@ -492,25 +492,28 @@ export class MeshRenderer {
 		}
 		params.set(look.params, at + 16);
 		const gpu = bucket.gpu;
-		let shadowRoom = 0;
+		const culled = this.#culled;
 		if (gpu === null) {
 			this.#drawIdData.fill(d, span.first, span.first + span.count);
 		} else if (this.#culler !== null) {
-			const culled = this.#culled;
+			// the span holds the rows in view, then each layer's casters, as far as it reaches
+			const end = span.first + span.count;
 			culled.first = span.first;
 			culled.room = Math.min(gpu.rows, span.count);
-			culled.shadowFirst = span.first + culled.room;
-			culled.shadowRoom = span.count - culled.room;
+			let next = span.first + culled.room;
+			for (let layer = 0; layer < SHADOW_LAYERS; layer++) {
+				culled.layerFirst[layer] = next;
+				culled.layerRoom[layer] = Math.min(gpu.layerRows[layer], end - next);
+				next += culled.layerRoom[layer];
+			}
 			culled.draw = d;
 			culled.indexCount = range.indexCount;
 			culled.firstIndex = range.firstIndex;
 			culled.baseVertex = range.baseVertex;
 			this.#culler.setBucket(gpu.index, culled);
-			shadowRoom = culled.shadowRoom;
 		}
 		const indirect = gpu === null ? -1 : gpu.index * INDIRECT_WORDS * 4;
-		const firstLayer = gpu?.firstLayer ?? 0;
-		const count = gpu === null ? span.count : Math.min(gpu.rows, span.count);
+		const count = gpu === null ? span.count : culled.room;
 
 		// an effect's group also binds the main pass's outputs, so it's built when its pass encodes
 		const material = info.effect ? null : state.group;
@@ -527,8 +530,7 @@ export class MeshRenderer {
 				count,
 				layerCounts: span.layerCounts,
 				indirect,
-				firstLayer,
-				shadowRoom,
+				layerRooms: gpu === null ? [] : [...culled.layerRoom],
 				material,
 				variant,
 				effect,
@@ -543,8 +545,11 @@ export class MeshRenderer {
 			draw.count = count;
 			draw.layerCounts = span.layerCounts;
 			draw.indirect = indirect;
-			draw.firstLayer = firstLayer;
-			draw.shadowRoom = shadowRoom;
+			if (gpu !== null) {
+				for (let layer = 0; layer < SHADOW_LAYERS; layer++) {
+					draw.layerRooms[layer] = culled.layerRoom[layer];
+				}
+			}
 			draw.material = material;
 			draw.variant = variant;
 			draw.effect = effect;
@@ -701,8 +706,8 @@ export class MeshRenderer {
 					count = layer < 0 ? draw.count : draw.layerCounts[layer];
 				} else if (layer < 0) {
 					count = draw.count;
-				} else if (layer >= draw.firstLayer) {
-					count = draw.shadowRoom;
+				} else {
+					count = draw.layerRooms[layer] ?? 0;
 				}
 				// only an effect drawn outside its pass would lack its group
 				if (draw.material === null || count === 0) {

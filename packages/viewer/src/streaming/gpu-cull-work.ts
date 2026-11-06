@@ -31,10 +31,14 @@ export const ItemFlags = {
 export const SLOT_WORDS = 5;
 
 export const SlotFlags = {
-	/** its material casts shadows */
+	/** it casts into some shadow layer (`ChainSlot.castsShadows`) */
 	Casts: 1,
 	/** a shadow proxy: rows in view draw only into the shadow layers */
 	ShadowOnly: 2,
+	/** it casts into the sharp cascades */
+	Realtime: 4,
+	/** it casts into the far layer */
+	Static: 8,
 } as const;
 
 /** a slot's bucket where its item has no rows of that handedness */
@@ -42,16 +46,16 @@ export const NO_BUCKET = 0xffff_ffff;
 
 /**
  * u32 per bucket, written once the draws are prepared: where its rows in view start in the visible list and
- * how many fit, where its shadow casters start and how many fit, its draw index, then its submesh's index
+ * how many fit, then the same for each shadow layer's casters, its draw index, then its submesh's index
  * count, first index and base vertex. a bucket that doesn't draw has room for none
  */
-export const BUCKET_WORDS = 8;
+export const BUCKET_WORDS = 2 * (1 + SHADOW_LAYERS) + 4;
 
 /** u32 of indirect arguments per bucket: the draw of its rows in view, then each shadow layer's draw */
 export const INDIRECT_WORDS = 5 * (1 + SHADOW_LAYERS);
 
-/** u32 of counters per bucket: rows in view and casters by first layer, then a cursor for each */
-export const COUNTER_WORDS = 2 * (1 + SHADOW_LAYERS);
+/** u32 of counters per bucket: its rows in view, then each shadow layer's casters */
+export const COUNTER_WORDS = 1 + SHADOW_LAYERS;
 
 /** counters before the buckets': the instances and triangles drawn in view */
 export const STATS_WORDS = 2;
@@ -88,10 +92,8 @@ export interface GpuRows {
 	index: number;
 	/** room for its rows in view: every row of every item that may draw into it */
 	rows: number;
-	/** room for its shadow casters */
-	shadowRows: number;
-	/** the first shadow layer any of its casters can reach, {@link SHADOW_LAYERS} for none */
-	firstLayer: number;
+	/** per shadow layer, room for its casters */
+	layerRows: number[];
 }
 
 /** a frame's GPU culling work, reused across frames */

@@ -108,6 +108,28 @@ const BAND_SLACK = 1.02;
 const slotFilterKey = (view: MeshView): number =>
 	(view.unsupportedMaterials ? 1 : 0) | (view.missingContent ? 2 : 0);
 
+/**
+ * a caster reaches every layer from the first its bounds reach on (each takes in the volumes of those
+ * before); of those, the sharp cascades take realtime casters and the far layer static ones, as the game's
+ * maps do
+ *
+ * @param slot the slot that draws the rows
+ * @param first the first shadow layer the rows' bounds reach, {@link SHADOW_LAYERS} for none
+ * @returns a bit per shadow layer the slot's rows can cast into
+ */
+const casterLayerBits = (slot: ChainSlot, first: number): number => {
+	if (!slot.castsShadows) {
+		return 0;
+	}
+	let bits = 0;
+	for (let layer = first; layer < SHADOW_LAYERS; layer++) {
+		if (layer === SHADOW_LAYERS - 1 ? slot.castsStatic : slot.castsRealtime) {
+			bits |= 1 << layer;
+		}
+	}
+	return bits;
+};
+
 /** what a resident block's selection reuses from frame to frame */
 interface SelectedBlock {
 	/** its row groups' bounds, from `buildRowGroups` */
@@ -187,7 +209,7 @@ export class MeshSelector {
 		layer: 0,
 	};
 	/** what {@link #gpuBucket} adds, reused */
-	readonly #room = { inView: 0, casters: 0, priority: 0 };
+	readonly #room = { inView: 0, layers: 0, rows: 0, priority: 0 };
 	/** the slots a segment's rows can reach, from {@link #cullGroup} */
 	readonly #candidates: ChainSlot[] = [];
 	/**
@@ -561,9 +583,10 @@ export class MeshSelector {
 		const group = this.#group;
 		const room = this.#room;
 		room.inView = group.inView && !target.shadowOnly ? rows : 0;
-		room.casters = target.castsShadows && this.#segment.layer < SHADOW_LAYERS ? rows : 0;
+		room.layers = casterLayerBits(target, this.#segment.layer);
+		room.rows = rows;
 		room.priority = priority;
-		if (room.inView + room.casters === 0) {
+		if (room.inView === 0 && room.layers === 0) {
 			return;
 		}
 		const buckets = this.#pair;
@@ -572,7 +595,10 @@ export class MeshSelector {
 		addSlot(
 			this.selection.gpu,
 			band,
-			(target.castsShadows ? SlotFlags.Casts : 0) | (target.shadowOnly ? SlotFlags.ShadowOnly : 0),
+			(target.castsShadows ? SlotFlags.Casts : 0) |
+				(target.shadowOnly ? SlotFlags.ShadowOnly : 0) |
+				(target.castsRealtime ? SlotFlags.Realtime : 0) |
+				(target.castsStatic ? SlotFlags.Static : 0),
 			buckets,
 		);
 	}
@@ -580,13 +606,14 @@ export class MeshSelector {
 	/**
 	 * makes room in a slot's GPU-culled bucket for a segment of {@link #group}
 	 *
-	 * @param room rows the segment may add in view and as casters, and its priority
+	 * @param room rows the segment may add in view, the layers it may cast into (bits) and its rows, and its
+	 *   priority
 	 * @returns the bucket's GPU index
 	 */
 	#gpuBucket(
 		slot: ChainSlot,
 		mirrored: 0 | 1,
-		room: { inView: number; casters: number; priority: number },
+		room: { inView: number; layers: number; rows: number; priority: number },
 	): number {
 		const index = gpuBucketIndex(mirrored, slot.shadowOnly);
 		const bucket = slot.buckets[index] ?? this.#buckets.bucketOf(slot, index);
@@ -601,15 +628,15 @@ export class MeshSelector {
 			bucket.nearest = Infinity;
 			gpu.index = work.buckets.length;
 			gpu.rows = 0;
-			gpu.shadowRows = 0;
-			gpu.firstLayer = SHADOW_LAYERS;
+			gpu.layerRows.fill(0);
 			work.buckets.push(bucket);
 			this.selection.buckets.push(bucket);
 		}
 		gpu.rows += room.inView;
-		if (room.casters > 0) {
-			gpu.shadowRows += room.casters;
-			gpu.firstLayer = Math.min(gpu.firstLayer, this.#segment.layer);
+		for (let layer = 0; layer < SHADOW_LAYERS; layer++) {
+			if ((room.layers & (1 << layer)) !== 0) {
+				gpu.layerRows[layer] += room.rows;
+			}
 		}
 		if (room.priority > bucket.pixels) {
 			bucket.pixels = room.priority;
@@ -750,13 +777,21 @@ export class MeshSelector {
 						bucket.nearest = Infinity;
 						buckets.push(bucket);
 					}
+					// listed rows draw into a prefix of the layers: a static caster only from the far layer on, and a
+					// realtime one into the far layer too
+					let slotGroup = group;
+					if (!slot.castsShadows) {
+						slotGroup = SHADOW_LAYERS;
+					} else if (!slot.castsRealtime && group < SHADOW_LAYERS) {
+						slotGroup = SHADOW_LAYERS - 1;
+					}
 					if (slot.particles === null) {
-						bucket.rows[group].push(row);
+						bucket.rows[slotGroup].push(row);
 					} else {
 						const particles = this.#particles.rows(instances, i, slot.particles, frame, view.particles);
 						this.selection.particles = true;
 						for (const particle of particles) {
-							bucket.rows[group].push(particle);
+							bucket.rows[slotGroup].push(particle);
 						}
 					}
 					if (priority > bucket.pixels) {

@@ -129,15 +129,15 @@ the group tests, the CPU:
    centre and its sizes, with the bands widened 2% for the GPU's f32 arithmetic;
 2. requests their geometry at the segment's largest priority. a LOD with a slot not resident is
    drawn by the slots of its stand-in in that LOD's band, as on the CPU path;
-3. makes room in each picked slot's bucket for every row of the segment, in view and as casters, and
-   lowers the bucket's first shadow layer to the first one the segment's sphere reaches.
+3. makes room in each picked slot's bucket for every row of the segment in view, and in each shadow
+   layer the slot can cast into from the first one the segment's sphere reaches.
 
 each picked slot's GPU-culled bucket, one per (geometry, submesh, material, mirrored), holds the
-segment's rows in view and its casters out of view alike: the GPU writes its rows in view first,
-then its casters ordered by first shadow layer, so each shadow layer still draws a prefix. a pass of
-`instance cull` counts each bucket's rows, turns the counts into indirect arguments (one draw for
-the rows in view and one per shadow layer, clamped to the bucket's room) and writes the visible list
-and draw ids. a shadow layer before a bucket's first layer skips its draw.
+segment's rows in view and its casters out of view alike, in a region of the visible list for its
+rows in view and one per shadow layer. a pass of `instance cull` appends each row to the regions it
+draws in, with its draw id, and another turns each region's count into indirect arguments (one draw
+for the rows in view and one per shadow layer, clamped to the region's room). a shadow layer the
+bucket has no room in skips its draw.
 
 segments stay on the CPU path when their chain draws particles, has a `CameraDistance` band or a
 slot outside the opaque and alpha-tested queues, when a LOD they reach has no resident stand-in and
