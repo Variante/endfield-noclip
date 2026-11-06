@@ -313,6 +313,42 @@ describe('the Lit model', () => {
 		assert.equal(ring(['_EMISSIVE_MASK'], 1)?.channels ?? null, null);
 	});
 
+	it('leaves out _EMISSIVE_ANIM_SWEEP colours that glow only in the sweep band', () => {
+		const shader = shaderEntry({
+			name: 'HGRP/Lit',
+			family: 'lit',
+			floats: { _EmissiveType: 0 },
+			colors: { _EmissiveColorG: [0, 0, 0, 1], _EmissiveColorB: [0, 0, 0, 1], _EmissiveColorA: [0, 0, 0, 1] },
+		});
+		// M_interactive_hongshan_obstaclerock+1_001_01, Jingyu's clearable rock: red cracks always, a grey
+		// sweep from G
+		const rock = (keywords: string[]) =>
+			lit(
+				describeMaterial(
+					values({
+						keywords,
+						baseTextureMapCount: 2,
+						slots: { _BaseColorMap: slot(1), _EmissiveMap: slot(2) },
+						floats: { _EmissiveType: 1 },
+						colors: {
+							_EmissiveColor: [191.75, 6.02, 0, 0],
+							_EmissiveColorG: [2.12, 2.12, 2.12, 1],
+							_EmissiveColorB: [4, 0, 0, 0.5],
+						},
+					}),
+					shader,
+				),
+			).emission;
+		const swept = rock(['_EMISSIVE_ANIM_SWEEP', '_EMISSIVE_MAP', '_TWO_BASEMAP']);
+		assert.deepEqual(swept?.color, [191.75, 6.02, 0]);
+		assert.deepEqual(swept?.channels, [
+			[0, 0, 0],
+			[2, 0, 0],
+			[0, 0, 0],
+		]);
+		assert.deepEqual(rock(['_EMISSIVE_MAP', '_TWO_BASEMAP'])?.channels?.[0], [2.12, 2.12, 2.12]);
+	});
+
 	it('describes the originium crystals: tri-channel tint, detail and parallax glow', () => {
 		const shader = shaderEntry({
 			name: 'HGRP/Lit',

@@ -21,6 +21,10 @@ the emissive map's G, B and A colours, already times `_EmissiveType` (null when 
 ride in the three rows effect looks keep for their own parameters, which mesh looks don't otherwise
 use.
 
+`_EMISSIVE_ANIM_SWEEP`'s band isn't drawn: the packer scales each emission colour by one minus its
+alpha, its value outside the band, so colours that glow only in the band are left out and steady
+ones stay.
+
 ## lit layers
 
 - **`_PARALLAX_MAP`**: the [pulse](../game-data/materials.md#lit-layers) moves only while frames

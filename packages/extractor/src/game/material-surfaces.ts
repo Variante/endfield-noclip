@@ -212,12 +212,18 @@ export const describeLit = (reader: MaterialReader): LitSurface | UnsupportedSur
 			source = 'mask';
 		}
 		if (source !== null && emissive !== undefined) {
+			// `_EMISSIVE_ANIM_SWEEP` lights each colour inside a band that sweeps up the object, by its alpha:
+			// alpha 1 glows only in the band. the band isn't drawn, so this keeps each colour at its resting
+			// value outside it (docs/game-data/materials.md#emission)
+			const sweep = lit && has('_EMISSIVE_ANIM_SWEEP');
+			const resting = (rgba: readonly [number, number, number, number], scale: number): Rgb =>
+				scaleRgb(rgba, sweep ? scale * (1 - Math.min(Math.max(rgba[3], 0), 1)) : scale);
 			// the map's G, B and A add colours of their own, scaled by `_EmissiveType` (0 leaves them out)
 			let channels: LitEmission['channels'] = null;
 			const type = float('_EmissiveType', 0);
 			if (source === 'map' && type !== 0) {
 				// HDR like `_EmissiveColor`: as stored
-				const scaled = (name: string): Rgb => scaleRgb(color(name) ?? [0, 0, 0, 1], type);
+				const scaled = (name: string): Rgb => resting(color(name) ?? [0, 0, 0, 1], type);
 				const added: [Rgb, Rgb, Rgb] = [
 					scaled('_EmissiveColorG'),
 					scaled('_EmissiveColorB'),
@@ -229,7 +235,7 @@ export const describeLit = (reader: MaterialReader): LitSurface | UnsupportedSur
 			}
 			emission = {
 				// HDR, authored linear: as stored
-				color: [emissive[0], emissive[1], emissive[2]],
+				color: resting(emissive, 1),
 				source,
 				maskChannel: channel,
 				channels,

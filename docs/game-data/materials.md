@@ -67,6 +67,17 @@ white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_
 about every 3 s. `_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker; no map02
 material sets it.
 
+`_EMISSIVE_ANIM_SWEEP` (88 map02 materials, among them the clearable rocks and the drones' targets)
+lights a band that sweeps up the object along its own y: each emission colour (the main one and G,
+B, A) is multiplied by `mix(1, band, alpha)`, so a colour with alpha 1 glows only inside the band
+and alpha 0 glows steadily. the band is `_EmissiveSweepWidth` wide, with `_EmissiveSweepFalloff`
+sharpening its edge, and moves at `_EmissiveSweepSpeed` from `_EmissiveSweepHeightOffset`, repeating
+every `_EmissiveSweepInterval`, phase-shifted per object by `_EmissiveSweepRandom`; inside it the
+strength follows the albedo's brightness by `_EmissiveSweepAlbedoScale` and a runtime per-draw
+factor. outside the band it is 0. Jingyu's clearable rock
+(`M_interactive_hongshan_obstaclerock+1_001_01`) keeps its red cracks lit (alpha 0) and sweeps a
+grey glow of 2.1 from its emissive map's G (alpha 1), which covers the whole rock.
+
 each draw also carries a runtime emission colour in its per-draw data, which replaces
 `_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
 glow green at Wuling and red at Marker Stone in the game, always, whatever the story state or time
