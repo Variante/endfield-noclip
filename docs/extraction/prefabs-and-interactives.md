@@ -105,16 +105,18 @@ view states are read from the model's own file, or from the model its `ModelTabl
 looks and facility forms alike.
 
 an interactive whose model has view states is drawn in its settled pose: every animator layer
-settled with its keys false. a pose holds one clip end pose per animator, each with its GameObject
-switches, the material values it sets on renderers and their particle pivots. `readPrefabRenderers`
-takes the pose, sets the bound local transforms and switches while walking the hierarchy, so skinned
-parts follow their bones. inside a clip that switches GameObjects, a node saved off and left alone
-by the clip draws nothing rather than a stand-in. clips name material properties by a hash, resolved
-against the saved property names of the renderer's materials (a property the material doesn't save
-is dropped); a renderer whose materials take posed values draws a
-[posed copy](../package-format.md#materials) of its material. each facility visual form with view
-states is posed the same way, under its own model id, with every key false (a facility's player-set
-keys aren't read). doodad-group shells aren't posed.
+settled with its keys false, except `state`, which holds the placement's starting
+[`state`](../game-data/interactives.md#the-state-key) when its template has a common-perform
+component (a model is settled once per starting value its placements use). a pose holds one clip end
+pose per animator, each with its GameObject switches, the material values it sets on renderers and
+their particle pivots. `readPrefabRenderers` takes the pose, sets the bound local transforms and
+switches while walking the hierarchy, so skinned parts follow their bones. inside a clip that
+switches GameObjects, a node saved off and left alone by the clip draws nothing rather than a
+stand-in. clips name material properties by a hash, resolved against the saved property names of the
+renderer's materials (a property the material doesn't save is dropped); a renderer whose materials
+take posed values draws a [posed copy](../package-format.md#materials) of its material. each
+facility visual form with view states is posed the same way, under its own model id, with every key
+false (a facility's player-set keys aren't read). doodad-group shells aren't posed.
 
 poses with their own controls:
 

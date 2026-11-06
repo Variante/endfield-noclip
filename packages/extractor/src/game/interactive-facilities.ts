@@ -204,6 +204,7 @@ const playerKeys = (template: MemoryPackValue): PlayerKey[] =>
  * @param model a ModelTable model and the model whose view states it uses
  * @param campfire whether the model's `Enabled` key is the player's activation
  * @param keys the player-set keys the template drives; one whose radius is largest counts
+ * @param state the `state` key's value, `null` when nothing sets it
  * @returns the model's settled looks, or `null` when it has no view states
  * @throws {FormatError} if a state machine can't settle or a clip can't be read
  */
@@ -212,6 +213,7 @@ const readInteractiveLooks = async (
 	model: ModelViews,
 	campfire: boolean,
 	keys: readonly PlayerKey[],
+	state: number | null,
 ): Promise<InteractiveLooks | null> => {
 	const states = await readViewStates(context, model);
 	if (states === null) {
@@ -219,14 +221,17 @@ const readInteractiveLooks = async (
 	}
 	const activations = campfire ? [false, true] : [null];
 	const settle = (activated: boolean | null, near: boolean) => {
-		const blackboard = new Map<string, boolean>();
+		const blackboard = new Map<string, boolean | number>();
+		if (state !== null) {
+			blackboard.set(STATE_KEY, state);
+		}
 		if (activated !== null) {
 			blackboard.set('Enabled', activated);
 		}
 		for (const { key } of keys) {
 			blackboard.set(key, near);
 		}
-		const key = `${activated === null ? '' : activated ? 'activated ' : 'locked '}${near ? 'near' : 'away'}`;
+		const key = `${state === null ? '' : `state ${state} `}${activated === null ? '' : activated ? 'activated ' : 'locked '}${near ? 'near' : 'away'}`;
 		return settledPose(context, states, key, blackboard);
 	};
 	const away: SettledLook[] = [];
@@ -279,9 +284,9 @@ const PARAM_SAVED = 300;
 /**
  * @param properties a template's keyed property list
  * @param key the property's key
- * @returns its first atom as a bool, or `null` when it's absent
+ * @returns its first atom's bits, or `null` when it's absent
  */
-const boolProperty = (properties: MemoryPackValue | undefined, key: string): boolean | null => {
+const propertyBits = (properties: MemoryPackValue | undefined, key: string): bigint | null => {
 	for (const property of Array.isArray(properties) ? properties : []) {
 		if (
 			property === null ||
@@ -298,7 +303,83 @@ const boolProperty = (properties: MemoryPackValue | undefined, key: string): boo
 				: [];
 		const bits =
 			atom !== null && typeof atom === 'object' && !Array.isArray(atom) ? atom.valueBit64 : undefined;
-		return typeof bits === 'string' || typeof bits === 'number' ? BigInt(bits) !== 0n : null;
+		return typeof bits === 'string' || typeof bits === 'number' ? BigInt(bits) : null;
+	}
+	return null;
+};
+
+/**
+ * @param properties a template's keyed property list
+ * @param key the property's key
+ * @returns its first atom as a bool, or `null` when it's absent
+ */
+const boolProperty = (properties: MemoryPackValue | undefined, key: string): boolean | null => {
+	const bits = propertyBits(properties, key);
+	return bits === null ? null : bits !== 0n;
+};
+
+/**
+ * @param properties a template's keyed property list
+ * @param key the property's key
+ * @returns its first atom as a 32-bit int, or `null` when it's absent
+ */
+const intProperty = (properties: MemoryPackValue | undefined, key: string): number | null => {
+	const bits = propertyBits(properties, key);
+	return bits === null ? null : Number(BigInt.asIntN(32, bits));
+};
+
+/** the component that passes an interactive's `state` property to its view states */
+const COMMON_PERFORM_COMPONENTS = ['_InteractiveCommonPerformComponentDataForMemoryPack'];
+
+/** the entity property, and view-state key, the common-perform component passes on */
+const STATE_KEY = 'state';
+
+/** the `state` an interactive template's entities start with */
+export interface StartState {
+	/** the template's own: its saved, else config, else temporary property, else 0 */
+	state: number;
+	/** variants whose diff properties set another, by interactive id */
+	variants: Map<string, number>;
+}
+
+/**
+ * @param template a decoded interactive template
+ * @returns the `state` its view states start with, or `null` when it has no common-perform component to pass
+ *   one on
+ */
+export const startState = (template: MemoryPackValue): StartState | null => {
+	if (!isRecord(template) || !hasComponent(template, COMMON_PERFORM_COMPONENTS)) {
+		return null;
+	}
+	const state =
+		intProperty(template.saveProperties, STATE_KEY) ??
+		intProperty(template.configProperties, STATE_KEY) ??
+		intProperty(template.tempProperties, STATE_KEY) ??
+		0;
+	const variants = new Map<string, number>();
+	for (const pair of Array.isArray(template.templateVariant) ? template.templateVariant : []) {
+		if (!Array.isArray(pair)) {
+			continue;
+		}
+		const [id, variant] = pair;
+		const value = isRecord(variant) ? intProperty(variant.diffProperties, STATE_KEY) : null;
+		if (typeof id === 'string' && value !== null) {
+			variants.set(id, value);
+		}
+	}
+	return { state, variants };
+};
+
+/**
+ * @param row a placed interactive
+ * @returns its `state` parameter on any component, or null
+ */
+export const stateOf = (row: LevelInteractive): number | null => {
+	for (const params of row.componentProperties.values()) {
+		const bits = params.find((param) => param.key === STATE_KEY)?.values[0]?.bits;
+		if (bits !== undefined) {
+			return Number(BigInt.asIntN(32, bits));
+		}
 	}
 	return null;
 };
@@ -829,8 +910,39 @@ export const loadInteractiveFacilities = async (
 	// the player's presence changes away or near, within `radius`
 	const interactiveLooks = new Map<
 		string,
-		{ looks: InteractiveLooks; campfire: boolean; radius: number | null }
+		{
+			model: string;
+			looks: InteractiveLooks;
+			campfire: boolean;
+			keys: PlayerKey[];
+			radius: number | null;
+			/** the `state` `looks` were settled with, `null` when nothing passes one on */
+			state: number | null;
+		}
 	>();
+	// a failed read reports and leaves the model drawn as saved
+	const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
+		try {
+			return await run();
+		} catch (error) {
+			if (!(error instanceof FormatError)) {
+				throw error;
+			}
+			unsupported.push({ path, reason: error.message });
+			return failed;
+		}
+	};
+	const looksByModel = new Map<string, Promise<InteractiveLooks | null>>();
+	const looksFor = (
+		model: string,
+		campfire: boolean,
+		keys: readonly PlayerKey[],
+		state: number | null,
+	): Promise<InteractiveLooks | null> =>
+		looksByModel.getOrInsertComputed(
+			`${model} ${campfire} ${keys.map((entry) => entry.key).join()} ${state}`,
+			() => attempt(model, () => readInteractiveLooks(context, viewsOf(model), campfire, keys, state), null),
+		);
 	// facility forms with view states drawn as they rest (an idle loop keeps playing), by ModelTable id
 	const formPoses = new Map<string, PrefabPose>();
 	const regionWalls = new Set<string>();
@@ -843,22 +955,15 @@ export const loadInteractiveFacilities = async (
 			string,
 			| { kind: 'door' | 'regionWall' }
 			| { kind: 'telescopic'; pieces: number }
-			| { kind: 'other'; campfire: boolean; keys: PlayerKey[]; animator: AnimatorStart | null }
+			| {
+					kind: 'other';
+					campfire: boolean;
+					keys: PlayerKey[];
+					animator: AnimatorStart | null;
+					start: StartState | null;
+			  }
 		>();
 		const byModel = new Map<string, DoorPoses | null>();
-		const looksByModel = new Map<string, InteractiveLooks | null>();
-		// a failed read reports and leaves the model drawn as saved
-		const attempt = async <T>(path: string, run: () => Promise<T>, failed: T): Promise<T> => {
-			try {
-				return await run();
-			} catch (error) {
-				if (!(error instanceof FormatError)) {
-					throw error;
-				}
-				unsupported.push({ path, reason: error.message });
-				return failed;
-			}
-		};
 		for (const [key, { model, data, forms }] of authored) {
 			if (model === null) {
 				// a facility: each visual form is its own model, settled with every key false
@@ -869,7 +974,7 @@ export const loadInteractiveFacilities = async (
 					// oxlint-disable-next-line no-await-in-loop -- one view state file and a clip per form
 					const looks = await attempt(
 						form.model,
-						() => readInteractiveLooks(context, viewsOf(form.model), false, []),
+						() => readInteractiveLooks(context, viewsOf(form.model), false, [], null),
 						null,
 					);
 					if (looks !== null) {
@@ -900,10 +1005,11 @@ export const loadInteractiveFacilities = async (
 							campfire: hasComponent(decoded, CAMPFIRE_COMPONENTS),
 							keys: playerKeys(decoded),
 							animator: animatorStart(decoded),
+							start: startState(decoded),
 						};
 					},
 					// an unreadable template is drawn as saved
-					{ kind: 'other' as const, campfire: false, keys: [], animator: null },
+					{ kind: 'other' as const, campfire: false, keys: [], animator: null, start: null },
 				);
 				templateKinds.set(data, kind);
 			}
@@ -915,21 +1021,13 @@ export const loadInteractiveFacilities = async (
 			}
 			// a doodad-group shell draws nothing itself; its forms attach to it instead
 			if (kind.kind === 'other' && !doodads.has(key)) {
-				const { campfire, keys } = kind;
-				const lookKey = `${model} ${campfire} ${keys.map((entry) => entry.key).join()}`;
-				let looks = looksByModel.get(lookKey);
-				if (looks === undefined) {
-					// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
-					looks = await attempt(
-						model,
-						() => readInteractiveLooks(context, viewsOf(model), campfire, keys),
-						null,
-					);
-					looksByModel.set(lookKey, looks);
-				}
+				const { campfire, keys, start } = kind;
+				const state = start === null ? null : (start.variants.get(key) ?? start.state);
+				// oxlint-disable-next-line no-await-in-loop -- one view state file and a few clips per model
+				const looks = await looksFor(model, campfire, keys, state);
 				if (looks !== null) {
 					const radius = looks.near === null ? null : Math.max(...kind.keys.map((entry) => entry.radius));
-					interactiveLooks.set(key, { looks, campfire: kind.campfire, radius });
+					interactiveLooks.set(key, { model, looks, campfire, keys, radius, state });
 				} else if (kind.animator !== null) {
 					animatorStarts.set(key, kind.animator);
 				}
@@ -1178,7 +1276,14 @@ export const loadInteractiveFacilities = async (
 		}
 		const rest = interactiveLooks.get(row.template);
 		if (rest !== undefined) {
-			const { looks, campfire, radius } = rest;
+			const { campfire, radius } = rest;
+			let { looks } = rest;
+			// a placement's own `state` overrides its template's
+			const state = rest.state === null ? null : stateOf(row);
+			if (state !== null && state !== rest.state) {
+				// oxlint-disable-next-line no-await-in-loop -- one settle per model and state
+				looks = (await looksFor(rest.model, campfire, rest.keys, state)) ?? looks;
+			}
 			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
 			const activation = `activation:${row.id}`;
 			if (campfire) {
