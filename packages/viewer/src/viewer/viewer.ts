@@ -721,11 +721,10 @@ export class Viewer {
 			this.#windClock += windClockRate(this.#environment.look.environment.wind) * dt;
 		}
 		// frames that only settle or adapt reuse the last selection, unless it holds particles, which move by
-		// the clock like the effects' scrolling textures. with nothing rendering and nothing loading, the
-		// traversal would repeat the last frame's
-		const traverse =
-			scene !== null &&
-			((render && (changed || this.#particlesShown || this.#spinsShown)) || !scene.stream.idle);
+		// the clock like the effects' scrolling textures, while the clock runs. with nothing rendering and nothing
+		// loading, the traversal would repeat the last frame's
+		const moving = options.animate && (this.#particlesShown || this.#spinsShown);
+		const traverse = scene !== null && ((render && (changed || moving)) || !scene.stream.idle);
 		if (settings.shadows && (traverse || render)) {
 			// once a frame, for both the mesh selection, which groups instances by the layers they reach, and the
 			// shadow passes

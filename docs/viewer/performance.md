@@ -13,10 +13,11 @@
   moves on the frames that render anyway and stops when they do. it all reads one animation clock
   that advances by the frame time only on rendered frames (and only with the `animate` option on),
   so it resumes where it stopped instead of jumping by the time the view idled. frames that only
-  settle or adapt reuse the last selection, unless it drew particles, which are re-evaluated so they
-  keep moving until the view idles. it traverses without rendering while streaming is in progress
-  (`!stream.idle`), and does nothing at all when the view is still and streaming is idle. the
-  environment re-blends only when the eye, its settings or a fade changed.
+  settle or adapt reuse the last selection, unless it drew particles or spinning rows and `animate`
+  is on, which are re-evaluated so they keep moving until the view idles. it traverses without
+  rendering while streaming is in progress (`!stream.idle`), and does nothing at all when the view
+  is still and streaming is idle. the environment re-blends only when the eye, its settings or a
+  fade changed.
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
   panels don't re-render on a still view.
 - **one traversal, many passes.** selection runs once per frame; shadow layers reuse its buckets.
