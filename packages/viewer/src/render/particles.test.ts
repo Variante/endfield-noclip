@@ -510,6 +510,35 @@ describe('ParticleSimulation', () => {
 		assert.ok(moved > 1);
 	});
 
+	it('orbits particles by the integral of an orbital curve over their age', () => {
+		// Jingyu's drifting petals (p_fxmap_map02_lv001_flower_801) spin up about z over their lifetime
+		const orbiting = (orbitalZ: MinMaxCurveInfo) =>
+			run(
+				system({
+					gravityModifier: constant(0),
+					looping: false,
+					rate: constant(0),
+					startLifetime: constant(1),
+					bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+					velocity: {
+						linear: [constant(0), constant(0), constant(0)],
+						linearInWorld: false,
+						orbital: [constant(0), constant(0), orbitalZ],
+						orbitalOffset: [0, 0, 0],
+						radial: constant(0),
+						speedModifier: constant(1),
+					},
+				}),
+				0.5,
+			)[0].position;
+		const still = orbiting(constant(0));
+		// 0 rad/s at birth to 2 rad/s at death: a quarter radian halfway
+		const turned = orbiting(line(0, 2));
+		const angle = Math.atan2(turned[1], turned[0]) - Math.atan2(still[1], still[0]);
+		assert.ok(Math.abs(angle - 0.25) < 1e-4, `${angle}`);
+		assert.ok(Math.abs(Math.hypot(turned[0], turned[1]) - Math.hypot(still[0], still[1])) < 1e-5);
+	});
+
 	it('starts donut particles inside its tube, the outer part its thickness allows', () => {
 		const donut = run(
 			system({

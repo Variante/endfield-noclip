@@ -372,9 +372,9 @@ export interface ParticleSpeedLimitInfo {
 	dampen: number;
 }
 
-/** Unity's `VelocityModule`; all but {@link linear} are constant (or two-constant) */
+/** Unity's `VelocityModule`; every curve is read at the particle's age over its lifetime */
 export interface ParticleVelocityInfo {
-	/** m/s along x, y and z, read at the particle's age over its lifetime */
+	/** m/s along x, y and z */
 	linear: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
 	/** whether {@link linear} is in world axes rather than the emitter's */
 	linearInWorld: boolean;

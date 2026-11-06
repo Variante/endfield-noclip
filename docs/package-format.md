@@ -626,9 +626,9 @@ unless the mode is Shape. the entry keeps:
   over 0–1 (the game stores gradient key times as 0–65535)
 - the shape (sphere, hemisphere, cone, cone volume, box, circle or donut, with its radius,
   thickness, donut radius, angle, length, arc, placement and random-direction and -position amounts)
-- the velocity module (linear and speed modifier, as curves too, though a speed modifier curve not
-  alongside drag or a speed limit; orbital about an offset and radial as constants), and size and
-  rotation over lifetime (curves too)
+- the velocity module (linear, orbital about an offset, radial and speed modifier, as curves too,
+  though a speed modifier curve not alongside drag or a speed limit), and size and rotation over
+  lifetime (curves too)
 - the Limit Velocity module as the free motion's `clamp`: its drag when its `dampen` is 0 (the
   amount and whether it scales with the particle's size and its speed squared), or its speed limit
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed

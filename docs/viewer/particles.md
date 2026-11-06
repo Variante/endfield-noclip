@@ -62,13 +62,15 @@ system and its index, so any moment can be evaluated on its own:
   velocity module's speed modifier and a world-space linear velocity is first turned into the
   emitter's frame, plus `½ g a²` down the world's y (Unity's gravity, 9.81 m/s² times the gravity
   modifier) and the radial push times `m`, then turned about the orbit's centre by `ω · m · a`.
-  turning the whole path is exact when the rest of the motion runs along the orbit's axis. the mesh
-  is then offset by the system's pivot, scaled by the particle's size and turned with it in the
-  frame it's drawn in (below): a camera-facing particle's offset turns with the camera
-  (`turnedByBillboard`, as `row_basis` turns its axes), so the blue talosite's pivoted shards keep
-  their pinwheel facing the camera from every side.
+  orbital and radial curves are integrated over the age as linear velocity curves are (below), so
+  Jingyu's drifting petals turn through their spin-up's integral. turning the whole path is exact
+  when the rest of the motion runs along the orbit's axis. the mesh is then offset by the system's
+  pivot, scaled by the particle's size and turned with it in the frame it's drawn in (below): a
+  camera-facing particle's offset turns with the camera (`turnedByBillboard`, as `row_basis` turns
+  its axes), so the blue talosite's pivoted shards keep their pinwheel facing the camera from every
+  side.
 - a speed modifier curve (`modifierAt`) takes the place of `m · a` with its integral over the age,
-  and the linear velocity curves are integrated times it, as the game
+  and the linear, orbital and radial curves are integrated times it, as the game
   [scales every step](../game-data/assets.md#particle-systems); the fall isn't scaled. the packer
   leaves such systems without drag or a speed limit.
 - size is the start size times the size over lifetime at `a / lifetime`; rotation is the start Euler
@@ -88,10 +90,10 @@ system and its index, so any moment can be evaluated on its own:
   from where the previous frame left it after that; a step back in time starts it from its birth
   again: each step adds gravity to its own velocity, limits the whole speed, the velocity module's
   terms included, as [the game does](../game-data/assets.md#particle-systems), and moves it by the
-  whole velocity. the module's terms are its linear velocity, the orbit's velocity at the particle's
-  current place (`ω × r` about the orbit's centre, rather than the closed form's turn of the whole
-  path) and the radial push away from that centre. the limit's random value is the particle's own,
-  not the game's.
+  whole velocity. the module's terms, each read at the step's age, are its linear velocity, the
+  orbit's velocity at the particle's current place (`ω × r` about the orbit's centre, rather than
+  the closed form's turn of the whole path) and the radial push away from that centre. the limit's
+  random value is the particle's own, not the game's.
 - a system with a spline ([spline movers](../game-data/assets.md#spline-movers)) ignores the above:
   a particle lies at the path's point its travelled distance reaches (the speed curve integrated
   over its age, as linear velocities are), plus its start position in the shape, and leaves once

@@ -250,20 +250,20 @@ packs or renders correctly.
   sub-emitter, light, trail, custom-data and by-speed modules, from the viewer's own random values,
   and move only while frames render; velocity-aligned particles roll about their motion by the
   viewer's choice, not traced to the game's; systems that don't play on awake, or use a start delay
-  curve, a per-axis speed limit or one alongside drag, drag or rate curves, orbital or radial
-  velocity curves, speed-modifier curves alongside drag or a speed limit, sprite-mode sheets, sheet
-  time modes other than lifetime or frames per second, or sheets over 64 tiles a side, show as one
-  [stand-in](package-format.md#stand-ins) at the emitter (the swirling green motes around Qingbo
-  Stockade's bamboo tubes use orbital and radial velocity curves). drag is approximated (it slows
-  the start velocity and the fall alone), quads' normals ignore an `m_NormalDirection` below 1,
-  cones and circles pick each particle's place around their arc at random whatever its mode (the
-  Loop, Ping-Pong and Burst Spread modes and the arc's spread are ignored; about 20 map02 systems
-  set one), sphere and hemisphere arcs aren't applied, Unity's `Facing` alignment turns to the
-  camera's plane like `View` rather than towards its position, an emitter keeps at most 1024 live
-  particles (two map01 systems can hold up to 1201; the rest aren't drawn), stretched billboards
-  ignore the camera's velocity and the freeform mode, and colours above 1 and custom data never
-  reach the shaders. all copies of one flipbook step in phase. Marker Stone's low mist banks over
-  the valley are still missing; their source is unknown.
+  curve, a per-axis speed limit or one alongside drag, drag or rate curves, speed-modifier curves
+  alongside drag or a speed limit, sprite-mode sheets, sheet time modes other than lifetime or
+  frames per second, or sheets over 64 tiles a side, show as one
+  [stand-in](package-format.md#stand-ins) at the emitter. orbits turn the whole path about their
+  centre, which is exact only when the other motion runs along the orbit's axis. drag is
+  approximated (it slows the start velocity and the fall alone), quads' normals ignore an
+  `m_NormalDirection` below 1, cones and circles pick each particle's place around their arc at
+  random whatever its mode (the Loop, Ping-Pong and Burst Spread modes and the arc's spread are
+  ignored; about 20 map02 systems set one), sphere and hemisphere arcs aren't applied, Unity's
+  `Facing` alignment turns to the camera's plane like `View` rather than towards its position, an
+  emitter keeps at most 1024 live particles (two map01 systems can hold up to 1201; the rest aren't
+  drawn), stretched billboards ignore the camera's velocity and the freeform mode, and colours above
+  1 and custom data never reach the shaders. all copies of one flipbook step in phase. Marker
+  Stone's low mist banks over the valley are still missing; their source is unknown.
   [spline movers](game-data/assets.md#spline-movers) (Dijiang's shaft cargo) take their lifetime
   span as the spline's length over the speed, which isn't verified, and draw each LOD group's
   renderers at the group's origin; those with noise, rotation over lifetime or an alpha fade stand

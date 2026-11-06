@@ -290,9 +290,14 @@ test('systems the viewer cannot play say why', () => {
 	assert.equal(reason(system({ ShapeModule: { ...(system().ShapeModule as object), type: 6 } })), 'shape 6');
 	assert.equal(reason(system(), renderer({ m_Mesh: pointer(0n) })), 'no mesh');
 	const turning = { ...curve([[0, 1]]), minMaxState: 1 };
+	// orbital and radial curves play (Jingyu's drifting petals spin up through theirs)
 	assert.equal(
 		reason(system({ VelocityModule: { ...(system().VelocityModule as object), radial: turning } })),
-		'velocity curves',
+		null,
+	);
+	assert.equal(
+		reason(system({ VelocityModule: { ...(system().VelocityModule as object), orbitalZ: turning } })),
+		null,
 	);
 	// a speed modifier curve plays (the floating stones of Valley's Aberrants ramp theirs up), but not under
 	// drag or a speed limit

@@ -1045,9 +1045,9 @@ export class ParticleSimulation {
 				linearNow = worldToLocal(linearNow);
 			}
 			const offset = velocity.orbitalOffset;
-			const radialRate = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
-			const radialSpeed = radialRate * scaleNow;
-			const radial = radialRate * scaledAge;
+			const radialRandom = random(seed, id, Channel.Radial);
+			const radialSpeed = evaluateMinMax(velocity.radial, lived, radialRandom) * modifier * scaleNow;
+			const radial = travelled(velocity.radial, age, life, radialRandom, modifierAt ?? undefined) * modifier;
 			const outward = normalize([start[0] - offset[0], start[1] - offset[1], start[2] - offset[2]]);
 			position = [
 				position[0] + linear[0] * modifier + outward[0] * radial,
@@ -1059,13 +1059,13 @@ export class ParticleSimulation {
 				moving[1] + linearNow[1] * modifier + outward[1] * radialSpeed,
 				moving[2] + linearNow[2] * modifier + outward[2] * radialSpeed,
 			];
-			// the orbit turns the particle about the offset at a constant rate; applied to the whole path, which is
-			// exact when the other motion runs along the orbit's axis (the crater rocks rise along theirs)
-			const turn: Vec3 = [
-				evaluateMinMax(velocity.orbital[0], 0, random(seed, id, Channel.OrbitalX)) * modifier * scaledAge,
-				evaluateMinMax(velocity.orbital[1], 0, random(seed, id, Channel.OrbitalY)) * modifier * scaledAge,
-				evaluateMinMax(velocity.orbital[2], 0, random(seed, id, Channel.OrbitalZ)) * modifier * scaledAge,
-			];
+			// the orbit turns the particle about the offset by its rate's integral over the age; applied to the whole
+			// path, which is exact when the other motion runs along the orbit's axis (the crater rocks rise along
+			// theirs)
+			const angle = (axis: number, channel: number): number =>
+				travelled(velocity.orbital[axis], age, life, random(seed, id, channel), modifierAt ?? undefined) *
+				modifier;
+			const turn: Vec3 = [angle(0, Channel.OrbitalX), angle(1, Channel.OrbitalY), angle(2, Channel.OrbitalZ)];
 			const turned = rotateBy(turn, [
 				position[0] - offset[0],
 				position[1] - offset[1],
@@ -1092,24 +1092,20 @@ export class ParticleSimulation {
 		const linearChannels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
 		const linearRandoms = linearChannels.map((channel) => random(seed, id, channel));
 		const orbitChannels = [Channel.OrbitalX, Channel.OrbitalY, Channel.OrbitalZ];
-		const spin: Vec3 = [0, 0, 0];
-		let radial = 0;
-		if (velocity !== null) {
-			for (let axis = 0; axis < 3; axis++) {
-				spin[axis] =
-					evaluateMinMax(velocity.orbital[axis], 0, random(seed, id, orbitChannels[axis])) * modifier;
-			}
-			radial = evaluateMinMax(velocity.radial, 0, random(seed, id, Channel.Radial)) * modifier;
-		}
+		const orbitRandoms = orbitChannels.map((channel) => random(seed, id, channel));
+		const radialRandom = random(seed, id, Channel.Radial);
 		const extra = (t: number, moved: Vec3): Vec3 => {
 			if (velocity === null) {
 				return [0, 0, 0];
 			}
 			const lived = life > 0 ? t / life : 0;
 			let linear: Vec3 = [0, 0, 0];
+			const spin: Vec3 = [0, 0, 0];
 			for (let axis = 0; axis < 3; axis++) {
 				linear[axis] = evaluateMinMax(velocity.linear[axis], lived, linearRandoms[axis]) * modifier;
+				spin[axis] = evaluateMinMax(velocity.orbital[axis], lived, orbitRandoms[axis]) * modifier;
 			}
+			const radial = evaluateMinMax(velocity.radial, lived, radialRandom) * modifier;
 			if (velocity.linearInWorld) {
 				linear = worldToLocal(linear);
 			}

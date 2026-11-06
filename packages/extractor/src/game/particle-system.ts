@@ -249,17 +249,12 @@ const readShape = (shape: TypeTreeObject): ParticleShapeInfo | string => {
 	};
 };
 
-const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo | string => {
+const readVelocity = (velocity: TypeTreeObject): ParticleVelocityInfo => {
 	const curves = (names: readonly string[]) =>
 		names.map((name) => readMinMaxCurve(objectField(velocity, name)));
 	const linear = curves(['x', 'y', 'z']);
 	const orbital = curves(['orbitalX', 'orbitalY', 'orbitalZ']);
 	const [radial, speedModifier] = curves(['radial', 'speedModifier']);
-	// linear velocities and the speed modifier integrate over a particle's age; the others turn or push along
-	// paths that don't
-	if (![...orbital, radial].every(isConstant)) {
-		return 'velocity curves';
-	}
 	return {
 		linear: [linear[0], linear[1], linear[2]],
 		linearInWorld: booleanField(velocity, 'inWorldSpace'),
@@ -409,10 +404,9 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
- *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, orbital or radial velocity curves,
- *   a speed modifier curve alongside a speed limit or drag, a per-axis speed limit or one alongside drag, a
- *   drag or rate curve, or no mesh. `null` for a system that doesn't play on awake, which shows nothing until
- *   a script starts it
+ *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, a speed modifier curve alongside a
+ *   speed limit or drag, a per-axis speed limit or one alongside drag, a drag or rate curve, or no mesh.
+ *   `null` for a system that doesn't play on awake, which shows nothing until a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -506,11 +500,7 @@ export const readParticleSystem = (
 	}
 	let velocity: ParticleVelocityInfo | null = null;
 	if (enabled(system, 'VelocityModule')) {
-		const read = readVelocity(objectField(system, 'VelocityModule'));
-		if (typeof read === 'string') {
-			return { reason: read };
-		}
-		velocity = read;
+		velocity = readVelocity(objectField(system, 'VelocityModule'));
 	}
 	let clamp: ParticleClampInfo | null = null;
 	if (enabled(system, 'ClampVelocityModule')) {
