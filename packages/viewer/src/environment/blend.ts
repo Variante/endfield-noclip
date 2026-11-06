@@ -512,6 +512,23 @@ const lerpFog = (
 	);
 };
 
+/** a side of a lerp that shows, and how strongly */
+interface Shown<T> {
+	side: T;
+	weight: number;
+}
+
+/**
+ * the game's crossfade between two versions of a feature that can't lerp: the first fades out to the halfway
+ * point, then the second fades in
+ */
+const crossFade = <T>(a: T, b: T, t: number): Shown<T> =>
+	t < 0.5 ? { side: a, weight: 1 - 2 * t } : { side: b, weight: 2 * t - 1 };
+
+/** the game's fade of a feature only one side has: it fades in from nothing, with that side's settings */
+const oneSided = <T>(a: T, b: T, aHasIt: boolean, t: number): Shown<T> =>
+	aHasIt ? { side: a, weight: 1 - t } : { side: b, weight: t };
+
 /** the game's cloud lerp: a changed panorama fades out to the halfway point and the new one fades in */
 const lerpCloud = (
 	a: Record<string, unknown>,
@@ -522,17 +539,18 @@ const lerpCloud = (
 	const out = lerpObject(a, b, t, schema);
 	const aOn = a.enable === true && a.cloudTexture !== null;
 	const bOn = b.enable === true && b.cloudTexture !== null;
-	const fadeA = typeof a.cloudFadeAlpha === 'number' ? a.cloudFadeAlpha : 1;
-	const fadeB = typeof b.cloudFadeAlpha === 'number' ? b.cloudFadeAlpha : 1;
+	let shown: Shown<Record<string, unknown>>;
 	if (aOn !== bOn) {
-		// only one has clouds: keep its texture and fade it by its share
 		out.enable = true;
-		out.cloudTexture = aOn ? a.cloudTexture : b.cloudTexture;
-		out.cloudFadeAlpha = aOn ? fadeA * (1 - t) : fadeB * t;
+		shown = oneSided(a, b, aOn, t);
 	} else if (aOn && a.cloudTexture !== b.cloudTexture) {
-		out.cloudTexture = t < 0.5 ? a.cloudTexture : b.cloudTexture;
-		out.cloudFadeAlpha = t < 0.5 ? fadeA * (1 - 2 * t) : fadeB * (2 * t - 1);
+		shown = crossFade(a, b, t);
+	} else {
+		return out;
 	}
+	const { side, weight } = shown;
+	out.cloudTexture = side.cloudTexture;
+	out.cloudFadeAlpha = (typeof side.cloudFadeAlpha === 'number' ? side.cloudFadeAlpha : 1) * weight;
 	return out;
 };
 
@@ -558,12 +576,12 @@ const lerpRain = (
 	const aOn = a.enableWetness === true;
 	const bOn = b.enableWetness === true;
 	if (aOn !== bOn) {
-		const on = aOn ? a : b;
+		const { side, weight } = oneSided(a, b, aOn, t);
 		for (const key of WETNESS_FIELDS) {
-			out[key] = on[key];
+			out[key] = side[key];
 		}
 		out.enableWetness = true;
-		out.wetness = (typeof on.wetness === 'number' ? on.wetness : 0) * (aOn ? 1 - t : t);
+		out.wetness = number(side.wetness) * weight;
 	}
 	return out;
 };
@@ -595,19 +613,15 @@ const lerpFlowNoise = (
 		if (close('flowNoiseSpeed') && close('flowNoiseTilling')) {
 			return out;
 		}
-		if (t <= 0.5) {
-			keep(a);
-			out.flowNoiseIntensity = (1 - 2 * t) * number(a.flowNoiseIntensity);
-		} else {
-			keep(b);
-			out.flowNoiseIntensity = (2 * t - 1) * number(b.flowNoiseIntensity);
-		}
+		const { side, weight } = crossFade(a, b, t);
+		keep(side);
+		out.flowNoiseIntensity = weight * number(side.flowNoiseIntensity);
 	} else if (aOn !== bOn) {
-		const on = aOn ? a : b;
-		keep(on);
+		const { side, weight } = oneSided(a, b, aOn, t);
+		keep(side);
 		out.enableFlowNoise = true;
-		out.flowNoiseDistance = on.flowNoiseDistance;
-		out.flowNoiseIntensity = number(on.flowNoiseIntensity) * (aOn ? 1 - t : t);
+		out.flowNoiseDistance = side.flowNoiseDistance;
+		out.flowNoiseIntensity = number(side.flowNoiseIntensity) * weight;
 	} else {
 		for (const key of [
 			'enableFlowNoise',
@@ -641,16 +655,16 @@ const lerpLensFlare = (
 ): Record<string, unknown> => {
 	const aOn = a?.enable === true;
 	const bOn = b.enable === true;
-	if (a !== undefined && aOn && bOn) {
-		return t < 0.5 ? faded(a, 1 - 2 * t) : faded(b, 2 * t - 1);
+	if (aOn === bOn) {
+		if (a !== undefined && aOn) {
+			const { side, weight } = crossFade(a, b, t);
+			return faded(side, weight);
+		}
+		return a ?? b;
 	}
-	if (a !== undefined && aOn) {
-		return faded(a, 1 - t);
-	}
-	if (bOn) {
-		return faded(b, t);
-	}
-	return a ?? b;
+	// without a section under it, `a` has no flare and `b` is the side with one
+	const { side, weight } = oneSided(a ?? b, b, aOn, t);
+	return faded(side, weight);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
