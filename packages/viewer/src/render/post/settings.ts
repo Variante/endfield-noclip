@@ -1,4 +1,4 @@
-import type { DebugView } from '../frame/frame-uniforms.ts';
+import type { DebugView } from '../frame/debug-views.ts';
 
 import type { AutoExposure } from './auto-exposure.ts';
 

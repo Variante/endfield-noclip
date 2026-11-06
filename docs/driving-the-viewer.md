@@ -1,8 +1,9 @@
 # driving the viewer
 
 how an agent opens the viewer in a browser, poses the camera, reads its state and profiles it. how
-the viewer works is in [viewer/index.md](viewer/index.md); its options and stats are `ViewerOptions`
-and `ViewerStats` in [`src/viewer/viewer.ts`](../packages/viewer/src/viewer/viewer.ts).
+the viewer works is in [viewer/index.md](viewer/index.md); its options are `ViewerOptions` in
+[`src/viewer/options.ts`](../packages/viewer/src/viewer/options.ts) and its stats `ViewerStats` in
+[`src/viewer/viewer.ts`](../packages/viewer/src/viewer/viewer.ts).
 
 ## opening it
 
