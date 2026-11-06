@@ -26,6 +26,10 @@
 - **culled in groups.** the mesh selection rejects groups of 32 rows by their bounds before testing
   rows ([per-instance LOD](streaming.md#per-instance-lod)); on map02 this took 15–30% off its time
   at dense views, where most rows walked are drawn.
+- **the game's detail radius.** detail draws within 256 m and HLOD clusters past it
+  ([instance selection](streaming.md#instance-selection)); the screen-space rule this replaced drew
+  detail three times as far out. mesh selection scales with the rows in reach, and dense foliage
+  near the camera (over 200k rows within 128 m in Jingyu) still keeps it at about half the frame.
 - **capped particles replayed in steps of a lifetime.** an emitter whose cap turns emissions away
   replays a few lifetimes of emissions when it first shows. a full system jumps to the moment its
   first particle dies, and the live ones are counted with a heap of end times: some map02 effects

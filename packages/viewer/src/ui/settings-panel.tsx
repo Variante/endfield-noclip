@@ -203,7 +203,15 @@ export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 					</Checkbox>
 				))}
 			</fieldset>
-			<Slider viewer={viewer} name="maxSse" label="HLOD error" min={1} max={64} step={1} unit="px" />
+			<Slider
+				viewer={viewer}
+				name="detailDistance"
+				label="detail distance"
+				min={64}
+				max={1024}
+				step={32}
+				unit="m"
+			/>
 			<Slider
 				viewer={viewer}
 				name="terrainPixels"

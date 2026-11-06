@@ -28,8 +28,11 @@ export interface ViewerOptions {
 	 * unsupported checker; off skips them
 	 */
 	missingContent: boolean;
-	/** instance refinement threshold, px */
-	maxSse: number;
+	/**
+	 * detail and conditional scenery draw within this distance of the camera, m; past it, HLOD clusters in the
+	 * game's rings. 256 is the game's at its highest scene detail on PC (96 at its lowest)
+	 */
+	detailDistance: number;
 	/** terrain sample spacing target, px */
 	terrainPixels: number;
 	/** boxes smaller than this on screen are culled, px */
@@ -98,7 +101,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	boxes: true,
 	unsupportedMaterials: false,
 	missingContent: false,
-	maxSse: 12,
+	detailDistance: 256,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,
 	outlineMetres: 60,

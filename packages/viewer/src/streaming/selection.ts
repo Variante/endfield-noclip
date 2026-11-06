@@ -23,8 +23,8 @@ export interface SelectionOptions {
 	global: boolean;
 	/** enabled HLOD tiers 0–2 */
 	hlodTiers: readonly [boolean, boolean, boolean];
-	/** instance refinement threshold, px */
-	maxSse: number;
+	/** detail and conditional content draw within this distance of the camera, m ({@link hlodRing}) */
+	detailDistance: number;
 	/** terrain sample spacing target, px */
 	terrainPixels: number;
 }
@@ -86,6 +86,28 @@ export interface SelectionView {
 }
 
 // #endregion
+
+/**
+ * the game's HLOD0 and HLOD1 load radii on PC at its highest scene detail, m: a tier's clusters give way to
+ * the next finer tier inside the finer tier's radius (`docs/game-data/world.md#streaming-layers`)
+ */
+const HLOD_RADII = [640, 1024] as const;
+
+/**
+ * @param tier the HLOD tier a node holds, or `null` for a node without HLOD
+ * @param detailDistance the detail radius, m
+ * @param leaf whether the node is a leaf, whose refinement is its detail
+ * @returns how near the camera has to be for the node to refine, m
+ */
+export const hlodRing = (tier: number | null, detailDistance: number, leaf: boolean): number => {
+	if (tier === null) {
+		return leaf ? detailDistance : Infinity;
+	}
+	// tier t refines into tier t − 1, which shows within its own radius; tier 0 refines into detail
+	return tier === 0
+		? detailDistance
+		: Math.max(HLOD_RADII[Math.min(tier, HLOD_RADII.length) - 1], detailDistance);
+};
 
 /** start morphing at this fraction of a level's range */
 const MORPH_START = 0.7;
@@ -186,20 +208,18 @@ export class Selector {
 	}
 
 	/**
-	 * conditional content has no HLOD stand-in, so it doesn't follow the HLOD refinement. it's dropped once its
-	 * tile spans no more than `maxSse` pixels instead; children are smaller and no nearer, so they're skipped
-	 * too
+	 * conditional content has no HLOD stand-in, so it doesn't follow the HLOD refinement. it draws within the
+	 * detail distance, as the game's detail layers load; children are no nearer, so they're skipped too
 	 */
 	#conditional(node: TileNode, view: SelectionView, options: SelectionOptions): void {
 		this.selection.visited++;
 		const eye = view.camera.position;
 		const distance = Math.max(distanceToBox(node.bounds.min, node.bounds.max, eye), 1);
-		const inView = this.#inView(node, view, distance);
-		if (inView === null) {
+		if (distance >= options.detailDistance) {
 			return;
 		}
-		const sse = (node.size * view.pixelFactor) / distance;
-		if (sse <= options.maxSse) {
+		const inView = this.#inView(node, view, distance);
+		if (inView === null) {
 			return;
 		}
 		for (const ref of node.conditional) {
@@ -295,8 +315,15 @@ export class Selector {
 		return ready;
 	}
 
-	#hasHlod(node: TileNode, options: SelectionOptions): boolean {
-		return node.hlod.some((ref) => options.hlodTiers[ref.tier] && this.#shows(ref));
+	/** @returns the finest HLOD tier the node shows, or `null` when it shows none */
+	#hlodTier(node: TileNode, options: SelectionOptions): number | null {
+		let tier: number | null = null;
+		for (const ref of node.hlod) {
+			if (options.hlodTiers[ref.tier] && this.#shows(ref)) {
+				tier = tier === null ? ref.tier : Math.min(tier, ref.tier);
+			}
+		}
+		return tier;
 	}
 
 	/** @returns whether the node's area is fully covered by what was emitted (or needs nothing) */
@@ -321,11 +348,12 @@ export class Selector {
 		const out = this.selection.instances;
 		const sse = (node.geometricError * view.pixelFactor) / distance;
 		const priority = this.#priority(node, sse, inView, distance);
-		const hasHlod = this.#hasHlod(node, options);
+		const tier = this.#hlodTier(node, options);
+		const hasHlod = tier !== null;
 		const leaf = isLeaf(node);
 		// a leaf refines even without detail of its own (`docs/viewer/streaming.md#instance-selection`)
 		const canRefine = !leaf || options.detail;
-		const refine = canRefine && (sse > options.maxSse || !hasHlod);
+		const refine = canRefine && distance < hlodRing(tier, options.detailDistance, leaf);
 
 		if (!refine) {
 			return !hasHlod || this.#emitHlod(node, options, priority);

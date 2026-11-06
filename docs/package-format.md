@@ -153,15 +153,15 @@ a cluster left on a tile without that detail can't refine, so it would draw over
 stands for.
 
 **refinement contract** (REPLACE, at HLOD-cell granularity): a node draws its coarse content while
-its screen-space error, `geometricError · viewportHeight / (2 · distance · tan(fovY / 2))`, is
-within the threshold; otherwise it refines to its children, and a refined leaf draws its detail
-blocks. per-instance LOD inside detail uses the chain thresholds. conditional blocks have no HLOD
-stand-in, so they draw by their tile's screen size regardless of refinement
-([instance selection](viewer/streaming.md#instance-selection)). `manifest.global` content (the
-game's Global chunk scenery) is drawn whenever its group shows and never replaced. `geometricError`
-is a placeholder, `edge / 16` (64 m leaf → 4 m), until the game's HLOD switch distances are known;
-the viewer's SSE threshold tunes it. which entities become HLOD, detail, global and conditional
-content is in [extraction.md](extraction.md#how-the-packer-files-instances).
+the camera is outside the ring of its HLOD tier, the game's
+[HLOD rings](game-data/world.md#streaming-layers); otherwise it refines to its children, and a
+refined leaf draws its detail blocks. per-instance LOD inside detail uses the chain thresholds.
+conditional blocks have no HLOD stand-in, so they draw within the detail ring regardless of
+refinement ([instance selection](viewer/streaming.md#instance-selection)). `manifest.global` content
+(the game's Global chunk scenery) is drawn whenever its group shows and never replaced.
+`geometricError` (`edge / 16`, 64 m leaf → 4 m) now only orders requests. which entities become
+HLOD, detail, global and conditional content is in
+[extraction.md](extraction.md#how-the-packer-files-instances).
 
 **content refs** (`ContentRef`, `ContentKind`):
 
@@ -888,7 +888,8 @@ provenance lives there rather than in the manifest, which only identifies the bu
 
 ## open
 
-- **geometricError** is a placeholder; calibrate against the game's HLOD switch distances.
+- **geometricError** is a placeholder the viewer uses only for request priority; the HLOD rings
+  replaced it for refinement.
 - **instance compression**: meshopt filters or quantized rows could roughly halve instance blobs.
 - **detail placement by centre**: a very large object at a leaf disappears while that leaf shows its
   HLOD, unless the HLOD covers it, as the game assumes.

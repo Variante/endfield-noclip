@@ -316,8 +316,11 @@ packs or renders correctly.
 ### world and streaming
 
 - separate scenes (interiors, offices, arenas) are unvalidated
-- the game's HLOD-unload volumes (`FBStreamArea` root slots 7–9) aren't decoded and the HLOD layer
-  load radii (`hlod0LayerLoadRadius`, …) aren't read ([world](game-data/world.md#stream-areas))
+- the game's HLOD-unload volumes (`FBStreamArea` root slots 7–9) aren't decoded
+  ([world](game-data/world.md#stream-areas)). the viewer follows the game's HLOD rings at its
+  highest preset but measures them in 3D to the tile's bounds rather than in XZ from the player,
+  keeps HLOD2 drawn past 2048 m, and doesn't apply the other layers' radii (`Tiny`, `Lighting`, …),
+  since an entity's layer isn't known ([streaming layers](game-data/world.md#streaming-layers))
 - HLOD clusters never stand in for global content, which always draws, so wherever a cluster covers
   global scenery both draw until its tile refines
   ([instance selection](viewer/streaming.md#instance-selection)); in indie_dg005 every static
@@ -499,8 +502,9 @@ packs or renders correctly.
 
 ## open unknowns
 
-- HLOD switch distances (the package uses a placeholder error) and the HLOD material/atlas mapping
-  ([LOD and HLOD](game-data/world.md#lod-and-hlod))
+- what the game measures an HLOD ring's distance to, and the HLOD material/atlas mapping
+  ([LOD and HLOD](game-data/world.md#lod-and-hlod),
+  [streaming layers](game-data/world.md#streaming-layers))
 - per-controller meaning of progression bit 0 ("unbuilt" versus "level 1";
   [progressions](game-data/scene-states.md#progressions))
 - weather/time state ids

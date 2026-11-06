@@ -35,19 +35,24 @@ camera, and has its controls listed first in the
 ## instance selection
 
 [`streaming/selection.ts`](../../packages/viewer/src/streaming/selection.ts) uses 3D Tiles-style
-REPLACE refinement on screen-space error, `geometricError · pixelFactor / distance`:
+REPLACE refinement on the game's [HLOD rings](../game-data/world.md#streaming-layers), by the
+distance from the camera to the node's bounds (`hlodRing`):
 
-- a node draws its HLOD while SSE ≤ `maxSse` (default 12 px), otherwise its children; a node with no
-  shown HLOD always refines. with `detail` on, a leaf refines into its detail blocks, even when it
-  has none: some clusters stand for scenery filed under neighbouring leaves or as global scenery,
-  which draws anyway, so keeping the cluster would overlay it.
-- a node's geometric error is the packer's placeholder (1/16 of its edge) for the game's unknown
-  HLOD switch distances ([LOD and HLOD](../game-data/world.md#lod-and-hlod)), so `maxSse` is what
-  tunes where clusters give way to detail.
+- a node holding HLOD tier 0 refines within `detailDistance` (default 256 m, the game's at its
+  highest PC preset), tier 1 within HLOD0's radius (640 m) and tier 2 within HLOD1's (1024 m), each
+  widened to `detailDistance` if that's larger. HLOD2 keeps drawing past the game's 2048 m, so an
+  overview isn't empty. a node with no shown HLOD always refines, and a leaf with none refines
+  within `detailDistance`.
+- with `detail` on, a leaf refines into its detail blocks, even when it has none: some clusters
+  stand for scenery filed under neighbouring leaves or as global scenery, which draws anyway, so
+  keeping the cluster would overlay it.
+- the viewer once refined on screen-space error over the packer's placeholder geometric error (1/16
+  of a node's edge), which at 1600 px drew detail out to about 460 m, three times the game's area;
+  the error now only orders requests ([priority](#priority)).
 - until everything a refinement needs is resident, the node keeps drawing its own HLOD, so streaming
   never opens holes. disabled HLOD tiers are refined past.
 - conditional content has no HLOD stand-in, so it follows its own rule: drawn, while `detail` is on,
-  while its tile spans more than `maxSse` pixels.
+  within `detailDistance` of its tile.
 - manifest `global` refs are pinned and drawn whenever they're resident, never requested. they have
   no tile to refine, so where an HLOD cluster covers global scenery both draw until the cluster's
   tile refines.

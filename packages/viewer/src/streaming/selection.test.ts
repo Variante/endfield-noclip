@@ -7,7 +7,7 @@ import { Camera } from '../scene/camera.ts';
 import type { TileNode, TileTree } from '../scene/tile-tree.ts';
 
 import type { ContentItem } from './content-item.ts';
-import { Selector, type SelectionOptions } from './selection.ts';
+import { Selector, type SelectionOptions, hlodRing } from './selection.ts';
 
 it('streams conditional scenery independently of coarse HLOD and never requests hidden variants', () => {
 	// groups: 0 with condition 0, 1 with condition 1, 2 with condition 2, 3 always loaded
@@ -83,25 +83,25 @@ it('streams conditional scenery independently of coarse HLOD and never requests 
 		instances: true,
 		detail: true,
 		global: true,
-		maxSse: 12,
+		detailDistance: 256,
 		terrainPixels: 3,
 		hlodTiers: [true, true, true],
 	};
 	const view = { camera: new Camera(), planes: [], pixelFactor: 100, casters: null };
-	// condition 0 holds
+	// condition 0 holds; the camera is inside the root, which refines past its HLOD
 	selector.setGroupsShown([true, false, false, true]);
 	selector.run(view, options, null);
-	assert.deepEqual(wanted, [9, 1]);
+	assert.deepEqual(wanted, [1]);
 	wanted.length = 0;
 	// condition 1 holds instead
 	selector.setGroupsShown([false, true, false, true]);
 	selector.run(view, options, null);
-	assert.deepEqual(wanted, [9, 2]);
+	assert.deepEqual(wanted, [2]);
 	wanted.length = 0;
 	selector.run(view, { ...options, detail: false }, null);
-	assert.deepEqual(wanted, [9]);
+	assert.deepEqual(wanted, []);
 	wanted.length = 0;
-	// 50 m tiles 1 km away span 5 px at this pixel factor: under maxSse, so nothing conditional is requested
+	// 50 m tiles 1 km away are past the detail distance, so nothing conditional is requested
 	const far = new Camera();
 	far.position = [1050, 0, 0];
 	selector.run({ ...view, camera: far }, options, null);
@@ -155,7 +155,7 @@ it('drops the HLOD of a nearby leaf with no detail instead of overlaying the sce
 		instances: true,
 		detail: true,
 		global: true,
-		maxSse: 12,
+		detailDistance: 256,
 		terrainPixels: 3,
 		hlodTiers: [true, true, true],
 	};
@@ -235,7 +235,7 @@ it('keeps drawing the HLOD in place of a refinement still loading, then the refi
 		instances: true,
 		detail: true,
 		global: true,
-		maxSse: 12,
+		detailDistance: 256,
 		terrainPixels: 3,
 		hlodTiers: [true, true, true],
 	};
@@ -299,7 +299,7 @@ it('streams what is near the camera first, then the focused cells, then the rest
 		instances: true,
 		detail: true,
 		global: true,
-		maxSse: 12,
+		detailDistance: 1000,
 		terrainPixels: 3,
 		hlodTiers: [true, true, true],
 	};
@@ -311,4 +311,14 @@ it('streams what is near the camera first, then the focused cells, then the rest
 	const [near, focused, far] = [1, 2, 3].map((blob) => priorities.get(blob) ?? 0);
 	assert.ok(near > focused, `${near} > ${focused}`);
 	assert.ok(focused > far, `${focused} > ${far}`);
+});
+
+it('refines each HLOD tier inside the next finer tier radius, and leaves without HLOD within the detail', () => {
+	assert.equal(hlodRing(0, 256, true), 256);
+	assert.equal(hlodRing(1, 256, false), 640);
+	assert.equal(hlodRing(2, 256, false), 1024);
+	// a detail distance past a ring widens it, so detail never shows past the clusters standing in for it
+	assert.equal(hlodRing(1, 800, false), 800);
+	assert.equal(hlodRing(null, 256, true), 256);
+	assert.equal(hlodRing(null, 256, false), Infinity);
 });
