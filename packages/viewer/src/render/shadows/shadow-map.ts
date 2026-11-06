@@ -20,6 +20,14 @@ const SHARP_FADE_START = 0.8 * SHARP_REACH;
  * one layer's uv
  */
 const PENUMBRA_SPLITS = [12, 30, 40];
+/**
+ * the far layer is centred on the camera, its centre snapped to this grid across and along the light, so it
+ * keeps its fit (and can keep its casters) until the camera crosses a cell, as the game's cached far map
+ * does, m
+ */
+const FAR_SNAP = 32;
+/** the far layer's radius: its reach, plus as far as the camera can be from the snapped centre, m */
+const FAR_RADIUS = SPLITS[SHADOW_LAYERS - 1] + FAR_SNAP;
 /** how far towards the sun casters are kept beyond the layer's sphere, m */
 const CASTER_REACH = 1500;
 /**
@@ -54,6 +62,8 @@ interface ShadowLayer {
 	sample: Float32Array;
 	/** bounding sphere: camera-relative centre and radius squared */
 	sphere: [number, number, number, number];
+	/** the centre along the light's axes in world space and the radius: equal fits hold the same depth */
+	fit: Float64Array;
 }
 
 /**
@@ -131,6 +141,7 @@ export class ShadowMap {
 			render: new Float32Array(16),
 			sample: new Float32Array(16),
 			sphere: [0, 0, 0, 0],
+			fit: new Float64Array(4),
 		}));
 	}
 
@@ -160,24 +171,29 @@ export class ShadowMap {
 		let near = camera.near;
 		for (let i = 0; i < SHADOW_LAYERS; i++) {
 			const far = SPLITS[i];
-			// the slice's bounding sphere, centred on the view axis
-			const cornerSquared = 1 + tanX * tanX + tanY * tanY;
-			let center = (near + far) / 2;
-			// move the centre towards the far plane as far as the near corners allow (smallest sphere)
-			center = Math.min(far, ((far * far - near * near) * cornerSquared) / (2 * (far - near)) || center);
-			const radiusFar = Math.sqrt((far - center) ** 2 + far * far * (cornerSquared - 1));
-			const radiusNear = Math.sqrt((center - near) ** 2 + near * near * (cornerSquared - 1));
-			const radius = Math.ceil(Math.max(radiusFar, radiusNear));
+			const farLayer = i === SHADOW_LAYERS - 1;
+			let radius = FAR_RADIUS;
+			let world: Vec3 = eye;
+			if (!farLayer) {
+				// the slice's bounding sphere, centred on the view axis
+				const cornerSquared = 1 + tanX * tanX + tanY * tanY;
+				let center = (near + far) / 2;
+				// move the centre towards the far plane as far as the near corners allow (smallest sphere)
+				center = Math.min(far, ((far * far - near * near) * cornerSquared) / (2 * (far - near)) || center);
+				const radiusFar = Math.sqrt((far - center) ** 2 + far * far * (cornerSquared - 1));
+				const radiusNear = Math.sqrt((center - near) ** 2 + near * near * (cornerSquared - 1));
+				radius = Math.ceil(Math.max(radiusFar, radiusNear));
+				world = [eye[0] + forward[0] * center, eye[1] + forward[1] * center, eye[2] + forward[2] * center];
+			}
 			const texel = (2 * radius) / SHADOW_SIZE;
-			// snap the centre to whole texels in world space
-			const world: Vec3 = [
-				eye[0] + forward[0] * center,
-				eye[1] + forward[1] * center,
-				eye[2] + forward[2] * center,
-			];
-			const sx = Math.round(dot(world, x) / texel) * texel;
-			const sy = Math.round(dot(world, y) / texel) * texel;
-			const sz = dot(world, z);
+			// snap the centre to whole texels in world space, the far layer's to its grid first
+			const snap = (value: number): number => {
+				const cell = farLayer ? Math.round(value / FAR_SNAP) * FAR_SNAP : value;
+				return Math.round(cell / texel) * texel;
+			};
+			const sx = snap(dot(world, x));
+			const sy = snap(dot(world, y));
+			const sz = farLayer ? Math.round(dot(world, z) / FAR_SNAP) * FAR_SNAP : dot(world, z);
 			const c: Vec3 = [
 				x[0] * sx + y[0] * sy + z[0] * sz - eye[0],
 				x[1] * sx + y[1] * sy + z[1] * sz - eye[1],
@@ -187,6 +203,7 @@ export class ShadowMap {
 			const depthRange = back + radius;
 			const layer = this.layers[i];
 			layer.sphere = [c[0], c[1], c[2], radius * radius];
+			layer.fit.set([sx, sy, sz, radius]);
 			this.volumes.layers.set([dot(c, x), dot(c, y), dot(c, z), radius], i * 4);
 			const m = layer.render;
 			// rows: x / r, y / r, (z + back) / range, 1

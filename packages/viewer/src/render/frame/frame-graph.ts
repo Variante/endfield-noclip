@@ -131,43 +131,82 @@ const MAIN_PASS: readonly MainPassStep[] = [
 	(pass, { terrain }, { settings }) => (settings.wireframe ? terrain.encodeWireframe(pass) : 0),
 ];
 
+/** frames the far layer may keep casters that changed before it's drawn again with them */
+const FAR_LAYER_INTERVAL = 8;
+
 /**
- * whether the shadow layers need drawing. they hold what they drew last until the casters or a layer's fit
- * change, so frames that only settle the antialiasing or drift the fog redraw nothing there
+ * which shadow layers need drawing. they hold what they drew last until the casters or their fit change, so
+ * frames that only settle the antialiasing or drift the fog redraw nothing there. the sharp cascades redraw
+ * whenever either changes, as the game redraws its cascades every frame; the far layer, which keeps its fit
+ * until the camera crosses a cell of its grid, redraws when its fit moves and otherwise takes changed casters
+ * at most every {@link FAR_LAYER_INTERVAL} frames, as the game's cached far map re-renders a few tiles a
+ * frame
  */
 export class ShadowLayerCache {
-	/** the casters changed, or the layers weren't drawn last frame */
+	/** the casters changed, or the sharp cascades weren't drawn last frame */
 	#stale = true;
-	/** each layer's render matrix when it was last drawn */
-	readonly #fits = new Float32Array(16 * SHADOW_LAYERS);
+	/** the casters changed since the far layer was drawn, or it must be drawn */
+	#farStale = true;
+	/** frames since the far layer was drawn */
+	#farAge = 0;
+	/** each sharp cascade's render matrix when it was last drawn */
+	readonly #renders = new Float32Array(16 * (SHADOW_LAYERS - 1));
+	/** the far layer's fit when it was last drawn */
+	readonly #farFit = new Float64Array(4);
+	/** which layers to draw, reused */
+	readonly #draw: boolean[] = Array.from({ length: SHADOW_LAYERS }, () => false);
 
 	/** marks the casters changed: a new selection was prepared */
 	invalidate(): void {
 		this.#stale = true;
+		this.#farStale = true;
 	}
 
 	/**
 	 * @param layers the layers as fitted this frame
 	 * @param frame whether shadows draw, whether an animated caster moved, and whether pipelines are compiling
-	 * @returns whether to draw the layers this frame
+	 * @returns per layer, whether to draw it this frame (the same array every frame)
 	 */
 	update(
 		layers: ShadowMap['layers'],
 		frame: { shadows: boolean; skinned: boolean; compiling: boolean },
-	): boolean {
-		if (frame.shadows) {
-			const fits = this.#fits;
-			layers.forEach((layer, i) => {
-				if (layer.render.some((value, k) => value !== fits[i * 16 + k])) {
-					fits.set(layer.render, i * 16);
-					this.#stale = true;
-				}
-			});
+	): readonly boolean[] {
+		const draw = this.#draw;
+		if (!frame.shadows) {
+			draw.fill(false);
+			this.#stale = true;
+			this.#farStale = true;
+			this.#farFit.fill(Number.NaN);
+			return draw;
 		}
-		// an animated caster moves whenever the clock does
-		const draw = this.#stale || frame.skinned;
+		const far = SHADOW_LAYERS - 1;
+		let sharp = this.#stale;
+		const renders = this.#renders;
+		for (let i = 0; i < far; i++) {
+			const render = layers[i].render;
+			if (render.some((value, k) => value !== renders[i * 16 + k])) {
+				renders.set(render, i * 16);
+				sharp = true;
+			}
+		}
+		const fit = layers[far].fit;
+		let farDraw = this.#farStale && this.#farAge + 1 >= FAR_LAYER_INTERVAL;
+		if (fit.some((value, k) => value !== this.#farFit[k])) {
+			this.#farFit.set(fit);
+			farDraw = true;
+		}
+		// an animated caster moves whenever the clock does; the far layer, like the game's far map, holds still ones
+		sharp ||= frame.skinned;
+		draw.fill(sharp, 0, far);
+		draw[far] = farDraw;
 		// pipelines still compiling would leave casters out
-		this.#stale = !frame.shadows || frame.compiling;
+		this.#stale = frame.compiling;
+		if (farDraw) {
+			this.#farAge = 0;
+			this.#farStale = frame.compiling;
+		} else {
+			this.#farAge++;
+		}
 		return draw;
 	}
 }
@@ -225,8 +264,11 @@ export const encodeFrame = (
 		skinned,
 		compiling: context.compiling,
 	});
-	if (drawShadows) {
+	if (drawShadows.includes(true)) {
 		context.shadowFrame.offsets.forEach((offset, i) => {
+			if (!drawShadows[i]) {
+				return;
+			}
 			const pass = beginPass(
 				encoder,
 				{

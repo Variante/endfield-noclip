@@ -34,8 +34,9 @@ the game's two-sided model.
 ## shadows
 
 the viewer draws the game's four layers ([shadows](../game-data/lighting.md#shadows)) as 2048²
-`depth32float` layers fitted to bounding spheres of frustum slices and snapped to world texels so
-edges don't crawl
+`depth32float` layers: the sharp cascades fitted to bounding spheres of frustum slices, the far
+layer to the 832 m around the camera (the game's 800 m plus its grid cell) with its centre snapped
+to a 32 m grid along the light's axes, all snapped to world texels so edges don't crawl
 ([`render/shadows/shadow-map.ts`](../../packages/viewer/src/render/shadows/shadow-map.ts)). turning
 the camera doesn't change a sphere's fit. the layers are fitted once per frame, to the render size's
 aspect, before the mesh selection groups casters by layer. casters are what the main pass draws that

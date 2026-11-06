@@ -62,7 +62,10 @@ walls such renderers stand in for cull their back faces. no Dijiang material cha
 - unverified: a point uses the first cascade containing it, dithered with the next one over the
   outer tenth of its bounding sphere's radius, and the sharp cascades fade into the far layer before
   their 80 m reach.
-- the cached far map is tent-filtered.
+- the cached far map is tent-filtered. it's a 16 × 16 grid of 200 m tiles, 256² each (about 0.78 m a
+  texel), over the 800 m around the camera; only tiles that changed re-render, up to 8 a frame, and
+  the whole cache after the camera moves far enough. it draws only static shadow casters, while the
+  cascades, which re-render every frame on PC, draw only realtime ones.
 - the game's contact shadows are Bend Studio's screen-space shadows, on from PC low up. they
   multiply the sun's direct light by `mix(1, contact, contactShadowIntensity)` (0.5 in most of
   map02's open world, 0.9–1 in caves and interiors).
