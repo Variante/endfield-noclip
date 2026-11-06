@@ -3,7 +3,7 @@ import { type Camera, type Plane, type Vec3, sweepPlanes } from '../../scene/cam
 import type { CasterVolume } from '../../streaming/selection.ts';
 
 /** shadow map edge, texels */
-export const SHADOW_SIZE = 2048;
+const SHADOW_SIZE = 2048;
 export const SHADOW_FORMAT: GPUTextureFormat = 'depth32float';
 /** depth layers: the sharp cascades, then the far layer */
 export const SHADOW_LAYERS = 4;
@@ -45,7 +45,7 @@ export const SHADOW_DEPTH_STATE: GPUDepthStencilState = {
 };
 
 /** one layer's matrices (column-major) and bounds */
-export interface ShadowLayer {
+interface ShadowLayer {
 	/** camera-relative position → clip space of the shadow pass */
 	render: Float32Array;
 	/** camera-relative position → shadow map uv (v down) and depth */

@@ -36,7 +36,7 @@ export const REFLECTION_SURFACE_FORMAT: GPUTextureFormat = 'rg32uint';
  * radiance holds, and what the screen-space reflections need of the surface. together they fill WebGPU's
  * default 32 bytes per sample
  */
-export const MAIN_TARGETS: GPUColorTargetState[] = [
+const MAIN_TARGETS: GPUColorTargetState[] = [
 	{ format: HDR_FORMAT },
 	{ format: HDR_FORMAT },
 	{ format: HDR_FORMAT },

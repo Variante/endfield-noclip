@@ -487,16 +487,16 @@ fn environment_brdf(f0: vec3f, roughness: f32, n_dot_v: f32) -> vec3f {
 // #region local lights
 
 // the first mask word of a pixel's screen tile and of its view-depth slice in `light_bins`, or x = 0xffffffff
-// where no light can reach (no lights, or past the last slice)
+// where no light can reach (no lights, or past the last slice). the `LIGHT_` constants come from local-lights.ts
 fn light_bin_words(px: vec2f, rel: vec3f) -> vec2u {
 	let count = u32(frame.local_lights.x);
 	let depth = dot(rel, frame.view_forward.xyz) - frame.local_lights.w;
-	if (count == 0u || depth < 0.0 || depth >= 2048.0) {
+	if (count == 0u || depth < 0.0 || depth >= LIGHT_SLICES) {
 		return vec2u(0xffffffffu, 0u);
 	}
 	let tiles = vec2u(frame.local_lights.yz);
-	let tile = min(vec2u(max(px, vec2f(0.0)) / 32.0), tiles - 1u);
-	return vec2u((tile.y * tiles.x + tile.x) * 8u, (tiles.x * tiles.y + u32(depth)) * 8u);
+	let tile = min(vec2u(max(px, vec2f(0.0)) / LIGHT_TILE_SIZE), tiles - 1u);
+	return vec2u((tile.y * tiles.x + tile.x) * LIGHT_MASK_WORDS, (tiles.x * tiles.y + u32(depth)) * LIGHT_MASK_WORDS);
 }
 
 // what reaches a camera-relative point from one local light, before the BRDF
@@ -513,7 +513,7 @@ struct LocalLight {
 // the game's punctual light falloff: the culling box's fade, inverse square in a smooth window (or a power of
 // the window with a falloff exponent), a tube's integrated inverse square, and a spot's squared cone
 fn local_light_at(i: u32, rel: vec3f) -> LocalLight {
-	let base = i * 8u;
+	let base = i * LIGHT_VEC4S;
 	let p = lights[base];
 	let d = lights[base + 2u];
 	let e = lights[base + 3u];
@@ -586,8 +586,8 @@ fn local_lighting(n: vec3f, v: vec3f, rel: vec3f, px: vec2f, diffuse_color: vec3
 			if (light.attenuation <= 0.0) {
 				continue;
 			}
-			let e = lights[i * 8u + 3u];
-			let tube_length = select(e.y, 0.0, lights[i * 8u + 1u].w < 0.5);
+			let e = lights[i * LIGHT_VEC4S + 3u];
+			let tube_length = select(e.y, 0.0, lights[i * LIGHT_VEC4S + 1u].w < 0.5);
 			let d2 = dot(light.to_light, light.to_light);
 			let distance = sqrt(d2);
 			var l = light.to_light / distance;
@@ -621,9 +621,9 @@ fn local_lighting(n: vec3f, v: vec3f, rel: vec3f, px: vec2f, diffuse_color: vec3
 			let distribution = a2 / max(dd * dd, 1e-8);
 			let visibility = 0.5 / (n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - a2) + a2) + n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - a2) + a2) + 1e-4);
 			let f = fresnel_schlick(f0, v_dot_h);
-			let g = lights[i * 8u + 4u];
+			let g = lights[i * LIGHT_VEC4S + 4u];
 			let specular = clamp(min(f * (distribution * norm * visibility), vec3f(2048.0)) * g.x, vec3f(0.0), vec3f(1000.0));
-			sum += (specular + diffuse_color) * n_dot_l * lights[i * 8u + 1u].rgb * light.attenuation;
+			sum += (specular + diffuse_color) * n_dot_l * lights[i * LIGHT_VEC4S + 1u].rgb * light.attenuation;
 		}
 	}
 	return min(sum, vec3f(255.0));
@@ -644,7 +644,7 @@ fn local_fog_lighting(rel: vec3f, px: vec2f, ray: vec3f, g: f32) -> vec3f {
 		while (mask != 0u) {
 			let i = w * 32u + firstTrailingBit(mask);
 			mask &= mask - 1u;
-			let intensity = lights[i * 8u + 4u].y;
+			let intensity = lights[i * LIGHT_VEC4S + 4u].y;
 			if (intensity <= 0.0) {
 				continue;
 			}
@@ -655,7 +655,7 @@ fn local_fog_lighting(rel: vec3f, px: vec2f, ray: vec3f, g: f32) -> vec3f {
 			let mu = dot(ray, normalize(light.to_light));
 			let x = 1.0 + g * g - 2.0 * g * mu;
 			let phase = (1.0 - g * g) / max(4.0 * PI * x * sqrt(x), 0.001);
-			sum += lights[i * 8u + 1u].rgb * (light.attenuation * phase * intensity);
+			sum += lights[i * LIGHT_VEC4S + 1u].rgb * (light.attenuation * phase * intensity);
 		}
 	}
 	return sum;
@@ -849,14 +849,14 @@ fn row_custom(row: InstanceRow) -> vec4f {
 	return vec4f(unpack2x16float(row.custom.x), unpack2x16float(row.custom.y));
 }
 
-// an instance row's block slot, from its block word (`BLOCK_SLOT_BITS` in instance-rows.ts)
+// an instance row's block slot, from its block word (`BLOCK_SLOT_BITS` from instance-rows.ts)
 fn row_block(word: u32) -> u32 {
-	return word & 0x3fffu;
+	return word & ((1u << BLOCK_SLOT_BITS) - 1u);
 }
 
 // an instance row's decal placement index in its block plus 1, or 0 for a row without one, from its block word
 fn row_placement(word: u32) -> u32 {
-	return word >> 14u;
+	return word >> BLOCK_SLOT_BITS;
 }
 
 // the 3×3 part of an instance row's transform (rows t0–t2). a billboard row's (`RowBillboard` in

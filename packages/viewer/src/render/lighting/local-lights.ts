@@ -2,19 +2,28 @@ import { type LightEntry, LightKind } from '@endfield-noclip/package-format/ligh
 
 import { dot } from '../../math/vec3.ts';
 import type { Camera, Plane, Vec3 } from '../../scene/camera.ts';
+import { wgslConst } from '../shaders/wgsl-const.ts';
 
 /** lights the shading takes per frame, as the game's light list does */
-export const MAX_LOCAL_LIGHTS = 256;
+const MAX_LOCAL_LIGHTS = 256;
 /** u32 words per bin mask */
 const MASK_WORDS = MAX_LOCAL_LIGHTS / 32;
 /** screen tile edge, render px */
-export const LIGHT_TILE_SIZE = 32;
+const LIGHT_TILE_SIZE = 32;
 /** view-depth slices, 1 m each */
-export const LIGHT_SLICES = 2048;
+const LIGHT_SLICES = 2048;
 /** vec4s per light in the light buffer */
 const LIGHT_VEC4S = 8;
 /** tiles the bin buffer holds at most (a 8192 × 4096 render) */
 const MAX_TILES = 256 * 128;
+
+/** the light and bin buffers' layout, as the constants `local_lighting` in frame.wgsl reads */
+export const LOCAL_LIGHTS_WGSL = [
+	wgslConst('LIGHT_TILE_SIZE', 'f32', LIGHT_TILE_SIZE),
+	wgslConst('LIGHT_SLICES', 'f32', LIGHT_SLICES),
+	wgslConst('LIGHT_MASK_WORDS', 'u32', MASK_WORDS),
+	wgslConst('LIGHT_VEC4S', 'u32', LIGHT_VEC4S),
+].join('\n');
 
 /** what the frame uniforms need from this frame's lights */
 export interface LocalLightFrame {

@@ -39,7 +39,7 @@ const SHADE_KEY = 'water';
 const DEPTH_KEY = 'water/depth';
 
 /** the layouts of the groups the water pass shares with other passes */
-export interface WaterLayouts {
+interface WaterLayouts {
 	/** the main pass's frame group (group 0) */
 	frame: GPUBindGroupLayout;
 	/** the post uniforms (group 3) */
