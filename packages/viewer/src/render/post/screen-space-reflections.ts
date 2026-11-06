@@ -1,6 +1,16 @@
 import type { PostLook } from '../../environment/environment.ts';
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import {
+	type FullscreenPass,
+	autoBindGroup,
+	encodeFullscreen,
+	fullscreenPipeline,
+} from '../../gfx/fullscreen-pass.ts';
+import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
+
+import { CAMERA_HISTORY_FLOATS, CameraHistory } from './camera-history.ts';
+import { postShaderModule } from './shader-source.ts';
+import ssrWgsl from './ssr.wgsl?raw';
 
 /** byte size of `Ssr` in ssr.wgsl */
 const UNIFORM_BYTES = 112;
@@ -18,21 +28,15 @@ const DEPTH_FORMAT: GPUTextureFormat = 'r16float';
 const mip = (source: GPUTexture, level: number): GPUTextureView =>
 	source.createView({ baseMipLevel: level, mipLevelCount: 1 });
 
-interface Pass {
-	pipeline: GPURenderPipeline;
-	groups: GPUBindGroup[];
-	targets: GPUTextureView[];
-}
-
 interface Sized {
 	width: number;
 	height: number;
 	textures: GPUTexture[];
 	/** what the reflections change in the radiance */
 	output: GPUTexture;
-	march: Pass;
+	march: FullscreenPass;
 	/** per pyramid: the temporal filter into its finest mip (reading the other's), its coarser mips, the resolve */
-	chains: [Pass[], Pass[]];
+	chains: [FullscreenPass[], FullscreenPass[]];
 	clear: GPUTextureView;
 }
 
@@ -45,20 +49,14 @@ export class ScreenSpaceReflections {
 	#sampler: GPUSampler;
 	#pipelines: Record<'march' | 'temporal' | 'downsample' | 'resolve', GPURenderPipeline>;
 	#sized: Sized | null = null;
-	/** which pyramid this frame writes */
-	#index = 0;
-	/** whether last frame ran the reflections over the current targets, so its history and camera hold */
-	#valid = false;
-	#viewProj = new Float32Array(16);
-	#previousViewProj = new Float32Array(16);
-	#previousEye: Vec3 = [0, 0, 0];
+	/** the camera of last frame's reflections, which held only if they ran over the current targets */
+	#camera = new CameraHistory();
 
 	/**
 	 * @param device the device
-	 * @param module ssr.wgsl, built with the post chain's shared sources
 	 * @param postUniforms the post chain's `Post` uniforms
 	 */
-	constructor(device: GPUDevice, module: GPUShaderModule, postUniforms: GPUBuffer) {
+	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
 		this.#postUniforms = postUniforms;
 		this.#uniforms = device.createBuffer({
@@ -73,13 +71,13 @@ export class ScreenSpaceReflections {
 			addressModeU: 'clamp-to-edge',
 			addressModeV: 'clamp-to-edge',
 		});
+		const module = postShaderModule(device, 'ssr', [ssrWgsl]);
 		const pipeline = (label: string, entryPoint: string, formats: GPUTextureFormat[]): GPURenderPipeline =>
-			device.createRenderPipeline({
+			fullscreenPipeline(device, {
 				label,
-				layout: 'auto',
-				vertex: { module, entryPoint: 'vs_fullscreen' },
-				fragment: { module, entryPoint, targets: formats.map((format) => ({ format })) },
-				primitive: { topology: 'triangle-list' },
+				module,
+				entryPoint,
+				targets: formats.map((format) => ({ format })),
 			});
 		this.#pipelines = {
 			march: pipeline('ssr march', 'fs_march', [COLOR_FORMAT, WEIGHT_FORMAT, FADE_FORMAT, DEPTH_FORMAT]),
@@ -89,12 +87,16 @@ export class ScreenSpaceReflections {
 		};
 	}
 
-	/** @returns what the reflections change in the radiance, at the render size; valid after {@link resize} */
-	get output(): GPUTexture {
+	#ensureSized(): Sized {
 		if (this.#sized === null) {
 			throw new Error('screen-space reflections used before resize()');
 		}
-		return this.#sized.output;
+		return this.#sized;
+	}
+
+	/** @returns what the reflections change in the radiance, at the render size; valid after {@link resize} */
+	get output(): GPUTexture {
+		return this.#ensureSized().output;
 	}
 
 	/** @returns bytes of the targets */
@@ -110,7 +112,7 @@ export class ScreenSpaceReflections {
 
 	/** drops the history, so the next frame doesn't read the last (a cut) */
 	reset(): void {
-		this.#valid = false;
+		this.#camera.reset();
 	}
 
 	/**
@@ -157,18 +159,13 @@ export class ScreenSpaceReflections {
 		const output = marchColor;
 
 		const group = (pipeline: GPURenderPipeline, index: number, entries: Record<number, GPUBindingResource>) =>
-			device.createBindGroup({
-				layout: pipeline.getBindGroupLayout(index),
-				entries: Object.entries(entries).map(([binding, resource]) => ({
-					binding: Number(binding),
-					resource,
-				})),
-			});
+			autoBindGroup(device, pipeline, index, entries);
 		const postGroup = (pipeline: GPURenderPipeline) =>
 			group(pipeline, 0, { 0: { buffer: this.#postUniforms } });
 		const ssr = { buffer: this.#uniforms };
 
-		const march: Pass = {
+		const march: FullscreenPass = {
+			label: 'ssr march',
 			pipeline: p.march,
 			groups: [
 				postGroup(p.march),
@@ -187,10 +184,11 @@ export class ScreenSpaceReflections {
 				mip(depthPyramid, 0),
 			],
 		};
-		const chain = (i: number): Pass[] => {
+		const chain = (i: number): FullscreenPass[] => {
 			const pyramid = pyramids[i];
-			const passes: Pass[] = [
+			const passes: FullscreenPass[] = [
 				{
+					label: 'ssr temporal',
 					pipeline: p.temporal,
 					groups: [
 						postGroup(p.temporal),
@@ -209,6 +207,7 @@ export class ScreenSpaceReflections {
 			];
 			for (let level = 1; level < mips; level++) {
 				passes.push({
+					label: 'ssr downsample',
 					pipeline: p.downsample,
 					// the downsample reads no uniforms, so its group 0 is empty
 					groups: [
@@ -219,6 +218,7 @@ export class ScreenSpaceReflections {
 				});
 			}
 			passes.push({
+				label: 'ssr resolve',
 				pipeline: p.resolve,
 				groups: [
 					postGroup(p.resolve),
@@ -248,7 +248,7 @@ export class ScreenSpaceReflections {
 		};
 		// `march.y`: the coarsest mip
 		this.#data[25] = mips - 1;
-		this.#valid = false;
+		this.#camera.reset();
 	}
 
 	/**
@@ -262,10 +262,7 @@ export class ScreenSpaceReflections {
 		encoder: GPUCommandEncoder,
 		input: { camera: Camera; look: PostLook['ssr']; enabled: boolean },
 	): void {
-		const sized = this.#sized;
-		if (sized === null) {
-			throw new Error('screen-space reflections used before resize()');
-		}
+		const sized = this.#ensureSized();
 		const { camera, look, enabled } = input;
 		if (!enabled || look === null) {
 			const pass = encoder.beginRenderPass({
@@ -275,39 +272,18 @@ export class ScreenSpaceReflections {
 				],
 			});
 			pass.end();
-			this.#valid = false;
+			this.#camera.reset();
 			return;
 		}
-		camera.writeViewProjection(sized.width / sized.height, this.#viewProj);
-		const eye = camera.position;
 		const f = this.#data;
-		f.set(this.#previousViewProj, 0);
-		f.set([eye[0] - this.#previousEye[0], eye[1] - this.#previousEye[1], eye[2] - this.#previousEye[2]], 16);
-		f[19] = this.#valid ? 0 : 1;
-		f.set([look.onScreen, look.mirrorMul, look.mirrorAdd, 0], 20);
-		f[24] = MARCH_STEPS;
+		this.#camera.write(f, camera, sized.width / sized.height);
+		f.set([look.onScreen, look.mirrorMul, look.mirrorAdd, 0], CAMERA_HISTORY_FLOATS);
+		f[CAMERA_HISTORY_FLOATS + 4] = MARCH_STEPS;
 		this.#device.queue.writeBuffer(this.#uniforms, 0, f);
-
-		for (const pass of [sized.march, ...sized.chains[this.#index]]) {
-			const render = encoder.beginRenderPass({
-				label: pass.pipeline.label,
-				colorAttachments: pass.targets.map((view) => ({
-					view,
-					loadOp: 'clear',
-					storeOp: 'store',
-					clearValue: [0, 0, 0, 0],
-				})),
-			});
-			render.setPipeline(pass.pipeline);
-			pass.groups.forEach((group, i) => render.setBindGroup(i, group));
-			render.draw(3);
-			render.end();
+		for (const pass of [sized.march, ...sized.chains[this.#camera.index]]) {
+			encodeFullscreen(encoder, pass);
 		}
-
-		this.#previousViewProj.set(this.#viewProj);
-		this.#previousEye = [eye[0], eye[1], eye[2]];
-		this.#valid = true;
-		this.#index = 1 - this.#index;
+		this.#camera.advance();
 	}
 
 	#release(): void {

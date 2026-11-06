@@ -12,7 +12,7 @@ import {
 	WATER_DEPTH_FORMAT,
 	WATER_FOAM_FORMAT,
 } from '../frame/render-targets.ts';
-import commonWgsl from '../post/post-common.wgsl?raw';
+import { postCommonSource } from '../post/shader-source.ts';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
 import skyWgsl from '../sky/sky.wgsl?raw';
 import { type TextureBinding, type TextureStore, placeholderView } from '../textures/texture-store.ts';
@@ -68,14 +68,8 @@ export interface WaterContext {
  * @returns the water shader: the frame's lighting at group 0, then the post passes' helpers with their
  *   uniforms moved to group 3
  */
-const waterShaderSource = (): string => {
-	const binding = '@group(0) @binding(0) var<uniform> post';
-	if (!commonWgsl.includes(binding)) {
-		throw new Error(`post-common.wgsl no longer declares \`${binding}\``);
-	}
-	const common = commonWgsl.replace(binding, '@group(3) @binding(0) var<uniform> post');
-	return [FRAME_WGSL, common, atmosphereWgsl, skyWgsl, ssrTraceWgsl, waterWgsl].join('\n');
-};
+const waterShaderSource = (): string =>
+	[FRAME_WGSL, postCommonSource(3), atmosphereWgsl, skyWgsl, ssrTraceWgsl, waterWgsl].join('\n');
 
 /** the foam the boxes leave on the water surface */
 interface FoamTargets {

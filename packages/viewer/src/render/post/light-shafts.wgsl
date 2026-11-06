@@ -1,6 +1,6 @@
 // the game's screen-space sun shafts (HGRP/PostProcessing/LightShaft, Unreal's light shaft bloom): the bright,
 // far parts of the composited scene near the sun are kept at a reduced size, blurred towards the sun's position
-// on screen over a few passes, and added back onto the scene.
+// on screen over a few passes, and added back onto the scene. needs post-common.wgsl.
 
 struct Shafts {
 	// 1 / occlusion depth range (per m), bloom scale, occlusion mask darkness (unused here), bloom max brightness
@@ -9,28 +9,10 @@ struct Shafts {
 	tint: vec4f,
 	// the sun on screen (uv, 0 at the top-left), samples per blur pass, blur intensity
 	sun: vec4f,
-	// x = near plane (m), yzw unused
-	camera: vec4f,
 }
 
-@group(0) @binding(0) var<uniform> shafts: Shafts;
-@group(0) @binding(1) var bilinear: sampler;
-
-struct FullscreenOut {
-	@builtin(position) position: vec4f,
-	// 0 at the top-left corner
-	@location(0) uv: vec2f,
-}
-
-// one triangle covering the target
-@vertex
-fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
-	let p = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
-	var out: FullscreenOut;
-	out.position = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
-	out.uv = vec2f(p.x, 1.0 - p.y);
-	return out;
-}
+@group(0) @binding(1) var<uniform> shafts: Shafts;
+@group(0) @binding(2) var bilinear: sampler;
 
 @group(1) @binding(0) var scene_texture: texture_2d<f32>;
 @group(1) @binding(1) var depth_texture: texture_depth_2d;
@@ -44,14 +26,14 @@ fn fs_downsample(in: FullscreenOut) -> @location(0) vec4f {
 	let color = max(textureSampleLevel(scene_texture, bilinear, uv, 0.0).rgb, vec3f(0.0));
 	let edge = 1.0 - uv.x * (1.0 - uv.x) * uv.y * (1.0 - uv.y) * 8.0;
 	let edge2 = edge * edge;
-	let luminance = max(dot(color, vec3f(0.2126729, 0.7151522, 0.0721750)), 6.1035156e-5);
+	// the game's own luminance weights, kept off zero
+	let luma = max(dot(color, vec3f(0.2126729, 0.7151522, 0.0721750)), 6.1035156e-5);
 	let toward_sun = 1.0 - clamp(length(shafts.sun.xy - uv) * 2.0, 0.0, 1.0);
 	let size = vec2f(textureDimensions(depth_texture));
 	let texel = vec2i(clamp(uv * size, vec2f(0.0), size - 1.0));
-	// reversed-Z, infinite far plane: view depth = near / depth
-	let depth = shafts.camera.x / max(textureLoad(depth_texture, texel, 0), 1e-9);
+	let depth = view_depth(textureLoad(depth_texture, texel, 0));
 	let far = clamp((depth - 0.5 / shafts.params.x) * shafts.params.x, 0.0, 1.0);
-	let bloom = color * shafts.params.y / luminance * clamp(luminance - shafts.tint.w, 0.0, shafts.params.w) * 2.0 *
+	let bloom = color * shafts.params.y / luma * clamp(luma - shafts.tint.w, 0.0, shafts.params.w) * 2.0 *
 		shafts.tint.rgb;
 	return vec4f(bloom * far * (1.0 - edge2 * edge2) * toward_sun * toward_sun, 1.0);
 }

@@ -92,10 +92,14 @@ what each post pass computes is in [post-processing](post-processing.md) and
   of the viewer's clock. normals and tangents turn by the blended matrix itself, as Unity's skinning
   turns them. a frame that draws one redraws the shadow layers.
 - **post** ([`render/post/post-process.ts`](../../packages/viewer/src/render/post/post-process.ts))
-  is fullscreen triangles with `auto` layouts. composite adds the screen-space reflections
-  ([lighting](lighting.md#screen-space-reflections)), then applies AO, sky, atmosphere fog and
-  height fog; `heightFog` and `atmosphereFog` change what composite does, not which passes run.
-  water draws over a copy of the composited scene so it can refract and reflect it
+  is fullscreen triangles with `auto` layouts
+  ([`gfx/fullscreen-pass.ts`](../../packages/viewer/src/gfx/fullscreen-pass.ts)); `taa` and the
+  screen-space reflections reproject their histories through the previous camera
+  ([`render/post/camera-history.ts`](../../packages/viewer/src/render/post/camera-history.ts)).
+  composite adds the screen-space reflections ([lighting](lighting.md#screen-space-reflections)),
+  then applies AO, sky, atmosphere fog and height fog; `heightFog` and `atmosphereFog` change what
+  composite does, not which passes run. water draws over a copy of the composited scene so it can
+  refract and reflect it
   ([`render/water/water-renderer.ts`](../../packages/viewer/src/render/water/water-renderer.ts),
   [water](water.md)). it's the one post pass with an explicit layout, because it also binds the main
   pass's frame group for the sun shadow, irradiance volume and sky reflection; its shader moves the

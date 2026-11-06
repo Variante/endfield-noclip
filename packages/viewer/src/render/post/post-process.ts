@@ -1,6 +1,5 @@
 import type { Environment } from '../../environment/environment.ts';
 import type { Camera } from '../../scene/camera.ts';
-import brdfWgsl from '../frame/brdf.wgsl?raw';
 import type { DebugView } from '../frame/frame-uniforms.ts';
 import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
@@ -17,10 +16,8 @@ import compositeWgsl from './composite.wgsl?raw';
 import gtaoWgsl from './gtao.wgsl?raw';
 import { LensFlares } from './lens-flare.ts';
 import { LightShafts } from './light-shafts.ts';
-import commonWgsl from './post-common.wgsl?raw';
 import { ScreenSpaceReflections } from './screen-space-reflections.ts';
-import ssrWgsl from './ssr.wgsl?raw';
-import taaWgsl from './taa.wgsl?raw';
+import { postShaderSource } from './shader-source.ts';
 import { TemporalAA } from './temporal-aa.ts';
 import tonemapWgsl from './tonemap.wgsl?raw';
 
@@ -110,12 +107,6 @@ export const effectiveSettings = (settings: PostSettings): PostSettings => {
 export const postExposure = (settings: PostSettings, autoExposure: AutoExposure): number =>
 	2 ** settings.exposure * (settings.autoExposure ? autoExposure.exposure : 1);
 
-/**
- * @param parts WGSL sources after the shared post ones
- * @returns a post pass's shader source: the shared BRDF terms and `Post` uniforms, then `parts`
- */
-export const postShaderSource = (parts: string[]): string => [brdfWgsl, commonWgsl, ...parts].join('\n');
-
 /** a fullscreen pass into one target */
 interface Pass {
 	pipeline: GPURenderPipeline;
@@ -165,8 +156,6 @@ interface Sized {
 		blur: Pass;
 		celestial: Pass;
 		composite: Pass;
-		/** group 0 of the temporal resolve */
-		taa: GPUBindGroup;
 		/** the bloom prefilter from each temporal history, or `null` on a canvas too small for bloom */
 		prefilter: [Pass, Pass] | null;
 		/** two blurs per level after the first */
@@ -308,9 +297,9 @@ export class PostProcess {
 
 		const module = (label: string, parts: string[]): GPUShaderModule =>
 			device.createShaderModule({ label, code: postShaderSource(parts) });
-		this.taa = new TemporalAA(device, module('taa', [taaWgsl]));
-		this.reflections = new ScreenSpaceReflections(device, module('ssr', [ssrWgsl]), this.#uniforms);
-		this.#lightShafts = new LightShafts(device);
+		this.taa = new TemporalAA(device, this.#uniforms);
+		this.reflections = new ScreenSpaceReflections(device, this.#uniforms);
+		this.#lightShafts = new LightShafts(device, this.#uniforms);
 		this.lensFlares = new LensFlares(device);
 		const atmosphere = module('atmosphere', [atmosphereWgsl]);
 		const gtao = module('gtao', [gtaoWgsl]);
@@ -792,7 +781,6 @@ export class PostProcess {
 					],
 					target: sceneView,
 				},
-				taa: this.#uniformsGroup(this.taa.pipeline),
 				prefilter,
 				down: downPasses,
 				up: { full: fullUp, short: shortUp },
@@ -1056,7 +1044,7 @@ export class PostProcess {
 			// the game draws the flare after the shafts, which don't see it
 			this.lensFlares.encode(encoder, { camera, width, height });
 		}
-		const resolved = this.taa.encode(encoder, { camera, postGroup: sized.passes.taa });
+		const resolved = this.taa.encode(encoder, camera);
 		if (settings.autoExposure) {
 			this.autoExposure.encode(
 				encoder,

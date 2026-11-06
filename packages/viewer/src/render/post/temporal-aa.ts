@@ -1,6 +1,11 @@
+import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
 import { halton } from '../../math/sequence.ts';
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
+
+import { CAMERA_HISTORY_FLOATS, CameraHistory } from './camera-history.ts';
+import { postShaderModule } from './shader-source.ts';
+import taaWgsl from './taa.wgsl?raw';
 
 /** frames rendered after the last change, so the history converges on the still view */
 export const SETTLE_FRAMES = 32;
@@ -19,6 +24,8 @@ interface Sized {
 	outputHeight: number;
 	/** the history pair at the output size; each frame writes one and reads the other */
 	history: [GPUTexture, GPUTexture];
+	/** views of {@link history} */
+	views: [GPUTextureView, GPUTextureView];
 	/** groups 1 of the frame that writes `history[i]` */
 	groups: [GPUBindGroup, GPUBindGroup];
 }
@@ -27,35 +34,30 @@ interface Sized {
 export class TemporalAA {
 	/** jitter and accumulate; off passes the current frame through (upscaled to the output size) */
 	enabled = true;
-	readonly pipeline: GPURenderPipeline;
 	#device: GPUDevice;
+	#pipeline: GPURenderPipeline;
+	#postGroup: GPUBindGroup;
 	#uniforms: GPUBuffer;
 	#data = new Float32Array(UNIFORM_BYTES / 4);
 	#sampler: GPUSampler;
 	#sized: Sized | null = null;
-	/** which history this frame writes */
-	#index = 0;
-	/** whether the history holds a frame of the current view and sizes */
-	#valid = false;
+	#camera = new CameraHistory();
 	#phase = 0;
 	#jitter: [x: number, y: number] = [0, 0];
-	#viewProj = new Float32Array(16);
-	#previousViewProj = new Float32Array(16);
-	#previousEye: Vec3 = [0, 0, 0];
 
 	/**
 	 * @param device the device
-	 * @param module the resolve shader built with the post chain's shared sources around `taa.wgsl`
+	 * @param postUniforms the post chain's `Post` uniforms
 	 */
-	constructor(device: GPUDevice, module: GPUShaderModule) {
+	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
-		this.pipeline = device.createRenderPipeline({
+		this.#pipeline = fullscreenPipeline(device, {
 			label: 'taa',
-			layout: 'auto',
-			vertex: { module, entryPoint: 'vs_fullscreen' },
-			fragment: { module, entryPoint: 'fs_taa', targets: [{ format: HDR_FORMAT }] },
-			primitive: { topology: 'triangle-list' },
+			module: postShaderModule(device, 'taa', [taaWgsl]),
+			entryPoint: 'fs_taa',
+			targets: [{ format: HDR_FORMAT }],
 		});
+		this.#postGroup = autoBindGroup(device, this.#pipeline, 0, { 0: { buffer: postUniforms } });
 		this.#uniforms = device.createBuffer({
 			label: 'taa uniforms',
 			size: UNIFORM_BYTES,
@@ -100,7 +102,7 @@ export class TemporalAA {
 
 	/** drops the history, so the next frame starts afresh (a new package or level, a debug view) */
 	reset(): void {
-		this.#valid = false;
+		this.#camera.reset();
 	}
 
 	/** @returns bytes of the history pair */
@@ -132,17 +134,14 @@ export class TemporalAA {
 				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
 			});
 		const pair: [GPUTexture, GPUTexture] = [history(0), history(1)];
-		const group = (read: GPUTexture): GPUBindGroup =>
-			this.#device.createBindGroup({
-				label: 'taa',
-				layout: this.pipeline.getBindGroupLayout(1),
-				entries: [
-					{ binding: 0, resource: { buffer: this.#uniforms } },
-					{ binding: 1, resource: scene },
-					{ binding: 2, resource: depth },
-					{ binding: 3, resource: read.createView() },
-					{ binding: 4, resource: this.#sampler },
-				],
+		const views: [GPUTextureView, GPUTextureView] = [pair[0].createView(), pair[1].createView()];
+		const group = (read: GPUTextureView): GPUBindGroup =>
+			autoBindGroup(this.#device, this.#pipeline, 1, {
+				0: { buffer: this.#uniforms },
+				1: scene,
+				2: depth,
+				3: read,
+				4: this.#sampler,
 			});
 		this.#sized = {
 			width,
@@ -150,61 +149,46 @@ export class TemporalAA {
 			outputWidth,
 			outputHeight,
 			history: pair,
-			groups: [group(pair[1]), group(pair[0])],
+			views,
+			groups: [group(views[1]), group(views[0])],
 		};
-		this.#valid = false;
+		this.#camera.reset();
+	}
+
+	#ensureSized(): Sized {
+		if (this.#sized === null) {
+			throw new Error('temporal AA used before resize()');
+		}
+		return this.#sized;
 	}
 
 	/** @returns the two histories; {@link encode} says which one a frame wrote */
 	get histories(): readonly GPUTexture[] {
-		if (this.#sized === null) {
-			throw new Error('temporal AA used before resize()');
-		}
-		return this.#sized.history;
+		return this.#ensureSized().history;
 	}
 
 	/**
 	 * resolves this frame into one of the {@link histories}, which the next frame then reads.
 	 *
 	 * @param encoder this frame's encoder, after the scene is composited
-	 * @param input the camera (unjittered) and the pass's group 0 (the post uniforms)
+	 * @param camera the camera (unjittered)
 	 * @returns the index of the history written, which the passes after it read
 	 */
-	encode(encoder: GPUCommandEncoder, input: { camera: Camera; postGroup: GPUBindGroup }): number {
-		const sized = this.#sized;
-		if (sized === null) {
-			throw new Error('temporal AA used before resize()');
-		}
-		const { camera, postGroup } = input;
-		camera.writeViewProjection(sized.width / sized.height, this.#viewProj);
-		const eye = camera.position;
+	encode(encoder: GPUCommandEncoder, camera: Camera): number {
+		const sized = this.#ensureSized();
+		const written = this.#camera.index;
 		const f = this.#data;
-		f.set(this.#previousViewProj, 0);
-		f[16] = eye[0] - this.#previousEye[0];
-		f[17] = eye[1] - this.#previousEye[1];
-		f[18] = eye[2] - this.#previousEye[2];
-		f[19] = this.#valid ? 0 : 1;
-		f.set([sized.width, sized.height, 1 / sized.width, 1 / sized.height], 20);
-		f.set([BLEND, this.enabled ? 0 : 1, 0, 0], 24);
+		this.#camera.write(f, camera, sized.width / sized.height);
+		f.set([sized.width, sized.height, 1 / sized.width, 1 / sized.height], CAMERA_HISTORY_FLOATS);
+		f.set([BLEND, this.enabled ? 0 : 1, 0, 0], CAMERA_HISTORY_FLOATS + 4);
 		this.#device.queue.writeBuffer(this.#uniforms, 0, f);
-
-		const pass = encoder.beginRenderPass({
+		encodeFullscreen(encoder, {
 			label: 'taa',
-			colorAttachments: [
-				{ view: sized.history[this.#index].createView(), loadOp: 'clear', storeOp: 'store' },
-			],
+			pipeline: this.#pipeline,
+			groups: [this.#postGroup, sized.groups[written]],
+			targets: [sized.views[written]],
 		});
-		pass.setPipeline(this.pipeline);
-		pass.setBindGroup(0, postGroup);
-		pass.setBindGroup(1, sized.groups[this.#index]);
-		pass.draw(3);
-		pass.end();
-
-		this.#previousViewProj.set(this.#viewProj);
-		this.#previousEye = [eye[0], eye[1], eye[2]];
-		this.#valid = true;
-		const written = this.#index;
-		this.#index = 1 - written;
+		this.#camera.advance();
 		return written;
 	}
 

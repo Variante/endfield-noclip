@@ -1,11 +1,18 @@
 import type { LightShaftLook } from '../../environment/environment.ts';
+import {
+	type FullscreenPass,
+	autoBindGroup,
+	encodeFullscreen,
+	fullscreenPipeline,
+} from '../../gfx/fullscreen-pass.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 
 import lightShaftsWgsl from './light-shafts.wgsl?raw';
+import { postShaderModule } from './shader-source.ts';
 
 /** byte size of `Shafts` in light-shafts.wgsl */
-const UNIFORM_BYTES = 64;
+const UNIFORM_BYTES = 48;
 /** the game's `lightShaftDownSampleFactor` at PC quality tiers 2000 and up */
 const DOWNSAMPLE = 2;
 /** the game's default `lightShaftSampleNum` */
@@ -13,25 +20,20 @@ const SAMPLES = 12;
 /** the game's default `lightShaftBlurPassCount` */
 const BLUR_PASSES = 3;
 
-interface Pass {
-	pipeline: GPURenderPipeline;
-	groups: GPUBindGroup[];
-	target: GPUTextureView;
-}
-
 interface Sized {
 	width: number;
 	height: number;
 	textures: GPUTexture[];
 	/** the downsample, then the blur passes, ping-ponging */
-	passes: Pass[];
+	passes: FullscreenPass[];
 	/** adds the last blur onto the scene */
-	apply: Pass;
+	apply: FullscreenPass;
 }
 
 /** owns the shafts' reduced-size targets and passes */
 export class LightShafts {
 	#device: GPUDevice;
+	#postUniforms: GPUBuffer;
 	#uniforms: GPUBuffer;
 	/** per blur pass: its index */
 	#passUniforms: GPUBuffer[];
@@ -40,9 +42,13 @@ export class LightShafts {
 	#pipelines: Record<'downsample' | 'blur' | 'apply', GPURenderPipeline>;
 	#sized: Sized | null = null;
 
-	/** @param device the device */
-	constructor(device: GPUDevice) {
+	/**
+	 * @param device the device
+	 * @param postUniforms the post chain's `Post` uniforms
+	 */
+	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
+		this.#postUniforms = postUniforms;
 		this.#uniforms = device.createBuffer({
 			label: 'light shaft uniforms',
 			size: UNIFORM_BYTES,
@@ -64,15 +70,9 @@ export class LightShafts {
 			addressModeU: 'clamp-to-edge',
 			addressModeV: 'clamp-to-edge',
 		});
-		const module = device.createShaderModule({ label: 'light shafts', code: lightShaftsWgsl });
+		const module = postShaderModule(device, 'light shafts', [lightShaftsWgsl]);
 		const pipeline = (label: string, entryPoint: string, target: GPUColorTargetState): GPURenderPipeline =>
-			device.createRenderPipeline({
-				label,
-				layout: 'auto',
-				vertex: { module, entryPoint: 'vs_fullscreen' },
-				fragment: { module, entryPoint, targets: [target] },
-				primitive: { topology: 'triangle-list' },
-			});
+			fullscreenPipeline(device, { label, module, entryPoint, targets: [target] });
 		const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' };
 		this.#pipelines = {
 			downsample: pipeline('light shaft downsample', 'fs_downsample', { format: HDR_FORMAT }),
@@ -112,35 +112,43 @@ export class LightShafts {
 			}),
 		);
 		const views = textures.map((texture) => texture.createView());
-		const group = (pipeline: GPURenderPipeline, index: number, entries: Record<number, GPUBindingResource>) =>
-			device.createBindGroup({
-				layout: pipeline.getBindGroupLayout(index),
-				entries: Object.entries(entries).map(([binding, resource]) => ({
-					binding: Number(binding),
-					resource,
-				})),
-			});
-		const shared = (pipeline: GPURenderPipeline): GPUBindGroup =>
-			group(pipeline, 0, { 0: { buffer: this.#uniforms }, 1: this.#sampler });
-		const passes: Pass[] = [
+		const shafts = { buffer: this.#uniforms };
+		const passes: FullscreenPass[] = [
 			{
+				label: 'light shaft downsample',
 				pipeline: p.downsample,
-				groups: [shared(p.downsample), group(p.downsample, 1, { 0: input.composited, 1: input.scene.depth })],
-				target: views[0],
+				groups: [
+					autoBindGroup(device, p.downsample, 0, {
+						0: { buffer: this.#postUniforms },
+						1: shafts,
+						2: this.#sampler,
+					}),
+					autoBindGroup(device, p.downsample, 1, { 0: input.composited, 1: input.scene.depth }),
+				],
+				targets: [views[0]],
 			},
 		];
+		// the blurs and the apply read none of the post uniforms
+		const blurShared = autoBindGroup(device, p.blur, 0, { 1: shafts, 2: this.#sampler });
 		for (let i = 0; i < BLUR_PASSES; i++) {
 			passes.push({
+				label: 'light shaft blur',
 				pipeline: p.blur,
-				groups: [shared(p.blur), group(p.blur, 1, { 2: { buffer: this.#passUniforms[i] }, 3: views[i % 2] })],
-				target: views[(i + 1) % 2],
+				groups: [
+					blurShared,
+					autoBindGroup(device, p.blur, 1, { 2: { buffer: this.#passUniforms[i] }, 3: views[i % 2] }),
+				],
+				targets: [views[(i + 1) % 2]],
 			});
 		}
-		const apply: Pass = {
+		const apply: FullscreenPass = {
+			label: 'light shaft apply',
 			pipeline: p.apply,
-			// the apply reads no uniforms
-			groups: [group(p.apply, 0, { 1: this.#sampler }), group(p.apply, 1, { 3: views[BLUR_PASSES % 2] })],
-			target: input.composited,
+			groups: [
+				autoBindGroup(device, p.apply, 0, { 2: this.#sampler }),
+				autoBindGroup(device, p.apply, 1, { 3: views[BLUR_PASSES % 2] }),
+			],
+			targets: [input.composited],
 		};
 		this.#sized = { width, height, textures, passes, apply };
 	}
@@ -173,23 +181,11 @@ export class LightShafts {
 		f.set([1 / look.occlusionDepthRange, look.bloomScale, 0, look.maxBrightness], 0);
 		f.set([...look.tint, look.threshold], 4);
 		f.set([sun[0], sun[1], SAMPLES, look.blurIntensity], 8);
-		f.set([camera.near, 0, 0, 0], 12);
 		this.#device.queue.writeBuffer(this.#uniforms, 0, f);
 		for (const pass of sized.passes) {
-			this.#run(encoder, pass, 'clear');
+			encodeFullscreen(encoder, pass);
 		}
-		this.#run(encoder, sized.apply, 'load');
-	}
-
-	#run(encoder: GPUCommandEncoder, pass: Pass, loadOp: GPULoadOp): void {
-		const render = encoder.beginRenderPass({
-			label: pass.pipeline.label,
-			colorAttachments: [{ view: pass.target, loadOp, storeOp: 'store', clearValue: [0, 0, 0, 0] }],
-		});
-		render.setPipeline(pass.pipeline);
-		pass.groups.forEach((group, i) => render.setBindGroup(i, group));
-		render.draw(3);
-		render.end();
+		encodeFullscreen(encoder, sized.apply, 'load');
 	}
 
 	#release(): void {
