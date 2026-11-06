@@ -14,7 +14,7 @@
 // the game's high tier
 const SLICES = 3;
 const STEPS = 3;
-// full-resolution pixels per AO pixel along each axis (AO_SCALE in post-process.ts sizes the targets)
+// full-resolution pixels per AO pixel along each axis (AO_SCALE in ambient-occlusion.ts sizes the targets)
 const AO_SCALE = 2;
 // the march's reach, AO pixels
 const MAX_RADIUS = 48.0;

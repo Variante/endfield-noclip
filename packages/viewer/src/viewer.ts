@@ -62,13 +62,13 @@ import { InstanceRenderer } from './render/instances/instance-renderer.ts';
 import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
 import { LocalLights } from './render/lighting/local-lights.ts';
 import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
+import { PostProcess } from './render/post/post-process.ts';
 import {
 	type PostSettings,
-	PostProcess,
 	type Tonemapper,
 	effectiveSettings,
 	postExposure,
-} from './render/post/post-process.ts';
+} from './render/post/settings.ts';
 import { SETTLE_FRAMES } from './render/post/temporal-aa.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadows/shadow-map.ts';
 import { VolumetricFog } from './render/sky/volumetric-fog.ts';

@@ -6,8 +6,9 @@ how the viewer draws the sky, the layers beyond the atmosphere and the fogs that
 
 ## sky
 
-[`atmosphere.wgsl`](../../packages/viewer/src/render/sky/atmosphere.wgsl) builds the transmittance,
-multiple-scattering and per-frame sky-view LUTs of the
+[`atmosphere.wgsl`](../../packages/viewer/src/render/sky/atmosphere.wgsl)
+([`atmosphere-luts.ts`](../../packages/viewer/src/render/sky/atmosphere-luts.ts)) builds the
+transmittance, multiple-scattering and per-frame sky-view LUTs of the
 [atmosphere model](../game-data/sky-and-fog.md#sky). the game's LUT scale (`skyViewScale` in
 [`environment/derive.ts`](../../packages/viewer/src/environment/derive.ts)) is applied when
 [`sky.wgsl`](../../packages/viewer/src/render/sky/sky.wgsl) samples the LUT rather than when it's

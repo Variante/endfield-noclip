@@ -12,8 +12,13 @@ import {
 	type CelestialTextureSlot,
 	NO_CELESTIAL,
 } from '../../environment/celestial-look.ts';
+import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
 import type { Vec3 } from '../../scene/camera.ts';
+import { HDR_FORMAT } from '../frame/render-targets.ts';
+import { postShaderModule } from '../post/shader-source.ts';
 import { placeholderView, type TextureBinding } from '../textures/texture-store.ts';
+
+import celestialWgsl from './celestial.wgsl?raw';
 
 /** byte size of `Celestial` in celestial.wgsl */
 const UNIFORM_BYTES = (11 + 19 + 2 * 13 + 2) * 16;
@@ -23,9 +28,14 @@ const SKY_OFFSET = (11 + 19) * 4;
 const SKY_STRIDE = 13 * 4;
 const SUN_OFFSET = (11 + 19 + 2 * 13) * 4;
 
-/** owns the celestial pass's group 1: its uniforms, samplers and bound textures */
+/**
+ * owns the celestial pass, which draws the layers at the sky pixels into the main pass's sky reflection
+ * target for the composite: its uniforms, samplers and bound textures
+ */
 export class CelestialLayer {
 	#device: GPUDevice;
+	#pipeline: GPURenderPipeline;
+	#postGroup: GPUBindGroup;
 	#uniforms: GPUBuffer;
 	#data = new Float32Array(UNIFORM_BYTES / 4);
 	#words = new Uint32Array(this.#data.buffer);
@@ -35,11 +45,34 @@ export class CelestialLayer {
 	#black: GPUTextureView;
 	#views = new Map<CelestialTextureSlot, GPUTextureView>();
 	#look: CelestialLook = NO_CELESTIAL;
-	#group: { layout: GPUBindGroupLayout; group: GPUBindGroup } | null = null;
+	/** group 1, rebuilt when a texture changes */
+	#group: GPUBindGroup | null = null;
+	/** the cloud panorama bound in group 2 */
+	#cloud: TextureBinding;
+	#noCloud: TextureBinding;
+	/** group 2 (the main pass's depth and the cloud panorama) and the target, once sized */
+	#sized: { depth: GPUTextureView; group: GPUBindGroup; target: GPUTextureView } | null = null;
 
-	/** @param device the device */
-	constructor(device: GPUDevice) {
+	/**
+	 * @param device the device
+	 * @param input the post chain's `Post` uniforms, and the bilinear clamping sampler the cloud panorama is
+	 *   read with until it streams in
+	 */
+	constructor(device: GPUDevice, input: { postUniforms: GPUBuffer; sampler: GPUSampler }) {
 		this.#device = device;
+		this.#pipeline = fullscreenPipeline(device, {
+			label: 'celestial',
+			module: postShaderModule(device, 'celestial', [celestialWgsl]),
+			entryPoint: 'fs_celestial',
+			targets: [{ format: HDR_FORMAT }],
+		});
+		this.#postGroup = autoBindGroup(device, this.#pipeline, 0, { 0: { buffer: input.postUniforms } });
+		this.#noCloud = {
+			view: placeholderView(device, { label: 'no clouds', dimension: '2d' }),
+			sampler: input.sampler,
+			version: -1,
+		};
+		this.#cloud = this.#noCloud;
 		this.#uniforms = device.createBuffer({
 			label: 'celestial uniforms',
 			size: UNIFORM_BYTES,
@@ -83,30 +116,83 @@ export class CelestialLayer {
 		}
 	}
 
+	/** @returns group 1, rebuilt after a texture changed */
+	#layerGroup(): GPUBindGroup {
+		this.#group ??= this.#device.createBindGroup({
+			label: 'celestial',
+			layout: this.#pipeline.getBindGroupLayout(1),
+			entries: [
+				{ binding: 0, resource: { buffer: this.#uniforms } },
+				{ binding: 1, resource: this.#sampler },
+				{ binding: 2, resource: this.#pointSampler },
+				...CELESTIAL_TEXTURE_SLOTS.map((slot, i) => ({
+					binding: 3 + i,
+					resource: this.#views.get(slot) ?? this.#black,
+				})),
+			],
+		});
+		return this.#group;
+	}
+
+	/** @returns whether the cloud panorama is bound */
+	get hasCloud(): boolean {
+		return this.#cloud !== this.#noCloud;
+	}
+
 	/**
-	 * @param layout the celestial pipeline's group 1 layout
-	 * @returns the group to bind there
+	 * binds the cloud panorama, once it streams in.
+	 *
+	 * @param cloud the texture's binding, or `null` for none
 	 */
-	group(layout: GPUBindGroupLayout): GPUBindGroup {
-		if (this.#group?.layout !== layout) {
-			this.#group = {
-				layout,
-				group: this.#device.createBindGroup({
-					label: 'celestial',
-					layout,
-					entries: [
-						{ binding: 0, resource: { buffer: this.#uniforms } },
-						{ binding: 1, resource: this.#sampler },
-						{ binding: 2, resource: this.#pointSampler },
-						...CELESTIAL_TEXTURE_SLOTS.map((slot, i) => ({
-							binding: 3 + i,
-							resource: this.#views.get(slot) ?? this.#black,
-						})),
-					],
-				}),
-			};
+	setCloud(cloud: TextureBinding | null): void {
+		const next = cloud ?? this.#noCloud;
+		if (next === this.#cloud) {
+			return;
 		}
-		return this.#group.group;
+		this.#cloud = next;
+		if (this.#sized !== null) {
+			this.resize(this.#sized);
+		}
+	}
+
+	/**
+	 * rebinds the inputs after they were recreated.
+	 *
+	 * @param input the main pass's depth, and the target: its sky reflection target, which is free once the
+	 *   reflections have resolved, which run first
+	 */
+	resize(input: { depth: GPUTextureView; target: GPUTextureView }): void {
+		const { depth, target } = input;
+		this.#sized = {
+			depth,
+			target,
+			group: autoBindGroup(this.#device, this.#pipeline, 2, {
+				0: depth,
+				1: this.#cloud.view,
+				2: this.#cloud.sampler,
+			}),
+		};
+	}
+
+	/**
+	 * draws the layers for a frame
+	 *
+	 * @param encoder this frame's encoder, after the reflections
+	 * @param input the camera's world position, the unit vector towards the scene's sun and its pre-exposed
+	 *   illuminance
+	 */
+	encode(encoder: GPUCommandEncoder, input: { eye: Vec3; sun: Vec3; sunIlluminance: Vec3 }): void {
+		const sized = this.#sized;
+		if (sized === null) {
+			throw new Error('celestial layer used before resize()');
+		}
+		this.#write(input.eye, input.sun, input.sunIlluminance);
+		encodeFullscreen(encoder, {
+			label: 'celestial',
+			pipeline: this.#pipeline,
+			groups: [this.#postGroup, this.#layerGroup(), sized.group],
+			targets: [sized.target],
+		});
 	}
 
 	/**
@@ -116,7 +202,7 @@ export class CelestialLayer {
 	 * @param sun unit vector towards the scene's sun
 	 * @param sunIlluminance its pre-exposed illuminance
 	 */
-	write(eye: Vec3, sun: Vec3, sunIlluminance: Vec3): void {
+	#write(eye: Vec3, sun: Vec3, sunIlluminance: Vec3): void {
 		const f = this.#data;
 		const u = this.#words;
 		f.fill(0);

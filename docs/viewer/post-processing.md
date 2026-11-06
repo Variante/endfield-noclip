@@ -6,8 +6,12 @@ how the viewer draws the passes after the main pass that
 ## post chain
 
 [`render/post/post-process.ts`](../../packages/viewer/src/render/post/post-process.ts) orchestrates
-the [frame's post passes](frame.md), whose order, resolutions and targets are on that page. toggles
-and debug views change rendering without changing the profile.
+the [frame's post passes](frame.md), whose order, resolutions and targets are on that page. each
+pass is a module beside its shader that builds its own pipelines and sizes its own targets;
+[`post-uniforms.ts`](../../packages/viewer/src/render/post/post-uniforms.ts) packs the `Post`
+uniforms they share, the environment's lanes when it changes and the frame's each frame. toggles and
+debug views change rendering without changing the profile
+([`settings.ts`](../../packages/viewer/src/render/post/settings.ts)).
 
 ## ambient occlusion
 
