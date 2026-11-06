@@ -1,3 +1,4 @@
+import { controlListedFor } from '../scene-states/listing.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { Drivers } from './drivers.tsx';
@@ -25,13 +26,13 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 	useViewerState(viewer);
 	// the surfaces' heights change while they move
 	useViewerStats(viewer);
-	const pkg = viewer.scene?.pkg;
-	if (pkg === undefined) {
+	const manifest = viewer.manifest;
+	if (manifest === null) {
 		return null;
 	}
-	const level = pkg.manifest.levels.find((entry) => entry.id === viewer.level);
-	const surfaces = pkg.water.surfaces;
-	const controls = new Map(pkg.manifest.states.controls.map((control) => [control.id, control]));
+	const level = viewer.shownLevel;
+	const surfaces = viewer.waterSurfaces;
+	const controls = new Map(manifest.states.controls.map((control) => [control.id, control]));
 	// a volume is listed with its `waterLevel` control, for the levels that control is listed for
 	const rows = viewer.waterVolumes.flatMap((state, index) => {
 		const surface = surfaces.find((entry) => entry.kind === 'volume' && entry.volume === index);
@@ -39,9 +40,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 		if (surface === undefined || control === undefined) {
 			return [];
 		}
-		const listed =
-			(level === undefined || control.levelTags.includes(0) || control.levelTags.includes(level.tag)) &&
-			matches(`${control.name} ${control.id}`);
+		const listed = controlListedFor(control, level) && matches(`${control.name} ${control.id}`);
 		return listed ? [{ state, surface, control }] : [];
 	});
 	return (

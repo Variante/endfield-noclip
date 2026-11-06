@@ -1,5 +1,4 @@
 import { ruleText } from '@endfield-noclip/package-format/conditions';
-import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type {
 	MissionInfo,
 	RuleText,
@@ -16,7 +15,8 @@ import {
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 import { useId, useState } from 'react';
 
-import { volumeCondition, volumeLevelTag } from '../environment/blend.ts';
+import { volumeCondition } from '../environment/blend.ts';
+import { controlsForLevel, volumesForLevel } from '../scene-states/listing.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { Drivers } from './drivers.tsx';
@@ -365,11 +365,11 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	useViewerState(viewer);
 	const searchId = useId();
 	const [query, setQuery] = useState('');
-	const manifest = viewer.scene?.pkg.manifest;
-	if (!manifest) {
+	const manifest = viewer.manifest;
+	if (manifest === null) {
 		return null;
 	}
-	const level = manifest.levels.find((entry) => entry.id === viewer.level);
+	const level = viewer.shownLevel;
 	const matches = (name: string): boolean => name.toLowerCase().includes(query.toLowerCase());
 	const missions = new Map(manifest.states.missions.map((mission) => [mission.id, mission]));
 	const byId = new Map(manifest.states.controls.map((entry) => [entry.id, entry]));
@@ -388,26 +388,14 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 			const control = byId.get(reference.control);
 			return control && storyPlace(control) ? `“${storyName(control)}”` : reference.text;
 		});
-	// a control is listed for the levels whose content it gates
-	const controls = manifest.states.controls.filter(
-		(entry) =>
-			(level === undefined || entry.levelTags.includes(0) || entry.levelTags.includes(level.tag)) &&
-			matches(`${storyName(entry)} ${entry.id} ${entry.rule ? describe(entry.rule) : ''}`),
+	const controls = controlsForLevel(manifest.states.controls, level).filter((entry) =>
+		matches(`${storyName(entry)} ${entry.id} ${entry.rule ? describe(entry.rule) : ''}`),
 	);
-	// volumes apply wherever they hold the camera, so a neighbour's volume reaching into this level is listed too
-	const volumes = mapDefined(manifest.environmentVolumes, (volume, id) => {
-		const owner = volumeLevelTag(manifest, volume);
-		const listed =
-			(owner === 0 ||
-				owner === level?.tag ||
-				(level !== undefined && volumeReaches(volume.shape, level.rect))) &&
-			matches(volume.name);
-		if (!listed) {
-			return undefined;
-		}
-		return { volume, id, owner, condition: volumeCondition(manifest, volume) };
-	});
+	const volumes = volumesForLevel(manifest, level)
+		.filter(({ volume }) => matches(volume.name))
+		.map(({ id, volume, owner }) => ({ id, volume, owner, condition: volumeCondition(manifest, volume) }));
 	const levelNames = new Map(manifest.levels.map((entry) => [entry.tag, entry.name ?? entry.id]));
+	const levelNamesById = new Map(manifest.levels.map((entry) => [entry.id, entry.name ?? entry.id]));
 	const controlNames = new Map(manifest.states.controls.map((entry) => [entry.id, entry.name]));
 	/** @returns the controls a volume loads with besides its own switch, by name */
 	const loadingStates = (condition: number, own: string | null): string =>
@@ -449,7 +437,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 								missions={missions}
 								mainLine={manifest.states.mainStory}
 								describe={describe}
-								levelName={(id) => manifest.levels.find((entry) => entry.id === id)?.name ?? id}
+								levelName={(id) => levelNamesById.get(id) ?? id}
 							/>
 						) : (
 							listed.map((entry) => (

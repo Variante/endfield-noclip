@@ -73,7 +73,9 @@ panel:
   [environment.md](../game-data/environment.md#activation))
 
 every row shows the control's rule and the assumption behind its default. controls are listed where
-their `levelTags` include 0 or the shown level's tag. "Reset" drops every pick. the settings panel's
-"stream areas at camera" toggle switches every area that follows the camera between following it and
-showing. conditional detail ignores HLOD refinement and stops streaming once its tile is below the
-screen error threshold ([streaming](streaming.md)).
+their `levelTags` include 0 or the shown level's tag
+([`scene-states/listing.ts`](../../packages/viewer/src/scene-states/listing.ts), which also decides
+the volumes listed). "Reset" drops every pick. the settings panel's "stream areas at camera" toggle
+switches every area that follows the camera between following it and showing. conditional detail
+ignores HLOD refinement and stops streaming once its tile is below the screen error threshold
+([streaming](streaming.md)).

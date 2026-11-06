@@ -3,7 +3,7 @@ import {
 	groupsShown,
 	resolveSceneValues,
 } from '@endfield-noclip/package-format/conditions';
-import type { LevelEnvironment, LevelInfo } from '@endfield-noclip/package-format/manifest';
+import type { LevelEnvironment, LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
 import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import {
 	areasShownIn,
@@ -18,6 +18,7 @@ import {
 	terrainHeight,
 } from '@endfield-noclip/package-format/terrain';
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
+import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
@@ -1097,6 +1098,21 @@ export class Viewer {
 	/** @returns the shown level's id, or `null` when the package has no level with content */
 	get level(): string | null {
 		return this.#level?.id ?? null;
+	}
+
+	/** @returns the shown level's manifest entry, or `null` when the package has no level with content */
+	get shownLevel(): LevelInfo | null {
+		return this.#level;
+	}
+
+	/** @returns the loaded package's manifest, or `null` without a package */
+	get manifest(): PackageManifest | null {
+		return this.scene?.pkg.manifest ?? null;
+	}
+
+	/** @returns the loaded package's water surfaces; none without a package */
+	get waterSurfaces(): readonly WaterSurfaceEntry[] {
+		return this.scene?.pkg.water.surfaces ?? [];
 	}
 
 	/**

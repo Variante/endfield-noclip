@@ -93,7 +93,7 @@ export const App = () => {
 		}
 		return viewer.subscribe(() => {
 			// nothing to record while no package is loaded (including mid-load)
-			if (viewer.scene !== null && new URL(location.href).searchParams.get(LEVEL_PARAM) !== viewer.level) {
+			if (viewer.manifest !== null && new URL(location.href).searchParams.get(LEVEL_PARAM) !== viewer.level) {
 				setParam(LEVEL_PARAM, viewer.level);
 			}
 		});
