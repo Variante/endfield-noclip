@@ -26,12 +26,7 @@ import {
 	eyeInLevelVolume,
 	planBlend,
 } from '../environment/blend.ts';
-import {
-	type CelestialLook,
-	NO_CELESTIAL,
-	celestialLook,
-	celestialTextures,
-} from '../environment/celestial-look.ts';
+import { type CelestialLook, NO_CELESTIAL, celestialLook } from '../environment/celestial-look.ts';
 import { deriveEnvironment } from '../environment/derive.ts';
 import { type Environment, windClockRate } from '../environment/environment.ts';
 import { lensFlareLook } from '../environment/lens-flare-look.ts';
@@ -75,9 +70,9 @@ import { type MeshSelection, MeshSelector } from '../streaming/mesh-selection.ts
 import type { ResidentInstances } from '../streaming/resident.ts';
 import { type InstanceRange, Selector } from '../streaming/selection.ts';
 import { StreamManager } from '../streaming/stream-manager.ts';
-import { streamWholeTexture } from '../streaming/texture-requests.ts';
 
 import { DEFAULT_OPTIONS, type ViewerOptions } from './options.ts';
+import { updateSkyTextures } from './sky-textures.ts';
 import { type ViewerStats, FrameTimes, STATS_INTERVAL, collectStats, emptyStats } from './stats.ts';
 
 /** what the level list needs */
@@ -472,66 +467,6 @@ export class Viewer {
 	#setIrradiance(table: IrradianceTable, regions: readonly IrradianceRegionInfo[]): void {
 		this.#irradiance.setPackage(table, regions);
 		this.#bindings.rebuild();
-	}
-
-	/** streams the level's sky textures (reflection cubemap, cloud panorama) and binds them as they arrive */
-	#updateSkyTextures(scene: LoadedScene): void {
-		const { stream, textures } = scene;
-		const environment = this.#environment;
-		const cloud = streamWholeTexture({
-			stream,
-			textures,
-			id: environment.cloud?.texture ?? null,
-			kind: '2d',
-			priority: 1e6,
-		});
-		// the flow noise is one texture for the whole package, wanted only while an environment drifts
-		const flowNoise =
-			environment.heightFog.flowNoise === null || !this.options.flowNoise
-				? null
-				: streamWholeTexture({
-						stream,
-						textures,
-						id: scene.pkg.manifest.heightFogFlowNoise ?? null,
-						kind: '3d',
-						priority: 1e6,
-					});
-		const celestialIds = celestialTextures(this.#celestial);
-		this.#post.setSkyTextures({
-			cloud: cloud?.binding ?? null,
-			flowNoise: flowNoise?.binding ?? null,
-			celestial: (slot) =>
-				streamWholeTexture({ stream, textures, id: celestialIds[slot], kind: '2d', priority: 1e6 })
-					?.binding ?? null,
-			lensFlare: (id) => streamWholeTexture({ stream, textures, id, kind: '2d', priority: 1e6 }),
-		});
-
-		const reflection = streamWholeTexture({
-			stream,
-			textures,
-			id: environment.reflection,
-			kind: 'cube',
-			priority: 1e6,
-		});
-		this.#bindings.setReflection(reflection?.binding ?? null, reflection?.entry.mipCount ?? 1);
-
-		const ramp = streamWholeTexture({
-			stream,
-			textures,
-			id: environment.shadow.ramp,
-			kind: '2d',
-			priority: 1e6,
-		});
-		this.#bindings.set('shadowRamp', ramp?.binding?.view ?? null);
-
-		const cloudShadow = streamWholeTexture({
-			stream,
-			textures,
-			id: environment.cloudShadow?.texture ?? null,
-			kind: '2d',
-			priority: 1e6,
-		});
-		this.#bindings.set('cloudShadow', cloudShadow?.binding?.view ?? null);
 	}
 
 	/** lights the scene with the shown level's environment, or the defaults */
@@ -1270,7 +1205,11 @@ export class Viewer {
 		}
 		this.#particlesShown = meshSelection?.particles ?? false;
 		this.#times.span('mesh select');
-		this.#updateSkyTextures(scene);
+		updateSkyTextures(
+			{ stream, textures: scene.textures, flowNoise: scene.pkg.manifest.heightFogFlowNoise ?? null },
+			{ environment: this.#environment, celestial: this.#celestial, flowNoise: options.flowNoise },
+			{ post: this.#post, bindings: this.#bindings },
+		);
 		if (options.water) {
 			this.#water.prepare({
 				eye: this.camera.position,
