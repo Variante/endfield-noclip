@@ -4,13 +4,7 @@ import { test } from 'node:test';
 import type { LevelInteractive } from '@endfield-noclip/formats/endfield/level-interactives';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 
-import {
-	entityProperties,
-	jumpPadArrow,
-	startState,
-	stateOf,
-	verticalRopeFloats,
-} from './interactive-facilities.ts';
+import { jumpPadArrow, startState, stateOf, verticalRopeFloats } from './interactive-facilities.ts';
 
 const property = (key: string, bits: string): MemoryPackValue => ({
 	key,
@@ -70,11 +64,17 @@ const text = (key: string, value: string): MemoryPackValue => ({
 	value: { type: 7, valueArray: [{ valueBit64: '0', valueString: value }] },
 });
 
-// the jump pad's config: its arrow effect and a target position of (-8.3, 0.6, -0.07)
+// the jump pad: its component's arrow effect, and its entity's target position of (-8.3, 0.6, -0.07). the free
+// variant sets `free_jump` on both, but only the component's counts
 const padTemplate: MemoryPackValue = {
-	saveProperties: [property('is_locked', '0')],
+	componentList: [
+		{
+			$type: 'Beyond_Gameplay_Core_JumpMachineComponentDataForMemoryPack',
+			propertyList: [text('effect', 'P_common_bouncingplatform_arrow_01'), property('free_jump', '0')],
+		},
+	],
+	saveProperties: [property('is_locked', '0'), property('state', '1')],
 	configProperties: [
-		text('effect', 'P_common_bouncingplatform_arrow_01'),
 		property('free_jump', '0'),
 		{
 			key: 'target_position',
@@ -87,24 +87,39 @@ const padTemplate: MemoryPackValue = {
 			},
 		},
 	],
-	templateVariant: [['int_jumpmachine_free', { diffProperties: [property('free_jump', '1')] }]],
+	templateVariant: [
+		[
+			'int_jumpmachine_free',
+			{
+				componentDiffProperties: [['Comp_JumpMachine', { value: [property('free_jump', '1')] }]],
+				diffProperties: [property('free_jump', '1')],
+			},
+		],
+	],
 };
 
 test('an unlocked jump pad turns its arrow towards its target position', () => {
-	const entity = entityProperties(padTemplate)!;
 	const pad = { ...row(null, []), position: [-8.3, 0, 10] as [number, number, number] };
-	const arrow = jumpPadArrow(entity, pad);
+	const arrow = jumpPadArrow(padTemplate, pad);
 	assert.equal(arrow?.effect, 'P_common_bouncingplatform_arrow_01');
 	// about straight down -z
 	assert.ok(arrow !== null && Math.abs(Math.abs(arrow.yaw) - 180) < 2, `yaw ${arrow?.yaw}`);
 });
 
-test('a free or locked jump pad places no arrow', () => {
-	const entity = entityProperties(padTemplate)!;
-	assert.equal(jumpPadArrow(entity, { ...row(null, []), template: 'int_jumpmachine_free' }), null);
-	const locked = row(null, []);
-	locked.properties = [{ key: 'is_locked', type: 1, values: [{ bits: 1n, text: null }] }];
-	assert.equal(jumpPadArrow(entity, locked), null);
+test('a free jump pad, or one whose state is off, places no arrow', () => {
+	assert.equal(jumpPadArrow(padTemplate, { ...row(null, []), template: 'int_jumpmachine_free' }), null);
+	assert.equal(jumpPadArrow(padTemplate, row(0n, [])), null);
+});
+
+test('the is_locked property alone leaves a jump pad that is on with its arrow', () => {
+	const pad = row(null, []);
+	pad.properties = [{ key: 'is_locked', type: 1, values: [{ bits: 1n, text: null }] }];
+	assert.notEqual(jumpPadArrow(padTemplate, pad), null);
+});
+
+test("a free pad placement that turns its component's free jump off places an arrow", () => {
+	const pad = { ...row(null, [[169, 'free_jump', 0n]]), template: 'int_jumpmachine_free' };
+	assert.equal(jumpPadArrow(padTemplate, pad)?.effect, 'P_common_bouncingplatform_arrow_01');
 });
 
 const port = (id: bigint, y: number, target: bigint | null): LevelInteractive => ({

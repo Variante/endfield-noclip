@@ -34,6 +34,7 @@ import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
 import { animatorParameterId, animatorPose } from './animator-defaults.ts';
+import { type ComponentKeys, componentParams } from './component-params.ts';
 import {
 	CRANE_TOWER_COMPONENTS,
 	craneSteps,
@@ -136,7 +137,12 @@ interface SettledLook {
 }
 
 /** the component of jump pads, which place an effect of their own */
-const JUMP_MACHINE_COMPONENTS = ['_JumpMachineComponentDataForMemoryPack'];
+const JUMP_MACHINE: ComponentKeys = {
+	suffix: '_JumpMachineComponentDataForMemoryPack',
+	diffKey: 'Comp_JumpMachine',
+	type: 169,
+};
+const JUMP_MACHINE_COMPONENTS = [JUMP_MACHINE.suffix];
 
 /** the component of vertical rope lifts, which set their rope's length from their two ports */
 const VERTICAL_ROPE_COMPONENTS = ['_InteractiveVerticalRopeComponentDataForMemoryPack'];
@@ -549,20 +555,30 @@ const atomFloat = (bits: bigint): number => {
 };
 
 /**
- * the stationary effect an unlocked jump pad that isn't a free jump places at itself, turned about the
- * vertical towards its target position
+ * the stationary effect a jump pad that isn't off (`state` 0) or a free jump places at itself, turned about
+ * the vertical towards its target position
  *
- * @param entity the jump pad template's entity properties
+ * @param template the decoded jump pad template
  * @param row a placed jump pad
  * @returns the effect's name and its yaw in degrees, or `null` when it places none
  */
 export const jumpPadArrow = (
-	entity: EntityProperties,
+	template: MemoryPackValue,
 	row: LevelInteractive,
 ): { effect: string; yaw: number } | null => {
-	const flag = (key: string) => (entityProperty(entity, row, key)?.[0]?.bits ?? 0n) !== 0n;
-	const effect = entityProperty(entity, row, 'effect')?.[0]?.text;
-	if (flag('is_locked') || flag('free_jump') || !effect) {
+	const entity = entityProperties(template);
+	const params = componentParams(template, row, JUMP_MACHINE);
+	if (entity === null || params === null) {
+		return null;
+	}
+	// a pad is locked while its `state` is off (0), whatever its `is_locked` property says. `free_jump` and
+	// `effect` are the component's own parameters; the state and the target are the entity's
+	const state =
+		stateOf(row) ?? Number(BigInt.asIntN(32, entityProperty(entity, row, STATE_KEY)?.[0]?.bits ?? 0n));
+	const locked = state === 0;
+	const free = (params.get('free_jump')?.values[0]?.bits ?? 0n) !== 0n;
+	const effect = params.get('effect')?.values[0]?.text;
+	if (locked || free || !effect) {
 		return null;
 	}
 	const target = (entityProperty(entity, row, 'target_position') ?? []).map((atom) => atomFloat(atom.bits));
@@ -1237,8 +1253,8 @@ export const loadInteractiveFacilities = async (
 	const animatorStarts = new Map<string, AnimatorStart>();
 	/** telescopic bridges' piece counts and prefab roots, by key */
 	const telescopic = new Map<string, { pieces: number; prefab: string }>();
-	/** jump pads' entity properties, which say whether and where they place their arrow, by key */
-	const jumpPads = new Map<string, EntityProperties>();
+	/** jump pads' decoded templates, which say whether and where they place their arrow, by key */
+	const jumpPads = new Map<string, MemoryPackValue>();
 	/** auto-moving platforms' decoded templates and starting `state`, by key */
 	const autoMoves = new Map<string, { template: MemoryPackValue; start: StartState | null }>();
 	/** crane towers' decoded templates, by key */
@@ -1256,8 +1272,8 @@ export const loadInteractiveFacilities = async (
 					keys: PlayerKey[];
 					animator: AnimatorStart | null;
 					start: StartState | null;
-					/** a jump pad's entity properties, `null` for other templates */
-					jumpPad: EntityProperties | null;
+					/** a jump pad's decoded template, `null` for other templates */
+					jumpPad: MemoryPackValue | null;
 					/** an auto-moving platform's decoded template, `null` for other templates */
 					autoMove: MemoryPackValue | null;
 					verticalRope: boolean;
@@ -1309,7 +1325,7 @@ export const loadInteractiveFacilities = async (
 							keys: playerKeys(decoded),
 							animator: animatorStart(decoded),
 							start: startState(decoded),
-							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? entityProperties(decoded) : null,
+							jumpPad: hasComponent(decoded, JUMP_MACHINE_COMPONENTS) ? decoded : null,
 							autoMove: isAutoMovePlatform(decoded) ? decoded : null,
 							verticalRope: hasComponent(decoded, VERTICAL_ROPE_COMPONENTS),
 							craneTower: hasComponent(decoded, CRANE_TOWER_COMPONENTS) ? decoded : null,

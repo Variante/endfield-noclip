@@ -1,8 +1,4 @@
-import {
-	type InteractiveParam,
-	type LevelInteractive,
-	interactiveParamFromValue,
-} from '@endfield-noclip/formats/endfield/level-interactives';
+import type { LevelInteractive } from '@endfield-noclip/formats/endfield/level-interactives';
 import {
 	type BezierCurve,
 	bezierPoint,
@@ -12,30 +8,14 @@ import {
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
 import { inverseTransformPoint, trsMatrix } from '@endfield-noclip/formats/unity/transform';
 
+import { type ComponentKeys, componentOf, componentParams } from './component-params.ts';
+
 // auto-moving platforms riding LevelData splines: docs/game-data/interactives.md#auto-moving-platforms
 
-/** the game's interactive component type of the custom curve move component, as placements key its parameters */
-const CURVE_MOVE_COMPONENT = 107;
-
-/** the variant diff key of the same component */
-const CURVE_MOVE_DIFF = 'Comp_InteractiveCustomCurveMove';
-
-const isRecord = (value: MemoryPackValue | undefined): value is { [key: string]: MemoryPackValue } =>
-	value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value);
-
-const componentOf = (
-	template: MemoryPackValue,
-	suffix: string,
-): { [key: string]: MemoryPackValue } | null => {
-	if (!isRecord(template) || !Array.isArray(template.componentList)) {
-		return null;
-	}
-	for (const component of template.componentList) {
-		if (isRecord(component) && typeof component.$type === 'string' && component.$type.endsWith(suffix)) {
-			return component;
-		}
-	}
-	return null;
+const CURVE_MOVE: ComponentKeys = {
+	suffix: '_CustomCurveMoveComponentDataForMemoryPack',
+	diffKey: 'Comp_InteractiveCustomCurveMove',
+	type: 107,
 };
 
 /**
@@ -44,7 +24,7 @@ const componentOf = (
  */
 export const isAutoMovePlatform = (template: MemoryPackValue): boolean =>
 	componentOf(template, '_InteractiveAutoMovePlatformComponentDataForMemoryPack') !== null &&
-	componentOf(template, '_CustomCurveMoveComponentDataForMemoryPack') !== null;
+	componentOf(template, CURVE_MOVE.suffix) !== null;
 
 /** what a curve move component does once started */
 export interface CurveMove {
@@ -66,47 +46,6 @@ export interface CurveMove {
 	eased: boolean;
 }
 
-/**
- * the template's curve move parameters, overridden by its variant's diff and then the placement's own
- *
- * @param template the decoded template
- * @param row the placement
- * @returns the merged parameters by key, or `null` without a curve move component
- */
-const curveParams = (
-	template: MemoryPackValue,
-	row: LevelInteractive,
-): Map<string, InteractiveParam> | null => {
-	const component = componentOf(template, '_CustomCurveMoveComponentDataForMemoryPack');
-	if (component === null || !isRecord(template)) {
-		return null;
-	}
-	const params = new Map<string, InteractiveParam>();
-	const add = (list: MemoryPackValue | undefined): void => {
-		for (const value of Array.isArray(list) ? list : []) {
-			const param = interactiveParamFromValue(value);
-			params.set(param.key, param);
-		}
-	};
-	add(component.propertyList);
-	for (const pair of Array.isArray(template.templateVariant) ? template.templateVariant : []) {
-		if (!Array.isArray(pair) || pair[0] !== row.template || !isRecord(pair[1])) {
-			continue;
-		}
-		for (const diff of Array.isArray(pair[1].componentDiffProperties)
-			? pair[1].componentDiffProperties
-			: []) {
-			if (Array.isArray(diff) && diff[0] === CURVE_MOVE_DIFF && isRecord(diff[1])) {
-				add(diff[1].value);
-			}
-		}
-	}
-	for (const param of row.componentProperties.get(CURVE_MOVE_COMPONENT) ?? []) {
-		params.set(param.key, param);
-	}
-	return params;
-};
-
 const toFloat = (bits: bigint): number => {
 	const view = new DataView(new ArrayBuffer(4));
 	view.setUint32(0, Number(BigInt.asUintN(32, bits)));
@@ -119,7 +58,7 @@ const toFloat = (bits: bigint): number => {
  * @returns what its curve move component does once started, or `null` without one
  */
 export const curveMoveOf = (template: MemoryPackValue, row: LevelInteractive): CurveMove | null => {
-	const params = curveParams(template, row);
+	const params = componentParams(template, row, CURVE_MOVE);
 	if (params === null) {
 		return null;
 	}
