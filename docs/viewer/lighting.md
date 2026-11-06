@@ -144,5 +144,6 @@ box turns with its placement.
 each frame `local-lights.ts` takes the shown level's lights (and tag 0's) whose condition holds,
 that are within their culling distance and in the view, sorts them by camera distance then priority
 and keeps the nearest 256, the game's hard maximum; its quality-dependent cap is unknown. it bins
-them into the game's tiles and slices using conservative bounding spheres on the CPU. the volumetric
-fog lights each froxel with the same lists.
+them into the game's tiles and slices using conservative bounding spheres on the CPU, and keeps the
+last upload while the camera, render size and shown lights stay the same. the volumetric fog lights
+each froxel with the same lists.

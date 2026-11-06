@@ -45,7 +45,8 @@
 - **AO at half resolution.** `ao depth` reduces the depth once into half-resolution view depth; GTAO
   marches that (keeping its scattered reads in cache) and the blur upsamples with depth weights.
 - **cached work.** the transmittance and multiple-scattering LUTs render once per environment;
-  irradiance clipmaps update only on re-centre or new cells.
+  irradiance clipmaps update only on re-centre or new cells; local lights are selected, binned and
+  uploaded only when the camera, render size or shown lights change, not on settle frames.
 - **no per-frame allocation on hot paths.** selections (their arrays and the instance range, terrain
   patch and surface objects in them), buckets and plane arrays are reused across frames, and texture
   requests per bucket allocate nothing. the stream manager evicts from a set of its ready, unpinned

@@ -60,7 +60,7 @@ import {
 import { RenderTargets } from './render/frame/render-targets.ts';
 import { InstanceRenderer } from './render/instances/instance-renderer.ts';
 import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
-import { LocalLights } from './render/lighting/local-lights.ts';
+import { type LocalLightFrame, LocalLights } from './render/lighting/local-lights.ts';
 import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
 import { PostProcess } from './render/post/post-process.ts';
 import type { PostSettings, Tonemapper } from './render/post/settings.ts';
@@ -273,6 +273,8 @@ const INSTANCE_ROWS = 1_500_000;
 const STATS_INTERVAL = 250;
 /** the irradiance volume of a package without one */
 const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array(), groups: new Uint32Array() };
+/** the frame uniforms' local lights while they're off */
+const NO_LOCAL_LIGHTS: LocalLightFrame = { count: 0, tilesX: 1, tilesY: 1 };
 /** how far over the terrain a level's first view stays (m) */
 const VIEW_CLEARANCE = 100;
 /** headings a level's first view tries, from the south round */
@@ -1631,8 +1633,12 @@ export class Viewer {
 				this.#environment.sunDirection,
 			);
 		}
+		const lit = hasScene && this.options.localLights && this.options.debugView === 'lit';
+		const lights = lit
+			? this.#lights.prepare(this.camera, this.#targets.width, this.#targets.height)
+			: NO_LOCAL_LIGHTS;
 		const uniforms = ring.allocate(FRAME_UNIFORM_BYTES);
-		this.#writeFrameUniforms(uniforms.f32, uniforms.u32, { shadows, post });
+		this.#writeFrameUniforms(uniforms.f32, uniforms.u32, { shadows, post, lights });
 		// each cascade's frame: the main one with the cascade's view-projection
 		const cascadeOffsets: number[] = [];
 		if (shadows) {
@@ -1829,7 +1835,7 @@ export class Viewer {
 	#writeFrameUniforms(
 		f32: Float32Array,
 		u32: Uint32Array,
-		{ shadows, post }: { shadows: boolean; post: PostSettings },
+		{ shadows, post, lights }: { shadows: boolean; post: PostSettings; lights: Readonly<LocalLightFrame> },
 	): void {
 		const camera = this.camera;
 		const eye = camera.position;
@@ -1937,8 +1943,6 @@ export class Viewer {
 			f32[at + 3] = center !== null && this.options.irradiance ? 1 : 0;
 		});
 		{
-			const lit = this.scene !== null && this.options.localLights && this.options.debugView === 'lit';
-			const lights = lit ? this.#lights.prepare(camera, width, height) : { count: 0, tilesX: 1, tilesY: 1 };
 			const at = FrameOffsets.localLights;
 			f32[at] = lights.count;
 			f32[at + 1] = lights.tilesX;
