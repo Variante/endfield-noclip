@@ -1,3 +1,4 @@
+import { cross, dot, normalize } from '../../math/vec3.ts';
 import { type Camera, type Plane, type Vec3, sweepPlanes } from '../../scene/camera.ts';
 import type { CasterVolume } from '../../streaming/selection.ts';
 
@@ -52,19 +53,6 @@ export interface ShadowLayer {
 	/** bounding sphere: camera-relative centre and radius squared */
 	sphere: [number, number, number, number];
 }
-
-const dot = (a: readonly number[], b: readonly number[]): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-
-const normalize = (v: Vec3): Vec3 => {
-	const length = Math.hypot(v[0], v[1], v[2]) || 1;
-	return [v[0] / length, v[1] / length, v[2] / length];
-};
-
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-	a[1] * b[2] - a[2] * b[1],
-	a[2] * b[0] - a[0] * b[2],
-	a[0] * b[1] - a[1] * b[0],
-];
 
 /**
  * the layers' volumes in the light's frame, for culling casters per layer: unit axes x, y (across the light)

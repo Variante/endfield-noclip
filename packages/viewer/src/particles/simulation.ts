@@ -11,6 +11,8 @@ import {
 } from '@endfield-noclip/package-format/particles';
 
 import { srgbToLinear } from '../math/color.ts';
+import { eulerQuaternion, eulerQuaternionInto, type Quat, rotateByInto, rotateInto } from '../math/quat.ts';
+import { normalizeOrZInto } from '../math/vec3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { evaluateMinMax, evaluateMinMaxGradient, livedAt, meanOf, upperBound } from './curves.ts';
@@ -26,15 +28,7 @@ import {
 } from './motion.ts';
 import { Channel, hash2, random } from './random.ts';
 import { sheetTile } from './texture-sheet.ts';
-import {
-	eulerQuaternion,
-	eulerQuaternionInto,
-	normalizeInto,
-	type Quat,
-	rotateByInto,
-	rotateInto,
-	unitVectorInto,
-} from './vector-math.ts';
+import { unitVectorInto } from './vector-math.ts';
 
 /**
  * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the
@@ -564,7 +558,7 @@ export class ParticleSimulation {
 				}
 				// towards the matching point on the cone's far end
 				const spread = rho * Math.tan((shape.angle * Math.PI) / 180);
-				normalizeInto(direction, spread * c, spread * s, 1);
+				normalizeOrZInto(direction, spread * c, spread * s, 1);
 				if (shape.kind === ParticleShapeKind.ConeVolume) {
 					const along = (shape.length * r2) / direction[2];
 					position[0] = position[0] + direction[0] * along;
@@ -617,12 +611,12 @@ export class ParticleSimulation {
 			direction[1] * scale[1],
 			direction[2] * scale[2],
 		);
-		normalizeInto(direction, direction[0], direction[1], direction[2]);
+		normalizeOrZInto(direction, direction[0], direction[1], direction[2]);
 		const away = begin.away;
 		if (shape.randomDirection > 0) {
 			unitVectorInto(away, random(seed, id, Channel.Direction0), random(seed, id, Channel.Direction1));
 			const a = shape.randomDirection;
-			normalizeInto(
+			normalizeOrZInto(
 				direction,
 				direction[0] + (away[0] - direction[0]) * a,
 				direction[1] + (away[1] - direction[1]) * a,
@@ -630,9 +624,9 @@ export class ParticleSimulation {
 			);
 		}
 		if (shape.sphericalDirection > 0) {
-			normalizeInto(away, position[0] - centre[0], position[1] - centre[1], position[2] - centre[2]);
+			normalizeOrZInto(away, position[0] - centre[0], position[1] - centre[1], position[2] - centre[2]);
 			const a = shape.sphericalDirection;
-			normalizeInto(
+			normalizeOrZInto(
 				direction,
 				direction[0] + (away[0] - direction[0]) * a,
 				direction[1] + (away[1] - direction[1]) * a,
@@ -698,7 +692,7 @@ export class ParticleSimulation {
 		const radialRandom = random(seed, id, Channel.Radial);
 		const radialSpeed = evaluateMinMax(velocity.radial, lived, radialRandom) * modifier * scaleNow;
 		const radial = travelled(velocity.radial, age, life, radialRandom, scale) * modifier;
-		normalizeInto(outward, start[0] - offset[0], start[1] - offset[1], start[2] - offset[2]);
+		normalizeOrZInto(outward, start[0] - offset[0], start[1] - offset[1], start[2] - offset[2]);
 		for (let axis = 0; axis < 3; axis++) {
 			position[axis] = position[axis] + linear[axis] * modifier + outward[axis] * radial;
 			moving[axis] = moving[axis] + linearNow[axis] * modifier + outward[axis] * radialSpeed;
@@ -783,7 +777,7 @@ export class ParticleSimulation {
 				for (let axis = 0; axis < 3; axis++) {
 					from[axis] = start[axis] + moved[axis] - centre[axis];
 				}
-				normalizeInto(outward, from[0], from[1], from[2]);
+				normalizeOrZInto(outward, from[0], from[1], from[2]);
 				// ω × r, the orbit's velocity at the particle's place
 				result[0] = linear[0] + spin[1] * from[2] - spin[2] * from[1] + outward[0] * radial;
 				result[1] = linear[1] + spin[2] * from[0] - spin[0] * from[2] + outward[1] * radial;

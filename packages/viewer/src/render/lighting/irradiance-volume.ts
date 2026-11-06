@@ -1,6 +1,7 @@
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
+import { vec3From } from '../../math/vec3.ts';
 import type { DecodedIrradiance } from '../../package/decode-protocol.ts';
 import type { Vec3 } from '../../scene/camera.ts';
 import type { ResidentIrradiance } from '../../streaming/resident.ts';
@@ -35,9 +36,6 @@ const ORIGIN = 8192;
 const MAX_REGIONS = 8;
 /** words per region in the regions buffer: origin xyz, first cell word, size xyz, padding */
 const REGION_WORDS = 8;
-
-/** @returns `f` over the three axes */
-const vec3 = (f: (axis: number) => number): [number, number, number] => [f(0), f(1), f(2)];
 
 interface Level {
 	/** probe index of the centre, in this level's spacing; `null` before the first update */
@@ -135,7 +133,7 @@ export class IrradianceVolume {
 
 		// each level's window spans the cells its probes fall in: size · spacing / cell size, plus one
 		const windowSizes = SPACING.map((spacing, level) =>
-			vec3((axis) => Math.floor((SIZE[axis] * spacing) / (32 << level)) + 1),
+			vec3From((axis) => Math.floor((SIZE[axis] * spacing) / (32 << level)) + 1),
 		);
 		const windowWords = windowSizes.map(([x, y, z]) => x * y * z);
 		this.#windows = device.createBuffer({
@@ -263,7 +261,7 @@ export class IrradianceVolume {
 		}
 		for (const [index, level] of this.#levels.entries()) {
 			const spacing = SPACING[index];
-			const wanted = vec3((axis) => Math.round(eye[axis] / spacing));
+			const wanted = vec3From((axis) => Math.round(eye[axis] / spacing));
 			if (level.center === null || wanted.some((v, axis) => Math.abs(v - level.center![axis]) > RECENTRE)) {
 				level.center = wanted;
 				level.dirty = true;
@@ -272,7 +270,7 @@ export class IrradianceVolume {
 			// the cells the level's probes fall in
 			const step = 1 << (2 * index);
 			const shift = 6 + index;
-			const min = vec3((axis) => ((center[axis] - SIZE[axis] / 2) * step + ORIGIN) >> shift);
+			const min = vec3From((axis) => ((center[axis] - SIZE[axis] / 2) * step + ORIGIN) >> shift);
 			if (min.some((v, axis) => v !== level.windowMin[axis])) {
 				level.windowMin = min;
 				level.dirty = true;

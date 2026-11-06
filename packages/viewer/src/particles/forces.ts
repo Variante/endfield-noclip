@@ -4,10 +4,10 @@ import {
 	PARTICLE_STEP_RATE,
 } from '@endfield-noclip/package-format/particles';
 
+import { times3Into } from '../math/mat3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { evaluateMinMax } from './curves.ts';
-import { times3Into } from './vector-math.ts';
 
 /** a force field ready to step: its matrices as 3×3 rows plus a translation */
 export interface PreparedField {

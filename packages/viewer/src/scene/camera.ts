@@ -9,6 +9,8 @@
  * @module
  */
 
+import { dot } from '../math/vec3.ts';
+
 /** a plane `n·p + d ≥ 0` (inside), with `p` relative to the camera */
 export type Plane = [nx: number, ny: number, nz: number, d: number];
 
@@ -70,14 +72,13 @@ export class Camera {
 	 *   `null` when it points behind the camera
 	 */
 	projectDirection(direction: Vec3, aspect: number): [u: number, v: number] | null {
-		const dot = (a: Vec3): number => a[0] * direction[0] + a[1] * direction[1] + a[2] * direction[2];
-		const w = dot(this.forward());
+		const w = dot(this.forward(), direction);
 		if (w <= 0) {
 			return null;
 		}
 		const f = 1 / Math.tan(this.fovY / 2);
-		const x = ((f / aspect) * dot(this.right())) / w;
-		const y = (f * dot(this.up())) / w;
+		const x = ((f / aspect) * dot(this.right(), direction)) / w;
+		const y = (f * dot(this.up(), direction)) / w;
 		return [x * 0.5 + 0.5, 0.5 - y * 0.5];
 	}
 

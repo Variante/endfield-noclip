@@ -1,6 +1,8 @@
 import type { AutoExposureConfig } from '@endfield-noclip/package-format/environment';
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
+import { clamp } from '../math/scalar.ts';
+
 /** histogram bins, as the game's */
 export const BINS = 16;
 
@@ -44,8 +46,6 @@ export const autoExposureLook = (config: AutoExposureInput): AutoExposureSetting
 	percentiles: config.autoExposurePixelLuminanceRange,
 	evLimits: config.autoExposureEvClampRange,
 });
-
-const clamp = (x: number, lo: number, hi: number): number => Math.min(Math.max(x, lo), hi);
 
 /**
  * @param bins {@link BINS} weighted sample counts, darkest first

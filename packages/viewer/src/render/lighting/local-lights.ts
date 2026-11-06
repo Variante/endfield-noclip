@@ -1,5 +1,6 @@
 import { type LightEntry, LightKind } from '@endfield-noclip/package-format/lights';
 
+import { dot } from '../../math/vec3.ts';
 import type { Camera, Vec3 } from '../../scene/camera.ts';
 
 /** lights the shading takes per frame, as the game's light list does */
@@ -204,8 +205,6 @@ export class LocalLights {
 		return candidates;
 	}
 }
-
-const dot = (a: readonly number[], b: readonly number[]): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 /** @returns a view-space coordinate's NDC at a view depth, for a projection scale */
 const ndc = (value: number, depth: number, scale: number): number => (value * scale) / depth;

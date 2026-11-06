@@ -1,5 +1,6 @@
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
 import { halton } from '../../math/sequence.ts';
+import { scale } from '../../math/vec3.ts';
 import type { Camera, Vec3 } from '../../scene/camera.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 
@@ -57,8 +58,6 @@ const sliceMapping = (near: number, far: number): Slices => {
 
 const sameSlices = (a: Slices | null, b: Slices | null): boolean =>
 	a !== null && b !== null && a.scale === b.scale && a.offset === b.offset;
-
-const scale = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
 
 /** a write-only 3D grid in the froxel pass's group */
 const storage = (binding: number): GPUBindGroupLayoutEntry => ({

@@ -15,20 +15,14 @@ import {
 	rowSheet,
 } from '../content/instance-rows.ts';
 import type { RangeAllocation } from '../gfx/range-allocator.ts';
+import { times3Columns, times3ColumnsInto } from '../math/mat3.ts';
+import { type Quat, rotateInto, turnFromZInto } from '../math/quat.ts';
+import { normalizeOrZ, normalizeOrZInto } from '../math/vec3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { hash2, hashText } from './random.ts';
 import { MAX_PARTICLES, PARTICLE_FLOATS, ParticleFloat, ParticleSimulation } from './simulation.ts';
-import {
-	normalize,
-	normalizeInto,
-	type Quat,
-	rotateInto,
-	times3Columns,
-	times3ColumnsInto,
-	turnFromZInto,
-	velocityBasisInto,
-} from './vector-math.ts';
+import { velocityBasisInto } from './vector-math.ts';
 
 /** the camera inputs particle rows depend on */
 export interface ParticleView {
@@ -55,7 +49,7 @@ const billboardBasis = (billboard: RowBillboard, view: ParticleView): readonly V
 		}
 		case RowBillboard.Upright: {
 			// level and defined even looking straight down; Unity's forward is right × up
-			const right = normalize([view.right[0], 0, view.right[2]]);
+			const right = normalizeOrZ([view.right[0], 0, view.right[2]]);
 			return [right, [0, 1, 0], [-right[2], 0, right[0]]];
 		}
 		default: {
@@ -259,7 +253,7 @@ const stretchedShape = (row: RowGeometry, particle: Readonly<ParticleInput>, con
 	// one moving along the line of sight has no width, so the game draws nothing for it either
 	const flatLength = Math.hypot(flatX, flatY, flatZ);
 	if (flatLength > 1e-15) {
-		normalizeInto(right, flatX, flatY, flatZ);
+		normalizeOrZInto(right, flatX, flatY, flatZ);
 	} else {
 		for (let r = 0; r < 3; r++) {
 			right[r] = view.right[r];
@@ -267,7 +261,7 @@ const stretchedShape = (row: RowGeometry, particle: Readonly<ParticleInput>, con
 	}
 	// the face's own normal, which the effect shaders' Fresnel fades by, turned so the quad's -z normal faces
 	// the camera
-	normalizeInto(
+	normalizeOrZInto(
 		face,
 		right[1] * streak[2] - right[2] * streak[1],
 		right[2] * streak[0] - right[0] * streak[2],
@@ -371,7 +365,7 @@ const rowContext = (
 				}
 				case ParticleAlignment.Local:
 				case ParticleAlignment.Velocity: {
-					context.quadFrame = columns.map(normalize);
+					context.quadFrame = columns.map(normalizeOrZ);
 					break;
 				}
 			}

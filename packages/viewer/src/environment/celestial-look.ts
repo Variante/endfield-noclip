@@ -17,6 +17,8 @@ import type {
 import type { Color, Vec4 } from '@endfield-noclip/package-format/values';
 
 import { linearRgb } from '../math/color.ts';
+import { times3Columns } from '../math/mat3.ts';
+import { normalize } from '../math/vec3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { exposedSunIntensity, type SunDirections, towardsEffectLight, towardsLight } from './sun.ts';
@@ -172,11 +174,6 @@ const rgb = (c: readonly number[] | undefined, scale = 1): Vec3 =>
 const linear = (c: Readonly<Color> | undefined, scale = 1): Vec3 =>
 	rgb(c === undefined ? undefined : linearRgb(c), scale);
 
-const normalize = ([x, y, z]: Vec3): Vec3 => {
-	const length = Math.hypot(x, y, z) || 1;
-	return [x / length, y / length, z / length];
-};
-
 const nebulaLook = (star: StarConfig | undefined): NebulaLook | null => {
 	if (star === undefined || !star.enableNebula || star.nebulaMap === null) {
 		return null;
@@ -299,12 +296,6 @@ const rayPlanetLook = (material: EnvironmentMaterial): RayPlanetLook | null => {
 /** a 3×3 rotation as columns; Unity's quaternions rotate with the same matrices as a right-handed frame */
 type Mat3 = [Vec3, Vec3, Vec3];
 
-const apply = ([c0, c1, c2]: Mat3, [x, y, z]: Vec3): Vec3 => [
-	c0[0] * x + c1[0] * y + c2[0] * z,
-	c0[1] * x + c1[1] * y + c2[1] * z,
-	c0[2] * x + c1[2] * y + c2[2] * z,
-];
-
 /** `Quaternion.AngleAxis(degrees, axis)` as a matrix (Rodrigues) */
 const angleAxis = (degrees: number, axis: Vec3): Mat3 => {
 	const [x, y, z] = normalize(axis);
@@ -323,7 +314,7 @@ const euler = (x: number, y: number, z: number): Mat3 => {
 	const rz = angleAxis(z, [0, 0, 1]);
 	const rx = angleAxis(x, [1, 0, 0]);
 	const ry = angleAxis(y, [0, 1, 0]);
-	const columns = rz.map((column) => apply(ry, apply(rx, column)));
+	const columns = rz.map((column) => times3Columns(ry, times3Columns(rx, column)));
 	return [columns[0], columns[1], columns[2]];
 };
 
@@ -357,10 +348,10 @@ const skyPlanetLook = (
 	// the body's frame: tilted, then spun about its pole. the game hands its right vector over as "forward"
 	// and its forward as "right"; the shader reads them that way
 	const tilt = euler(property.selfTiltX, 0, property.selfTiltZ);
-	const up = apply(tilt, [0, 1, 0]);
+	const up = times3Columns(tilt, [0, 1, 0]);
 	const spin = angleAxis(property.selfRotationY, up);
-	const right = apply(spin, apply(tilt, [1, 0, 0]));
-	const front = apply(spin, apply(tilt, [0, 0, 1]));
+	const right = times3Columns(spin, times3Columns(tilt, [1, 0, 0]));
+	const front = times3Columns(spin, times3Columns(tilt, [0, 0, 1]));
 
 	const ring = planet.ring;
 	let ringParams: SkyPlanetLook['ring'] = [0, 0, 0];
