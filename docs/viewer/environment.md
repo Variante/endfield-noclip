@@ -64,8 +64,10 @@ the post profile, not a Unity `VolumeProfile`.
 
 the "volumes at camera" toggle turns blending by position off: the scene-wide global volumes and the
 level's base volume apply fully wherever the camera is, giving the level's own look. a pinned phase
-goes over that look instead of the volume blend. `volumeApplies` is the one place that decides
-whether a volume may apply: it has a phase and its visibility group's condition holds.
+goes over that look instead of the volume blend; the pin offers the phases of the volumes the scene
+conditions panel lists for the shown level ([listing](scene-states.md#the-scene-conditions-panel)),
+neighbours' volumes reaching into it included. `volumeApplies` is the one place that decides whether
+a volume may apply: it has a phase and its visibility group's condition holds.
 
 ## activation
 

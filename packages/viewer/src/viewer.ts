@@ -30,7 +30,6 @@ import {
 	EnvironmentFades,
 	eyeInLevelVolume,
 	planBlend,
-	volumeLevelTag,
 } from './environment/blend.ts';
 import {
 	type CelestialLook,
@@ -71,6 +70,7 @@ import { VolumetricFog } from './render/sky/volumetric-fog.ts';
 import { TerrainRenderer } from './render/terrain/terrain-renderer.ts';
 import { type TextureBinding, TextureStore, placeholderView } from './render/textures/texture-store.ts';
 import { WaterRenderer } from './render/water/water-renderer.ts';
+import { volumesForLevel } from './scene-states/listing.ts';
 import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.ts';
 import { Camera, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
@@ -858,7 +858,7 @@ export class Viewer {
 		return this.#appliedVolumes;
 	}
 
-	/** @returns the phases the shown level's volumes apply, for pinning one: index and name */
+	/** @returns the phases the volumes listed for the shown level apply, for pinning one: index and name */
 	environmentPhases(): { index: number; name: string }[] {
 		const manifest = this.scene?.pkg.manifest;
 		const level = this.#level;
@@ -866,9 +866,8 @@ export class Viewer {
 			return [];
 		}
 		const indices = new Set<number>();
-		for (const volume of manifest.environmentVolumes) {
-			const owner = volumeLevelTag(manifest, volume);
-			if (volume.phase !== null && (owner === level.tag || owner === 0)) {
+		for (const { volume } of volumesForLevel(manifest, level)) {
+			if (volume.phase !== null) {
 				indices.add(volume.phase);
 			}
 		}
