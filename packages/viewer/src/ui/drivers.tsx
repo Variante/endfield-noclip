@@ -1,6 +1,22 @@
-import type { ControlDriver, DrivenControl, SceneControl } from '@endfield-noclip/package-format/states';
+import type {
+	ControlDriver,
+	DrivenControl,
+	QuestRef,
+	SceneControl,
+} from '@endfield-noclip/package-format/states';
 
 import type { Viewer } from '../viewer.ts';
+
+/** @returns a quest by mission and name where known, else by id */
+const questText = (quest: QuestRef): string => {
+	if (quest.mission === null) {
+		return quest.id;
+	}
+	if (quest.name === null) {
+		return quest.mission;
+	}
+	return `${quest.mission}: ${quest.name}`;
+};
 
 /** @returns a driver in words: what it does to the control, and why */
 const driverText = (driver: ControlDriver, control: DrivenControl): string => {
@@ -13,14 +29,7 @@ const driverText = (driver: ControlDriver, control: DrivenControl): string => {
 	}
 	switch (driver.kind) {
 		case 'quest': {
-			const quests = driver.quests.map((quest) =>
-				quest.mission === null
-					? quest.id
-					: quest.name === null
-						? quest.mission
-						: `${quest.mission}: ${quest.name}`,
-			);
-			return `${verb} by quest progress: ${quests.join('; ')}`;
+			return `${verb} by quest progress: ${driver.quests.map(questText).join('; ')}`;
 		}
 		case 'switch': {
 			return `${verb} when the player uses ${driver.template ?? 'an interactive'}`;

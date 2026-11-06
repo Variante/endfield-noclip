@@ -1,4 +1,8 @@
 import { ruleText } from '@endfield-noclip/package-format/conditions';
+import {
+	EnvironmentBlendMode,
+	type EnvironmentVolumeInfo,
+} from '@endfield-noclip/package-format/environment';
 import type {
 	MissionInfo,
 	RuleText,
@@ -181,6 +185,17 @@ const ControlRow = ({
 	);
 };
 
+/** @returns how an environment volume applies when its checkbox is on, in words */
+const blendText = (volume: EnvironmentVolumeInfo): string => {
+	if (volume.control === null) {
+		return 'Phase unavailable';
+	}
+	if (volume.blendMode === EnvironmentBlendMode.Manual) {
+		return 'Scripted blend · preview at full strength';
+	}
+	return `Priority ${volume.priority}`;
+};
+
 /** quest log tabs in the game's order */
 const CATEGORIES: { category: MissionInfo['category']; title: string }[] = [
 	{ category: 'main', title: 'Main story' },
@@ -227,12 +242,15 @@ const StoryProgress = ({
 	const points: { key: string; point: StoryPoint; text: string }[] = [
 		{ key: 'none', point: { mission: -1, step: 0 }, text: 'not started' },
 		...storyPoints(listed, order).map(({ point, mission, quests }) => {
+			if (point === null) {
+				return { key: 'done', point, text: finished };
+			}
 			const name = (order.length > 1 && missions.get(mission)?.name) || null;
 			const step = quests.length === 0 ? 'started' : quests.map((quest) => quest.name).join(' / ');
 			return {
-				key: point === null ? 'done' : `${point.mission}:${point.step}`,
+				key: `${point.mission}:${point.step}`,
 				point,
-				text: point === null ? finished : name === null ? step : `${name}: ${step}`,
+				text: name === null ? step : `${name}: ${step}`,
 			};
 		}),
 	];
@@ -467,11 +485,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 							<span>
 								{volume.name}
 								<small className="muted">
-									{control === null
-										? 'Phase unavailable'
-										: volume.blendMode === 3
-											? 'Scripted blend · preview at full strength'
-											: `Priority ${volume.priority}`}
+									{blendText(volume)}
 									{states !== '' && ` · with ${states}`}
 									{condition !== null &&
 										control !== null &&

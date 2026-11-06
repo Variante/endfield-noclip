@@ -8,11 +8,12 @@ import { useViewerState } from './use-viewer.ts';
 
 const HLOD_TIERS = [0, 1, 2] as const;
 
-type BooleanKey = {
-	[K in keyof ViewerOptions]: ViewerOptions[K] extends boolean ? K : never;
+/** the options whose values are `T`s */
+type OptionKey<T> = {
+	[K in keyof ViewerOptions]: ViewerOptions[K] extends T ? K : never;
 }[keyof ViewerOptions];
 
-const Toggle = ({ viewer, name, label }: { viewer: Viewer; name: BooleanKey; label: string }) => (
+const Toggle = ({ viewer, name, label }: { viewer: Viewer; name: OptionKey<boolean>; label: string }) => (
 	<label className="toggle">
 		<input
 			type="checkbox"
@@ -33,15 +34,7 @@ const Slider = ({
 	unit,
 }: {
 	viewer: Viewer;
-	name:
-		| 'maxSse'
-		| 'terrainPixels'
-		| 'minBoxPixels'
-		| 'outlineMetres'
-		| 'budgetMiB'
-		| 'textureBias'
-		| 'exposure'
-		| 'renderScale';
+	name: OptionKey<number>;
 	label: string;
 	min: number;
 	max: number;
@@ -68,7 +61,7 @@ const Slider = ({
 	);
 };
 
-const Choice = <K extends 'tonemapper' | 'debugView'>({
+const Choice = <K extends OptionKey<string>>({
 	viewer,
 	name,
 	label,
