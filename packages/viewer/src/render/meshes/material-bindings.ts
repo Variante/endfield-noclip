@@ -1,5 +1,5 @@
 import { LookFlags, type MaterialLook, SLOTS, SLOT_FLAGS } from '../../looks/look.ts';
-import { placeholderView, type TextureBinding, type TextureStore } from '../textures/texture-store.ts';
+import type { TextureBinding, TextureStore } from '../textures/texture-store.ts';
 
 /** the main pass's outputs that scene effects read, as `SceneTextures` holds them */
 export interface EffectInputs {
@@ -51,6 +51,8 @@ export class MaterialBindings {
 	#white: GPUTextureView;
 	/** bound where an effect has no 3D texture */
 	#noVolume: GPUTextureView;
+	/** the textures behind {@link #white} and {@link #noVolume} */
+	#textures: GPUTexture[];
 	#defaultSampler: GPUSampler;
 	/** samples the composited scene's copy for refraction */
 	#clampSampler: GPUSampler;
@@ -79,11 +81,15 @@ export class MaterialBindings {
 		});
 		device.queue.writeTexture({ texture: white }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1]);
 		this.#white = white.createView();
-		this.#noVolume = placeholderView(device, {
+		const noVolume = device.createTexture({
 			label: 'no effect volume',
+			size: [1, 1, 1],
 			dimension: '3d',
 			format: 'r8unorm',
+			usage: GPUTextureUsage.TEXTURE_BINDING,
 		});
+		this.#noVolume = noVolume.createView({ dimension: '3d' });
+		this.#textures = [white, noVolume];
 		this.#defaultSampler = device.createSampler({
 			label: 'material default',
 			addressModeU: 'repeat',
@@ -104,6 +110,14 @@ export class MaterialBindings {
 		this.#bindings.clear();
 		this.#states.clear();
 		this.#effectBindings.clear();
+	}
+
+	/** destroys the placeholder textures; the bindings can't be used after */
+	destroy(): void {
+		this.release();
+		for (const texture of this.#textures) {
+			texture.destroy();
+		}
 	}
 
 	/**

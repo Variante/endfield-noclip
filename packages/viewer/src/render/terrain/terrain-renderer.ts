@@ -492,8 +492,26 @@ export class TerrainRenderer {
 	}
 
 	/** @returns bytes of the fixed GPU allocations */
-	get poolBytes(): number {
+	get bytes(): number {
 		return this.#heights.bytes + this.#patchData.byteLength + this.#surfaceBytes + this.#detailBytes;
+	}
+
+	/** destroys the GPU allocations, the package's layers included; the renderer can't be used after */
+	destroy(): void {
+		for (const owned of [this.#layers, this.#placeholders]) {
+			owned?.diffuse.destroy();
+			owned?.normal.destroy();
+			owned?.params.destroy();
+		}
+		this.#heights.destroy();
+		this.#albedo.destroy();
+		this.#normal.destroy();
+		this.#detailControl.destroy();
+		this.#detailTint.destroy();
+		this.#detailIndex.destroy();
+		this.#patches.destroy();
+		this.#fillIndices.destroy();
+		this.#wireIndices.destroy();
 	}
 
 	/**

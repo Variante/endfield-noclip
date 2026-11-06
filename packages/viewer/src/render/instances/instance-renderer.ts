@@ -187,8 +187,16 @@ export class InstanceRenderer {
 	}
 
 	/** @returns bytes of the GPU allocations */
-	get poolBytes(): number {
+	get bytes(): number {
 		return this.#pool.bytes + this.#placements.bytes + this.#blockData.byteLength + this.#listData.byteLength;
+	}
+
+	/** destroys the GPU allocations; the renderer can't be used after */
+	destroy(): void {
+		this.#pool.destroy();
+		this.#placements.destroy();
+		this.#blocks.destroy();
+		this.#list.destroy();
 	}
 
 	/**

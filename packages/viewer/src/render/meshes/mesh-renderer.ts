@@ -197,6 +197,22 @@ export class MeshRenderer {
 		this.#materials.release();
 	}
 
+	/** @returns bytes of the fixed GPU allocations: the draw parameters, the draw ids and the zero streams */
+	get bytes(): number {
+		return this.#params.size + this.#drawIds.size + this.#vertexBindings.bytes;
+	}
+
+	/**
+	 * destroys the renderer's own GPU allocations; geometries stay with their residency, released through
+	 * {@link release}. the renderer can't be used after
+	 */
+	destroy(): void {
+		this.#params.destroy();
+		this.#drawIds.destroy();
+		this.#vertexBindings.destroy();
+		this.#materials.destroy();
+	}
+
 	// #endregion
 
 	// #region animation

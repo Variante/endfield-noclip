@@ -1972,8 +1972,9 @@ export class Viewer {
 			residentBytes: stream?.residentBytes ?? 0,
 			pinnedBytes: stream?.pinnedBytes ?? 0,
 			poolBytes:
-				this.#terrain.poolBytes +
-				this.#instances.poolBytes +
+				this.#terrain.bytes +
+				this.#instances.bytes +
+				this.#meshes.bytes +
 				this.#targets.bytes +
 				this.#post.bytes +
 				this.#fog.bytes +
@@ -2014,6 +2015,9 @@ export class Viewer {
 		this.#fog.destroy();
 		this.#lights.destroy();
 		this.#water.destroy();
+		this.#meshes.destroy();
+		this.#instances.destroy();
+		this.#terrain.destroy();
 		this.#shadows.destroy();
 		this.#pool.destroy();
 		this.#targets.destroy();
