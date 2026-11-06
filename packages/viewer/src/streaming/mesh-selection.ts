@@ -81,6 +81,10 @@ const CASTER_PRIORITY = 0.1;
 /** shadow casters outside the view smaller than this are culled, px (as if on screen) */
 const CASTER_MIN_PIXELS = 16;
 
+/** @returns a number standing for the view options {@link slotHidden} reads */
+const slotFilterKey = (view: MeshView): number =>
+	(view.unsupportedMaterials ? 1 : 0) | (view.missingContent ? 2 : 0);
+
 /** what a resident block's selection reuses from frame to frame */
 interface SelectedBlock {
 	/** its row groups' bounds, from `buildRowGroups` */
@@ -88,7 +92,11 @@ interface SelectedBlock {
 	/** 1 per mirrored row */
 	mirrored: Uint8Array;
 	/** per chain run: its chain's drawn slots */
+	allSlots: ChainSlot[][];
+	/** per chain run: the slots the view's options show ({@link slotHidden}), for {@link filter} */
 	slots: ChainSlot[][];
+	/** the view options {@link slots} were filtered for, from {@link slotFilterKey}; -1 before the first */
+	filter: number;
 	/** per chain run: 1 when its instances draw their box while no LOD is resident */
 	boxes: Uint8Array;
 	/** per chain run: its chain's distance origin, for `CameraDistance` chains */
@@ -175,6 +183,7 @@ export class MeshSelector {
 		}
 		this.#casterFloats = casterFloats;
 		const reachScale = pixelFactor / viewportHeight;
+		const filter = slotFilterKey(view);
 
 		for (const { item, first, count } of ranges) {
 			const instances = item.resident;
@@ -185,6 +194,10 @@ export class MeshSelector {
 			const oy = (this.#oy = instances.origin[1] - eye[1]);
 			const oz = (this.#oz = instances.origin[2] - eye[2]);
 			const block = this.#blockOf(instances);
+			if (block.filter !== filter) {
+				block.slots = block.allSlots.map((slots) => slots.filter((slot) => !slotHidden(slot, view)));
+				block.filter = filter;
+			}
 			const groups = block.groups;
 			const end = first + count;
 			for (let g = Math.floor(first / GROUP_ROWS); g * GROUP_ROWS < end; g++) {
@@ -255,12 +268,12 @@ export class MeshSelector {
 		return this.#blocks.getOrInsertComputed(instances, () => {
 			const runs = instances.runs;
 			const runCount = runs.length / 3;
-			const slots: ChainSlot[][] = [];
+			const allSlots: ChainSlot[][] = [];
 			const boxes = new Uint8Array(runCount);
 			const origins: (Vec3 | null)[] = [];
 			for (let r = 0; r < runCount; r++) {
 				const chain = runs[r * 3];
-				slots.push(this.#buckets.slots(chain));
+				allSlots.push(this.#buckets.slots(chain));
 				boxes[r] = this.#buckets.drawsBox(chain) ? 1 : 0;
 				origins.push(this.#chains[chain].distanceOrigin);
 			}
@@ -275,7 +288,9 @@ export class MeshSelector {
 					(chain) => this.#reach(chain),
 				),
 				mirrored: mirroredRows(instances.rowsF32, instances.cull.length / CULL_FLOATS),
-				slots,
+				allSlots,
+				slots: allSlots,
+				filter: -1,
 				boxes,
 				origins,
 			};
@@ -383,10 +398,7 @@ export class MeshSelector {
 				let lod = -1;
 				for (let s = 0; s < slots.length; s++) {
 					const slot = slots[s];
-					if (
-						!(squared > slot.minSquared && squared <= slot.maxSquared) ||
-						(slot.hiddenBy !== null && slotHidden(slot, view))
-					) {
+					if (!(squared > slot.minSquared && squared <= slot.maxSquared)) {
 						continue;
 					}
 					lod = slot.lod;
@@ -404,7 +416,7 @@ export class MeshSelector {
 				}
 				const row = instances.alloc.start + i;
 				if (!ready) {
-					pendingCount = this.#residentLod(slots, lod, { castOnly, view });
+					pendingCount = this.#residentLod(slots, lod, { castOnly });
 					if (pendingCount === 0) {
 						if (box && !castOnly) {
 							boxes.push(row);
@@ -473,15 +485,11 @@ export class MeshSelector {
 	 * the LOD drawn before the switch, so the instance keeps its shape instead of dropping to its box.
 	 * stand-ins are kept in use but not requested, so they don't add to the streaming queue.
 	 *
-	 * @param filter `castOnly` when only the shadow-casting slots are wanted, and the `view` whose options hide
-	 *   slots
+	 * @param slots the slots the view's options show
+	 * @param filter `castOnly` when only the shadow-casting slots are wanted
 	 * @returns how many of the stand-in's slots were written to `#pending` (0 when no LOD is resident)
 	 */
-	#residentLod(
-		slots: readonly ChainSlot[],
-		wanted: number,
-		{ castOnly, view }: { castOnly: boolean; view: MeshView },
-	): number {
+	#residentLod(slots: readonly ChainSlot[], wanted: number, { castOnly }: { castOnly: boolean }): number {
 		let maxLod = 0;
 		for (const slot of slots) {
 			maxLod = Math.max(maxLod, slot.lod);
@@ -496,7 +504,7 @@ export class MeshSelector {
 				let count = 0;
 				let resident = true;
 				for (const slot of slots) {
-					if (slot.lod !== lod || (castOnly && !slot.castsShadows) || slotHidden(slot, view)) {
+					if (slot.lod !== lod || (castOnly && !slot.castsShadows)) {
 						continue;
 					}
 					if (!this.#geometryResident(slot.geometry)) {
