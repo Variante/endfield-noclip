@@ -6,11 +6,14 @@ conditional sets are in [package-format.md](../package-format.md#conditions).
 
 ## evaluation
 
-[`viewer/viewer.ts`](../../packages/viewer/src/viewer/viewer.ts) resolves every control's value when
-a pick changes (`resolveSceneValues`), recomputes `conditionVisible` for every set
-(`conditionResults`) and turns the results into the shown visibility groups (`groupsShown`), which
-go to the instance selector, the local lights, the water renderer, the irradiance regions and the
-environment blend.
+`SceneState`
+([`scene-states/scene-state.ts`](../../packages/viewer/src/scene-states/scene-state.ts)) resolves
+every control's value when a pick changes (`resolveSceneValues`), recomputes `conditionVisible` for
+every set (`conditionResults`) and turns the results into the shown visibility groups
+(`groupsShown`), which go to every consumer the viewer registers (the instance selector, the local
+lights, the water renderer, the irradiance regions). the resolved values also move the water levels,
+and the condition results feed the environment blend, which re-plans only when they change: the
+results array is replaced only when a result differs.
 
 ### stream areas
 

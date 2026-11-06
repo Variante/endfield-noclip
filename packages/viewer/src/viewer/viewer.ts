@@ -1,17 +1,5 @@
-import {
-	conditionResults,
-	groupsShown,
-	resolveSceneValues,
-} from '@endfield-noclip/package-format/conditions';
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
-import { proximityValues } from '@endfield-noclip/package-format/proximity';
-import {
-	areasShownIn,
-	streamAreaValues,
-	zonesAround,
-	zonesAt,
-} from '@endfield-noclip/package-format/stream-areas';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
@@ -49,6 +37,7 @@ import { TerrainRenderer } from '../render/terrain/terrain-renderer.ts';
 import { TextureStore } from '../render/textures/texture-store.ts';
 import { WaterRenderer } from '../render/water/water-renderer.ts';
 import { volumesForLevel } from '../scene-states/listing.ts';
+import { type GroupsConsumer, SceneState } from '../scene-states/scene-state.ts';
 import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
 import { Camera, type Plane } from '../scene/camera.ts';
 import type { GroundSource } from '../scene/ground.ts';
@@ -128,6 +117,10 @@ export class Viewer {
 	/** the systems whose GPU pools and targets the stats sum */
 	readonly #pools: readonly { readonly bytes: number }[];
 	#waterLevels = new WaterLevels();
+	/** the package's scene controls and the visibility groups they show */
+	readonly #sceneState: SceneState;
+	/** what shows content by visibility group, besides the loaded package's selector */
+	readonly #groupsConsumers: readonly GroupsConsumer[];
 	/** the shown level's environment, blended at the camera */
 	readonly #environment = new EnvironmentState();
 	#pool: DecodePool;
@@ -238,6 +231,9 @@ export class Viewer {
 			this.#fog,
 			this.#shadows,
 		];
+		this.#groupsConsumers = [this.#water, this.#lights, this.#irradiance];
+		this.#sceneState = new SceneState(this.#waterLevels, this.options);
+		this.#sceneState.setPackage(null, this.#groupsConsumers);
 		this.controls = new NoclipControls(this.camera, canvas);
 		this.stats = emptyStats(gfx);
 	}
@@ -389,7 +385,7 @@ export class Viewer {
 			})),
 		};
 		this.scene = scene;
-		this.#scenePicks = {};
+		this.#sceneState.setPackage(manifest.states, [selector, ...this.#groupsConsumers]);
 		const showable = manifest.levels.filter((level) => level.instances > 0);
 		const level = showable.find((candidate) => candidate.id === initialLevel) ?? showable[0] ?? null;
 		this.#level = level;
@@ -422,8 +418,7 @@ export class Viewer {
 		this.#bindings.setReflection(null, 1);
 		this.#bindings.set('shadowRamp', null);
 		this.scene = null;
-		this.#scenePicks = {};
-		this.#sceneValues = {};
+		this.#sceneState.setPackage(null, this.#groupsConsumers);
 		this.options.environmentPin = null;
 		this.#environment.fades.reset();
 		this.#setIrradiance(EMPTY_IRRADIANCE, []);
@@ -465,7 +460,7 @@ export class Viewer {
 				eye: this.camera.position,
 				volumes: this.options.environmentVolumes,
 				pinnedPhase: this.options.environmentPin,
-				loaded: this.#conditionResults,
+				loaded: this.#sceneState.conditionResults,
 				dt,
 			},
 			{ force },
@@ -524,7 +519,7 @@ export class Viewer {
 	#levelPose(scene: LoadedScene, level: LevelInfo): { pose: CameraPose; settled: boolean } {
 		return levelPose(scene.ground, level, {
 			environmentVolumes: this.options.environmentVolumes,
-			loaded: this.#conditionResults,
+			loaded: this.#sceneState.conditionResults,
 		});
 	}
 
@@ -642,19 +637,14 @@ export class Viewer {
 
 	// #region options and stats
 
-	/** values the user picked, by control id */
-	#scenePicks: Record<string, number> = {};
-	/** every control's value, from the picks and the package's defaults and derived controls */
-	#sceneValues: Record<string, number> = {};
-
 	/** @returns every scene control's current value */
 	get sceneValues(): Readonly<Record<string, number>> {
-		return this.#sceneValues;
+		return this.#sceneState.values;
 	}
 
 	/** @returns the values the user picked, by control id; other controls follow their default or formula */
 	get scenePicks(): Readonly<Record<string, number>> {
-		return this.#scenePicks;
+		return this.#sceneState.picks;
 	}
 
 	/**
@@ -672,26 +662,9 @@ export class Viewer {
 	 *   are ignored
 	 */
 	setSceneValues(values: Readonly<Record<string, number | null>>): void {
-		const controls = this.scene?.pkg.manifest.states.controls;
-		if (controls === undefined) {
+		if (!this.#sceneState.pick(values)) {
 			return;
 		}
-		const picks = { ...this.#scenePicks };
-		for (const [id, value] of Object.entries(values)) {
-			const control = controls.find((entry) => entry.id === id);
-			if (
-				control === undefined ||
-				(value !== null && !control.values.some((entry) => entry.value === value))
-			) {
-				continue;
-			}
-			if (value === null) {
-				delete picks[id];
-			} else {
-				picks[id] = value;
-			}
-		}
-		this.#scenePicks = picks;
 		this.#updateVisibility();
 		this.#emitState();
 	}
@@ -703,7 +676,7 @@ export class Viewer {
 
 	/** restores scene control and environment preview defaults for the current package */
 	resetSceneValues(): void {
-		this.#scenePicks = {};
+		this.#sceneState.resetPicks();
 		this.#waterLevels.reset();
 		this.options.environmentPin = null;
 		this.#environment.fades.reset();
@@ -711,103 +684,23 @@ export class Viewer {
 		this.#emitState();
 	}
 
-	/** per conditional set of the loaded package, whether the selected scene values satisfy it */
-	#conditionResults: boolean[] = [];
-
 	/** @returns per conditional set of the loaded package, whether the selected scene values satisfy it */
 	get conditionResults(): readonly boolean[] {
-		return this.#conditionResults;
+		return this.#sceneState.conditionResults;
 	}
-
-	/** stream areas the conditions were last evaluated with, or `null` for every area */
-	#visibleAreas: ReadonlySet<number> | null = null;
-	/** camera position {@link followStreamAreas} last tested */
-	#areasEye: Vec3 = [Number.NaN, 0, 0];
 
 	/**
 	 * @returns the stream areas shown at the camera, or `null` when every area shows (the option is off or the
 	 *   package has no stream areas)
 	 */
 	get visibleStreamAreas(): ReadonlySet<number> | null {
-		return this.#visibleAreas;
+		return this.#sceneState.visibleStreamAreas;
 	}
 
-	/** @returns the stream areas to show at the camera, or `null` for every area */
-	#streamAreasAtCamera(): ReadonlySet<number> | null {
-		const info = this.scene?.pkg.manifest.states.streamAreas ?? null;
-		if (info === null || !this.options.streamAreas) {
-			return null;
-		}
-		const eye = this.camera.position;
-		let zones = zonesAt(info, eye);
-		if (zones.size === 0) {
-			// above or below every trigger the game falls back to the root areas, which hides most of a zone's
-			// level from an overview, so a free camera keeps the zones whose footprint it's over
-			zones = zonesAround(info, eye);
-		}
-		return areasShownIn(info, zones);
-	}
-
-	/** proximity control values the conditions were last evaluated with */
-	#proximity: Record<string, number> = {};
-
-	/** @returns the proximity controls' values at the camera, which stands in for the player */
-	#proximityAtCamera(): Record<string, number> {
-		return proximityValues(this.scene?.pkg.manifest.states.proximities ?? [], this.camera.position);
-	}
-
-	/**
-	 * re-evaluates visibility when the camera moved into a different set of stream areas, or nearer to or
-	 * further from an interactive than its proximity radius
-	 */
-	#followStreamAreas(): void {
-		const eye = this.camera.position;
-		const last = this.#areasEye;
-		if (eye[0] === last[0] && eye[1] === last[1] && eye[2] === last[2]) {
-			return;
-		}
-		this.#areasEye = [...eye];
-		const visible = this.#streamAreasAtCamera();
-		const current = this.#visibleAreas;
-		const same =
-			visible === null || current === null
-				? visible === current
-				: visible.size === current.size && visible.isSubsetOf(current);
-		const proximity = this.#proximityAtCamera();
-		const sameProximity = Object.entries(proximity).every(([id, value]) => this.#proximity[id] === value);
-		if (!same || !sameProximity) {
-			this.#updateVisibility();
-		}
-	}
-
-	/**
-	 * re-evaluates conditions and visibility groups for the shown level, scene values and stream areas at the
-	 * camera, for every consumer
-	 */
+	/** re-evaluates the scene state for the shown level and the camera, and redraws */
 	#updateVisibility(): void {
-		const scene = this.scene;
-		const states = scene?.pkg.manifest.states;
-		this.#visibleAreas = this.#streamAreasAtCamera();
-		this.#areasEye = [...this.camera.position];
-		const areas = states?.streamAreas ?? null;
-		this.#proximity = this.#proximityAtCamera();
-		// stream areas and proximities follow the camera unless pinned, so the camera's values go under the picks
-		const picks = {
-			...(areas === null ? {} : streamAreaValues(areas, this.#visibleAreas)),
-			...this.#proximity,
-			...this.#scenePicks,
-		};
-		this.#sceneValues = states === undefined ? {} : resolveSceneValues(states, picks);
-		const values = this.#sceneValues;
-		// water volumes move to the fill their `waterLevel` control picks, at the game's speed times the rate
-		this.#waterLevels.follow(values);
-		this.#conditionResults = states === undefined ? [] : conditionResults(states, values);
-		const shown =
-			states === undefined ? [] : groupsShown(states, this.#level?.tag ?? null, this.#conditionResults);
-		scene?.selector.setGroupsShown(shown);
-		this.#water.setGroupsShown(shown);
-		this.#lights.setGroupsShown(shown);
-		this.#irradiance.setGroupsShown(shown);
+		this.#sceneState.levelTag = this.#level?.tag ?? null;
+		this.#sceneState.evaluate(this.camera.position);
 		this.#dirty = true;
 	}
 
@@ -869,7 +762,9 @@ export class Viewer {
 				1,
 			),
 		);
-		this.#followStreamAreas();
+		if (this.#sceneState.follow(this.camera.position)) {
+			this.#dirty = true;
+		}
 		const resized = this.#targets.update();
 		this.#blendEnvironment({ force: false, dt });
 		this.#times.span('controls');
