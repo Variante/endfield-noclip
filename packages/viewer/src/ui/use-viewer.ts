@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import type { Viewer } from '../viewer.ts';
+import type { Viewer } from '../viewer/viewer.ts';
 
 /**
  * re-renders the caller when the package, the options or the shown level change.

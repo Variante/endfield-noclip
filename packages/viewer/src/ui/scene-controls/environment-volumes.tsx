@@ -8,7 +8,7 @@ import { mapDefined, unique } from '@mary-ext/array-fns';
 
 import { volumeCondition } from '../../environment/blend.ts';
 import { volumesForLevel } from '../../scene-states/listing.ts';
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { SceneToggle } from '../controls.tsx';
 
 /** @returns how an environment volume applies when its checkbox is on, in words */

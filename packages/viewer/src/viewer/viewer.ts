@@ -24,65 +24,65 @@ import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
-import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from './content/instance-rows.ts';
-import { instanceRowKinds } from './content/row-kinds.ts';
+import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
+import { instanceRowKinds } from '../content/row-kinds.ts';
 import {
 	type AppliedVolume,
 	applyBlend,
 	EnvironmentFades,
 	eyeInLevelVolume,
 	planBlend,
-} from './environment/blend.ts';
+} from '../environment/blend.ts';
 import {
 	type CelestialLook,
 	NO_CELESTIAL,
 	celestialLook,
 	celestialTextures,
-} from './environment/celestial-look.ts';
-import { deriveEnvironment } from './environment/derive.ts';
-import { type Environment, windClockRate } from './environment/environment.ts';
-import { lensFlareLook } from './environment/lens-flare-look.ts';
-import { wetnessParams } from './environment/wetness.ts';
-import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
-import { GpuProfiler } from './gfx/gpu-profiler.ts';
-import { PipelineCache } from './gfx/pipeline-cache.ts';
-import { UniformRing } from './gfx/uniform-ring.ts';
-import { materialLooks } from './looks/material-looks.ts';
-import { DecodePool } from './package/decode-pool.ts';
-import type { PackageSource } from './package/package-source.ts';
-import { type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
-import { ParticleField } from './particles/particle-rows.ts';
-import { type BindLayouts, createBindLayouts } from './render/frame/bind-layouts.ts';
+} from '../environment/celestial-look.ts';
+import { deriveEnvironment } from '../environment/derive.ts';
+import { type Environment, windClockRate } from '../environment/environment.ts';
+import { lensFlareLook } from '../environment/lens-flare-look.ts';
+import { wetnessParams } from '../environment/wetness.ts';
+import { type GfxDevice, createGfxDevice } from '../gfx/device.ts';
+import { GpuProfiler } from '../gfx/gpu-profiler.ts';
+import { PipelineCache } from '../gfx/pipeline-cache.ts';
+import { UniformRing } from '../gfx/uniform-ring.ts';
+import { materialLooks } from '../looks/material-looks.ts';
+import { DecodePool } from '../package/decode-pool.ts';
+import type { PackageSource } from '../package/package-source.ts';
+import { type ViewerPackage, openViewerPackage } from '../package/viewer-package.ts';
+import { ParticleField } from '../particles/particle-rows.ts';
+import { type BindLayouts, createBindLayouts } from '../render/frame/bind-layouts.ts';
 import {
 	DEBUG_VIEWS,
 	type DebugView,
 	FRAME_UNIFORM_BYTES,
 	FrameOffsets,
-} from './render/frame/frame-uniforms.ts';
-import { RenderTargets } from './render/frame/render-targets.ts';
-import { InstanceRenderer } from './render/instances/instance-renderer.ts';
-import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
-import { type LocalLightFrame, LocalLights } from './render/lighting/local-lights.ts';
-import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
-import { PostProcess } from './render/post/post-process.ts';
-import type { PostSettings, Tonemapper } from './render/post/settings.ts';
-import { SETTLE_FRAMES } from './render/post/temporal-aa.ts';
-import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadows/shadow-map.ts';
-import { VolumetricFog } from './render/sky/volumetric-fog.ts';
-import { TerrainRenderer } from './render/terrain/terrain-renderer.ts';
-import { type TextureBinding, TextureStore, placeholderView } from './render/textures/texture-store.ts';
-import { WaterRenderer } from './render/water/water-renderer.ts';
-import { volumesForLevel } from './scene-states/listing.ts';
-import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.ts';
-import { Camera, type Plane } from './scene/camera.ts';
-import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
-import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
-import { coreBlobs } from './streaming/core-blobs.ts';
-import { type MeshSelection, MeshSelector } from './streaming/mesh-selection.ts';
-import type { ResidentInstances } from './streaming/resident.ts';
-import { type InstanceRange, Selector } from './streaming/selection.ts';
-import { StreamManager } from './streaming/stream-manager.ts';
-import { streamWholeTexture } from './streaming/texture-requests.ts';
+} from '../render/frame/frame-uniforms.ts';
+import { RenderTargets } from '../render/frame/render-targets.ts';
+import { InstanceRenderer } from '../render/instances/instance-renderer.ts';
+import { IrradianceVolume } from '../render/lighting/irradiance-volume.ts';
+import { type LocalLightFrame, LocalLights } from '../render/lighting/local-lights.ts';
+import { MeshRenderer } from '../render/meshes/mesh-renderer.ts';
+import { PostProcess } from '../render/post/post-process.ts';
+import type { PostSettings, Tonemapper } from '../render/post/settings.ts';
+import { SETTLE_FRAMES } from '../render/post/temporal-aa.ts';
+import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from '../render/shadows/shadow-map.ts';
+import { VolumetricFog } from '../render/sky/volumetric-fog.ts';
+import { TerrainRenderer } from '../render/terrain/terrain-renderer.ts';
+import { type TextureBinding, TextureStore, placeholderView } from '../render/textures/texture-store.ts';
+import { WaterRenderer } from '../render/water/water-renderer.ts';
+import { volumesForLevel } from '../scene-states/listing.ts';
+import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
+import { Camera, type Plane } from '../scene/camera.ts';
+import { type CameraPose, NoclipControls } from '../scene/noclip-controls.ts';
+import { type TileTree, buildTileTree } from '../scene/tile-tree.ts';
+import { coreBlobs } from '../streaming/core-blobs.ts';
+import { type MeshSelection, MeshSelector } from '../streaming/mesh-selection.ts';
+import type { ResidentInstances } from '../streaming/resident.ts';
+import { type InstanceRange, Selector } from '../streaming/selection.ts';
+import { StreamManager } from '../streaming/stream-manager.ts';
+import { streamWholeTexture } from '../streaming/texture-requests.ts';
 
 // #region options and stats
 

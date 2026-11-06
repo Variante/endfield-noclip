@@ -1,6 +1,6 @@
 import { controlListedFor } from '../../scene-states/listing.ts';
 import { surfaceView, volumeSurface, waterHeight } from '../../scene-states/water-levels.ts';
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow, ControlValueSelect, FlyButton } from '../controls.tsx';
 import { useViewerState, useViewerStats } from '../use-viewer.ts';
 

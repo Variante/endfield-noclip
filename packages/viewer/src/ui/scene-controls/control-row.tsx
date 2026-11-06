@@ -3,7 +3,7 @@ import type { RuleText, SceneControl, SceneControlKind } from '@endfield-noclip/
 import { definite } from '@mary-ext/array-fns';
 import type { ReactNode } from 'react';
 
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow, ControlValueSelect, SceneToggle } from '../controls.tsx';
 import { followLabel } from '../format.ts';
 

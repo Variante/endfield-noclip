@@ -5,8 +5,8 @@ the viewer (`packages/viewer`) is a React shell around a WebGPU renderer. the pa
 [driving-the-viewer.md](../driving-the-viewer.md).
 
 the entry points are [`src/app.tsx`](../../packages/viewer/src/app.tsx) (UI, URL state) and
-[`src/viewer.ts`](../../packages/viewer/src/viewer.ts) (`Viewer`: device, frame loop, camera, loaded
-scene). the UI drives the viewer through `setOptions`, `showLevel`, `flyToLevel` and
+[`src/viewer/viewer.ts`](../../packages/viewer/src/viewer/viewer.ts) (`Viewer`: device, frame loop,
+camera, loaded scene). the UI drives the viewer through `setOptions`, `showLevel`, `flyToLevel` and
 `setSceneValue`, and reads `stats` through `subscribe`.
 
 implementation pages link to the corresponding [game-data](../game-data/lighting.md) findings:

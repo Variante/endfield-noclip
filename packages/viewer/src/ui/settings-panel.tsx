@@ -2,7 +2,7 @@ import { useId } from 'react';
 
 import { DEBUG_VIEWS } from '../render/frame/frame-uniforms.ts';
 import { TONEMAPPERS } from '../render/post/settings.ts';
-import type { Viewer, ViewerOptions } from '../viewer.ts';
+import type { Viewer, ViewerOptions } from '../viewer/viewer.ts';
 
 import { Checkbox } from './controls.tsx';
 import { useViewerState } from './use-viewer.ts';

@@ -5,7 +5,7 @@ import { storyPlace } from '@endfield-noclip/package-format/story';
 import { useId, useState } from 'react';
 
 import { controlsForLevel } from '../../scene-states/listing.ts';
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { useViewerState } from '../use-viewer.ts';
 
 import { ControlRow } from './control-row.tsx';

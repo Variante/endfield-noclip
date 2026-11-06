@@ -207,7 +207,7 @@ content), over the shared terrain. scenes without levels show everything. a leve
 `playerInitPos` come from its [LevelConfig](game-data/world.md#levelconfig) (`rectLeftBottom`,
 `rectRightTop`, `playerInitPos`); the viewer lists levels with them and poses its first view of a
 level over the playable rectangle, falling back to the spawn height while coarse terrain loads
-([viewer.ts](../packages/viewer/src/viewer.ts)).
+([viewer.ts](../packages/viewer/src/viewer/viewer.ts)).
 
 ### environments
 

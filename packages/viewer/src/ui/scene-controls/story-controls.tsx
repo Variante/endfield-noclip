@@ -8,7 +8,7 @@ import {
 
 import { definite } from '@mary-ext/array-fns';
 
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow } from '../controls.tsx';
 
 import { ControlRow } from './control-row.tsx';

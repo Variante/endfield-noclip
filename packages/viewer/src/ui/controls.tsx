@@ -9,7 +9,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { ReactNode } from 'react';
 
-import type { Viewer } from '../viewer.ts';
+import type { Viewer } from '../viewer/viewer.ts';
 
 import { followLabel } from './format.ts';
 

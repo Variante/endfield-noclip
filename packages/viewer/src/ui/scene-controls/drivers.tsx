@@ -5,7 +5,7 @@ import type {
 	SceneControl,
 } from '@endfield-noclip/package-format/states';
 
-import type { Viewer } from '../../viewer.ts';
+import type { Viewer } from '../../viewer/viewer.ts';
 import { FlyButton } from '../controls.tsx';
 
 /** @returns a quest by mission and name where known, else by id */
