@@ -1,12 +1,13 @@
-import type {
-	BlendSchema,
-	EnvironmentPhaseInfo,
-	EnvironmentProfile,
-	EnvironmentSchema,
-	EnvironmentSections,
-	EnvironmentVolumeInfo,
-	FieldBlend,
-	PostProfile,
+import {
+	type BlendSchema,
+	EnvironmentBlendMode,
+	type EnvironmentPhaseInfo,
+	type EnvironmentProfile,
+	type EnvironmentSchema,
+	type EnvironmentSections,
+	type EnvironmentVolumeInfo,
+	type FieldBlend,
+	type PostProfile,
 } from '@endfield-noclip/package-format/environment';
 import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
@@ -249,7 +250,7 @@ export const applyBlend = (plan: BlendPlan): EnvironmentProfile => {
 };
 
 /**
- * @returns how strongly a volume applies `distance` m inside it; a scripted volume (mode 3) at full strength,
+ * @returns how strongly a volume applies `distance` m inside it; a scripted (manual) volume at full strength,
  *   since its script's factor isn't followed
  */
 const volumeFactor = (
@@ -261,17 +262,17 @@ const volumeFactor = (
 ): number => {
 	const inside = distance > 0;
 	switch (volume.blendMode) {
-		case 0:
-		case 3: {
+		case EnvironmentBlendMode.None:
+		case EnvironmentBlendMode.Manual: {
 			return inside ? 1 : 0;
 		}
-		case 1: {
+		case EnvironmentBlendMode.Distance: {
 			if (!inside) {
 				return 0;
 			}
 			return volume.shape.kind === 'global' ? 1 : Math.min(1, distance / (volume.blendDistance + 1e-45));
 		}
-		case 2: {
+		case EnvironmentBlendMode.Time: {
 			// fades in over fadeInDuration seconds while inside, out over fadeOutDuration after leaving
 			const duration = inside ? volume.fadeInDuration : volume.fadeOutDuration;
 			const change = (time.dt * speed) / duration;
@@ -316,7 +317,7 @@ export const eyeInLevelVolume = (
 	}
 	const others = applicable.filter((volume) => owner(volume) !== 0 && owner(volume) !== level);
 	// time-faded volumes apply fully anywhere inside; keep a metre off the edge
-	const margin = Math.max(own.blendMode === 1 ? own.blendDistance : 0, 1);
+	const margin = Math.max(own.blendMode === EnvironmentBlendMode.Distance ? own.blendDistance : 0, 1);
 	for (let step = VIEW_STEPS; step >= 0; step--) {
 		const t = step / VIEW_STEPS;
 		const point: Vec3 = [

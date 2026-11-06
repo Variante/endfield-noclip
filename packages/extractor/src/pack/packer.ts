@@ -25,11 +25,12 @@ import type { Aabb } from '@endfield-noclip/formats/unity/values';
 import { encodeBlobTable } from '@endfield-noclip/package-format/blob-table';
 import { BLOB_KIND_NAMES, BlobKind } from '@endfield-noclip/package-format/blobs';
 import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
-import type {
-	EnvironmentPhaseInfo,
-	EnvironmentSchema,
-	PostProfile,
-	EnvironmentVolumeInfo,
+import {
+	EnvironmentBlendMode,
+	type EnvironmentPhaseInfo,
+	type EnvironmentSchema,
+	type PostProfile,
+	type EnvironmentVolumeInfo,
 } from '@endfield-noclip/package-format/environment';
 import type { GeometryTable } from '@endfield-noclip/package-format/geometry';
 import {
@@ -1817,13 +1818,13 @@ const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo):
 	name: volume.name,
 	rule: null,
 	assumption:
-		volume.blendMode === 3
+		volume.blendMode === EnvironmentBlendMode.Manual
 			? 'off: a level script fades it in, which isn’t followed; on previews it at full strength'
 			: 'on: it applies wherever it holds the camera',
 	followsCamera: false,
 	levelTags: [],
 	values: SWITCH_VALUES,
-	default: volume.blendMode === 3 ? 0 : 1,
+	default: volume.blendMode === EnvironmentBlendMode.Manual ? 0 : 1,
 	derived: null,
 });
 
