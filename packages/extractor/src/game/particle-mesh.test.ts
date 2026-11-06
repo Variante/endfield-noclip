@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { trsMatrix } from '@endfield-noclip/formats/unity/transform';
+import { multiplyMatrices, trsMatrix } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 
 import {
+	axisLengths,
 	frozenParticleMatrix,
 	meshParticlePivot,
 	particleEmitterMatrix,
 	particleMeshSize,
 	particleStandInMatrix,
+	withAxisLengths,
 } from './particle-mesh.ts';
 
 const constant = (value: number) => ({ minMaxState: 0, scalar: value, minScalar: 0 });
@@ -125,6 +127,20 @@ test('a stand-in takes the scale the game sizes particles by, not a parent that 
 	assert.deepEqual(Array.from(shape.subarray(12, 15), round), [-19.6, 150, 93.2]);
 	assert.deepEqual(axes(particleStandInMatrix(parent, local, 1)), [2, 2, 2]);
 	assert.deepEqual(axes(particleStandInMatrix(parent, local, 0)), [726, 300, 296]);
+});
+
+test('a placement scale moves a stand-in sized on its own without sizing it', () => {
+	// Jingyu's drifting petals (p_fxmap_map02_lv001_flower_801) are placed 52× to spread their box over the
+	// valley, and their Shape scaling keeps each petal its own size
+	const placement = trsMatrix([-925, 183, -1733], [0, 0, 0, 1], [52, 52, 52]);
+	const standIn = particleStandInMatrix(
+		trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]),
+		{ position: [0, 1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+		2,
+	);
+	const placed = withAxisLengths(multiplyMatrices(placement, standIn), axisLengths(standIn));
+	assert.deepEqual(axisLengths(placed).map(round), [1, 1, 1]);
+	assert.deepEqual(Array.from(placed.subarray(12, 15), round), [-925, 235, -1733]);
 });
 
 test('a frozen particle under a scaled parent is sized and placed as its scaling mode sizes and moves particles', () => {

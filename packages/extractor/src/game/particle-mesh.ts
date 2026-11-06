@@ -73,15 +73,34 @@ export const particleStandInMatrix = (
 	}
 	const matrix = multiplyMatrices(parent, trsMatrix(local.position, local.rotation, [1, 1, 1]));
 	// rescaling each axis to the system's own scale drops the parents' scale and keeps where the axes point
-	const own = scalingMode === ScalingMode.Shape ? [1, 1, 1] : local.scale;
+	return withAxisLengths(matrix, scalingMode === ScalingMode.Shape ? [1, 1, 1] : local.scale);
+};
+
+/**
+ * @param matrix a 4×4 column-major matrix
+ * @returns the lengths of its x, y and z axes
+ */
+export const axisLengths = (matrix: Float32Array): Vec3 => [
+	Math.hypot(matrix[0], matrix[1], matrix[2]),
+	Math.hypot(matrix[4], matrix[5], matrix[6]),
+	Math.hypot(matrix[8], matrix[9], matrix[10]),
+];
+
+/**
+ * @param matrix a 4×4 column-major matrix
+ * @param lengths the length each of its x, y and z axes should have
+ * @returns a copy whose axes point where the matrix's do, at those lengths
+ */
+export const withAxisLengths = (matrix: Float32Array, lengths: readonly number[]): Float32Array => {
+	const out = new Float32Array(matrix);
+	const current = axisLengths(matrix);
 	for (let axis = 0; axis < 3; axis++) {
-		const length = Math.hypot(matrix[axis * 4], matrix[axis * 4 + 1], matrix[axis * 4 + 2]);
-		const factor = length > 0 ? own[axis] / length : 0;
+		const factor = current[axis] > 0 ? lengths[axis] / current[axis] : 0;
 		for (let i = 0; i < 3; i++) {
-			matrix[axis * 4 + i] *= factor;
+			out[axis * 4 + i] *= factor;
 		}
 	}
-	return matrix;
+	return out;
 };
 
 /**

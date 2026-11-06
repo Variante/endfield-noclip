@@ -103,6 +103,7 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { allOf, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { axisLengths, withAxisLengths } from '../game/particle-mesh.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
 import { readPrefabRenderers, type PrefabRenderer } from '../game/prefab.ts';
@@ -1554,6 +1555,9 @@ const collectEntities = async (
 		}
 		for (const renderer of read) {
 			let matrix = multiplyMatrices(rootMatrix, renderer.matrix);
+			if (renderer.ownSize) {
+				matrix = withAxisLengths(matrix, axisLengths(renderer.matrix));
+			}
 			let bounds = transformBounds(renderer.bounds, matrix);
 			if (renderer.billboard !== null) {
 				({ matrix, bounds } = billboardPlacement(

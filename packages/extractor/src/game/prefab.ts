@@ -38,7 +38,7 @@ import {
 	particleEmitterMatrix,
 	particleStandInMatrix,
 } from './particle-mesh.ts';
-import { particleReach, readParticleSystem } from './particle-system.ts';
+import { ScalingMode, particleReach, readParticleSystem } from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
 	animatorHiddenNodes,
@@ -81,6 +81,12 @@ export interface PrefabRenderer {
 	 * renderer under a switched-off GameObject draws as it would once switched on
 	 */
 	unsupported: string | null;
+	/**
+	 * whether the matrix's axis lengths are already the renderer's size in the world, so the placement's scale
+	 * moves it without sizing it: a stand-in or frozen particle whose scaling mode leaves out the scale above
+	 * its system ({@link particleStandInMatrix})
+	 */
+	ownSize: boolean;
 	/**
 	 * the billboard on the renderer's GameObject or its nearest ancestor with one, `null` when nothing turns it
 	 * to the camera. skinned meshes and particle systems don't take it
@@ -235,6 +241,7 @@ export const readPrefabRenderers = async (
 		mesh: ObjectRef;
 		particles: ParticleSystemInfo | null;
 		unsupported: string | null;
+		ownSize: boolean;
 		billboard: PrefabBillboard | null;
 		/** material values the pose's clips set on the renderer */
 		posedMaterials: readonly ClipMaterialValue[];
@@ -515,6 +522,7 @@ export const readPrefabRenderers = async (
 						mesh,
 						particles: null,
 						unsupported: standIn,
+						ownSize: false,
 						billboard: null,
 						posedMaterials,
 						distances,
@@ -539,6 +547,7 @@ export const readPrefabRenderers = async (
 							mesh,
 							particles: null,
 							unsupported: standIn,
+							ownSize: false,
 							billboard,
 							posedMaterials,
 							distances,
@@ -563,6 +572,10 @@ export const readPrefabRenderers = async (
 				);
 				rendererData = { ...rendererData, m_Pivot: { x, y, z } };
 			}
+			// the placement's scale sizes stand-in and frozen particles only where the scaling mode keeps the scale
+			// above the system: `Hierarchy`, or `Local` on the root, whose own scale the placement is
+			const scalingMode = numberField(system.data, 'scalingMode');
+			const ownSize = scalingMode === ScalingMode.Shape || (scalingMode === ScalingMode.Local && !isRoot);
 			// a switched-off system stands in at its emitter whatever it would play
 			let frozen: { matrix: Float32Array; mesh: ObjectRef } | null = null;
 			if (standIn === null && numberField(rendererData, 'm_RenderMode') === ParticleRenderMode.Mesh) {
@@ -581,13 +594,14 @@ export const readPrefabRenderers = async (
 					mesh: frozen.mesh,
 					particles: null,
 					unsupported: null,
+					ownSize,
 					billboard: null,
 					posedMaterials,
 					distances,
 				});
 			} else {
 				const read = readParticleSystem(system.data, rendererData);
-				const emitter = particleEmitterMatrix(parent, local, numberField(system.data, 'scalingMode'));
+				const emitter = particleEmitterMatrix(parent, local, scalingMode);
 				// a system a script starts is still there to see, so it gets a stand-in too
 				let reason = standIn;
 				if (reason === null && read === null) {
@@ -604,7 +618,7 @@ export const readPrefabRenderers = async (
 					const quad = mesh === null;
 					mesh ??= particleQuad;
 					if (mesh !== null) {
-						const placed = particleStandInMatrix(parent, local, numberField(system.data, 'scalingMode'));
+						const placed = particleStandInMatrix(parent, local, scalingMode);
 						candidates.push({
 							...particles,
 							matrix: placed,
@@ -612,6 +626,7 @@ export const readPrefabRenderers = async (
 							mesh,
 							particles: null,
 							unsupported: reason,
+							ownSize,
 							billboard: quad
 								? { flag: ChainFlags.BillboardFacing, offset: [0, 0, 0, 1], frame: placed }
 								: null,
@@ -640,6 +655,7 @@ export const readPrefabRenderers = async (
 								mesh,
 								particles: { ...read.info, pivot, mesh: i },
 								unsupported: null,
+								ownSize: false,
 								billboard: null,
 								posedMaterials,
 								distances,
@@ -652,7 +668,15 @@ export const readPrefabRenderers = async (
 		for (const mover of movers) {
 			// the objects draw their LOD groups' first-LOD renderers, which live in other prefabs
 			for (const renderer of await splineMoverRenderers(resolver, mover.ref, mover.data, standIn)) {
-				candidates.push({ ...renderer, matrix, name, billboard: null, posedMaterials: [], distances });
+				candidates.push({
+					...renderer,
+					matrix,
+					name,
+					ownSize: false,
+					billboard: null,
+					posedMaterials: [],
+					distances,
+				});
 			}
 		}
 		for (const pointer of arrayField(t, 'm_Children')) {
@@ -756,6 +780,8 @@ export const readPrefabRenderers = async (
 			shadowOnly: numberField(candidate.data, 'm_CastShadows') >= 3,
 			particles: candidate.particles,
 			unsupported,
+			// a renderer the clip moves takes the identity matrix
+			ownSize: candidate.ownSize && motion === null,
 			billboard: candidate.billboard,
 		});
 	}

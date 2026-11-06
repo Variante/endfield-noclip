@@ -647,7 +647,9 @@ which.
 
 **a [stand-in](#stand-ins)**, for any other system, including those that don't play on awake (a
 script starts them): its `m_Mesh` in mesh mode, else the unit quad as a `BillboardFacing` chain,
-drawn once at the emitter's transform.
+drawn once at the emitter's transform, sized as its scaling mode sizes particles. a placement's
+scale moves stand-ins and frozen particles but sizes them only under Hierarchy, or Local on the
+prefab's root: Jingyu's drifting petals, placed 52× in Shape mode, stand in petal-sized.
 
 ### stand-ins
 
