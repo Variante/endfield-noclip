@@ -15,6 +15,15 @@ const MAX_PITCH = Math.PI / 2 - 0.001;
 const SMOOTHING = 0.08;
 const BOOST = 5;
 const CREEP = 0.2;
+/** the key codes that move the camera, by direction */
+const KEYS = {
+	forward: ['KeyW', 'ArrowUp'],
+	back: ['KeyS', 'ArrowDown'],
+	right: ['KeyD', 'ArrowRight'],
+	left: ['KeyA', 'ArrowLeft'],
+	up: ['KeyE', 'KeyR', 'Space', 'PageUp'],
+	down: ['KeyQ', 'KeyF', 'KeyC', 'PageDown'],
+};
 
 /** a camera pose to fly to */
 export interface CameraPose {
@@ -51,6 +60,8 @@ export class NoclipControls {
 	#element: HTMLElement;
 	#keys = new Set<string>();
 	#velocity: Vec3 = [0, 0, 0];
+	/** the velocity the keys ask for this update, rewritten each update */
+	readonly #target: Vec3 = [0, 0, 0];
 	#flight: Flight | null = null;
 	#dragging = false;
 	#looked = false;
@@ -172,10 +183,9 @@ export class NoclipControls {
 			return true;
 		}
 
-		const key = (...codes: string[]): number => (codes.some((code) => this.#keys.has(code)) ? 1 : 0);
-		const forward = key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown');
-		const strafe = key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft');
-		const lift = key('KeyE', 'KeyR', 'Space', 'PageUp') - key('KeyQ', 'KeyF', 'KeyC', 'PageDown');
+		const forward = this.#held(KEYS.forward) - this.#held(KEYS.back);
+		const strafe = this.#held(KEYS.right) - this.#held(KEYS.left);
+		const lift = this.#held(KEYS.up) - this.#held(KEYS.down);
 
 		let speed = this.speed;
 		if (this.#keys.has('ShiftLeft') || this.#keys.has('ShiftRight')) {
@@ -188,7 +198,7 @@ export class NoclipControls {
 
 		const f = camera.forward();
 		const r = camera.right();
-		const target: Vec3 = [0, 0, 0];
+		const target = this.#target;
 		for (let i = 0; i < 3; i++) {
 			target[i] = (f[i] * forward + r[i] * strafe) * speed;
 		}
@@ -205,6 +215,16 @@ export class NoclipControls {
 			}
 		}
 		return moved;
+	}
+
+	/** @returns 1 while any of the keys is held, else 0 */
+	#held(codes: readonly string[]): number {
+		for (const code of codes) {
+			if (this.#keys.has(code)) {
+				return 1;
+			}
+		}
+		return 0;
 	}
 
 	/** removes the listeners */

@@ -123,6 +123,18 @@ export class Viewer {
 			this.#dirty = true;
 		}
 	};
+	/** the frame loop's callback, made once */
+	readonly #onFrame = (time: number): void => {
+		this.#tick(time);
+	};
+	/** rewrites a row a water volume floats, made once */
+	readonly #writeFloater = (resident: ResidentInstances, row: number): void => {
+		this.#instances.writeRows(
+			resident.alloc.start + row,
+			new Uint32Array(resident.rowsF32.buffer, row * ROW_BYTES, ROW_WORDS),
+			1,
+		);
+	};
 	/** the stream version the last traversal saw */
 	#seenVersion = -1;
 	/** compiled pipelines when the last frame began */
@@ -269,7 +281,7 @@ export class Viewer {
 			throw signal.reason;
 		}
 		const viewer = new Viewer(gfx, canvas);
-		viewer.#raf = requestAnimationFrame((time) => viewer.#tick(time));
+		viewer.#raf = requestAnimationFrame(viewer.#onFrame);
 		document.addEventListener('visibilitychange', viewer.#onVisibilityChange);
 		return viewer;
 	}
@@ -669,20 +681,14 @@ export class Viewer {
 	// #region frame loop
 
 	#tick(time: number): void {
-		this.#raf = requestAnimationFrame((next) => this.#tick(next));
+		this.#raf = requestAnimationFrame(this.#onFrame);
 		const dt = this.#lastTime === 0 ? 1 / 60 : Math.min(0.1, (time - this.#lastTime) / 1000);
 		this.#lastTime = time;
 		this.#times.begin();
 
 		const moved = this.controls.update(dt) || this.#settleFirstPose();
 		const watered = this.#waterLevels.update(dt, this.options.waterLevelRate);
-		this.#waterLevels.applyFloaters((resident, row) =>
-			this.#instances.writeRows(
-				resident.alloc.start + row,
-				new Uint32Array(resident.rowsF32.buffer, row * ROW_BYTES, ROW_WORDS),
-				1,
-			),
-		);
+		this.#waterLevels.applyFloaters(this.#writeFloater);
 		if (this.#sceneState.follow(this.camera.position)) {
 			this.#dirty = true;
 		}

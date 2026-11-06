@@ -14,7 +14,6 @@ export interface GfxFeatures {
 
 /** a ready device plus what it supports */
 export interface GfxDevice {
-	adapter: GPUAdapter;
 	device: GPUDevice;
 	features: GfxFeatures;
 	/** human-readable adapter description */
@@ -93,7 +92,6 @@ export const createGfxDevice = async (onLost: (reason: string) => void): Promise
 
 	const info = adapter.info;
 	return {
-		adapter,
 		device,
 		features,
 		adapterName: [info.vendor, info.architecture, info.description].filter((part) => part !== '').join(' '),
