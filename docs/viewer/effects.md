@@ -26,6 +26,12 @@ what's left out is in [status](../status.md).
 - [`_BlendMode` 1](../game-data/effects.md#vfxbasev2) materials draw into the transparent pass's
   glow, unfogged, as additive mist does; drawn over, the glare at the corroded planet's centre (seen
   from Dijiang's deck) was a dark square.
+- [opaque](../game-data/effects.md#vfxbasev2) VFXBaseV2 materials shade in the main pass after the
+  meshes (`effectOpaque` queue, `fs_effect_opaque`), writing depth, the colour times the alpha as
+  their radiance, and nothing for the screen-space reflections, the AO or the decals. the effect
+  group's main-pass outputs are bound to 1×1 stand-ins there (`mainPassStandIns`), so materials with
+  a soft blend or edge colour, which read them, stay unsupported, as do those with a stencil. the
+  composite fogs them as it does any opaque surface, unchecked against the game.
 - [lighting](../game-data/effects.md#vfxbasev2) takes the irradiance volume and the shadowed sun,
   without local lights or the division by the post exposure.
 - the [breathing](../game-data/effects.md#vfxbasev2) runs on the viewer's clock, with the per-draw

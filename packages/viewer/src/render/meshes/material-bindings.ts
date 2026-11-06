@@ -60,6 +60,8 @@ export class MaterialBindings {
 	/** effect bind groups by material id, over their slots' and volume's binding versions and the inputs' */
 	#effectGroups = new BindGroupCache<number>();
 	#effectParts: number[] = [...SLOTS.map(() => -1), -1, -1];
+	/** stands in for the main pass's outputs while effects draw into them, as opaque layers do */
+	readonly mainPassStandIns: EffectInputs;
 
 	/**
 	 * @param device the device
@@ -74,6 +76,22 @@ export class MaterialBindings {
 		this.#noVolume = placeholder(device, 'black', '3d');
 		this.#defaultSampler = sampler(device, LINEAR_REPEAT_MIPMAPPED);
 		this.#clampSampler = sampler(device, LINEAR_CLAMP);
+		const standIn = (format: GPUTextureFormat) =>
+			device
+				.createTexture({
+					label: `main pass stand-in ${format}`,
+					size: [1, 1],
+					format,
+					usage: GPUTextureUsage.TEXTURE_BINDING,
+				})
+				.createView();
+		// the frames' inputs count up from 0
+		this.mainPassStandIns = {
+			depth: standIn('depth32float'),
+			reflectionSurface: standIn('rg32uint'),
+			ambient: this.#white,
+			version: -1,
+		};
 	}
 
 	/** forgets every material's state and bind groups (when a package is unloaded) */

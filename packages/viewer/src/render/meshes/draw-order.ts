@@ -54,6 +54,7 @@ export const drawRangeOf = (
 		}
 		// effects are made of their textures, so they wait for all of them
 		case 'effect':
+		case 'effectOpaque':
 		case 'effectDecal':
 		case 'mist':
 		case 'mistVolume':

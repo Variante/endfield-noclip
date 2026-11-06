@@ -520,14 +520,8 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let layer = fx_stack_layer(in, bases);
 	let color = layer.rgb;
 	let alpha = layer.a;
-	// below its `_USE_WATER_BLEND` height the game absorbs and scatters the colour, which isn't drawn: show
-	// those fragments as unsupported, a world-space magenta and black checker (as `unsupportedLook` in
-	// material-looks.ts)
-	let world = in.rel + frame.eye.xyz;
-	if (world.y < fx_row(id, FX_DECAL).z) {
-		let cell = vec3i(floor(world / 0.5));
-		let checker = select(vec3f(1.0, 0.0, 1.0), vec3f(0.0), ((cell.x + cell.y + cell.z) & 1) != 0);
-		return fx_accumulate(checker, 1.0, length(in.rel), kind.x);
+	if (fx_below_water_blend(in)) {
+		return fx_accumulate(fx_unsupported_checker(in), 1.0, length(in.rel), kind.x);
 	}
 	// `_BlendMode` 1 adds the layer rather than blending it over
 	if (kind.z >= 0.5) {
@@ -538,6 +532,29 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 		return out;
 	}
 	return fx_accumulate(color * alpha, alpha, length(in.rel), kind.x);
+}
+
+// below its `_USE_WATER_BLEND` height the game absorbs and scatters a layer's colour, which isn't drawn
+fn fx_below_water_blend(in: EffectOut) -> bool {
+	return in.rel.y + frame.eye.y < fx_row(in.draw, FX_DECAL).z;
+}
+
+// what fragments the viewer can't draw show: a world-space magenta and black checker (as `unsupportedLook` in
+// material-looks.ts)
+fn fx_unsupported_checker(in: EffectOut) -> vec3f {
+	let cell = vec3i(floor((in.rel + frame.eye.xyz) / 0.5));
+	return select(vec3f(1.0, 0.0, 1.0), vec3f(0.0), ((cell.x + cell.y + cell.z) & 1) != 0);
+}
+
+// opaque VFXBaseV2 layers (`Blend One Zero`), shaded in the main pass: the colour times the alpha covers what's
+// behind, as the game writes it. what the lit surfaces hand the post passes is left empty, as for unlit meshes
+@fragment
+fn fs_effect_opaque(in: EffectOut) -> Shaded {
+	let layer = fx_stack_layer(in, fx_layer_bases(in));
+	if (fx_below_water_blend(in)) {
+		return unlit(fx_unsupported_checker(in));
+	}
+	return unlit(layer.rgb * layer.a);
 }
 
 // `_BlendMode` 2 VFXBaseV2 layers, drawn over the composited scene with a blend that multiplies it by the output:

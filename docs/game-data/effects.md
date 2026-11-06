@@ -77,6 +77,15 @@ quarter of the scenery's VFXBaseV2 materials are such, among them the glare at t
 centre seen from Dijiang's deck. `_BlendMode` 2 writes `lerp(1, colour, alpha)` for a
 `Blend DstColor Zero` state, which multiplies what lies behind by it.
 
+**opaque.** a material whose `_SrcBlend` and `_DstBlend` are one and zero writes the shader's
+premultiplied colour (the colour times its alpha) over what lies behind, and its depth, in the
+opaque queue (2000); the shader's only pass is the forward one, so it writes no G-buffer and casts
+no shadow. the falling gravel by map01's mining pipes (`p_fxmap_common_gravel_02`, near unity 635,
+62, 632) is mesh particles of rock pieces in such a material, `M_fx_quicksand_1104`: lit at the
+world's up, with `_UseMainTexAsAlpha`, so each rock is the flat grey tint with its texture's red,
+times `_TintColorAlpha` 10, as its alpha, so only texels whose red is below 0.1 darken it. its near
+camera fade, out from 200 to 300 m, would turn rocks beyond 300 m black rather than hide them.
+
 ### edge colour
 
 `_USE_EDGECOLOR` marks where the surface meets what lies behind it, after the dissolve and before

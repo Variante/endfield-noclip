@@ -71,6 +71,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	lighting: null,
 	unfogged: true,
 	blendMode: 0,
+	opaque: false,
 	screenUv: { byDepth: true, heightAsV: false },
 	stencil: null,
 	...overrides,
@@ -156,7 +157,7 @@ test('a texture stack keeps each layer’s custom data shift per slot', () => {
 });
 
 test('a stack decal is a box drawn by its back faces with its fades; a multiplying stack draws over the scene', () => {
-	const [decal, multiply] = materialLooks({
+	const [decal, multiply, opaque] = materialLooks({
 		entries: [
 			described(
 				0,
@@ -167,6 +168,7 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 				}),
 			),
 			described(1, stack({ blendMode: 2 })),
+			described(2, stack({ opaque: true })),
 		],
 	});
 	assert.deepEqual([decal.cull, decal.flags, decal.queue], ['front', LookFlags.Effect, 'effectDecal']);
@@ -180,6 +182,8 @@ test('a stack decal is a box drawn by its back faces with its fades; a multiplyi
 	);
 	assert.deepEqual([...decal.params.subarray(EffectRow.weight + 1, EffectRow.weight + 4)], [0.5, 0.5, 1]);
 	assert.equal(multiply.queue, 'screenMultiply');
+	// opaque layers shade in the main pass, still without casting shadows
+	assert.deepEqual([opaque.queue, opaque.castsShadows], ['effectOpaque', false]);
 	assert.equal(multiply.params[EffectRow.unfogged + 2], 2);
 });
 

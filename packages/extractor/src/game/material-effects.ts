@@ -531,8 +531,18 @@ export const describeVfxBase = (
 	if (stencil !== null && 'kind' in stencil) {
 		return stencil;
 	}
-	if (material.blend === 'opaque') {
-		return stencil?.replace === true ? { kind: 'stencilMask', stencil } : unsupported('opaque blending');
+	// an opaque blend state writes the premultiplied colour over what's behind, drawn in the main pass
+	const opaque = material.blend === 'opaque';
+	if (opaque) {
+		if (stencil?.replace === true) {
+			return { kind: 'stencilMask', stencil };
+		}
+		if (stencil !== null) {
+			return unsupported('opaque blending with a stencil');
+		}
+		if (!material.zWrite) {
+			return unsupported('opaque blending without depth writes');
+		}
 	}
 	// the shader writes its alpha times `1 − _BlendMode`: 1 adds the premultiplied colour over what's behind, and
 	// 2 writes `lerp(1, colour, alpha)` for a blend state that multiplies what's behind by it
@@ -540,7 +550,14 @@ export const describeVfxBase = (
 	if (blendMode !== 0 && blendMode !== 1 && blendMode !== 2) {
 		return unsupported(`_BlendMode ${blendMode}`);
 	}
-	if (blendMode === 2 ? !multipliesBehind(reader) : material.blend !== 'premultiplied') {
+	let blendable = material.blend === 'premultiplied';
+	if (opaque) {
+		// under an opaque blend state, modes 0 and 1 write the same colour
+		blendable = blendMode !== 2;
+	} else if (blendMode === 2) {
+		blendable = multipliesBehind(reader);
+	}
+	if (!blendable) {
 		return unsupported(`_BlendMode ${blendMode} with ${material.blend} blending`);
 	}
 	// drawn over the composited scene, which has no stencil
@@ -635,6 +652,11 @@ export const describeVfxBase = (
 		return unsupported('no main texture and a non-white default');
 	}
 	const shared = sharedOf(reader, intensity);
+	const soft = softBlendOf(reader);
+	// both read the main pass's depth, which an opaque layer draws into
+	if (opaque && (soft !== null || has('_USE_EDGECOLOR'))) {
+		return unsupported('opaque blending with a soft blend or edge colour');
+	}
 	const offset = vertexOffsetOf(reader);
 	// the mask only scales the offset, so without one it changes nothing
 	const mask = offset === null ? null : offsetMaskOf(reader, layers);
@@ -670,7 +692,7 @@ export const describeVfxBase = (
 					opacity: float('_FresnelAffectOpacity', 0),
 				}
 			: null,
-		soft: softBlendOf(reader),
+		soft,
 		ignorePostExposure: shared.ignorePostExposure,
 		vertexColor: float('_DisableVertColor', 0) === 0,
 		near: shared.near,
@@ -707,6 +729,7 @@ export const describeVfxBase = (
 		lighting: has('_USE_LIGHTING') ? { worldUp: float('_RotateNormalToWorldUp', 0) !== 0 } : null,
 		unfogged: !has('_USE_FOG'),
 		blendMode,
+		opaque,
 		screenUv: {
 			byDepth: float('_ScreenUVUseDepth', 1) !== 0,
 			heightAsV: float('_UsePosYAsScreenV', 0) !== 0,
@@ -868,6 +891,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		// a G-buffer surface, so the deferred fog covers it
 		unfogged: false,
 		blendMode: 0,
+		opaque: false,
 		screenUv: {
 			byDepth: float('_ScreenUVUseDepth', 1) !== 0,
 			heightAsV: float('_UsePosYAsScreenV', 0) !== 0,
@@ -1090,6 +1114,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		lighting: null,
 		unfogged: !has('_USE_FOG'),
 		blendMode: 0,
+		opaque: false,
 		screenUv: { byDepth: false, heightAsV: false },
 		stencil: null,
 	};

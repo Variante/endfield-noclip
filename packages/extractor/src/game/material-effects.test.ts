@@ -738,6 +738,35 @@ describe('VFXBaseV2', () => {
 		});
 		assert.equal(ofKind(stackOf({}), 'effectStack').stencil, null);
 	});
+
+	it('draws an opaque blend state as an opaque layer, unless it reads the depth it writes', () => {
+		// the falling gravel's lit rocks (`M_fx_quicksand_1104`, in `p_fxmap_common_gravel_02`)
+		const opaque = (overrides: Partial<MaterialValues> = {}) =>
+			stackOf({
+				renderQueue: 2000,
+				blend: 'opaque',
+				blendFactors: null,
+				zWrite: true,
+				keywords: ['_USE_LIGHTING'],
+				floats: { _BlendMode: 0, _UseMainTexAsAlpha: 1, _RotateNormalToWorldUp: 1 },
+				...overrides,
+			});
+		const gravel = ofKind(opaque(), 'effectStack');
+		assert.equal(gravel.opaque, true);
+		assert.deepEqual(gravel.lighting, { worldUp: true });
+		assert.equal(gravel.layers[0]?.redAlpha, true);
+		assert.equal(ofKind(stackOf({}), 'effectStack').opaque, false);
+		// `_BlendMode` 2 writes `lerp(1, colour, alpha)`, which only a multiplying blend state makes sense of
+		assert.equal(opaque({ floats: { _BlendMode: 2 } }).kind, 'unsupported');
+		assert.equal(opaque({ zWrite: false }).kind, 'unsupported');
+		assert.deepEqual(
+			opaque({ keywords: ['_USE_SOFTBLEND'], floats: { _UseSoftBlend: 1, _SoftDistance: 1 } }),
+			{
+				kind: 'unsupported',
+				reason: 'opaque blending with a soft blend or edge colour',
+			},
+		);
+	});
 });
 
 describe('VFXDitherAlpha effect variants', () => {

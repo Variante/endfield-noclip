@@ -764,6 +764,11 @@ export interface EffectStackSurface {
 	unfogged: boolean;
 	/** VFXBaseV2's `_BlendMode`: 0 blends over, 1 adds, 2 multiplies what lies behind */
 	blendMode: number;
+	/**
+	 * VFXBaseV2's opaque blend state (`Blend One Zero`): the colour times the alpha covers what's behind, and
+	 * the layer writes depth. never with a stencil, a soft blend or an edge colour
+	 */
+	opaque: boolean;
 	/** screen UVs scale by the object's view depth, and take v from the world height */
 	screenUv: { byDepth: boolean; heightAsV: boolean };
 	stencil: EffectStencil | null;

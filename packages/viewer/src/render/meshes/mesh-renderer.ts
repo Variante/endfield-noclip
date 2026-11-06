@@ -437,6 +437,8 @@ export class MeshRenderer {
 	 * @returns draw calls issued
 	 */
 	encodePass(which: SurfacePass, pass: GPURenderPassEncoder): number {
+		// opaque effect layers draw into the outputs they'd read, which stand-ins take the place of
+		this.#bindEffectGroups(which, this.#materials.mainPassStandIns);
 		return this.#encode(which, pass, -1);
 	}
 
@@ -460,9 +462,17 @@ export class MeshRenderer {
 	 * @returns draw calls issued
 	 */
 	encodeEffectPass(which: EffectPass, pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		// effect groups also bind the main pass's outputs
+		this.#bindEffectGroups(which, inputs);
+		return this.#encode(which, pass, -1);
+	}
+
+	/** builds the groups of a pass's effect draws, which also bind the main pass's outputs */
+	#bindEffectGroups(which: MeshPass, inputs: EffectInputs): void {
 		for (const phase of PASS_PHASES[which]) {
 			const range = this.#range(phase.range);
+			if (!range.info.effect) {
+				continue;
+			}
 			for (let i = range.start; i < range.end; i++) {
 				const draw = this.#draws[i];
 				if (draw.effect !== null) {
@@ -470,7 +480,6 @@ export class MeshRenderer {
 				}
 			}
 		}
-		return this.#encode(which, pass, -1);
 	}
 
 	/**

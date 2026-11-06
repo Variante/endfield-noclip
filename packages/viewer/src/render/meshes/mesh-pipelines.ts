@@ -181,12 +181,16 @@ export const prepareMeshPipelines = (
 		label: 'effect',
 		bindGroupLayouts: [layouts.frame, layouts.instances, layouts.draw, effectLayout],
 	});
-	/** describes a phase of the effect shader: its fragment entry point, targets and depth test, if any */
+	/**
+	 * describes a phase of the effect shader: its fragment entry point, targets and depth test, if any, which
+	 * writes depth only when `writesDepth` is set
+	 */
 	const describeEffect = (
 		phase: DrawPhase,
 		entryPoint: string,
 		targets: GPUColorTargetState[],
 		depthCompare: GPUCompareFunction | null,
+		{ writesDepth = false }: { writesDepth?: boolean } = {},
 	): void => {
 		describe(phase, (cullMode, uvFormat) => {
 			const descriptor: GPURenderPipelineDescriptor = {
@@ -196,11 +200,15 @@ export const prepareMeshPipelines = (
 				fragment: { module: effectModule, entryPoint, targets },
 			};
 			if (depthCompare !== null) {
-				descriptor.depthStencil = { format: format.depth, depthWriteEnabled: false, depthCompare };
+				descriptor.depthStencil = { format: format.depth, depthWriteEnabled: writesDepth, depthCompare };
 			}
 			return descriptor;
 		});
 	};
+	// opaque layers shade into the main pass's targets like a mesh, without a prepass
+	describeEffect(PHASES.effectOpaque, 'fs_effect_opaque', format.targets, DEPTH_COMPARE, {
+		writesDepth: true,
+	});
 	describeEffect(PHASES.effect, 'fs_effect', TRANSPARENT_TARGETS, DEPTH_COMPARE);
 	// decals find their surface through the depth buffer, so their back faces draw wherever they are
 	describeEffect(PHASES.effectDecal, 'fs_effect_decal', TRANSPARENT_TARGETS, 'always');

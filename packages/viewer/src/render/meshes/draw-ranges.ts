@@ -30,6 +30,7 @@ export const DRAW_RANGES: readonly DrawRangeInfo[] = [
 	// depth-writing draws: early depth testing rewards nearest first
 	{ range: 'opaque', order: 'pipelineThenNearest', effect: false },
 	{ range: 'cutout', order: 'pipelineThenNearest', effect: false },
+	{ range: 'effectOpaque', order: 'bindings', effect: true },
 	{ range: 'stencilMask', order: 'bindings', effect: false },
 	{ range: 'transparent', order: 'bindings', effect: false },
 	// effects that write the stencil first, so the effects testing it see the whole mask
@@ -91,6 +92,7 @@ export const PHASES = {
 		streams: 'position',
 	},
 	transparent: shading('mesh/transparent', 'transparent'),
+	effectOpaque: shading('mesh/effect-opaque', 'effectOpaque'),
 	effect: shading('mesh/effect', 'effect'),
 	effectDecal: shading('mesh/effect-decal', 'effectDecal'),
 	mist: shading('mesh/mist', 'mist'),
@@ -123,7 +125,7 @@ export type EffectPass = 'relight' | 'transparent' | 'multiply' | 'refract' | 'w
 export const PASS_PHASES: Record<MeshPass, readonly DrawPhase[]> = {
 	prepass: [PHASES.prepass],
 	// stencil masks after the surfaces they're tested against
-	main: [PHASES.opaque, PHASES.cutoutDepth, PHASES.cutoutShade, PHASES.stencilMask],
+	main: [PHASES.opaque, PHASES.cutoutDepth, PHASES.cutoutShade, PHASES.effectOpaque, PHASES.stencilMask],
 	// lit decals that change only the surface's normal, roughness or occlusion, run between the main and the
 	// transparent pass: they add the change in the surface's light to the radiance
 	relight: [PHASES.decalRelight],

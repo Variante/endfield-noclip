@@ -147,6 +147,7 @@ export interface MaterialLook {
  * and scene effects ({@link LookFlags.Effect}), drawn by effect.wgsl once all their textures are bound:
  *
  * - `effect`: in the transparent pass
+ * - `effectOpaque`: an opaque VFXBaseV2 layer, shaded in the main pass after the meshes, writing depth
  * - `effectDecal`: a VFXDecal box in the transparent pass, projected onto the surfaces inside it
  * - `mist`: a FogSimple card (`MistRow` in effects/mist.ts) in the transparent pass
  * - `mistVolume`: a VFXFakeVolumeFog box in the transparent pass, drawn by its back faces like a decal's
@@ -163,6 +164,7 @@ export type LookQueue =
 	| 'stencilMask'
 	| 'transparent'
 	| 'effect'
+	| 'effectOpaque'
 	| 'effectDecal'
 	| 'mist'
 	| 'mistVolume'

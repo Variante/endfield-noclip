@@ -50,8 +50,9 @@ what each post pass computes is in [post-processing](post-processing.md) and
   lit surfaces hand the screen-space reflections: the sky reflection the radiance holds
   (`rgba16float`) and the normal, roughness and hit weight packed in `rg32uint`, which fills
   WebGPU's default 32 bytes per sample; depth is stored for post. draw order: the opaque meshes'
-  depth, terrain, meshes (opaque, then alpha-tested, then stencil-only portal masks), instance
-  boxes, box outlines (boxes larger than `outlineMetres`), terrain wireframe.
+  depth, terrain, meshes (opaque, then alpha-tested, then opaque
+  [effects](effects.md#vfxbasev2-and-vfxdecal), then stencil-only portal masks), instance boxes, box
+  outlines (boxes larger than `outlineMetres`), terrain wireframe.
 - **decal relight pass.** lit decals that change only a surface's normal, roughness or occlusion add
   the change in its light to the radiance, reading the depth, packed surface and ambient targets
   ([decals](materials.md#decals)).

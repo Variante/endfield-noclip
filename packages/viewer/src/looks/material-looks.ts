@@ -203,8 +203,14 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 	return looks;
 };
 
-/** the queue of a VFXBaseV2 stack: those that multiply the scene draw over the composited scene */
+/**
+ * the queue of a VFXBaseV2 stack: opaque ones shade in the main pass, and those that multiply the scene draw
+ * over the composited scene
+ */
 const stackQueue = (surface: EffectStackSurface): LookQueue => {
+	if (surface.opaque) {
+		return 'effectOpaque';
+	}
 	if (multipliesScene(surface)) {
 		return 'screenMultiply';
 	}
