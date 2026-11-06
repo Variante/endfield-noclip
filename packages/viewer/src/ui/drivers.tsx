@@ -7,6 +7,8 @@ import type {
 
 import type { Viewer } from '../viewer.ts';
 
+import { FlyButton } from './controls.tsx';
+
 /** @returns a quest by mission and name where known, else by id */
 const questText = (quest: QuestRef): string => {
 	if (quest.mission === null) {
@@ -87,11 +89,7 @@ export const Drivers = ({ viewer, control }: { viewer: Viewer; control: SceneCon
 				return (
 					<li key={JSON.stringify(driver)}>
 						{driverText(driver, control)}
-						{position !== null && (
-							<button type="button" onClick={() => viewer.flyToPoint(position, Math.min(radius, 120) * 1.5)}>
-								Go
-							</button>
-						)}
+						{position !== null && <FlyButton viewer={viewer} point={position} size={radius} back={1.5} />}
 					</li>
 				);
 			})}

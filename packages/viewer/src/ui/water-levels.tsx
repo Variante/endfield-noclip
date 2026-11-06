@@ -2,6 +2,7 @@ import { controlListedFor } from '../scene-states/listing.ts';
 import { surfaceView, volumeSurface, waterHeight } from '../scene-states/water-levels.ts';
 import type { Viewer } from '../viewer.ts';
 
+import { ChoiceRow, ControlValueSelect, FlyButton } from './controls.tsx';
 import { Drivers } from './drivers.tsx';
 import { useViewerState, useViewerStats } from './use-viewer.ts';
 
@@ -51,8 +52,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 				Gameplay water that switches, timers and scripts raise or lower. Picking a level moves the water there
 				at the game&apos;s speed; what floats on it follows.
 			</p>
-			<label className="scene-choice">
-				<span>Movement</span>
+			<ChoiceRow label="Movement">
 				<select
 					value={String(viewer.options.waterLevelRate)}
 					onChange={(event) => viewer.setOptions({ waterLevelRate: Number(event.currentTarget.value) })}
@@ -63,36 +63,25 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 						</option>
 					))}
 				</select>
-			</label>
+			</ChoiceRow>
 			{rows.map(({ state, surface, control }) => {
 				const { entry, current, target } = state;
 				const height = metres(waterHeight(entry, current));
 				const { center, size } = surfaceView(state, surface);
 				return (
 					<div key={control.id}>
-						<label className="scene-choice">
-							<span>
-								{control.name}
-								<small className="muted">
+						<ChoiceRow
+							label={control.name}
+							detail={
+								<>
 									{current === target ? `at ${height}` : `moving, ${height}`}
 									{entry.floaters.length > 0 && ` · ${entry.floaters.length} floating parts`}
-								</small>
-							</span>
-							<select
-								value={String(viewer.sceneValues[control.id] ?? control.default)}
-								onChange={(event) => viewer.setSceneValue(control.id, Number(event.currentTarget.value))}
-							>
-								{control.values.map((option) => (
-									<option key={option.value} value={String(option.value)}>
-										{option.label}
-										{option.value === control.default ? ' (initial)' : ''}
-									</option>
-								))}
-							</select>
-						</label>
-						<button type="button" onClick={() => viewer.flyToPoint(center, Math.min(size, 120) * 0.75)}>
-							Go
-						</button>
+								</>
+							}
+						>
+							<ControlValueSelect viewer={viewer} control={control} />
+						</ChoiceRow>
+						<FlyButton viewer={viewer} point={center} size={size} back={0.75} />
 						<Drivers viewer={viewer} control={control} />
 					</div>
 				);

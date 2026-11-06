@@ -17,13 +17,15 @@ import {
 } from '@endfield-noclip/package-format/story';
 
 import { definite, mapDefined, unique } from '@mary-ext/array-fns';
-import { useId, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 
 import { volumeCondition } from '../environment/blend.ts';
 import { controlsForLevel, volumesForLevel } from '../scene-states/listing.ts';
 import type { Viewer } from '../viewer.ts';
 
+import { ChoiceRow, ControlValueSelect, SceneToggle } from './controls.tsx';
 import { Drivers } from './drivers.tsx';
+import { followLabel } from './format.ts';
 import { useViewerState } from './use-viewer.ts';
 import { WaterLevels } from './water-levels.tsx';
 
@@ -128,58 +130,27 @@ const ControlRow = ({
 	/** a rule in words, its references named */
 	describe: (rule: RuleText) => string;
 }) => {
-	const value = viewer.sceneValues[control.id] ?? control.default;
-	const picked = control.id in viewer.scenePicks;
-	const label = (entry: number): string =>
-		control.values.find((candidate) => candidate.value === entry)?.label ?? String(entry);
 	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
-	let follows: string | null = null;
-	if (control.followsCamera) {
-		follows = 'Follow camera';
-	} else if (control.derived !== null) {
-		follows = 'Follow game';
-	}
-	if (follows === null && SWITCH_KINDS.has(control.kind)) {
-		return (
-			<div>
-				<label className="toggle scene-toggle">
-					<input
-						type="checkbox"
-						checked={value === 1}
-						onChange={(event) => viewer.setSceneValue(control.id, Number(event.currentTarget.checked))}
-					/>
-					<span>
-						{control.name}
-						<small className="muted">{detail}</small>
-					</span>
-				</label>
-				<Drivers viewer={viewer} control={control} />
-			</div>
+	let input: ReactNode;
+	if (followLabel(control) === null && SWITCH_KINDS.has(control.kind)) {
+		input = (
+			<SceneToggle
+				label={control.name}
+				detail={detail}
+				checked={(viewer.sceneValues[control.id] ?? control.default) === 1}
+				onChange={(checked) => viewer.setSceneValue(control.id, Number(checked))}
+			/>
+		);
+	} else {
+		input = (
+			<ChoiceRow label={control.name} detail={detail}>
+				<ControlValueSelect viewer={viewer} control={control} />
+			</ChoiceRow>
 		);
 	}
 	return (
 		<div>
-			<label className="scene-choice">
-				<span>
-					{control.name}
-					<small className="muted">{detail}</small>
-				</span>
-				<select
-					value={follows !== null && !picked ? '' : String(value)}
-					onChange={(event) => {
-						const text = event.currentTarget.value;
-						viewer.setSceneValue(control.id, text === '' ? null : Number(text));
-					}}
-				>
-					{follows !== null && <option value="">{picked ? follows : `${follows} (${label(value)})`}</option>}
-					{control.values.map((entry) => (
-						<option key={entry.value} value={entry.value}>
-							{entry.label}
-							{follows === null && entry.value === control.default ? ' (initial)' : ''}
-						</option>
-					))}
-				</select>
-			</label>
+			{input}
 			<Drivers viewer={viewer} control={control} />
 		</div>
 	);
@@ -262,8 +233,7 @@ const StoryProgress = ({
 		),
 	);
 	return (
-		<label className="scene-choice">
-			<span>{label}</span>
+		<ChoiceRow label={label}>
 			<select
 				value={current}
 				onChange={(event) => {
@@ -280,7 +250,7 @@ const StoryProgress = ({
 					</option>
 				))}
 			</select>
-		</label>
+		</ChoiceRow>
 	);
 };
 
@@ -473,18 +443,11 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 					const { control } = volume;
 					const states = condition === null ? '' : loadingStates(condition, control);
 					return (
-						<label className="toggle scene-toggle" key={id}>
-							<input
-								type="checkbox"
-								disabled={control === null}
-								checked={control !== null && viewer.sceneValues[control] === 1}
-								onChange={(event) =>
-									control !== null && viewer.setSceneValue(control, Number(event.currentTarget.checked))
-								}
-							/>
-							<span>
-								{volume.name}
-								<small className="muted">
+						<SceneToggle
+							key={id}
+							label={volume.name}
+							detail={
+								<>
 									{blendText(volume)}
 									{states !== '' && ` · with ${states}`}
 									{condition !== null &&
@@ -495,9 +458,16 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 									{owner !== 0 &&
 										owner !== level?.tag &&
 										` · from ${levelNames.get(owner) ?? `level ${owner}`}`}
-								</small>
-							</span>
-						</label>
+								</>
+							}
+							disabled={control === null}
+							checked={control !== null && viewer.sceneValues[control] === 1}
+							onChange={(checked) => {
+								if (control !== null) {
+									viewer.setSceneValue(control, Number(checked));
+								}
+							}}
+						/>
 					);
 				})}
 			</details>

@@ -4,6 +4,7 @@ import { DEBUG_VIEWS } from '../render/frame/frame-uniforms.ts';
 import { TONEMAPPERS } from '../render/post/settings.ts';
 import type { Viewer, ViewerOptions } from '../viewer.ts';
 
+import { Checkbox } from './controls.tsx';
 import { useViewerState } from './use-viewer.ts';
 
 const HLOD_TIERS = [0, 1, 2] as const;
@@ -14,15 +15,37 @@ type OptionKey<T> = {
 }[keyof ViewerOptions];
 
 const Toggle = ({ viewer, name, label }: { viewer: Viewer; name: OptionKey<boolean>; label: string }) => (
-	<label className="toggle">
-		<input
-			type="checkbox"
-			checked={viewer.options[name]}
-			onChange={(event) => viewer.setOptions({ [name]: event.currentTarget.checked })}
-		/>
+	<Checkbox checked={viewer.options[name]} onChange={(checked) => viewer.setOptions({ [name]: checked })}>
 		{label}
-	</label>
+	</Checkbox>
 );
+
+/** a label and a select over `options`, calling `onChange` with the picked option's value */
+const Select = ({
+	label,
+	value,
+	options,
+	onChange,
+}: {
+	label: string;
+	value: string;
+	options: readonly { value: string; label: string }[];
+	onChange: (value: string) => void;
+}) => {
+	const id = useId();
+	return (
+		<div className="slider">
+			<label htmlFor={id}>{label}</label>
+			<select id={id} value={value} onChange={(event) => onChange(event.currentTarget.value)}>
+				{options.map((option) => (
+					<option key={option.value} value={option.value}>
+						{option.label}
+					</option>
+				))}
+			</select>
+		</div>
+	);
+};
 
 const Slider = ({
 	viewer,
@@ -71,58 +94,36 @@ const Choice = <K extends OptionKey<string>>({
 	name: K;
 	label: string;
 	choices: readonly ViewerOptions[K][];
-}) => {
-	const id = useId();
-	return (
-		<div className="slider">
-			<label htmlFor={id}>{label}</label>
-			<select
-				id={id}
-				value={viewer.options[name]}
-				onChange={(event) => {
-					const value = choices.find((choice) => choice === event.currentTarget.value);
-					if (value !== undefined) {
-						viewer.setOptions({ [name]: value });
-					}
-				}}
-			>
-				{choices.map((choice) => (
-					<option key={choice} value={choice}>
-						{choice}
-					</option>
-				))}
-			</select>
-		</div>
-	);
-};
+}) => (
+	<Select
+		label={label}
+		value={viewer.options[name]}
+		options={choices.map((choice) => ({ value: choice, label: choice }))}
+		onChange={(text) => {
+			const value = choices.find((choice) => choice === text);
+			if (value !== undefined) {
+				viewer.setOptions({ [name]: value });
+			}
+		}}
+	/>
+);
 
 /** the environment volumes in effect at the camera, and a picker to pin one phase instead */
 const EnvironmentControls = ({ viewer }: { viewer: Viewer }) => {
-	const pinId = useId();
-	const phases = viewer.environmentPhases();
 	const pinned = viewer.options.environmentPin;
 	return (
 		<fieldset>
 			<legend>environment</legend>
 			<Toggle viewer={viewer} name="environmentVolumes" label="volumes at camera" />
-			<div className="slider">
-				<label htmlFor={pinId}>pin</label>
-				<select
-					id={pinId}
-					value={pinned ?? ''}
-					onChange={(event) => {
-						const value = event.currentTarget.value;
-						viewer.setOptions({ environmentPin: value === '' ? null : Number(value) });
-					}}
-				>
-					<option value="">none</option>
-					{phases.map(({ index, name }) => (
-						<option key={index} value={index}>
-							{name}
-						</option>
-					))}
-				</select>
-			</div>
+			<Select
+				label="pin"
+				value={pinned === null ? '' : String(pinned)}
+				options={[
+					{ value: '', label: 'none' },
+					...viewer.environmentPhases().map(({ index, name }) => ({ value: String(index), label: name })),
+				]}
+				onChange={(value) => viewer.setOptions({ environmentPin: value === '' ? null : Number(value) })}
+			/>
 			<ol className="applied-volumes">
 				{viewer.appliedVolumes.map(({ id, name, phase, factor }) => (
 					<li key={id} title={name}>
@@ -194,14 +195,9 @@ export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 			<fieldset>
 				<legend>HLOD tiers</legend>
 				{HLOD_TIERS.map((tier) => (
-					<label className="toggle" key={tier}>
-						<input
-							type="checkbox"
-							checked={tiers[tier]}
-							onChange={(event) => setTier(tier, event.currentTarget.checked)}
-						/>
+					<Checkbox key={tier} checked={tiers[tier]} onChange={(checked) => setTier(tier, checked)}>
 						tier {tier}
-					</label>
+					</Checkbox>
 				))}
 			</fieldset>
 			<Slider viewer={viewer} name="maxSse" label="HLOD error" min={1} max={64} step={1} unit="px" />
