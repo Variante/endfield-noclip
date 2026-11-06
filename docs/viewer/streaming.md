@@ -115,6 +115,37 @@ map02); groups holding spinning rows are never skipped. per instance it:
    never do). an instance is mirrored when its transform's determinant is negative, which flips its
    triangles' winding.
 
+### GPU culling
+
+with `gpuCulling` on (the default, where the GPU has `indirect-first-instance`), most rows skip that
+per-instance walk: the CPU does the bookkeeping per segment and the GPU tests the rows
+([`gpu-cull-work.ts`](../../packages/viewer/src/streaming/gpu-cull-work.ts),
+[`render/meshes/instance-culler.ts`](../../packages/viewer/src/render/meshes/instance-culler.ts),
+`instance-cull.wgsl`). a segment is the rows of a group in one chain run, with its own bounds, its
+rows' smallest and largest LOD size, and their handedness. for each segment of a group that passes
+the group tests, the CPU:
+
+1. picks the slots whose bands the segment's rows can reach, from its nearest and farthest row
+   centre and its sizes, with the bands widened 2% for the GPU's f32 arithmetic;
+2. requests their geometry at the segment's largest priority. a LOD with a slot not resident is
+   drawn by the slots of its stand-in in that LOD's band, as on the CPU path;
+3. makes room in each picked slot's bucket for every row of the segment, in view and as casters, and
+   lowers the bucket's first shadow layer to the first one the segment's sphere reaches.
+
+each picked slot's GPU-culled bucket, one per (geometry, submesh, material, mirrored), holds the
+segment's rows in view and its casters out of view alike: the GPU writes its rows in view first,
+then its casters ordered by first shadow layer, so each shadow layer still draws a prefix. a pass of
+`instance cull` counts each bucket's rows, turns the counts into indirect arguments (one draw for
+the rows in view and one per shadow layer, clamped to the bucket's room) and writes the visible list
+and draw ids. a shadow layer before a bucket's first layer skips its draw.
+
+segments stay on the CPU path when their chain draws particles, has a `CameraDistance` band or a
+slot outside the opaque and alpha-tested queues, when a LOD they reach has no resident stand-in and
+the chain draws boxes, and when their group holds spinning rows. picking slots by a segment's range
+leaves some buckets empty: at a dense Jingyu view (77k rows drawn) 7.1k draws against 4.6k on the
+CPU path, which costs about 0.6 ms more to encode, against 3.4 ms less mesh selection. the in-view
+instance and triangle stats of GPU-culled buckets are read back a few frames late.
+
 meshes cull the faces their material culls (front faces are clockwise, as Unity's are), with front
 and back swapped for mirrored buckets. each mesh phase, shadows included, has a pipeline per face
 culling and UV format, and draws are sorted by both. the vertex shader dequantizes 16-bit UVs with

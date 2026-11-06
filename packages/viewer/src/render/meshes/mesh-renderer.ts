@@ -1,6 +1,7 @@
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { GeometryFlags, LOOK_FLOATS, type LookStencil } from '../../looks/look.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
+import { type GpuCullWork, INDIRECT_WORDS } from '../../streaming/gpu-cull-work.ts';
 import type { MeshBucket } from '../../streaming/mesh-buckets.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
@@ -21,6 +22,7 @@ import {
 	type SurfacePass,
 } from './draw-ranges.ts';
 import { releaseGeometry, uploadGeometry } from './geometry-residency.ts';
+import { type CullTargets, type CulledBucket, InstanceCuller } from './instance-culler.ts';
 import { type EffectInputs, type EffectMaterial, MaterialBindings } from './material-bindings.ts';
 import { type PhaseDescriber, prepareMeshPipelines } from './mesh-pipelines.ts';
 import {
@@ -48,6 +50,11 @@ interface PreparedDraw {
 	count: number;
 	/** per shadow layer, how many of the rows from `first` it draws */
 	layerCounts: readonly number[];
+	/** for a GPU-culled bucket, the byte offset of its indirect arguments; -1 for one of listed rows */
+	indirect: number;
+	/** for a GPU-culled bucket, the first shadow layer its casters reach, and the room it has for them */
+	firstLayer: number;
+	shadowRoom: number;
 	/** the material group; `null` for an effect until its pass builds it */
 	material: GPUBindGroup | null;
 	/** the pipeline variant for its face culling and its geometry's UV format ({@link variantOf}) */
@@ -121,21 +128,37 @@ export class MeshRenderer {
 	#skins: SkinAnimator;
 	/** the animations of this frame's draws, which are skinned before they draw */
 	#drawnSkins = new Set<ResidentSkin>();
+	/** culls the GPU-culled buckets' rows; `null` without `indirect-first-instance` */
+	#culler: InstanceCuller | null;
+	/** what {@link #prepareDraw} hands the culler, reused */
+	#culled: CulledBucket = {
+		first: 0,
+		room: 0,
+		shadowFirst: 0,
+		shadowRoom: 0,
+		draw: 0,
+		indexCount: 0,
+		firstIndex: 0,
+		baseVertex: 0,
+	};
 
 	/**
 	 * @param device the device
 	 * @param layouts shared layouts
 	 * @param pipelines pipeline cache
 	 * @param instances the owner of group 1 (instance rows, block origins and the visible list), asked for it
-	 *   on every encode since it changes when the rows grow
+	 *   on every encode since it changes when the rows grow, and of the buffers GPU culling reads and writes
 	 * @param format the main pass's targets
+	 * @param features `indirectFirstInstance` when indirect draws may start past the first instance, which GPU
+	 *   culling needs
 	 */
 	constructor(
 		device: GPUDevice,
 		layouts: BindLayouts,
 		pipelines: PipelineCache,
-		instances: { readonly bindGroup: GPUBindGroup },
+		instances: { readonly bindGroup: GPUBindGroup; readonly buffers: Omit<CullTargets, 'drawIds'> },
 		format: MainPassFormat,
+		features: { indirectFirstInstance: boolean },
 	) {
 		this.#device = device;
 		this.#pipelines = pipelines;
@@ -161,6 +184,9 @@ export class MeshRenderer {
 				{ binding: 1, resource: { buffer: this.#drawIds } },
 			],
 		});
+		this.#culler = features.indirectFirstInstance
+			? new InstanceCuller(device, pipelines, () => ({ ...instances.buffers, drawIds: this.#drawIds }))
+			: null;
 		const { describers, effectLayout } = prepareMeshPipelines(device, layouts, pipelines, format);
 		this.#describers = describers;
 		this.#materials = new MaterialBindings(device, layouts.materials, effectLayout);
@@ -197,9 +223,17 @@ export class MeshRenderer {
 		this.#materials.release();
 	}
 
-	/** @returns bytes of the fixed GPU allocations: the draw parameters, the draw ids and the zero streams */
+	/**
+	 * @returns bytes of the fixed GPU allocations: the draw parameters, the draw ids, the zero streams and the
+	 *   culling buffers
+	 */
 	get bytes(): number {
-		return this.#params.size + this.#drawIds.size + this.#vertexBindings.bytes;
+		return this.#params.size + this.#drawIds.size + this.#vertexBindings.bytes + (this.#culler?.bytes ?? 0);
+	}
+
+	/** @returns whether the GPU can cull rows (the mesh selection's `gpuCulling`): its passes compiled */
+	get gpuCulling(): boolean {
+		return this.#culler?.ready ?? false;
 	}
 
 	/**
@@ -211,6 +245,7 @@ export class MeshRenderer {
 		this.#drawIds.destroy();
 		this.#vertexBindings.destroy();
 		this.#materials.release();
+		this.#culler?.destroy();
 	}
 
 	// #endregion
@@ -226,6 +261,16 @@ export class MeshRenderer {
 	 */
 	animate(encoder: GPUCommandEncoder, time: number): boolean {
 		return this.#skins.encode(encoder, this.#drawnSkins, time);
+	}
+
+	/**
+	 * culls the rows of the GPU-culled buckets prepared since the last call; encode before anything draws
+	 * meshes
+	 *
+	 * @param encoder the frame's encoder
+	 */
+	cull(encoder: GPUCommandEncoder): void {
+		this.#culler?.encode(encoder);
 	}
 
 	// #endregion
@@ -248,9 +293,17 @@ export class MeshRenderer {
 	 * @param spans where `InstanceRenderer.prepareList` placed each bucket's rows in the visible list, by index
 	 *   into `buckets`
 	 * @param textures the package's textures
+	 * @param work the rows left for the GPU to cull, whose buckets are among `buckets`
 	 */
-	prepare(buckets: readonly MeshBucket[], spans: readonly ListedSpan[], textures: TextureStore): void {
+	prepare(
+		buckets: readonly MeshBucket[],
+		spans: readonly ListedSpan[],
+		textures: TextureStore,
+		work: GpuCullWork,
+	): void {
 		this.clear();
+		const culler = work.buckets.length > 0 ? this.#culler : null;
+		culler?.begin(work.buckets.length);
 		for (const range of this.#ranges) {
 			range.entries.length = 0;
 		}
@@ -291,8 +344,11 @@ export class MeshRenderer {
 				if (d >= MAX_DRAWS || !this.#prepareDraw(d, bucket, span, range.info, textures)) {
 					continue;
 				}
-				listStart = Math.min(listStart, span.first);
-				listEnd = Math.max(listEnd, span.first + span.count);
+				// the GPU writes its buckets' draw ids
+				if (bucket.gpu === null) {
+					listStart = Math.min(listStart, span.first);
+					listEnd = Math.max(listEnd, span.first + span.count);
+				}
 				d++;
 				if (bucket.look.castsShadows) {
 					range.castersEnd = d;
@@ -307,7 +363,15 @@ export class MeshRenderer {
 		if (d > 0) {
 			const queue = this.#device.queue;
 			queue.writeBuffer(this.#params, 0, this.#paramData, 0, d * DRAW_FLOATS);
-			queue.writeBuffer(this.#drawIds, listStart * 4, this.#drawIdData, listStart, listEnd - listStart);
+			if (listEnd > listStart) {
+				queue.writeBuffer(this.#drawIds, listStart * 4, this.#drawIdData, listStart, listEnd - listStart);
+			}
+		}
+		if (culler !== null) {
+			culler.commit(work);
+			// as last read back, a few frames late
+			this.instanceCount += culler.instances;
+			this.triangles += culler.triangles;
 		}
 	}
 
@@ -369,7 +433,26 @@ export class MeshRenderer {
 			params[to + 3] = transform[3];
 		}
 		params.set(look.params, at + 16);
-		this.#drawIdData.fill(d, span.first, span.first + span.count);
+		const gpu = bucket.gpu;
+		let shadowRoom = 0;
+		if (gpu === null) {
+			this.#drawIdData.fill(d, span.first, span.first + span.count);
+		} else if (this.#culler !== null) {
+			const culled = this.#culled;
+			culled.first = span.first;
+			culled.room = Math.min(gpu.rows, span.count);
+			culled.shadowFirst = span.first + culled.room;
+			culled.shadowRoom = span.count - culled.room;
+			culled.draw = d;
+			culled.indexCount = range.indexCount;
+			culled.firstIndex = range.firstIndex;
+			culled.baseVertex = range.baseVertex;
+			this.#culler.setBucket(gpu.index, culled);
+			shadowRoom = culled.shadowRoom;
+		}
+		const indirect = gpu === null ? -1 : gpu.index * INDIRECT_WORDS * 4;
+		const firstLayer = gpu?.firstLayer ?? 0;
+		const count = gpu === null ? span.count : Math.min(gpu.rows, span.count);
 
 		// an effect's group also binds the main pass's outputs, so it's built when its pass encodes
 		const material = info.effect ? null : state.group;
@@ -383,8 +466,11 @@ export class MeshRenderer {
 				firstIndex: range.firstIndex,
 				baseVertex: range.baseVertex,
 				first: span.first,
-				count: span.count,
+				count,
 				layerCounts: span.layerCounts,
+				indirect,
+				firstLayer,
+				shadowRoom,
 				material,
 				variant,
 				effect,
@@ -396,14 +482,17 @@ export class MeshRenderer {
 			draw.firstIndex = range.firstIndex;
 			draw.baseVertex = range.baseVertex;
 			draw.first = span.first;
-			draw.count = span.count;
+			draw.count = count;
 			draw.layerCounts = span.layerCounts;
+			draw.indirect = indirect;
+			draw.firstLayer = firstLayer;
+			draw.shadowRoom = shadowRoom;
 			draw.material = material;
 			draw.variant = variant;
 			draw.effect = effect;
 			draw.stencil = look.stencil;
 		}
-		if (!bucket.castOnly) {
+		if (!bucket.castOnly && gpu === null) {
 			this.instanceCount += span.count;
 			this.triangles += (span.count * range.indexCount) / 3;
 			if (state.slots[0] !== null) {
@@ -549,7 +638,14 @@ export class MeshRenderer {
 			let material: GPUBindGroup | null = null;
 			for (let i = from; i < to; i++) {
 				const draw = this.#draws[i];
-				const count = layer < 0 ? draw.count : draw.layerCounts[layer];
+				let count = 0;
+				if (draw.indirect < 0) {
+					count = layer < 0 ? draw.count : draw.layerCounts[layer];
+				} else if (layer < 0) {
+					count = draw.count;
+				} else if (layer >= draw.firstLayer) {
+					count = draw.shadowRoom;
+				}
 				// only an effect drawn outside its pass would lack its group
 				if (draw.material === null || count === 0) {
 					continue;
@@ -586,7 +682,12 @@ export class MeshRenderer {
 					bindings.bindStreams(pass, geometry, phase.streams);
 					pass.setIndexBuffer(geometry.indices, geometry.indexFormat);
 				}
-				pass.drawIndexed(draw.indexCount, count, draw.firstIndex, draw.baseVertex, draw.first);
+				if (draw.indirect < 0) {
+					pass.drawIndexed(draw.indexCount, count, draw.firstIndex, draw.baseVertex, draw.first);
+				} else if (this.#culler !== null) {
+					// the draw of the rows in view, then one per shadow layer, 5 words each
+					pass.drawIndexedIndirect(this.#culler.indirect, draw.indirect + (layer < 0 ? 0 : (1 + layer) * 20));
+				}
 				draws++;
 			}
 		}

@@ -9,6 +9,16 @@ import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow
 import type { TextureStore } from '../render/textures/texture-store.ts';
 import type { Plane } from '../scene/camera.ts';
 
+import {
+	type GpuCullWork,
+	ItemFlags,
+	NO_BUCKET,
+	SlotFlags,
+	addItem,
+	addSlot,
+	gpuCullWork,
+	writeCullView,
+} from './gpu-cull-work.ts';
 import { firstRunAt, firstShadowLayer, sphereInPlanes, sphereInsidePlanes } from './instance-culling.ts';
 import {
 	BUCKET_LIFETIME,
@@ -16,6 +26,7 @@ import {
 	type MeshBucket,
 	MeshBuckets,
 	bucketIndex,
+	gpuBucketIndex,
 	slotHidden,
 } from './mesh-buckets.ts';
 import type { ResidentInstances } from './resident.ts';
@@ -23,8 +34,11 @@ import {
 	GROUP_FLOATS,
 	GROUP_ROWS,
 	GroupFloat,
+	SEGMENT_FLOATS,
+	SegmentFloat,
 	buildRowGroups,
 	chainReach,
+	groupSegmentsOf,
 	mirroredRows,
 } from './row-groups.ts';
 import type { CasterVolume, InstanceRange } from './selection.ts';
@@ -38,6 +52,8 @@ export interface MeshSelection {
 	boxes: number[];
 	/** whether it draws emitters' particles, which move with the clock while the view holds still */
 	particles: boolean;
+	/** the rows left for the GPU to cull, whose buckets are among {@link buckets} too */
+	gpu: GpuCullWork;
 }
 
 /** camera inputs */
@@ -60,6 +76,8 @@ export interface MeshView {
 	shadowLayers: ShadowLayerVolumes | null;
 	/** the clock and camera axes particles are placed by */
 	particles: ParticleView;
+	/** leave the rows of groups whose LODs are all resident for the GPU to cull ({@link GpuCullWork}) */
+	gpuCulling: boolean;
 }
 
 /** what the selector reads */
@@ -80,6 +98,11 @@ export interface MeshSelectorInit {
 const CASTER_PRIORITY = 0.1;
 /** shadow casters outside the view smaller than this are culled, px (as if on screen) */
 const CASTER_MIN_PIXELS = 16;
+/**
+ * how far a group's LOD bands are widened when picking the LODs its rows can reach, as a factor of the
+ * squared metric: the GPU measures rows in f32, so a row at a band's edge may land on either side
+ */
+const BAND_SLACK = 1.02;
 
 /** @returns a number standing for the view options {@link slotHidden} reads */
 const slotFilterKey = (view: MeshView): number =>
@@ -101,11 +124,29 @@ interface SelectedBlock {
 	boxes: Uint8Array;
 	/** per chain run: its chain's distance origin, for `CameraDistance` chains */
 	origins: (Vec3 | null)[];
+	/** per chain run: 1 when the GPU can cull its rows (every shown slot {@link ChainSlot.gpuCullable}) */
+	gpuRuns: Uint8Array;
+	/** each group's rows split by chain run, from `groupSegmentsOf` */
+	segments: Float32Array;
+	/** per group, where its segments start; one more entry ends the last */
+	groupSegments: Uint32Array;
+}
+
+/** the group {@link MeshSelector.run} hands to the GPU path, as it tested it */
+interface CulledGroup {
+	/** the rows of the selected range in it */
+	first: number;
+	end: number;
+	inside: boolean;
+	/** whether the group's bounds touch the view; if not, its rows can only cast shadows */
+	inView: boolean;
+	/** the first shadow layer its bounds reach */
+	layer: number;
 }
 
 /** selects LODs and buckets instances */
 export class MeshSelector {
-	readonly selection: MeshSelection = { buckets: [], boxes: [], particles: false };
+	readonly selection: MeshSelection = { buckets: [], boxes: [], particles: false, gpu: gpuCullWork() };
 	#chains: readonly Chain[];
 	#geometries: readonly GeometryEntry[];
 	#stream: StreamManager;
@@ -137,6 +178,27 @@ export class MeshSelector {
 	readonly #blocks = new WeakMap<ResidentInstances, SelectedBlock>();
 	/** per chain, its reach per metre of size ({@link chainReach}), `NaN` until first asked */
 	readonly #reaches: Float64Array;
+	/** the group being handed to {@link #cullGroup} */
+	readonly #group: CulledGroup = {
+		first: 0,
+		end: 0,
+		inside: false,
+		inView: false,
+		layer: 0,
+	};
+	/** what {@link #gpuBucket} adds, reused */
+	readonly #room = { inView: 0, casters: 0, priority: 0 };
+	/** the slots a segment's rows can reach, from {@link #cullGroup} */
+	readonly #candidates: ChainSlot[] = [];
+	/**
+	 * the segment {@link #addSlot} adds to: its rows, handedness bits, priority, nearest row centre and the
+	 * first shadow layer its bounds reach
+	 */
+	readonly #segment = { rows: 0, handedness: 0, priority: 0, nearest: 0, layer: 0 };
+	/** a slot entry's buckets, reused */
+	readonly #pair: [unmirrored: number, mirrored: number] = [0, 0];
+	/** the geometries asked about this frame, wanted at their highest priority once the selection is done */
+	readonly #asked: number[] = [];
 
 	/** @param init tables and residency */
 	constructor(init: MeshSelectorInit) {
@@ -164,6 +226,10 @@ export class MeshSelector {
 		selection.buckets.length = 0;
 		selection.boxes.length = 0;
 		selection.particles = false;
+		const work = selection.gpu;
+		work.itemCount = 0;
+		work.slotCount = 0;
+		work.buckets.length = 0;
 		this.#view = view;
 		const { eye, pixelFactor, viewportHeight, minPixels, casters } = view;
 		const planes = this.#planes;
@@ -182,6 +248,18 @@ export class MeshSelector {
 			this.#casterDistance = casters.distance;
 		}
 		this.#casterFloats = casterFloats;
+		writeCullView(work, {
+			planes,
+			planeFloats,
+			casterPlanes,
+			casterFloats,
+			casterDistance: this.#casterDistance,
+			casterMinPixels: CASTER_MIN_PIXELS,
+			pixelFactor,
+			viewportHeight,
+			minPixels,
+			shadowLayers: view.shadowLayers,
+		});
 		const reachScale = pixelFactor / viewportHeight;
 		const filter = slotFilterKey(view);
 
@@ -196,6 +274,10 @@ export class MeshSelector {
 			const block = this.#blockOf(instances);
 			if (block.filter !== filter) {
 				block.slots = block.allSlots.map((slots) => slots.filter((slot) => !slotHidden(slot, view)));
+				// effect distance bands, particles and the queues drawn in order stay on the CPU
+				block.gpuRuns = Uint8Array.from(block.slots, (slots, r) =>
+					slots.length > 0 && block.origins[r] === null && slots.every((slot) => slot.gpuCullable) ? 1 : 0,
+				);
 				block.filter = filter;
 			}
 			const groups = block.groups;
@@ -207,17 +289,16 @@ export class MeshSelector {
 				const gx = ox + groups[at + GroupFloat.center];
 				const gy = oy + groups[at + GroupFloat.center + 1];
 				const gz = oz + groups[at + GroupFloat.center + 2];
-				const nearest = Math.max(
-					Math.sqrt(gx * gx + gy * gy + gz * gz) - groups[at + GroupFloat.centersRadius],
-					0.1,
-				);
+				const centre = Math.sqrt(gx * gx + gy * gy + gz * gz);
+				const nearest = Math.max(centre - groups[at + GroupFloat.centersRadius], 0.1);
 				const rowPixels = (groups[at + GroupFloat.rowRadius] * pixelFactor) / nearest;
 				if (rowPixels < minPixels || nearest > groups[at + GroupFloat.reach] * reachScale) {
 					continue;
 				}
 				const radius = groups[at + GroupFloat.radius];
+				const inView = sphereInPlanes(planes, planeFloats, gx, gy, gz, radius);
 				if (
-					!sphereInPlanes(planes, planeFloats, gx, gy, gz, radius) &&
+					!inView &&
 					(casterFloats === 0 ||
 						rowPixels < CASTER_MIN_PIXELS ||
 						!sphereInPlanes(casterPlanes, casterFloats, gx, gy, gz, radius))
@@ -225,14 +306,28 @@ export class MeshSelector {
 					continue;
 				}
 				// every row of a group wholly in view is in view too
-				const inside = sphereInsidePlanes(planes, planeFloats, gx, gy, gz, radius);
-				this.#selectRows(instances, Math.max(first, g * GROUP_ROWS), Math.min(end, (g + 1) * GROUP_ROWS), {
-					inside,
-					block,
-				});
+				const inside = inView && sphereInsidePlanes(planes, planeFloats, gx, gy, gz, radius);
+				const rowFirst = Math.max(first, g * GROUP_ROWS);
+				const rowEnd = Math.min(end, (g + 1) * GROUP_ROWS);
+				// a group holding moving rows has no bounds to pick its LODs by
+				if (view.gpuCulling && radius !== Infinity) {
+					const group = this.#group;
+					group.first = rowFirst;
+					group.end = rowEnd;
+					group.inside = inside;
+					group.inView = inView;
+					group.layer =
+						view.shadowLayers === null
+							? SHADOW_LAYERS
+							: firstShadowLayer(view.shadowLayers, gx, gy, gz, radius);
+					this.#cullGroup(instances, block, g);
+				} else {
+					this.#selectRows(instances, rowFirst, rowEnd, { inside, block });
+				}
 			}
 		}
 
+		this.#wantAsked();
 		const texturePixels = 2 ** -view.textureBias;
 		for (const bucket of selection.buckets) {
 			const look = bucket.look;
@@ -277,6 +372,9 @@ export class MeshSelector {
 				boxes[r] = this.#buckets.drawsBox(chain) ? 1 : 0;
 				origins.push(this.#chains[chain].distanceOrigin);
 			}
+			const rowCount = instances.cull.length / CULL_FLOATS;
+			const mirrored = mirroredRows(instances.rowsF32, rowCount);
+			const { segments, groupSegments } = groupSegmentsOf(instances.rowsF32, runs, instances.cull, mirrored);
 			return {
 				groups: buildRowGroups(
 					{
@@ -287,12 +385,15 @@ export class MeshSelector {
 					},
 					(chain) => this.#reach(chain),
 				),
-				mirrored: mirroredRows(instances.rowsF32, instances.cull.length / CULL_FLOATS),
+				mirrored,
 				allSlots,
 				slots: allSlots,
 				filter: -1,
 				boxes,
 				origins,
+				gpuRuns: new Uint8Array(runCount),
+				segments,
+				groupSegments,
 			};
 		});
 	}
@@ -309,6 +410,215 @@ export class MeshSelector {
 			this.#reaches[chain] = reach;
 		}
 		return reach;
+	}
+
+	/**
+	 * hands the rows of {@link #group} (group `g` of the block) to the GPU, a segment at a time: it picks the
+	 * slots whose LOD bands the segment's rows can reach from the group's distances and the rows' sizes, and
+	 * requests their geometry. a LOD with a slot not resident is drawn by the nearest resident LOD's slots in
+	 * its band, as {@link #selectRows} picks stand-ins. a segment of a run the GPU can't cull, or of rows that
+	 * would draw their box, goes through {@link #selectRows}
+	 */
+	#cullGroup(instances: ResidentInstances, block: SelectedBlock, g: number): void {
+		const view = this.#view;
+		if (view === null) {
+			return;
+		}
+		const group = this.#group;
+		const { pixelFactor, viewportHeight } = view;
+		const work = this.selection.gpu;
+		const frame = this.#frame;
+		const segments = block.segments;
+		const candidates = this.#candidates;
+		const castOnly = !group.inView;
+		for (let s = block.groupSegments[g]; s < block.groupSegments[g + 1]; s++) {
+			const at = s * SEGMENT_FLOATS;
+			const first = Math.max(group.first, segments[at + SegmentFloat.first]);
+			const end = Math.min(group.end, segments[at + SegmentFloat.end]);
+			if (first >= end) {
+				continue;
+			}
+			const run = segments[at + SegmentFloat.run];
+			if (block.gpuRuns[run] === 0) {
+				this.#selectRows(instances, first, end, { inside: group.inside, block });
+				continue;
+			}
+			// the metric's widest range over the segment's rows: the largest nearest, the smallest farthest
+			const sx = this.#ox + segments[at + SegmentFloat.center];
+			const sy = this.#oy + segments[at + SegmentFloat.center + 1];
+			const sz = this.#oz + segments[at + SegmentFloat.center + 2];
+			const centre = Math.sqrt(sx * sx + sy * sy + sz * sz);
+			const nearest = Math.max(centre - segments[at + SegmentFloat.centersRadius], 0.1);
+			const far = Math.max(centre + segments[at + SegmentFloat.centersRadius], 0.1);
+			const largest = (2 * segments[at + SegmentFloat.maxSize] * pixelFactor) / (nearest * viewportHeight);
+			const smallest = (2 * segments[at + SegmentFloat.minSize] * pixelFactor) / (far * viewportHeight);
+			const high = largest * largest * BAND_SLACK;
+			const low = (smallest * smallest) / BAND_SLACK;
+			const priority = largest * viewportHeight * (castOnly ? CASTER_PRIORITY : 1);
+			const slots = block.slots[run];
+			let count = 0;
+			let ready = true;
+			for (const slot of slots) {
+				if (slot.maxSquared < low || slot.minSquared >= high || (castOnly && !slot.castsShadows)) {
+					continue;
+				}
+				candidates[count++] = slot;
+				if (!this.#geometryReady(slot.geometry, priority, frame)) {
+					ready = false;
+				}
+			}
+			if (count === 0) {
+				continue;
+			}
+			// rows with no LOD resident draw their box, which only listed rows can
+			if (!ready && block.boxes[run] === 1 && !castOnly && this.#needsBox(slots, count)) {
+				this.#selectRows(instances, first, end, { inside: group.inside, block });
+				continue;
+			}
+			const rows = end - first;
+			addItem(work, instances.alloc.start + first, rows, group.inside ? ItemFlags.Inside : 0);
+			const segment = this.#segment;
+			segment.rows = rows;
+			segment.handedness = segments[at + SegmentFloat.handedness];
+			segment.priority = priority;
+			segment.nearest = nearest;
+			// the segment's own sphere reaches fewer layers than its group's
+			segment.layer =
+				group.layer === SHADOW_LAYERS || view.shadowLayers === null
+					? SHADOW_LAYERS
+					: firstShadowLayer(view.shadowLayers, sx, sy, sz, segments[at + SegmentFloat.radius]);
+			if (ready) {
+				for (let c = 0; c < count; c++) {
+					this.#addSlot(candidates[c], candidates[c]);
+				}
+				continue;
+			}
+			for (let c = 0; c < count; c++) {
+				const lod = candidates[c].lod;
+				if (this.#seenLod(count, c)) {
+					continue;
+				}
+				let lodReady = true;
+				for (let d = c; d < count; d++) {
+					if (candidates[d].lod === lod && this.#ready[candidates[d].geometry] === 0) {
+						lodReady = false;
+					}
+				}
+				if (lodReady) {
+					for (let d = c; d < count; d++) {
+						if (candidates[d].lod === lod) {
+							this.#addSlot(candidates[d], candidates[d]);
+						}
+					}
+					continue;
+				}
+				// the stand-in's slots draw in the band of the LOD they stand in for
+				const standIns = this.#residentLod(slots, lod, { castOnly });
+				const band = candidates[c];
+				for (let p = 0; p < standIns; p++) {
+					this.#addSlot(band, this.#pending[p]);
+				}
+			}
+		}
+	}
+
+	/** @returns whether candidate `c` shares its LOD with an earlier one of the first `count` candidates */
+	#seenLod(count: number, c: number): boolean {
+		const lod = this.#candidates[c].lod;
+		for (let d = 0; d < c && d < count; d++) {
+			if (this.#candidates[d].lod === lod) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * @param slots the run's shown slots
+	 * @param count candidates in {@link #candidates}
+	 * @returns whether a candidate LOD has a slot not resident and no resident LOD to stand in for it
+	 */
+	#needsBox(slots: readonly ChainSlot[], count: number): boolean {
+		for (let c = 0; c < count; c++) {
+			if (
+				this.#ready[this.#candidates[c].geometry] === 0 &&
+				this.#residentLod(slots, this.#candidates[c].lod, { castOnly: false }) === 0
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * adds a slot entry for {@link #segment}'s item: `target`'s buckets, drawn by the rows in `band`'s LOD band
+	 *
+	 * @param band the slot whose band the rows are tested against
+	 * @param target the slot that draws them: `band` itself, or its stand-in
+	 */
+	#addSlot(band: ChainSlot, target: ChainSlot): void {
+		const { rows, handedness, priority } = this.#segment;
+		const group = this.#group;
+		const room = this.#room;
+		room.inView = group.inView && !target.shadowOnly ? rows : 0;
+		room.casters = target.castsShadows && this.#segment.layer < SHADOW_LAYERS ? rows : 0;
+		room.priority = priority;
+		if (room.inView + room.casters === 0) {
+			return;
+		}
+		const buckets = this.#pair;
+		buckets[0] = (handedness & 1) === 0 ? NO_BUCKET : this.#gpuBucket(target, 0, room);
+		buckets[1] = (handedness & 2) === 0 ? NO_BUCKET : this.#gpuBucket(target, 1, room);
+		addSlot(
+			this.selection.gpu,
+			band,
+			(target.castsShadows ? SlotFlags.Casts : 0) | (target.shadowOnly ? SlotFlags.ShadowOnly : 0),
+			buckets,
+		);
+	}
+
+	/**
+	 * makes room in a slot's GPU-culled bucket for a segment of {@link #group}
+	 *
+	 * @param room rows the segment may add in view and as casters, and its priority
+	 * @returns the bucket's GPU index
+	 */
+	#gpuBucket(
+		slot: ChainSlot,
+		mirrored: 0 | 1,
+		room: { inView: number; casters: number; priority: number },
+	): number {
+		const index = gpuBucketIndex(mirrored, slot.shadowOnly);
+		const bucket = slot.buckets[index] ?? this.#buckets.bucketOf(slot, index);
+		const gpu = bucket.gpu;
+		if (gpu === null) {
+			throw new Error('a GPU bucket index named a bucket of listed rows');
+		}
+		const work = this.selection.gpu;
+		if (bucket.frame !== this.#frame) {
+			bucket.frame = this.#frame;
+			bucket.pixels = 0;
+			bucket.nearest = Infinity;
+			gpu.index = work.buckets.length;
+			gpu.rows = 0;
+			gpu.shadowRows = 0;
+			gpu.firstLayer = SHADOW_LAYERS;
+			work.buckets.push(bucket);
+			this.selection.buckets.push(bucket);
+		}
+		gpu.rows += room.inView;
+		if (room.casters > 0) {
+			gpu.shadowRows += room.casters;
+			gpu.firstLayer = Math.min(gpu.firstLayer, this.#segment.layer);
+		}
+		if (room.priority > bucket.pixels) {
+			bucket.pixels = room.priority;
+		}
+		const nearest = this.#segment.nearest;
+		if (nearest < bucket.nearest) {
+			bucket.nearest = nearest;
+		}
+		return gpu.index;
 	}
 
 	/**
@@ -429,8 +739,8 @@ export class MeshSelector {
 				for (let p = 0; p < pendingCount; p++) {
 					const slot = pending[p];
 					const cast = castOnly || slot.shadowOnly;
-					const bucket =
-						slot.buckets[bucketIndex(mirrored, cast)] ?? this.#buckets.bucketOf(slot, mirrored, cast);
+					const index = bucketIndex(mirrored, cast);
+					const bucket = slot.buckets[index] ?? this.#buckets.bucketOf(slot, index);
 					if (bucket.frame !== frame) {
 						bucket.frame = frame;
 						for (const rows of bucket.rows) {
@@ -462,21 +772,34 @@ export class MeshSelector {
 
 	/**
 	 * wants a geometry at `priority` and reports whether it's resident. residency can't change before the
-	 * stream update, so each geometry is asked about at most once per frame and priority increase.
+	 * stream update, so each geometry is looked up once per frame, and wanted once at its highest priority by
+	 * {@link #wantAsked}
 	 */
 	#geometryReady(geometry: number, priority: number, frame: number): boolean {
 		if (this.#checkedFrame[geometry] !== frame) {
 			this.#checkedFrame[geometry] = frame;
-			this.#wanted[geometry] = -Infinity;
-			this.#ready[geometry] = 0;
-		}
-		if (priority > this.#wanted[geometry]) {
 			this.#wanted[geometry] = priority;
 			const entry = this.#geometries[geometry];
-			this.#ready[geometry] =
-				entry?.status === 'ready' && this.#stream.want(entry.blob, priority) !== null ? 1 : 0;
+			const known = entry?.status === 'ready';
+			this.#ready[geometry] = known && this.#stream.isReady(entry.blob) ? 1 : 0;
+			if (known) {
+				this.#asked.push(geometry);
+			}
+		} else if (priority > this.#wanted[geometry]) {
+			this.#wanted[geometry] = priority;
 		}
 		return this.#ready[geometry] === 1;
+	}
+
+	/** wants every geometry asked about this frame at the highest priority it was asked with */
+	#wantAsked(): void {
+		for (const geometry of this.#asked) {
+			const entry = this.#geometries[geometry];
+			if (entry?.status === 'ready') {
+				this.#stream.want(entry.blob, this.#wanted[geometry]);
+			}
+		}
+		this.#asked.length = 0;
 	}
 
 	/**

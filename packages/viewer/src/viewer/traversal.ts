@@ -105,6 +105,7 @@ export class Traversal {
 				textureBias: options.textureBias,
 				unsupportedMaterials: options.unsupportedMaterials,
 				missingContent: options.missingContent,
+				gpuCulling: options.gpuCulling && meshes.gpuCulling,
 				casters: view.casters,
 				shadowLayers: shadows ? renderer.shadows.volumes : null,
 				// particles move by the clock the effects' shaders scroll by
@@ -155,7 +156,7 @@ export class Traversal {
 			meshes.clear();
 		} else {
 			const spans = instances.prepareList(options.boxes ? meshSelection.boxes : [], meshSelection.buckets);
-			meshes.prepare(meshSelection.buckets, spans, scene.textures);
+			meshes.prepare(meshSelection.buckets, spans, scene.textures, meshSelection.gpu);
 		}
 		renderer.frame.shadowLayers.invalidate();
 		times.span('prepare');

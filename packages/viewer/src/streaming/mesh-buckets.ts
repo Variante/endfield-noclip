@@ -6,6 +6,7 @@ import { unsupportedLook } from '../looks/material-looks.ts';
 import { SHADOW_LAYERS } from '../render/shadows/shadow-map.ts';
 
 import type { ContentItem } from './content-item.ts';
+import type { GpuRows } from './gpu-cull-work.ts';
 import type { StreamManager } from './stream-manager.ts';
 
 /**
@@ -35,6 +36,8 @@ export interface MeshBucket {
 	nearest: number;
 	/** last frame the bucket had rows */
 	frame: number;
+	/** for a bucket whose rows the GPU culls, what it gathered this frame; `null` for one of listed {@link rows} */
+	gpu: GpuRows | null;
 }
 
 /** which hidden draws a view selects */
@@ -62,6 +65,8 @@ export interface ChainSlot {
 	hiddenBy: 'material' | 'stand-in' | null;
 	/** whether the draw is a shadow proxy, which only the shadow passes draw, even for instances in view */
 	shadowOnly: boolean;
+	/** whether the GPU can cull its rows: a mesh in the opaque or alpha-tested queue */
+	gpuCullable: boolean;
 	/** the particle system the draw plays, whose particles stand in for the instance; `null` for a mesh */
 	particles: number | null;
 	/** the slot's buckets, once they had rows, by {@link bucketIndex} */
@@ -98,9 +103,20 @@ export const slotHidden = (slot: ChainSlot, filter: SlotFilter): boolean => {
 /**
  * @param mirrored 1 for mirrored instances, 0 for unmirrored
  * @param castOnly whether the instances only cast shadows
- * @returns the index of a slot's bucket
+ * @returns the index of a slot's bucket of listed rows
  */
 export const bucketIndex = (mirrored: 0 | 1, castOnly: boolean): number => mirrored + (castOnly ? 2 : 0);
+
+/** a slot's buckets: those of listed rows by {@link bucketIndex}, then those the GPU culls */
+const BUCKET_VARIANTS = 8;
+
+/**
+ * @param mirrored 1 for mirrored instances, 0 for unmirrored
+ * @param shadowOnly whether the slot is a shadow proxy, whose rows only cast shadows
+ * @returns the index of a slot's bucket whose rows the GPU culls; its rows out of view share it, as casters
+ */
+export const gpuBucketIndex = (mirrored: 0 | 1, shadowOnly: boolean): number =>
+	4 + mirrored + (shadowOnly ? 2 : 0);
 
 /** buckets without rows for this many frames are dropped */
 export const BUCKET_LIFETIME = 600;
@@ -169,6 +185,7 @@ export class MeshBuckets {
 				const material = draw.role === DrawRole.Unsupported ? this.#standIn : draw.material;
 				const look = material < this.#looks.length ? this.#looks[material] : undefined;
 				const shadowOnly = draw.role === DrawRole.ShadowOnly;
+				const queue = look?.queue;
 				// a proxy's material is never seen, only whether it casts
 				if (look === undefined || (shadowOnly ? !look.castsShadows : !look.drawn)) {
 					continue;
@@ -183,8 +200,9 @@ export class MeshBuckets {
 					castsShadows: look.castsShadows,
 					hiddenBy: hiddenByOf(draw.role, look),
 					shadowOnly,
+					gpuCullable: draw.particles === null && (queue === 'opaque' || queue === 'cutout'),
 					particles: draw.particles,
-					buckets: [null, null, null, null],
+					buckets: Array.from({ length: BUCKET_VARIANTS }, () => null),
 				});
 			}
 			this.#slots[chain] = slots;
@@ -196,15 +214,13 @@ export class MeshBuckets {
 
 	/**
 	 * @param slot a chain slot whose geometry has a stream item
-	 * @param mirrored 1 for mirrored instances, 0 for unmirrored
-	 * @param castOnly whether the instances only cast shadows
+	 * @param index the bucket, by {@link bucketIndex} or {@link gpuBucketIndex}
 	 * @returns the slot's bucket, created and remembered by the slot on first use
 	 * @throws {Error} if the slot's geometry was never requested
 	 */
-	bucketOf(slot: ChainSlot, mirrored: 0 | 1, castOnly: boolean): MeshBucket {
+	bucketOf(slot: ChainSlot, index: number): MeshBucket {
 		const { geometry, submesh, material } = slot;
-		const index = bucketIndex(mirrored, castOnly);
-		const key = ((geometry * 256 + submesh) * 65_536 + material) * 4 + index;
+		const key = ((geometry * 256 + submesh) * 65_536 + material) * BUCKET_VARIANTS + index;
 		const bucket = this.#buckets.getOrInsertComputed(key, (): MeshBucket => {
 			const entry = this.#geometries[geometry];
 			const item = entry.status === 'ready' ? this.#stream.get(entry.blob) : undefined;
@@ -216,12 +232,13 @@ export class MeshBuckets {
 				submesh,
 				material,
 				look: this.#looks[material],
-				mirrored: mirrored === 1,
-				castOnly,
+				mirrored: (index & 1) === 1,
+				castOnly: (index & 2) === 2,
 				rows: Array.from({ length: SHADOW_LAYERS + 1 }, () => []),
 				pixels: 0,
 				nearest: Infinity,
 				frame: -1,
+				gpu: index >= 4 ? { index: -1, rows: 0, shadowRows: 0, firstLayer: SHADOW_LAYERS } : null,
 			};
 		});
 		slot.buckets[index] = bucket;

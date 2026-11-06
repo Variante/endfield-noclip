@@ -23,6 +23,7 @@ import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type { RangeAllocation } from '../../gfx/range-allocator.ts';
 import type { DecodedInstances } from '../../package/decode-protocol.ts';
+import type { GpuRows } from '../../streaming/gpu-cull-work.ts';
 import type { ResidentInstances } from '../../streaming/resident.ts';
 import type { InstanceRange } from '../../streaming/selection.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
@@ -187,6 +188,19 @@ export class InstanceRenderer {
 		return this.#bindGroup;
 	}
 
+	/**
+	 * @returns the rows (replaced when they grow, as `rowsVersion` counts), the block origins and the visible
+	 *   list
+	 */
+	get buffers(): { rows: GPUBuffer; rowsVersion: number; blocks: GPUBuffer; list: GPUBuffer } {
+		return {
+			rows: this.#pool.buffer,
+			rowsVersion: this.#pool.version,
+			blocks: this.#blocks,
+			list: this.#list,
+		};
+	}
+
 	/** @returns bytes of the GPU allocations */
 	get bytes(): number {
 		return this.#pool.bytes + this.#placements.bytes + this.#blockData.byteLength + this.#listData.byteLength;
@@ -345,16 +359,17 @@ export class InstanceRenderer {
 
 	/**
 	 * list mode: uploads this frame's visible list, boxes first, then each set of mesh rows, each set's groups
-	 * one after another. rows past the list capacity are dropped.
+	 * one after another, then room for the sets the GPU culls, which it writes itself (`InstanceCuller`). rows
+	 * past the list capacity are dropped.
 	 *
 	 * @param boxes rows to draw as boxes
-	 * @param sets rows of the mesh draws, in groups
+	 * @param sets rows of the mesh draws, in groups, or the room a GPU-culled set needs
 	 * @returns where each set's rows landed, by index into `sets`, valid until the next call; entries past the
-	 *   sets are left from earlier calls
+	 *   sets are left from earlier calls. a GPU-culled set's span is its room, its rows in view first
 	 */
 	prepareList(
 		boxes: readonly number[],
-		sets: readonly { readonly rows: readonly (readonly number[])[] }[],
+		sets: readonly { readonly rows: readonly (readonly number[])[]; readonly gpu: GpuRows | null }[],
 	): readonly ListedSpan[] {
 		this.#mode = 'list';
 		const list = this.#listData;
@@ -366,6 +381,9 @@ export class InstanceRenderer {
 		this.#drawCount = at > 0 ? 1 : 0;
 		const spans = this.#spans;
 		for (let s = 0; s < sets.length; s++) {
+			if (sets[s].gpu !== null) {
+				continue;
+			}
 			const groups = sets[s].rows;
 			const span = (spans[s] ??= { first: 0, count: 0, layerCounts: [] });
 			span.first = at;
@@ -385,6 +403,17 @@ export class InstanceRenderer {
 		}
 		if (at > 0) {
 			this.#device.queue.writeBuffer(this.#list, 0, list, 0, at);
+		}
+		for (let s = 0; s < sets.length; s++) {
+			const gpu = sets[s].gpu;
+			if (gpu === null) {
+				continue;
+			}
+			const span = (spans[s] ??= { first: 0, count: 0, layerCounts: [] });
+			span.first = at;
+			span.count = Math.min(gpu.rows + gpu.shadowRows, LIST_CAPACITY - at);
+			span.layerCounts.length = 0;
+			at += span.count;
 		}
 		return spans;
 	}

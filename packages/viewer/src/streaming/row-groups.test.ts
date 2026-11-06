@@ -7,8 +7,11 @@ import {
 	GROUP_FLOATS,
 	GROUP_ROWS,
 	GroupFloat,
+	SEGMENT_FLOATS,
+	SegmentFloat,
 	buildRowGroups,
 	chainReach,
+	groupSegmentsOf,
 	mirroredRows,
 } from './row-groups.ts';
 
@@ -70,4 +73,32 @@ it('marks the rows whose transform flips handedness', () => {
 	rowsF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], 0);
 	rowsF32.set([-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], ROW_WORDS);
 	assert.deepEqual([...mirroredRows(rowsF32, 2)], [0, 1]);
+});
+
+it('splits each group by chain run, keeping the sizes, handedness and bounds of each segment', () => {
+	const centers = Array.from({ length: GROUP_ROWS + 4 }, (_, i): [number, number, number] => [i, 0, 0]);
+	const { rowsF32, cull } = rowsAt(centers, 1, 2);
+	cull[3 * CULL_FLOATS + 1] = 5;
+	// chain 0 ends inside the first group; chain 1 crosses into the second
+	const runs = new Uint32Array([0, 0, 4, 1, 4, GROUP_ROWS]);
+	const mirrored = new Uint8Array(centers.length);
+	mirrored[GROUP_ROWS + 1] = 1;
+	const { segments, groupSegments } = groupSegmentsOf(rowsF32, runs, cull, mirrored);
+	assert.deepEqual([...groupSegments], [0, 2, 3]);
+	const segment = (s: number, field: number): number => segments[s * SEGMENT_FLOATS + field];
+	assert.deepEqual(
+		[segment(0, SegmentFloat.first), segment(0, SegmentFloat.end), segment(0, SegmentFloat.run)],
+		[0, 4, 0],
+	);
+	assert.deepEqual([segment(0, SegmentFloat.minSize), segment(0, SegmentFloat.maxSize)], [2, 5]);
+	assert.equal(segment(0, SegmentFloat.center), 1.5);
+	assert.ok(Math.abs(segment(0, SegmentFloat.radius) - 2.5) < 0.02);
+	assert.deepEqual([segment(1, SegmentFloat.first), segment(1, SegmentFloat.end)], [4, GROUP_ROWS]);
+	assert.equal(segment(1, SegmentFloat.handedness), 1);
+	// the second group: chain 1's last rows, one of them mirrored
+	assert.deepEqual(
+		[segment(2, SegmentFloat.first), segment(2, SegmentFloat.end), segment(2, SegmentFloat.run)],
+		[GROUP_ROWS, GROUP_ROWS + 4, 1],
+	);
+	assert.equal(segment(2, SegmentFloat.handedness), 3);
 });

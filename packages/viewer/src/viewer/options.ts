@@ -29,6 +29,11 @@ export interface ViewerOptions {
 	 */
 	missingContent: boolean;
 	/**
+	 * cull the rows of groups whose LODs are all resident on the GPU, which writes their visible list and
+	 * indirect draws; off (or without `indirect-first-instance`) culls every row on the CPU
+	 */
+	gpuCulling: boolean;
+	/**
 	 * detail and conditional scenery draw within this distance of the camera, m; past it, HLOD clusters in the
 	 * game's rings. 256 is the game's at its highest scene detail on PC (96 at its lowest)
 	 */
@@ -101,6 +106,7 @@ export const DEFAULT_OPTIONS: ViewerOptions = {
 	boxes: true,
 	unsupportedMaterials: false,
 	missingContent: false,
+	gpuCulling: true,
 	detailDistance: 256,
 	terrainPixels: 3,
 	minBoxPixels: 1.5,

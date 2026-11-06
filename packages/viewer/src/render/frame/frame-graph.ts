@@ -208,6 +208,9 @@ export const encodeFrame = (
 
 	systems.irradiance.encode(encoder);
 	const skinned = settings.scene && meshes.animate(encoder, context.time);
+	if (settings.scene) {
+		meshes.cull(encoder);
+	}
 	const drawShadows = systems.shadowLayers.update(systems.shadowMap.layers, {
 		shadows: settings.shadows,
 		skinned,
