@@ -76,7 +76,8 @@ applies the budget.
   0 looks along +z, positive yaw turns towards +x, negative pitch looks down.
 - writing `viewer.camera.position` directly moves the view only while `continuous` is on, since it
   doesn't mark the frame dirty; this is useful for walking the camera per frame.
-- `viewer.showLevel(id)` shows one level alone; `viewer.flyToLevel(id)` only flies there.
+- `viewer.flyToLevel(id)` makes a level current and flies over it; every level shows either way.
+  after a flight lands, moving the camera into another level's cells makes that level current.
 
 ## inspecting
 
@@ -86,7 +87,7 @@ applies the budget.
   pose near the ground to see a level's own look; a high camera gets only the scene's global
   environment.
 - `viewer.manifest` holds levels, environment profiles, `environmentVolumes` and
-  `environmentPhases`; `viewer.shownLevel` is the shown level's entry.
+  `environmentPhases`; `viewer.currentLevel` is the current level's entry.
   `await import('/src/environment/derive.ts')` gives `deriveEnvironment` for checking derived values
   against a profile.
 - scene states: `viewer.sceneValues` (every control), `viewer.scenePicks`,

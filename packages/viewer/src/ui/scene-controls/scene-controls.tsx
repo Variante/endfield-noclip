@@ -4,12 +4,13 @@ import { storyPlace } from '@endfield-noclip/package-format/story';
 
 import { useId, useState } from 'react';
 
-import { controlsForLevel } from '../../scene-states/listing.ts';
+import { controlsForLevel, groupByLevel } from '../../scene-states/listing.ts';
 import type { Viewer } from '../../viewer/viewer.ts';
 import { useViewerState } from '../use-viewer.ts';
 
 import { ControlRow } from './control-row.tsx';
 import { EnvironmentVolumes } from './environment-volumes.tsx';
+import { OtherLevels } from './other-levels.tsx';
 import { StoryControls } from './story-controls.tsx';
 import { WaterLevels } from './water-levels.tsx';
 
@@ -101,7 +102,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	if (manifest === null) {
 		return null;
 	}
-	const level = viewer.shownLevel;
+	const level = viewer.currentLevel;
 	const matches = (name: string): boolean => name.toLowerCase().includes(query.toLowerCase());
 	const missions = new Map(manifest.states.missions.map((mission) => [mission.id, mission]));
 	const byId = new Map(manifest.states.controls.map((entry) => [entry.id, entry]));
@@ -120,10 +121,26 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 			const control = byId.get(reference.control);
 			return control && storyPlace(control) ? `“${storyName(control)}”` : reference.text;
 		});
-	const controls = controlsForLevel(manifest.states.controls, level).filter((entry) =>
+	const controls = manifest.states.controls.filter((entry) =>
 		matches(`${storyName(entry)} ${entry.id} ${entry.rule ? describe(entry.rule) : ''}`),
 	);
 	const levelNames = new Map(manifest.levels.map((entry) => [entry.id, entry.name ?? entry.id]));
+	const sectionRows = (kinds: readonly SceneControlKind[], entries: readonly SceneControl[]) =>
+		kinds.includes('quest') ? (
+			<StoryControls
+				viewer={viewer}
+				controls={entries}
+				all={manifest.states.controls}
+				missions={missions}
+				mainLine={manifest.states.mainStory}
+				describe={describe}
+				levelName={(id) => levelNames.get(id) ?? id}
+			/>
+		) : (
+			entries.map((entry) => (
+				<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
+			))
+		);
 	return (
 		<section className="panel scene-controls" aria-label="scene conditions">
 			<header>
@@ -140,28 +157,24 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 				/>
 			</label>
 			{SECTIONS.map(({ kinds, title, note, open }) => {
-				const listed = controls.filter((entry) => kinds.includes(entry.kind));
+				const ofKinds = controls.filter((entry) => kinds.includes(entry.kind));
+				const here = controlsForLevel(ofKinds, level);
+				const listedHere = new Set(here);
+				const others = groupByLevel(
+					ofKinds.filter((entry) => !listedHere.has(entry)),
+					manifest.levels,
+					level,
+					(entry) => entry.levelTags,
+				);
 				return (
 					<details key={title} open={open}>
 						<summary>
-							{title} ({listed.length})
+							{title} ({here.length}
+							{others.length > 0 && ` here · ${ofKinds.length} in all`})
 						</summary>
 						{note !== null && <p className="muted small">{note}</p>}
-						{kinds.includes('quest') ? (
-							<StoryControls
-								viewer={viewer}
-								controls={listed}
-								all={manifest.states.controls}
-								missions={missions}
-								mainLine={manifest.states.mainStory}
-								describe={describe}
-								levelName={(id) => levelNames.get(id) ?? id}
-							/>
-						) : (
-							listed.map((entry) => (
-								<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
-							))
-						)}
+						{sectionRows(kinds, here)}
+						<OtherLevels groups={others} render={(entries) => sectionRows(kinds, entries)} />
 					</details>
 				);
 			})}

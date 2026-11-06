@@ -85,7 +85,7 @@ export const App = () => {
 		};
 	}, []);
 
-	// the shown level lives in the URL, so a reload or a shared link opens the same level
+	// the current level lives in the URL, so a reload or a shared link opens over the same level
 	useEffect(() => {
 		if (viewer === null) {
 			return;

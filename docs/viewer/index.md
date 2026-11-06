@@ -7,12 +7,12 @@ the viewer (`packages/viewer`) is a React shell around a WebGPU renderer. the pa
 the entry points are [`src/app.tsx`](../../packages/viewer/src/app.tsx) (UI, URL state) and
 [`src/viewer/viewer.ts`](../../packages/viewer/src/viewer/viewer.ts) (`Viewer`: the loaded package,
 camera, scene states, options and the frame loop). the UI drives the viewer through `setOptions`,
-`showLevel`, `flyToLevel` and `setSceneValue`, and reads `stats` through `subscribe`. beside it in
-`src/viewer/`, `Renderer` (`renderer.ts`) owns the GPU systems and submits each frame, `Traversal`
-(`traversal.ts`) selects and streams a frame's content, `openScene` (`scene-loader.ts`) wires an
-opened package to the renderers, `EnvironmentState` (`environment-state.ts`) blends the environment
-at the camera, and `options.ts`, `stats.ts` and `sky-textures.ts` hold the options, the stats and
-the sky texture requests.
+`flyToLevel` and `setSceneValue`, and reads `stats` through `subscribe`. beside it in `src/viewer/`,
+`Renderer` (`renderer.ts`) owns the GPU systems and submits each frame, `Traversal` (`traversal.ts`)
+selects and streams a frame's content, `openScene` (`scene-loader.ts`) wires an opened package to
+the renderers, `EnvironmentState` (`environment-state.ts`) blends the environment at the camera, and
+`options.ts`, `stats.ts` and `sky-textures.ts` hold the options, the stats and the sky texture
+requests.
 
 ## layout
 

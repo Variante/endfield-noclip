@@ -11,8 +11,8 @@ packs or renders correctly.
 
 - container-aware asset resolution, conversion workers and the pack cache
   ([extraction](extraction.md))
-- one level at a time over shared terrain, with level-owned streaming, LOD and HLOD
-  ([world](game-data/world.md), [streaming](viewer/streaming.md))
+- a scene's levels shown together over shared terrain, streaming around the camera, then the current
+  level ([world](game-data/world.md), [streaming](viewer/streaming.md#levels))
 - static and dynamic stream areas switched by the camera through the game's trigger zones
   ([world](game-data/world.md#stream-areas))
 - terrain heights, baked surface pages and the close-up layer blend ([terrain](viewer/terrain.md))
@@ -426,7 +426,9 @@ packs or renders correctly.
   by levels of other maps (`base01_lv001`, streamed by `base01_lv003` and `indie_dg014`) probably
   loses their facilities; select levels by `defaultState.exportedSceneConfigPath` instead. for the
   same reason `pack <scene> --level` only takes the scene's own map's levels, so such a level
-  (`dung02_rdg012` on `dung02_rdg008`) can't be packed with its own spawn and LevelData
+  (`dung02_rdg012` on `dung02_rdg008`) can't be packed with its own spawn and LevelData. packing
+  such levels would put overlapping levels in one package, which the viewer would then need to show
+  one at a time again
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
   map variables map01's MapConfig doesn't name show as numbers, except each blight's, named after
   its core ([blight and its cores](game-data/scene-states.md#blight-and-its-cores); that the
@@ -466,9 +468,8 @@ packs or renders correctly.
 
 ## renderer and performance
 
-- show a scene's seamless levels together, with the chosen level as a streaming priority rather than
-  a filter ([architecture](architecture.md#decisions)); until then, terrain outside the shown level
-  is drawn bare and the tile tree has no per-subtree level masks to skip other levels
+- with every level shown, HLOD clusters the game would unload through its HLOD-unload volumes
+  (stream area slots 7–9, undecoded) may draw over neighbouring levels; none were seen on map02
 - teleport points as viewpoints: where the game stores them is unknown
   ([world](game-data/world.md#open))
 - GPU culling and indirect draws ([performance](viewer/performance.md#optimization-candidates))

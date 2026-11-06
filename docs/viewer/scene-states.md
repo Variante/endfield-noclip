@@ -71,14 +71,16 @@ and per row (`control-row.tsx`, `drivers.tsx`):
 - **water levels**: a select per gameplay water volume's `waterLevel` control, over the fills
   scripts set it to, listing what sets each ("Set to 37% … by quest progress: …")
   ([water volumes](water.md#water-volumes))
-- **lighting / environment volumes**: volumes owned by the shown level or reaching into it, each a
-  checkbox over its `environmentVolume` control, which its group requires alongside its scene states
-  ("(not loaded)" when those fail). scripted-blend volumes (blend mode 3) default off, since the
-  script that fades them in isn't followed (see
+- **lighting / environment volumes**: volumes owned by the current level or reaching into it, then
+  the rest under their owning level, each a checkbox over its `environmentVolume` control, which its
+  group requires alongside its scene states ("(not loaded)" when those fail). scripted-blend volumes
+  (blend mode 3) default off, since the script that fades them in isn't followed (see
   [environment.md](../game-data/environment.md#activation))
 
-every row shows the control's rule and the assumption behind its default. controls are listed where
-their `levelTags` include 0 or the shown level's tag
+every row shows the control's rule and the assumption behind its default. each section lists first
+the controls whose `levelTags` include 0 or the [current level's](streaming.md#levels) tag, then,
+under "Other levels", a collapsed group per other level with the controls it gates; a control gating
+several levels is in each of their groups
 ([`scene-states/listing.ts`](../../packages/viewer/src/scene-states/listing.ts), which also decides
 the volumes listed). "Reset" drops every pick. the settings panel's "stream areas at camera" toggle
 switches every area that follows the camera between following it and showing. conditional detail

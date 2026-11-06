@@ -135,6 +135,11 @@ export class NoclipControls {
 		this.#looked = true;
 	}
 
+	/** @returns whether a {@link flyTo} is still under way */
+	get flying(): boolean {
+		return this.#flight !== null;
+	}
+
 	/**
 	 * flies the camera to a pose along an arc.
 	 *

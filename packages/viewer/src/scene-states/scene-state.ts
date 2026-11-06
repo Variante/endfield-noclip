@@ -39,8 +39,6 @@ const sameResults = (a: readonly boolean[], b: readonly boolean[]): boolean =>
  * to every consumer
  */
 export class SceneState {
-	/** the shown level's tag, `null` to show every level's content; takes effect at the next {@link evaluate} */
-	levelTag: number | null = null;
 	/** values the user picked, by control id */
 	#picks: Readonly<Record<string, number>> = {};
 	/** every control's value, from the picks and the package's defaults and derived controls */
@@ -92,7 +90,7 @@ export class SceneState {
 	}
 
 	/**
-	 * switches to a package's controls and drops the picks; call {@link evaluate} once the level is set
+	 * switches to a package's controls and drops the picks; call {@link evaluate} next
 	 *
 	 * @param states the package's controls, `null` without a package (which also clears the values)
 	 * @param groups what shows content by the package's visibility groups
@@ -143,8 +141,8 @@ export class SceneState {
 	}
 
 	/**
-	 * re-evaluates the values, conditions and visibility groups for the shown level, the picks and the stream
-	 * areas and proximities at the camera, and hands the groups to every consumer
+	 * re-evaluates the values, conditions and visibility groups for the picks and the stream areas and
+	 * proximities at the camera, and hands the groups to every consumer
 	 *
 	 * @param eye the camera's position, which stands in for the player
 	 */
@@ -168,7 +166,7 @@ export class SceneState {
 		if (!sameResults(results, this.#results)) {
 			this.#results = results;
 		}
-		const shown = states === null ? [] : groupsShown(states, this.levelTag, this.#results);
+		const shown = states === null ? [] : groupsShown(states, this.#results);
 		for (const consumer of this.#groups) {
 			consumer.setGroupsShown(shown);
 		}

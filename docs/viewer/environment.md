@@ -35,9 +35,9 @@ satisfy.
 [game's blend](../game-data/environment.md#blending-at-the-camera). a "profile" here is a phase plus
 the post profile, not a Unity `VolumeProfile`.
 
-- start from every section of the shown level's base phase, inactive ones included, plus its post
-  profile. the scene's global volume and the level's base volume then apply as volumes like any
-  other.
+- start from every section of the [current level's](streaming.md#levels) base phase, inactive ones
+  included, plus its post profile; moving into another level's cells switches the base, keeping the
+  fades. the scene's global volume and the level's base volume then apply as volumes like any other.
 - `planBlend` works out the volumes and factors at the camera, and a key of them; the viewer blends
   the sections (`applyBlend`) only when the key changes.
   [`viewer/environment-state.ts`](../../packages/viewer/src/viewer/environment-state.ts) re-plans
@@ -68,9 +68,10 @@ the post profile, not a Unity `VolumeProfile`.
 the "volumes at camera" toggle turns blending by position off: the scene-wide global volumes and the
 level's base volume apply fully wherever the camera is, giving the level's own look. a pinned phase
 goes over that look instead of the volume blend; the pin offers the phases of the volumes the scene
-conditions panel lists for the shown level ([listing](scene-states.md#the-scene-conditions-panel)),
-neighbours' volumes reaching into it included. `volumeApplies` is the one place that decides whether
-a volume may apply: it has a phase and its visibility group's condition holds.
+conditions panel lists for the current level
+([listing](scene-states.md#the-scene-conditions-panel)), neighbours' volumes reaching into it
+included. `volumeApplies` is the one place that decides whether a volume may apply: it has a phase
+and its visibility group's condition holds.
 
 ## activation
 

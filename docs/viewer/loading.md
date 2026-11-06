@@ -89,7 +89,8 @@ reports no errors, so `decompressZstd` checks the decoded length and throws on a
 | parameter | meaning                                                                                                                                                                                                                                 |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `package` | a dev package name (served from `/packages/<name>/`), or a URL/path of a package directory if it starts with `/`, `./`, `../`, `http:/` or `https:/` ([`package/package-param.ts`](../../packages/viewer/src/package/package-param.ts)) |
-| `level`   | the level id to show first. if it isn't in the package or has no instances, the first level with instances is shown                                                                                                                     |
+| `level`   | the current level's id: the level to look over first. if it isn't in the package or has no instances, the first level with instances                                                                                                    |
 
 the app keeps both in sync with `history.replaceState`, so a reload or a shared link reopens the
-same package and level. packages opened from local folders have no `package` value.
+same package over the same level (every level shows either way; see [levels](streaming.md#levels)).
+packages opened from local folders have no `package` value.

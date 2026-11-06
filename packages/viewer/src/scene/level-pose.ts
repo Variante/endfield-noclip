@@ -5,7 +5,7 @@
  */
 
 import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
-import { tileId } from '@endfield-noclip/package-format/tiles';
+import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { eyeInLevelVolume } from '../environment/blend.ts';
@@ -42,6 +42,30 @@ export const levelCellIds = (manifest: { tree: TreeFrame }, level: Pick<LevelInf
 	const cellLevel = manifest.tree.cellLevel;
 	return new Set(level.cells.map(([x, z]) => tileId({ level: cellLevel, x, z })));
 };
+
+/**
+ * @param manifest the package's manifest
+ * @returns the levels by the {@link TileNode.cellId} s of the cells they own
+ */
+export const levelsByCell = (manifest: Pick<PackageManifest, 'tree' | 'levels'>): Map<string, LevelInfo> => {
+	const byCell = new Map<string, LevelInfo>();
+	for (const level of manifest.levels) {
+		for (const id of levelCellIds(manifest, level)) {
+			if (!byCell.has(id)) {
+				byCell.set(id, level);
+			}
+		}
+	}
+	return byCell;
+};
+
+/**
+ * @param tree the package's tree frame
+ * @param point a world position
+ * @returns the {@link TileNode.cellId} of the cell under the point, as {@link levelsByCell} keys it
+ */
+export const cellIdAt = (tree: TreeFrame, point: Vec3): string =>
+	tileId(tileAt(tree, tree.cellLevel, point[0], point[2]));
 
 /**
  * @param ground the package, whose manifest also holds the environment volumes

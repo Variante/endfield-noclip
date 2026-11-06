@@ -202,8 +202,8 @@ map02, a third of the core):
 | `subset`                                                                           | what `--level` / `--bounds` kept, or `null`                                                                                                                                                  |
 | `source`                                                                           | the bundle manifest's build guid and content hash: identifies the game build                                                                                                                 |
 
-a viewer shows one level at a time: content whose group carries the level's tag or tag 0 (shared
-content), over the shared terrain. scenes without levels show everything. a level's rect and
+a package's levels are its scene's own map's, which don't overlap, so a viewer can show them all at
+once; a group's level tag says who owns its content (0 for shared content). a level's rect and
 `playerInitPos` come from its [LevelConfig](game-data/world.md#levelconfig) (`rectLeftBottom`,
 `rectRightTop`, `playerInitPos`); the viewer lists levels with them and poses its first view of a
 level over the playable rectangle, falling back to the spawn height while coarse terrain loads
@@ -737,10 +737,11 @@ every piece of placed content (instance blocks through their refs, lights, water
 environment volumes) names one `StatesInfo.groups` entry: the level that owns it (`levelTag`, 0 for
 content every level shows) and the conditional set that loads it (`condition`, `null` for content
 that always loads). the packer interns equal pairs into one group, and group 0 is always the shared,
-always-loaded one. a viewer evaluates `groupsShown` once whenever the shown level or a scene value
-changes, and every consumer filters by that one array, so "belongs to this level and is loaded" has
-a single definition. environment volumes are the exception that reads the parts: they apply wherever
-they hold the camera, whichever level owns them, so only their condition gates them.
+always-loaded one. a viewer evaluates `groupsShown` once whenever a scene value changes, and every
+consumer filters by that one array, so "is loaded" has a single definition. `groupsShown` reads only
+the condition: the level tag orders and groups a viewer's listings but doesn't hide content.
+environment volumes read the parts too: they apply wherever they hold the camera, whichever level
+owns them.
 
 ### conditional sets
 

@@ -15,7 +15,7 @@ import { volumesForLevel } from '../scene-states/listing.ts';
 import { type GroupsConsumer, SceneState } from '../scene-states/scene-state.ts';
 import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
 import { Camera } from '../scene/camera.ts';
-import { levelCellIds, levelPose, overviewPose } from '../scene/level-pose.ts';
+import { cellIdAt, levelCellIds, levelPose, levelsByCell, overviewPose } from '../scene/level-pose.ts';
 import { type CameraPose, NoclipControls } from '../scene/noclip-controls.ts';
 import type { ResidentInstances } from '../streaming/resident.ts';
 
@@ -35,7 +35,7 @@ export class Viewer {
 	readonly controls: NoclipControls;
 	readonly options: ViewerOptions = structuredClone(DEFAULT_OPTIONS);
 	stats: ViewerStats;
-	/** bumped when the package, the options or the shown level change; a cheap snapshot for the UI */
+	/** bumped when the package, the options or the current level change; a cheap snapshot for the UI */
 	stateRevision = 0;
 	/** bumped when {@link stats} change */
 	statsRevision = 0;
@@ -50,7 +50,7 @@ export class Viewer {
 	readonly #sceneState: SceneState;
 	/** what shows content by visibility group, besides the loaded package's selector */
 	readonly #groupsConsumers: readonly GroupsConsumer[];
-	/** the shown level's environment, blended at the camera */
+	/** the current level's environment, blended at the camera */
 	readonly #environment = new EnvironmentState();
 	readonly #times = new FrameTimes();
 	readonly #listeners = new Set<() => void>();
@@ -65,10 +65,21 @@ export class Viewer {
 	#seenPipelines = 0;
 	/** frames still to render so the temporal antialiasing settles after the view stopped changing */
 	#settleFrames = 0;
-	/** the focused level's cells, whose content streams first */
+	/** the current level's cells, whose content streams right after what's near the camera */
 	#focusCells: Set<string> | null = null;
-	/** the level being shown; `null` when the package has no level with content, which shows everything */
+	/**
+	 * the current level: the one last flown to, then the one owning the cell the camera moves into. its base
+	 * environment is what the volumes blend over, and the UI lists its controls first. `null` when the package
+	 * has no level with content
+	 */
 	#level: LevelInfo | null = null;
+	/**
+	 * the cell under the camera when {@link #level} was last decided, so only moving into another cell changes
+	 * it; `null` until a flight lands, since a level's vantage point can sit over a neighbour's cells
+	 */
+	#levelCell: string | null = null;
+	/** the loaded package's levels by owned cell */
+	#levelsByCell: ReadonlyMap<string, LevelInfo> = new Map();
 	/**
 	 * the first view after loading, when it was posed before the coarse terrain was resident (at the spawn
 	 * height); it's re-posed over the ground once that lands, unless the camera moved first
@@ -149,8 +160,8 @@ export class Viewer {
 	 * opens a package and starts streaming it, replacing any loaded one.
 	 *
 	 * @param source where the package lives
-	 * @param initialLevel id of the level to show first; when absent from the package, the first level with
-	 *   content is shown
+	 * @param initialLevel id of the level to look over first; when absent from the package, the first level
+	 *   with content
 	 * @param onProgress loading phases for the UI
 	 */
 	async load(
@@ -179,6 +190,8 @@ export class Viewer {
 		const showable = manifest.levels.filter((level) => level.instances > 0);
 		const level = showable.find((candidate) => candidate.id === initialLevel) ?? showable[0] ?? null;
 		this.#level = level;
+		this.#levelCell = null;
+		this.#levelsByCell = levelsByCell(manifest);
 		renderer.post.resetExposure();
 		renderer.water.setTable(pkg.water);
 		this.#waterLevels.setVolumes(pkg.water.volumes);
@@ -218,6 +231,8 @@ export class Viewer {
 		renderer.lights.setLights([]);
 		renderer.terrain.setSplat(null);
 		this.#level = null;
+		this.#levelCell = null;
+		this.#levelsByCell = new Map();
 		this.#unsettledPose = null;
 		this.#focusCells = null;
 		this.#applyEnvironment();
@@ -244,10 +259,45 @@ export class Viewer {
 
 	// #region environment
 
-	/** lights the scene with the shown level's environment, or the defaults */
+	/** lights the scene with the current level's environment, or the defaults */
 	#applyEnvironment(): void {
 		this.#environment.setBase(this.#level?.environment ?? null);
 		this.#blendEnvironment({ force: true, dt: 0 });
+	}
+
+	/**
+	 * makes a level current: its base environment is what the next blend starts from, and its cells stream next
+	 * after what's near the camera
+	 */
+	#setLevel(level: LevelInfo, manifest: PackageManifest): void {
+		this.#level = level;
+		this.#focusCells = levelCellIds(manifest, level);
+		this.#environment.setBase(level.environment);
+		this.#emitState();
+	}
+
+	/**
+	 * follows the camera into a cell another level owns, once any flight has landed
+	 *
+	 * @returns whether the current level changed
+	 */
+	#followCameraLevel(): boolean {
+		const manifest = this.scene?.pkg.manifest;
+		if (manifest === undefined || this.controls.flying) {
+			return false;
+		}
+		const cell = cellIdAt(manifest.tree, this.camera.position);
+		const last = this.#levelCell;
+		this.#levelCell = cell;
+		if (last === null || cell === last) {
+			return false;
+		}
+		const level = this.#levelsByCell.get(cell);
+		if (level === undefined || level === this.#level) {
+			return false;
+		}
+		this.#setLevel(level, manifest);
+		return true;
 	}
 
 	/**
@@ -277,7 +327,7 @@ export class Viewer {
 		this.#emitState();
 	}
 
-	/** @returns the name of the environment profile lighting the shown level, or `null` for the defaults */
+	/** @returns the name of the environment profile lighting the camera, or `null` for the defaults */
 	get environmentName(): string | null {
 		return this.#environment.look.environment.name;
 	}
@@ -287,7 +337,7 @@ export class Viewer {
 		return this.#environment.applied;
 	}
 
-	/** @returns the phases the volumes listed for the shown level apply, for pinning one: index and name */
+	/** @returns the phases the volumes listed for the current level apply, for pinning one: index and name */
 	environmentPhases(): { index: number; name: string }[] {
 		const manifest = this.scene?.pkg.manifest;
 		const level = this.#level;
@@ -373,51 +423,35 @@ export class Viewer {
 	}
 
 	/**
-	 * flies to a vantage point over a level and prioritises its cells.
+	 * makes a level current and flies to a vantage point over it; every level shows either way
 	 *
 	 * @param id level id
 	 */
 	flyToLevel(id: string): void {
 		const level = this.#levelInfo(id);
-		if (level !== undefined && this.scene !== null) {
-			this.#flyOver(this.scene, level);
-		}
-	}
-
-	#flyOver(scene: LoadedScene, level: LevelInfo): void {
-		this.controls.flyTo(this.#levelPose(scene, level).pose);
-		this.#focusCells = levelCellIds(scene.pkg.manifest, level);
-		this.#dirty = true;
-	}
-
-	/** @returns the shown level's id, or `null` when the package has no level with content */
-	get level(): string | null {
-		return this.#level?.id ?? null;
-	}
-
-	/** @returns the shown level's manifest entry, or `null` when the package has no level with content */
-	get shownLevel(): LevelInfo | null {
-		return this.#level;
-	}
-
-	/**
-	 * shows one level, whole and alone over the shared terrain, and flies over it. other levels' content stops
-	 * being drawn and is evicted as the budget needs.
-	 *
-	 * @param id level id
-	 */
-	showLevel(id: string): void {
-		const level = this.#levelInfo(id);
 		const scene = this.scene;
 		if (level === undefined || scene === null) {
 			return;
 		}
-		this.#level = level;
-		this.#updateVisibility();
-		this.#renderer.post.resetExposure();
-		this.#applyEnvironment();
-		this.#flyOver(scene, level);
-		this.#emitState();
+		this.#setLevel(level, scene.pkg.manifest);
+		this.#blendEnvironment({ force: true, dt: 0 });
+		this.controls.flyTo(this.#levelPose(scene, level).pose);
+		// the vantage point can sit over a neighbour's cells, so the cell the flight lands in doesn't count
+		this.#levelCell = null;
+		this.#dirty = true;
+	}
+
+	/** @returns the current level's id, or `null` when the package has no level with content */
+	get level(): string | null {
+		return this.#level?.id ?? null;
+	}
+
+	/**
+	 * @returns the current level's manifest entry (the one last flown to or moved into), or `null` when the
+	 *   package has no level with content
+	 */
+	get currentLevel(): LevelInfo | null {
+		return this.#level;
 	}
 
 	// #endregion
@@ -484,9 +518,8 @@ export class Viewer {
 		this.#emitState();
 	}
 
-	/** re-evaluates the scene state for the shown level and the camera, and redraws */
+	/** re-evaluates the scene state for the camera, and redraws */
 	#updateVisibility(): void {
-		this.#sceneState.levelTag = this.#level?.tag ?? null;
 		this.#sceneState.evaluate(this.camera.position);
 		this.#dirty = true;
 	}
@@ -582,7 +615,7 @@ export class Viewer {
 			this.#dirty = true;
 		}
 		const resized = renderer.targets.update();
-		this.#blendEnvironment({ force: false, dt });
+		this.#blendEnvironment({ force: this.#followCameraLevel(), dt });
 		this.#times.span('controls');
 		const scene = this.scene;
 		const options = this.options;

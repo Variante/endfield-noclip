@@ -16,7 +16,21 @@ each frame that does work runs one traversal (`Traversal.run` in
 [`scene/tile-tree.ts`](../../packages/viewer/src/scene/tile-tree.ts) links the package's quadtree
 nodes to their children and splits each node's content refs by kind: one terrain height page, one
 terrain surface page, a leaf's terrain splat page, HLOD refs (with a tier), detail refs and
-conditional refs. each node at or below the cell level records its cell id, for level focus.
+conditional refs. each node at or below the cell level records its cell id, for the current level's
+[priority](#priority).
+
+## levels
+
+every level of a package shows at once; a level tag only says who owns the content. the viewer keeps
+one current level ([`viewer/viewer.ts`](../../packages/viewer/src/viewer/viewer.ts),
+[`scene/level-pose.ts`](../../packages/viewer/src/scene/level-pose.ts)): the `level` URL parameter
+at load, the level picked in the levels panel (`flyToLevel`, which also flies over it), and after a
+flight lands, the level owning the 128 m cell the camera moves into. the cell a flight lands in
+doesn't count, since a level's vantage point can sit over a neighbour's cells, and cells no level
+owns keep the last level. the current level gives the
+[base environment](environment.md#blending-at-the-camera), streams right after what's near the
+camera, and has its controls listed first in the
+[scene conditions panel](scene-states.md#the-scene-conditions-panel).
 
 ## instance selection
 
@@ -38,10 +52,9 @@ REPLACE refinement on screen-space error, `geometricError · pixelFactor / dista
   no tile to refine, so where an HLOD cluster covers global scenery both draw until the cluster's
   tile refines.
 - every ref is drawn only while its visibility group shows. the viewer evaluates `groupsShown` (see
-  [package-format.md](../package-format.md#visibility-groups)) whenever the level, a scene value or
-  the stream areas at the camera change, and hands the same array to the selector, the water, the
-  local lights and the irradiance volume, which is how one level is shown alone over the shared
-  terrain and how scene states switch content.
+  [package-format.md](../package-format.md#visibility-groups)) whenever a scene value or the stream
+  areas at the camera change, and hands the same array to the selector, the water, the local lights
+  and the irradiance volume, which is how scene states switch content.
 
 ## terrain selection
 
@@ -111,13 +124,15 @@ next to indirect draw arguments ([optimization candidates](performance.md#optimi
 
 ## priority
 
-priority is SSE (or projected pixels for geometry and textures). content in the focused level's
-cells is boosted 8×. nodes outside the frustum are requested at 0.1× where the traversal still
-reaches them: terrain children of a node in view (prefetch around the camera) and instance tiles in
-the [off-screen casters'](lighting.md#shadows) volume, whose instances' geometry is requested at
-0.1× of its pixel height. a texture's pieces are requested at the bucket's priority divided by one
-plus the piece's index, so coarse levels come first. irradiance cells and whole-streamed textures
-(sky, reflection) use fixed priorities above all scenery.
+priority is SSE (or projected pixels for geometry and textures). tiles within 256 m of the camera
+are boosted 64×, and farther tiles in the current level's cells 8×, so what surrounds the camera
+loads first, then the rest of the current level, then the other levels. nodes outside the frustum
+are requested at 0.1× where the traversal still reaches them: terrain children of a node in view
+(prefetch around the camera) and instance tiles in the [off-screen casters'](lighting.md#shadows)
+volume, whose instances' geometry is requested at 0.1× of its pixel height. a texture's pieces are
+requested at the bucket's priority divided by one plus the piece's index, so coarse levels come
+first. irradiance cells and whole-streamed textures (sky, reflection) use fixed priorities above all
+scenery.
 
 ## residency and budgets
 

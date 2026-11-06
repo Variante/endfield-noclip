@@ -47,8 +47,8 @@ const lookOf = (profile: EnvironmentProfile | null): EnvironmentLook => ({
 });
 
 /**
- * the shown level's environment blended at the camera: re-plans the blend only when the eye, the settings or
- * a fade moved, and derives a new look only when the planned volumes or factors changed
+ * the current level's environment blended at the camera: re-plans the blend only when the eye, the settings
+ * or a fade moved, and derives a new look only when the planned volumes or factors changed
  */
 export class EnvironmentState {
 	/** the look in effect */
@@ -57,7 +57,7 @@ export class EnvironmentState {
 	applied: AppliedVolume[] = [];
 	/** the time-faded volumes' fade state for the camera */
 	readonly fades = new EnvironmentFades();
-	/** the shown level's base environment, which the volumes blend over */
+	/** the current level's base environment, which the volumes blend over */
 	#base: LevelEnvironment | null = null;
 	/** what the blend was last planned for */
 	#eye: Vec3 = [Infinity, Infinity, Infinity];
@@ -68,15 +68,14 @@ export class EnvironmentState {
 	#key: string | null = null;
 
 	/**
-	 * sets the environment the volumes blend over and restarts the fades; the next {@link update} derives a new
-	 * look
+	 * sets the environment the volumes blend over, keeping the fades, which follow the camera rather than the
+	 * level; the next {@link update} derives a new look
 	 *
-	 * @param base the shown level's base environment, or `null` for the defaults
+	 * @param base the current level's base environment, or `null` for the defaults
 	 */
 	setBase(base: LevelEnvironment | null): void {
 		this.#base = base;
 		this.#key = null;
-		this.fades.reset();
 	}
 
 	/**

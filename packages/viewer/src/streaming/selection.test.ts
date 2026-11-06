@@ -10,7 +10,7 @@ import type { ContentItem } from './content-item.ts';
 import { Selector, type SelectionOptions } from './selection.ts';
 
 it('streams conditional scenery independently of coarse HLOD and never requests hidden variants', () => {
-	// groups: 0 level 1 with condition 0, 1 level 1 with condition 1, 2 level 2 with condition 0, 3 level 1
+	// groups: 0 with condition 0, 1 with condition 1, 2 with condition 2, 3 always loaded
 	const ref = (blob: number, group: number): ContentRef => ({
 		kind: ContentKind.Conditional,
 		tier: 0,
@@ -88,7 +88,7 @@ it('streams conditional scenery independently of coarse HLOD and never requests 
 		hlodTiers: [true, true, true],
 	};
 	const view = { camera: new Camera(), planes: [], pixelFactor: 100, casters: null };
-	// level 1 shown, condition 0 holds
+	// condition 0 holds
 	selector.setGroupsShown([true, false, false, true]);
 	selector.run(view, options, null);
 	assert.deepEqual(wanted, [9, 1]);
@@ -252,4 +252,63 @@ it('keeps drawing the HLOD in place of a refinement still loading, then the refi
 	]);
 	resident.delete(3);
 	assert.deepEqual(ranges(), [[1, 10, 1]]);
+});
+
+it('streams what is near the camera first, then the focused cells, then the rest by screen error', () => {
+	// conditional tiles 200 m, 300 m and 600 m from the camera; the 300 m one is in the focused cell
+	const tile = (blob: number, minX: number, cellId: string | null): TileNode => ({
+		index: blob,
+		level: 0,
+		x: 0,
+		z: 0,
+		minX,
+		minZ: 0,
+		size: 50,
+		bounds: { min: [minX, 0, 0], max: [minX + 50, 50, 50] },
+		geometricError: 0,
+		quadrants: [null, null, null, null],
+		terrain: null,
+		surface: null,
+		terrainSplat: null,
+		detail: [],
+		hlod: [],
+		conditional: [{ kind: ContentKind.Conditional, tier: 0, group: 0, blob, first: 0, count: 1, param: 0 }],
+		cellId,
+	});
+	const roots = [tile(1, 200, null), tile(2, 300, 'focus'), tile(3, 600, null)];
+	const priorities = new Map<number, number>();
+	const selector = new Selector(
+		{ nodes: roots, roots, byId: new Map(), terrainLeafLevel: -1, terrainRootLevel: Infinity },
+		{
+			want(blob, priority) {
+				priorities.set(blob, priority);
+				return null;
+			},
+			get: () => undefined,
+			markUsed: () => false,
+			isReady: () => false,
+		},
+		[],
+		1000,
+	);
+	selector.setGroupsShown([true]);
+	const options: SelectionOptions = {
+		terrain: false,
+		terrainSurface: false,
+		terrainSplat: false,
+		instances: true,
+		detail: true,
+		global: true,
+		maxSse: 12,
+		terrainPixels: 3,
+		hlodTiers: [true, true, true],
+	};
+	selector.run(
+		{ camera: new Camera(), planes: [], pixelFactor: 1000, casters: null },
+		options,
+		new Set(['focus']),
+	);
+	const [near, focused, far] = [1, 2, 3].map((blob) => priorities.get(blob) ?? 0);
+	assert.ok(near > focused, `${near} > ${focused}`);
+	assert.ok(focused > far, `${focused} > ${far}`);
 });

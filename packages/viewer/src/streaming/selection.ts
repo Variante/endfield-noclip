@@ -91,6 +91,13 @@ export interface SelectionView {
 const MORPH_START = 0.7;
 /** priority multiplier for content in the focused area */
 const FOCUS_BOOST = 8;
+/**
+ * content within this distance of the camera, m, outranks the focused area's: what's around the camera loads
+ * first
+ */
+const NEAR_DISTANCE = 256;
+/** priority multiplier for content within {@link NEAR_DISTANCE}, in place of {@link FOCUS_BOOST} */
+const NEAR_BOOST = FOCUS_BOOST * 8;
 /** priority multiplier for content outside the frustum (prefetch around the camera) */
 const OFFSCREEN_PRIORITY = 0.1;
 
@@ -170,7 +177,7 @@ export class Selector {
 	// #region instances
 
 	/**
-	 * limits instances to the shown level's and shared content that the scene values load
+	 * limits instances to the content that the scene values load
 	 *
 	 * @param shown per visibility group of the package, whether its content shows
 	 */
@@ -199,7 +206,10 @@ export class Selector {
 			if (!this.#shows(ref)) {
 				continue;
 			}
-			const item = this.#stream.want(ref.blob, this.#priority(node, view.pixelFactor / distance, inView));
+			const item = this.#stream.want(
+				ref.blob,
+				this.#priority(node, view.pixelFactor / distance, inView, distance),
+			);
 			if (item !== null) {
 				this.#emitRange(item, ref);
 			}
@@ -232,9 +242,12 @@ export class Selector {
 		return this.#groupsShown[ref.group] ?? false;
 	}
 
-	#priority(node: TileNode, sse: number, inView: boolean): number {
+	/** @param distance from the camera to the node's bounds */
+	#priority(node: TileNode, sse: number, inView: boolean, distance: number): number {
 		let priority = sse * (inView ? 1 : OFFSCREEN_PRIORITY);
-		if (this.#focusCells !== null && node.cellId !== null && this.#focusCells.has(node.cellId)) {
+		if (distance < NEAR_DISTANCE) {
+			priority *= NEAR_BOOST;
+		} else if (this.#focusCells !== null && node.cellId !== null && this.#focusCells.has(node.cellId)) {
 			priority *= FOCUS_BOOST;
 		}
 		return priority;
@@ -307,7 +320,7 @@ export class Selector {
 	): boolean {
 		const out = this.selection.instances;
 		const sse = (node.geometricError * view.pixelFactor) / distance;
-		const priority = this.#priority(node, sse, inView);
+		const priority = this.#priority(node, sse, inView, distance);
 		const hasHlod = this.#hasHlod(node, options);
 		const leaf = isLeaf(node);
 		// a leaf refines even without detail of its own (`docs/viewer/streaming.md#instance-selection`)
@@ -398,7 +411,7 @@ export class Selector {
 		const inView = boxInFrustum(view.planes, node.bounds.min, node.bounds.max, eye);
 		const distance = Math.max(distanceToBox(node.bounds.min, node.bounds.max, eye), 1);
 		const sse = (this.#spacing(node.level) * view.pixelFactor) / distance;
-		const priority = this.#priority(node, sse, inView);
+		const priority = this.#priority(node, sse, inView, distance);
 		const item = this.#stream.want(terrain.blob, priority);
 		// until a node's surface page arrives, its patches show the nearest ancestor's, magnified
 		let surface = inherited;
@@ -440,7 +453,7 @@ export class Selector {
 				continue;
 			}
 			if (child?.terrain != null) {
-				this.#stream.want(child.terrain.blob, this.#priority(child, sse * 2, true));
+				this.#stream.want(child.terrain.blob, this.#priority(child, sse * 2, true, distance));
 			}
 			const patch = this.#nextPatch(item, node);
 			patch.quadrant = quadrant;
