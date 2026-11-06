@@ -119,10 +119,8 @@ export class MeshRenderer {
 	/** the passes whose pipelines have all compiled */
 	#compiledPasses = new Set<MeshPass>();
 	#skins: SkinAnimator;
-	/** the resident geometries' animations */
-	#animated = new Set<ResidentSkin>();
-	/** whether this frame's draws include an animated geometry */
-	#drawsAnimated = false;
+	/** the animations of this frame's draws, which are skinned before they draw */
+	#drawnSkins = new Set<ResidentSkin>();
 
 	/**
 	 * @param device the device
@@ -178,22 +176,18 @@ export class MeshRenderer {
 	 * @returns the residency (geometry buffers aren't pooled; the memory budget bounds them)
 	 */
 	upload(blob: number, decoded: DecodedGeometry): ResidentGeometry {
-		const resident = uploadGeometry(
+		return uploadGeometry(
 			this.#device,
 			{ skins: this.#skins, bindings: this.#vertexBindings },
 			blob,
 			decoded,
 		);
-		if (resident.skin !== null) {
-			this.#animated.add(resident.skin);
-		}
-		return resident;
 	}
 
 	/** @param resident a geometry from {@link upload}; its buffers are destroyed */
 	release(resident: ResidentGeometry): void {
 		if (resident.skin !== null) {
-			this.#animated.delete(resident.skin);
+			this.#drawnSkins.delete(resident.skin);
 		}
 		releaseGeometry(resident);
 	}
@@ -209,17 +203,17 @@ export class MeshRenderer {
 
 	/** whether this frame draws an animated geometry, so the shadows it casts must be drawn again */
 	get animating(): boolean {
-		return this.#drawsAnimated;
+		return this.#drawnSkins.size > 0;
 	}
 
 	/**
-	 * skins the animated geometries at the time's frame; encode before anything draws meshes
+	 * skins the animated geometries this frame draws at the time's frame; encode before anything draws meshes
 	 *
 	 * @param encoder the frame's encoder
 	 * @param time seconds of the viewer's clock
 	 */
 	animate(encoder: GPUCommandEncoder, time: number): void {
-		this.#skins.encode(encoder, this.#animated, time);
+		this.#skins.encode(encoder, this.#drawnSkins, time);
 	}
 
 	// #endregion
@@ -232,7 +226,7 @@ export class MeshRenderer {
 		this.instanceCount = 0;
 		this.triangles = 0;
 		this.texturedDraws = 0;
-		this.#drawsAnimated = false;
+		this.#drawnSkins.clear();
 	}
 
 	/**
@@ -333,7 +327,9 @@ export class MeshRenderer {
 		}
 		const look = bucket.look;
 		const state = this.#materials.state(bucket.material, look, textures);
-		this.#drawsAnimated ||= resident.skin !== null;
+		if (resident.skin !== null) {
+			this.#drawnSkins.add(resident.skin);
+		}
 		const params = this.#paramData;
 		const words = this.#paramWords;
 		const at = d * DRAW_FLOATS;

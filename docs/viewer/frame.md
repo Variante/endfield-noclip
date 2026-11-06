@@ -5,7 +5,7 @@
 | #   | pass                                                                 | when                                                                                                                                                                                                                              |
 | --- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `irradiance update 0–2` (compute)                                    | a clipmap level re-centred or got new cells ([`render/lighting/irradiance-volume.ts`](../../packages/viewer/src/render/lighting/irradiance-volume.ts))                                                                            |
-| 1b  | `skin` (compute)                                                     | an animated geometry is resident ([`render/meshes/skin-animation.ts`](../../packages/viewer/src/render/meshes/skin-animation.ts))                                                                                                 |
+| 1b  | `skin` (compute)                                                     | an animated geometry is drawn and the clock moved it to another frame ([`render/meshes/skin-animation.ts`](../../packages/viewer/src/render/meshes/skin-animation.ts))                                                            |
 | 2   | `shadow layer 0–3`                                                   | `shadows` on, a package loaded, `debugView` is `lit`, and the casters or a layer's fit changed since the layers were drawn, or an animated geometry is drawn                                                                      |
 | 3   | `volumetric fog` (compute)                                           | `heightFog` on, a package loaded, `lit`, and the environment's volumetric fog on ([`render/sky/volumetric-fog.ts`](../../packages/viewer/src/render/sky/volumetric-fog.ts))                                                       |
 | 4   | `main`                                                               | always (empty without a package)                                                                                                                                                                                                  |
@@ -84,13 +84,14 @@ what each post pass computes is in [post-processing](post-processing.md) and
   profiled pose. the depth-only stages (shadow casters, alpha-tested depth) bind only the vertex
   streams they read: positions, plus the UV sets for alpha testing.
 - **animated geometries** ([package format](../package-format.md#geometry-blob-mesh-efgm)) are
-  skinned on the GPU before anything draws: each frame, `skin` blends the two current frames' bone
-  matrices, skins the bind pose (kept in its own storage buffer with the weights and bones) and
-  writes positions, normals and tangents over the geometry's own vertex streams, in the formats
-  every mesh pipeline already reads, positions quantized to the animation's box. so the prepass,
-  shading and shadow passes need no variants, and every placement of a geometry shows the same frame
-  of the viewer's clock. normals and tangents turn by the blended matrix itself, as Unity's skinning
-  turns them. a frame that draws one redraws the shadow layers.
+  skinned on the GPU before anything draws: each frame, for each drawn geometry whose vertices don't
+  hold the clock's frame yet, `skin` blends the two current frames' bone matrices, skins the bind
+  pose (kept in its own storage buffer with the weights and bones) and writes positions, normals and
+  tangents over the geometry's own vertex streams, in the formats every mesh pipeline already reads,
+  positions quantized to the animation's box. so the prepass, shading and shadow passes need no
+  variants, and every placement of a geometry shows the same frame of the viewer's clock. normals
+  and tangents turn by the blended matrix itself, as Unity's skinning turns them. a frame that draws
+  one redraws the shadow layers.
 - **post** ([`render/post/post-process.ts`](../../packages/viewer/src/render/post/post-process.ts))
   is fullscreen triangles with `auto` layouts
   ([`gfx/fullscreen-pass.ts`](../../packages/viewer/src/gfx/fullscreen-pass.ts)); `taa` and the

@@ -14,9 +14,13 @@ export interface ResidentSkin {
 	vertexCount: number;
 	frameCount: number;
 	frameRate: number;
-	/** `Skin` in skin.wgsl; the frame fields change each frame */
+	/** `Skin` in skin.wgsl; the frame fields change with the frame */
 	params: GPUBuffer;
-	paramData: ArrayBuffer;
+	/** the params as last written, as words and as floats */
+	paramWords: Uint32Array<ArrayBuffer>;
+	paramFloats: Float32Array<ArrayBuffer>;
+	/** whether the vertices hold the frame the params name; `false` until first skinned */
+	skinned: boolean;
 	group: GPUBindGroup;
 	/** GPU bytes of the bind pose and frames */
 	bytes: number;
@@ -78,9 +82,9 @@ export class SkinAnimator {
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
 		const paramData = new ArrayBuffer(PARAMS_BYTES);
+		const words = new Uint32Array(paramData);
+		const floats = new Float32Array(paramData);
 		{
-			const words = new Uint32Array(paramData);
-			const floats = new Float32Array(paramData);
 			words[0] = target.vertexCount;
 			words[1] = skin.boneCount;
 			// a stream the geometry has is written in place of its bind pose's, which the source keeps
@@ -116,7 +120,9 @@ export class SkinAnimator {
 			frameCount: skin.frameCount,
 			frameRate: skin.frameRate,
 			params,
-			paramData,
+			paramWords: words,
+			paramFloats: floats,
+			skinned: false,
 			group,
 			bytes: source.size + frames.size + params.size,
 			buffers: [source, frames, params],
@@ -124,22 +130,28 @@ export class SkinAnimator {
 	}
 
 	/**
-	 * skins each geometry at the time's frame, before anything draws them
+	 * skins each geometry at the time's frame, before anything draws them; a geometry whose vertices already
+	 * hold that frame is skipped
 	 *
 	 * @param encoder the frame's encoder
-	 * @param skins the resident animated geometries
+	 * @param skins the animated geometries drawn this frame
 	 * @param time seconds of the viewer's clock; every geometry plays from the same start
 	 */
 	encode(encoder: GPUCommandEncoder, skins: Iterable<ResidentSkin>, time: number): void {
 		let pass: GPUComputePassEncoder | null = null;
 		for (const skin of skins) {
 			const { a, b, blend } = skinFrame(time, skin.frameCount, skin.frameRate);
-			const words = new Uint32Array(skin.paramData);
+			const words = skin.paramWords;
+			const floats = skin.paramFloats;
+			if (skin.skinned && words[2] === a && words[3] === b && floats[4] === Math.fround(blend)) {
+				continue;
+			}
 			words[2] = a;
 			words[3] = b;
-			new Float32Array(skin.paramData)[4] = blend;
+			floats[4] = blend;
+			skin.skinned = true;
 			// only the frame fields change
-			this.#device.queue.writeBuffer(skin.params, 0, skin.paramData, 0, 20);
+			this.#device.queue.writeBuffer(skin.params, 0, words, 0, 5);
 			pass ??= encoder.beginComputePass({ label: 'skin' });
 			pass.setPipeline(this.#pipeline);
 			pass.setBindGroup(0, skin.group);
