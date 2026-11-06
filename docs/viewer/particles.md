@@ -23,11 +23,13 @@ placements.
 a chain draw that names a particle system ([package format](../package-format.md#particles)) makes
 its instance an emitter: the emitter culls and streams its geometry like any instance, but its
 bucket takes the rows of its live particles instead of its own
-([`particles/particles.ts`](../../packages/viewer/src/particles/particles.ts)). `ParticleField`
-keeps as many rows per emitter as the package's emission bound, up to `min(maxParticles, 1024)`, in
-the instance buffer, using the emitter's block origin, and rewrites them once per frame the emitter
-is selected. so every mesh shader draws particles unchanged, and shadow and effect passes need
-nothing of their own. each particle's colour goes into its row's colour word (`RowWord.color` in
+([`particles/`](../../packages/viewer/src/particles/): `simulation.ts` plays a system, its motion,
+forces and texture sheet in modules of their own, and `particle-rows.ts` writes the rows).
+`ParticleField` keeps as many rows per emitter as the package's emission bound, up to
+`min(maxParticles, 1024)`, in the instance buffer, using the emitter's block origin, and rewrites
+them once per frame the emitter is selected. so every mesh shader draws particles unchanged, and
+shadow and effect passes need nothing of their own. each particle's colour goes into its row's
+colour word (`RowWord.color` in
 [`content/instance-rows.ts`](../../packages/viewer/src/content/instance-rows.ts), RGBA8, white for
 other rows), where it multiplies the mesh's vertex colours in the mesh and effect shaders. a
 renderer with several meshes is several emitters at one place; they share their random values, so

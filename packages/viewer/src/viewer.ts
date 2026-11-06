@@ -51,7 +51,7 @@ import { materialLooks } from './looks/material-looks.ts';
 import { DecodePool } from './package/decode-pool.ts';
 import type { PackageSource } from './package/package-source.ts';
 import { CORE_ARCHIVE_INDEX, type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
-import { ParticleField } from './particles/particles.ts';
+import { ParticleField } from './particles/particle-rows.ts';
 import { type BindLayouts, createBindLayouts } from './render/frame/bind-layouts.ts';
 import {
 	DEBUG_VIEWS,

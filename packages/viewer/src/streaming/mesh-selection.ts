@@ -5,7 +5,7 @@ import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 import { CULL_FLOATS, ROW_WORDS } from '../content/instance-rows.ts';
 import { type MaterialLook, alphaTextureOf } from '../looks/look.ts';
 import { unsupportedLook } from '../looks/material-looks.ts';
-import type { ParticleField, ParticleView } from '../particles/particles.ts';
+import type { ParticleField, ParticleView } from '../particles/particle-rows.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow-map.ts';
 import type { TextureBinding, TextureStore } from '../render/textures/texture-store.ts';
 import type { Plane, Vec3 } from '../scene/camera.ts';
