@@ -201,6 +201,7 @@ export class Viewer {
 		this.#waterLevels.setVolumes(pkg.water.volumes);
 		renderer.lights.setLights(pkg.lights.lights);
 		this.#updateVisibility();
+		this.#waterLevels.settle();
 		this.#applyEnvironment();
 		if (level === null) {
 			this.#setPose(overviewPose(manifest));
@@ -525,10 +526,10 @@ export class Viewer {
 	/** restores scene control and environment preview defaults for the current package */
 	resetSceneValues(): void {
 		this.#sceneState.resetPicks();
-		this.#waterLevels.reset();
 		this.options.environmentPin = null;
 		this.#environment.fades.reset();
 		this.#updateVisibility();
+		this.#waterLevels.settle();
 		this.#emitState();
 	}
 

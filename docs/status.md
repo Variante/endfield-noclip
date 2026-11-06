@@ -223,10 +223,13 @@ packs or renders correctly.
 - water volumes ([viewer](viewer/water.md#water-volumes)): volumes without a `WaterConfig` of their
   own draw with their water type's surface prefab config, but without its foam decal or per-level
   multipliers ([game data](game-data/water.md#water-volumes)); moves are linear; floaters keep their
-  authored height and don't lag; `ground_distance`, `isPrototype`, flow and amount transfers aren't
-  read; volumes coinciding with a placed surface draw twice, unverified against the game; Suiming's
-  lily pads end 0.9 m under the pit's surface at the first stage, as the data says, unverified in
-  game; no shoreline wetness
+  authored height and don't lag; `ground_distance`, flow and amount transfers aren't read; volumes
+  coinciding with a placed surface draw twice, unverified against the game; Suiming's lily pads end
+  0.9 m under the pit's surface at the first stage, as the data says, unverified in game; no
+  shoreline wetness. [pumped pools](game-data/water.md#depletable-pools) offer only empty, authored
+  and full, not the fills between that a pump can stop at; whether the server's starting amount
+  always equals the authored one, and whether an empty pool's surface still draws in game, aren't
+  checked
 - waterfalls missing: Jingyu's pool falls (near unity −763, 209, −1190) and the small cascades
   beside it show white in game, but the viewer's VFXWater sheet there sits inside the rocks in front
   of it, and the steep river surface running down the lip draws as clear water. what the game draws

@@ -215,12 +215,12 @@ a volume holds:
 | `heightMax`                                                  | metres from the pivot to a full volume                                                                      |
 | `amountCurrent`, `amountMax`                                 | the authored fill; the surface sits at `pivot.y + heightMax · amountCurrent / amountMax`                    |
 | `isInfinite`                                                 | the fill is a fraction scripts set directly (`WaterVolumeInfiniteSetHeight`) rather than an amount of water |
-| `fillSpeed`                                                  | metres per second for fixed-speed moves (below)                                                             |
+| `fillSpeed`                                                  | fixed-speed moves: metres a second on an infinite volume, amount units a second on others (below)           |
 | `flowSpeed`, `flowDirection` (degrees)                       | the surface's flow                                                                                          |
 | `isUseLunaConfig`, `lunaConfigPathHash`                      | a surface `WaterConfig` drawn in place of its water type's (below)                                          |
 | `waterItemType`, `meshPathHash`                              | the liquid, which picks its surface prefab (below), and an optional prebuilt surface mesh                   |
 | `obbCenter`, `obbRotation`, `obbSize`                        | the volume's box, for gameplay (swimming, the danger area)                                                  |
-| `waterNameLangKey`, `isPrototype`, nav-mesh and audio fields | gameplay; `isPrototype` is false on every map02 volume and its meaning isn't recovered                      |
+| `waterNameLangKey`, `isPrototype`, nav-mesh and audio fields | gameplay; `isPrototype` false makes a volume factory water ([below](#depletable-pools))                     |
 
 a volume with id 0 is static and builds no mesh. every other volume's surface is an instance of a
 surface prefab picked by its **water type**, the `FacItemSubType` that FactoryItemTable gives its
@@ -281,6 +281,34 @@ the only waterfall code in the game is gameplay: interactives with component 168
 (`InteractiveWaterFallComponent`) spawn named waterfall and splash effects bound to a volume. the
 water pipeline has nothing waterfall-specific; scenery falls are [effects](effects.md#waterfalls)
 over river surfaces.
+
+### depletable pools
+
+a volume with `isPrototype` false is **factory water**: every map02 volume and the factory puzzle
+scenes' (`blackbox_*`); the dungeons' script-only volumes are prototypes. the server's factory keeps
+a factory volume's liquid and amount, which replace the authored `amountCurrent` once it reports,
+and a map reset doesn't restore them. an infinite one ignores the server's amounts; a finite one is
+a pool the player empties with Fluid Pumps (`pump_1`, `pump_2` for acid too) and fills with Fluid
+Supply Units, which refuse sewage, so a sewage pool only goes down. its amount stays within 0 and
+`amountMax`, the surface following it linearly; no client code refills a pool, and an empty pool's
+surface stays at its pivot (unchecked in game). its `fillSpeed` is in amount units a second, so a
+surface moves at `fillSpeed · heightMax / amountMax` metres a second: 6 m/s in the Test Area's pits,
+0.026 m/s in Wuling City's Tianjing Courtyard pond.
+
+a volume with a `parentId` follows its parent: its surface sits at the parent's, clamped between its
+own pivot and full (basins beside a pool).
+
+missions wait on pools through objective conditions (`CheckFluidVolume`: level, volume, operator,
+amount):
+
+| pool                                                            | quest                                                         |
+| --------------------------------------------------------------- | ------------------------------------------------------------- |
+| Tianjing Courtyard pond, Wuling City (22800060004, 40000, 35 m) | `gm02m10` "Treasure Beneath the Pond", q#2: at 800 or less    |
+| Pool 1, Test Area (23200010000, sewage, 4000, 12 m)             | `gm02m14` "Divvy Up the Trouble", q#2 "Drain Pool 1": under 1 |
+
+their beds hold content that's always placed (the pond's gate, statue keys and chests, the Test Area
+pits' valve wheels), submerged until drained. nothing else switches with the drain. Pool 2
+(23200010003) beside Pool 1 drains the same way, but no quest needs it.
 
 ### floaters
 

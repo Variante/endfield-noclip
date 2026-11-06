@@ -85,10 +85,10 @@ import {
 	type Tree,
 	type TreeInfo,
 } from '@endfield-noclip/package-format/tree';
-import type { Bounds, Rect } from '@endfield-noclip/package-format/values';
+import type { Bounds, Rect, Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterFloater, WaterTable, WaterVolumeEntry } from '@endfield-noclip/package-format/water';
 
-import { mapDefined, unique } from '@mary-ext/array-fns';
+import { definite, mapDefined, unique } from '@mary-ext/array-fns';
 
 import type { Context } from '../context.ts';
 import { ignoreMissing } from '../errors.ts';
@@ -125,6 +125,7 @@ import {
 import { loadUpgradeLinks } from '../game/settlement-upgrades.ts';
 import { labelStory, mainStoryOrder } from '../game/story.ts';
 import { indexTerrain, loadTerrainSurfacesData, type TerrainSceneIndex } from '../game/terrain-source.ts';
+import { loadWaterDrains, type WaterDrain } from '../game/water-drains.ts';
 import { scriptWaterLevels, type ScriptWaterLevel, waterActionTarget } from '../game/water-volume-scripts.ts';
 import { readWaterVolumes } from '../game/water-volumes.ts';
 import type { ChunkFile, ChunkSource, WorldIndex } from '../game/world-index.ts';
@@ -439,6 +440,7 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			environments,
 			water,
 			waterDrivers: entities.waterDrivers,
+			waterDrains: await loadWaterDrains(context.world, entities.waterVolumes.volumes),
 			lights: entities.lights,
 		});
 		entities.counts.lights = lights.lights.length;
@@ -1737,8 +1739,8 @@ const progressionControls = async (
  * @param states the entity pass's controls, conditions and groups; extended
  * @param scene the scene's MapConfig states and game state
  * @param inputs planned environments (volume groups and controls are filled in), planned water (surface
- *   groups and volume controls), the drivers of the scripts that set water fills, and the entity pass's
- *   lights
+ *   groups and volume controls), the drivers of the scripts that set water fills, the quests that need pools
+ *   drained, and the entity pass's lights
  * @returns the lights table
  */
 const gateByScene = (
@@ -1748,10 +1750,11 @@ const gateByScene = (
 		environments: EnvironmentPlan;
 		water: WaterPlan;
 		waterDrivers: ReadonlyMap<string, ControlDriver[]>;
+		waterDrains: ReadonlyMap<string, WaterDrain[]>;
 		lights: LightCollector;
 	},
 ): LightsTable => {
-	const { environments, water, waterDrivers, lights } = inputs;
+	const { environments, water, waterDrivers, waterDrains, lights } = inputs;
 	for (const [i, volume] of environments.volumes.entries()) {
 		const { levelTag, sceneStates, condition } = environments.volumeOwners[i];
 		// a prefab volume loads with its placement; chunk volumes with the scene states of their files
@@ -1773,11 +1776,13 @@ const gateByScene = (
 		surface.group =
 			sources === null ? states.group(levelTag, null) : states.groupOfSources(levelTag, sources);
 		if (surface.kind === 'volume') {
-			const control = waterLevelControlOf(
-				water.table.volumes[surface.volume],
-				water.levelSources[surface.volume],
-				waterDrivers,
-			);
+			const entry = water.table.volumes[surface.volume];
+			const { min, max } = surface.bounds;
+			const control = waterLevelControlOf(entry, water.levelSources[surface.volume], {
+				drivers: waterDrivers,
+				drains: waterDrains.get(entry.id) ?? [],
+				position: [(min[0] + max[0]) / 2, entry.base, (min[2] + max[2]) / 2],
+			});
 			if (control !== null) {
 				// it moves the volume's surface rather than gating content; a volume may have several surfaces
 				if (states.get(control.id) === undefined) {
@@ -1823,42 +1828,72 @@ const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo):
 /**
  * @param volume a water volume's table entry
  * @param sources where each of its levels comes from
- * @param drivers by {@link waterActionTarget}, what runs each script action setting a fill
- * @returns its `waterLevel` control, at the authored fill and listing what sets each fill; `null` when no
- *   script sets another fill
+ * @param context.drivers by {@link waterActionTarget}, what runs each script action setting a fill
+ * @param context.drains the quests that need the volume drained
+ * @param context.position where its surface is
+ * @returns its `waterLevel` control, listing what sets each fill: at the authored fill, or drained when a
+ *   quest needs it so (a finished story has drained it); `null` when nothing sets another fill
  */
 const waterLevelControlOf = (
 	volume: WaterVolumeEntry,
 	sources: readonly WaterLevelSource[],
-	drivers: ReadonlyMap<string, ControlDriver[]>,
+	context: {
+		drivers: ReadonlyMap<string, ControlDriver[]>;
+		drains: readonly WaterDrain[];
+		position: Vec3;
+	},
 ): SceneControl | null => {
 	if (volume.control === null) {
 		return null;
 	}
 	const found: ControlDriver[] = [];
+	const add = (driver: ControlDriver): void => {
+		if (!found.some((known) => JSON.stringify(known) === JSON.stringify(driver))) {
+			found.push(driver);
+		}
+	};
 	for (const [value, { actions }] of sources.entries()) {
 		for (const action of actions) {
-			for (const driver of drivers.get(waterActionTarget(action)) ?? []) {
-				const set = { ...driver, value };
-				if (!found.some((known) => JSON.stringify(known) === JSON.stringify(set))) {
-					found.push(set);
-				}
+			for (const driver of context.drivers.get(waterActionTarget(action)) ?? []) {
+				add({ ...driver, value });
 			}
 		}
+	}
+	const authored = volume.levels.findIndex(({ fraction }) => fraction === volume.initial);
+	const pumped = sources.some((source) => source.pumped);
+	const empty = volume.levels.findIndex(({ fraction }) => fraction === 0);
+	for (const { quest } of context.drains) {
+		add({ kind: 'quest', quests: [quest], value: empty });
+	}
+	const drained = pumped && context.drains.length > 0;
+	let assumption = 'the authored fill, before any script runs';
+	if (drained) {
+		const needs = context.drains.map(({ quest }) => quest.mission ?? quest.id).join(', ');
+		assumption = `drained, as in a finished story: the server keeps the pool’s water, the player pumps it out, and ${needs} needs it drained`;
+	} else if (pumped) {
+		assumption =
+			'the authored fill: the server keeps the pool’s water and the player may pump it out, but nothing needs it drained';
 	}
 	return sceneControl({
 		kind: 'waterLevel',
 		id: volume.control,
-		name: `Water volume ${volume.id}`,
-		values: volume.levels.map(({ fraction }, value) => ({
-			value,
-			label: `${Math.round(fraction * 100)}% (${(volume.base + volume.heightMax * fraction).toFixed(1)} m)${
-				sources[value]?.authored ? ', authored' : ''
-			}`,
-		})),
-		default: volume.levels.findIndex(({ fraction }) => fraction === volume.initial),
-		assumption: 'the authored fill, before any script runs',
+		name: `${pumped ? 'Pool' : 'Water volume'} ${volume.id}`,
+		values: volume.levels.map(({ fraction }, value) => {
+			const tags = definite([
+				sources[value]?.authored && 'authored',
+				sources[value]?.pumped && fraction === 0 && 'drained',
+				sources[value]?.pumped && fraction === 1 && 'full',
+			]);
+			const height = (volume.base + volume.heightMax * fraction).toFixed(1);
+			return {
+				value,
+				label: `${Math.round(fraction * 100)}% (${height} m)${tags.length > 0 ? `, ${tags.join(', ')}` : ''}`,
+			};
+		}),
+		default: drained ? empty : authored,
+		assumption,
 		drivers: found,
+		position: context.position,
 	});
 };
 

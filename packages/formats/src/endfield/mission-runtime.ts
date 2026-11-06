@@ -39,6 +39,20 @@ export interface MissionQuest {
 	hidden: boolean;
 	/** quests that must complete before it starts */
 	previous: string[];
+	/** the water volume amounts its objectives test (`CheckFluidVolume`), in any branch of their conditions */
+	fluidChecks: FluidCheck[];
+}
+
+/** an objective's test of a water volume's amount: `amount <compare> target` */
+export interface FluidCheck {
+	/** the level holding the volume, or `null` when unnamed */
+	levelId: string | null;
+	/** the volume's id, decimal */
+	volume: string;
+	/** `CompareOperator`: 0 =, 1 ≠, 2 >, 3 ≥, 4 <, 5 ≤ */
+	compare: number;
+	/** in the volume's amount units */
+	target: number;
 }
 
 /**
@@ -80,6 +94,7 @@ export const parseMissionRuntime = (text: string): MissionRuntime => {
 			descriptionKey: quest.overrideMissionDesc === true ? textKey(quest.descriptionOverride) : null,
 			hidden: quest.showMode === 1000,
 			previous,
+			fluidChecks: fluidChecks(quest.objectiveList, []),
 		};
 	});
 	return {
@@ -119,6 +134,51 @@ const namedLevels = (value: unknown, found: Set<string>): Set<string> => {
 			} else {
 				namedLevels(field, found);
 			}
+		}
+	}
+	return found;
+};
+
+/** the `$type` of an objective condition testing a water volume's amount */
+const CHECK_FLUID_VOLUME = 'Beyond.Gameplay.CheckFluidVolume';
+
+/** @returns a condition operand's constant (`{ constValue: … }`), or `undefined` */
+const constant = (value: unknown): unknown => (isObject(value) ? value.constValue : undefined);
+
+/**
+ * @param value a JSON value
+ * @param found checks collected so far; added to
+ * @returns `found`
+ * @throws {FormatError} if a fluid check lacks its volume, operator or target
+ */
+const fluidChecks = (value: unknown, found: FluidCheck[]): FluidCheck[] => {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			fluidChecks(item, found);
+		}
+	} else if (isObject(value)) {
+		if (typeof value.$type === 'string' && value.$type.split(',')[0] === CHECK_FLUID_VOLUME) {
+			const volume = constant(value.volumeId);
+			const level = constant(value.levelId);
+			const compare = constant(value['_comparer']);
+			const target = constant(value['_targetVolume']);
+			const id = isObject(volume) ? volume.id : undefined;
+			if (
+				(typeof id !== 'number' && typeof id !== 'string') ||
+				typeof compare !== 'number' ||
+				typeof target !== 'number'
+			) {
+				throw new FormatError(`malformed CheckFluidVolume ${JSON.stringify(value)}`);
+			}
+			found.push({
+				levelId: typeof level === 'string' && level !== '' ? level : null,
+				volume: String(id),
+				compare,
+				target,
+			});
+		}
+		for (const field of Object.values(value)) {
+			fluidChecks(field, found);
 		}
 	}
 	return found;

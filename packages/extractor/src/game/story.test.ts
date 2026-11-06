@@ -27,13 +27,21 @@ const MISSION: MissionRuntime = {
 	charId: null,
 	mainPath: ['x1m8_q#2', 'x1m8_q#3'],
 	quests: [
-		{ id: 'x1m8_q#2', objectiveKey: null, descriptionKey: 'x1m8_desc_002', hidden: false, previous: [] },
+		{
+			id: 'x1m8_q#2',
+			objectiveKey: null,
+			descriptionKey: 'x1m8_desc_002',
+			hidden: false,
+			previous: [],
+			fluidChecks: [],
+		},
 		{
 			id: 'x1m8_q#3',
 			objectiveKey: 'objective_x1m8_3_001',
 			descriptionKey: null,
 			hidden: false,
 			previous: ['x1m8_q#2'],
+			fluidChecks: [],
 		},
 		// a branch off the main flow, after step 1
 		{
@@ -42,6 +50,7 @@ const MISSION: MissionRuntime = {
 			descriptionKey: null,
 			hidden: true,
 			previous: ['x1m8_q#2'],
+			fluidChecks: [],
 		},
 	],
 };

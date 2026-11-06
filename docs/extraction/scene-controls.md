@@ -38,7 +38,7 @@ the package side of [the selectors](../game-data/scene-states.md#the-selectors-a
 | script-shown interactive   | `script:<logic id>`                                | shown, or its scripts' quest checks on activation                 |
 | controller-less logic gate | `logic:<entity id>:<mask>`                         | off                                                               |
 | environment volume         | `environmentVolume:<index>`                        | on, except scripted volumes                                       |
-| water volume fill          | `waterLevel:<id>`                                  | the authored fill                                                 |
+| water volume fill          | `waterLevel:<id>`                                  | the authored fill; drained for a pool a quest needs drained       |
 
 the control's kind is the selector's name in its id (`door`, `script`, …). every control is built by
 `sceneControl` in [scene-control.ts](../../packages/extractor/src/game/scene-control.ts), which

@@ -126,8 +126,43 @@ describe('volumeEntry', () => {
 		fillSpeed: 0.11,
 		itemType: 'item_liquid_water',
 		configHash: 1n,
+		factory: false,
+		infinite: true,
+		parent: null,
 		source: 'indie_dg016_lv_data.json#46300000002',
 	};
+
+	it('offers a pumped pool empty and full, moving it at its fill speed in amount units', () => {
+		// Wuling City's Tianjing Courtyard pond: factory water, 40000 units over 35 m, 30 units a second
+		const pond: LevelWaterVolume = {
+			...volume,
+			id: '22800060004',
+			heightMax: 35,
+			fraction: 1,
+			amountMax: 40000,
+			fillSpeed: 30,
+			factory: true,
+			infinite: false,
+		};
+		const { entry, sources } = volumeEntry(pond, []);
+		assert.equal(entry.control, 'waterLevel:22800060004');
+		assert.deepEqual(
+			entry.levels.map(({ fraction }) => fraction),
+			[0, 1],
+		);
+		assert.equal(entry.fillSpeed, (30 * 35) / 40000);
+		assert.deepEqual(
+			sources.map(({ authored, pumped: end }) => [authored, end]),
+			[
+				[false, true],
+				[true, true],
+			],
+		);
+		// a basin following it gets no fills of its own
+		const basin = volumeEntry({ ...pond, id: '22800060019', parent: '22800060004' }, []).entry;
+		assert.equal(basin.control, null);
+		assert.equal(basin.parent, '22800060004');
+	});
 
 	it('merges the authored fill with script fills, taking the speed scripts move it at', () => {
 		const level = (
@@ -157,9 +192,9 @@ describe('volumeEntry', () => {
 			{ fraction: 0.5, speed: 0.11 },
 		]);
 		assert.deepEqual(sources, [
-			{ authored: false, actions: [actions[3]] },
-			{ authored: false, actions: [actions[1], actions[2]] },
-			{ authored: true, actions: [actions[0]] },
+			{ authored: false, actions: [actions[3]], pumped: false },
+			{ authored: false, actions: [actions[1], actions[2]], pumped: false },
+			{ authored: true, actions: [actions[0]], pumped: false },
 		]);
 	});
 });
@@ -272,6 +307,7 @@ describe('finishWater', () => {
 			fillSpeed: 1,
 			levels: [],
 			control: null,
+			parent: null,
 			floaters: [],
 		});
 		const plan: WaterPlan = {

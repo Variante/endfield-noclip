@@ -79,6 +79,8 @@ export class WaterLevels {
 	#target = new Float64Array(0);
 	/** metres per second towards {@link #target} */
 	#speed = new Float64Array(0);
+	/** per volume, the index of the volume whose surface it follows, or -1 */
+	#parents = new Int32Array(0);
 	/** metres above the packed surface, per volume, for the water renderer */
 	#offsets = new Float32Array(0);
 	/** by instance-block blob, its floating rows and their volumes */
@@ -91,6 +93,10 @@ export class WaterLevels {
 		this.#current = Float64Array.from(volumes, (volume) => volume.initial);
 		this.#target = Float64Array.from(this.#current);
 		this.#speed = Float64Array.from(volumes, (volume) => volume.fillSpeed);
+		const indices = new Map(volumes.map((volume, i) => [volume.id, i]));
+		this.#parents = Int32Array.from(volumes, (volume) =>
+			volume.parent === null ? -1 : (indices.get(volume.parent) ?? -1),
+		);
 		this.#offsets = new Float32Array(volumes.length);
 		this.#floaters.clear();
 		for (const [i, volume] of volumes.entries()) {
@@ -128,16 +134,17 @@ export class WaterLevels {
 		}
 	}
 
-	/** puts every volume back at its authored fill */
-	reset(): void {
-		for (const [i, volume] of this.#volumes.entries()) {
-			this.#current[i] = volume.initial;
-			this.#target[i] = volume.initial;
-		}
+	/**
+	 * puts every volume at the fill it's moving to, without the move: for a package's defaults (a pool a
+	 * finished story drained starts drained) and after a reset
+	 */
+	settle(): void {
+		this.#current.set(this.#target);
 	}
 
 	/**
-	 * moves the volumes by a frame, linearly at their speed (the game eases the last metres in)
+	 * moves the volumes by a frame, linearly at their speed (the game eases the last metres in); a volume
+	 * following another sits at its parent's surface, within its own depth
 	 *
 	 * @param dt seconds
 	 * @param rate how many times faster than the game to move; `Infinity` jumps to the targets
@@ -146,7 +153,15 @@ export class WaterLevels {
 	update(dt: number, rate: number): boolean {
 		let moved = false;
 		const offsets = this.#offsets;
-		for (const [i, volume] of this.#volumes.entries()) {
+		const volumes = this.#volumes;
+		for (const [i, volume] of volumes.entries()) {
+			const parent = this.#parents[i];
+			if (parent !== -1) {
+				const height = waterHeight(volumes[parent], this.#current[parent]);
+				const fraction = volume.heightMax > 0 ? (height - volume.base) / volume.heightMax : 0;
+				this.#current[i] = Math.min(Math.max(fraction, 0), 1);
+				this.#target[i] = this.#current[i];
+			}
 			const current = this.#current[i];
 			const target = this.#target[i];
 			if (current !== target) {

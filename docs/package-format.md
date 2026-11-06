@@ -555,15 +555,21 @@ packing rules:
   by the transform to the authored fill, drawn with the volume's config, owned by its level and
   always loaded. a volume without a config, or whose config fails, is left out and listed in
   `debug/water.json`. `levels` are the authored fill and every constant fill the scene's scripts
-  set, merged within 1e-4; each takes the speed of a script's fill-speed action just before moving
-  the volume there, else the volume's. a volume scripts set to more than one fill gets a
-  `waterLevel:<id>` control, its values indexing `levels` (labelled with the fill's percentage and
-  height, and whether the level authors it) and defaulting to the authored fill; its drivers say
-  what runs each script action setting a fill, with that fill as their `value`. it gates no content,
-  so it's listed whatever groups require, with the volume's level tag. `floaters` are the stored
-  instance rows, as (block blob, row index), of the renderers of every interactive placement whose
-  component 39 names the volume; the packer finds them by entity id once the blocks are stored, and
-  lists a floater with no stored row in `debug/water.json`.
+  set, plus empty and full for a [pool the player pumps](game-data/water.md#depletable-pools)
+  (finite factory water following no other volume), merged within 1e-4; each takes the speed of a
+  script's fill-speed action just before moving the volume there, else the volume's (`fillSpeed`, in
+  metres a second: the authored one for an infinite volume, converted from amount units for the
+  rest). a volume with more than one fill gets a `waterLevel:<id>` control, its values indexing
+  `levels` (labelled with the fill's percentage and height, and whether the level authors it or it's
+  a pool's drained or full end). it defaults to the authored fill, or for a pool a quest needs
+  drained (an objective's `CheckFluidVolume` at or under a twentieth of the pool), to empty, as in a
+  finished story; its drivers say what runs each script action setting a fill, and the quests
+  needing it drained, with that fill as their `value`. it gates no content, so it's kept as a
+  consumer of the volume, with the volume's level tag. `parent` names the volume whose surface a
+  basin follows; a following volume has no control. `floaters` are the stored instance rows, as
+  (block blob, row index), of the renderers of every interactive placement whose component 39 names
+  the volume; the packer finds them by entity id once the blocks are stored, and lists a floater
+  with no stored row in `debug/water.json`.
 
 ### particles
 

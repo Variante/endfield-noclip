@@ -78,12 +78,15 @@ the CPU copy the selection culls with and on the GPU.
 
 the "Water levels" section of the scene conditions panel
 ([water-levels.tsx](../../packages/viewer/src/ui/scene-controls/water-levels.tsx)) lists the volumes
-that scripts move, the current level's first and the others under their levels, each a select over
-its `waterLevel` scene control with what sets each fill, its surface's height and "Go" to fly over
-it (`waterHeight`, `surfaceView` in water-levels.ts). the viewer moves each volume to the fill its
-control's value picks, linearly at the speed the scripts move it at (else the volume's fill speed),
-so Suiming's stages take their two or three minutes; "Movement" speeds that up or jumps. "Reset"
-drops the picks with every other control's, putting every volume back at its authored fill.
+that scripts move and the [pools the player pumps](../game-data/water.md#depletable-pools), the
+current level's first and the others under their levels, each a select over its `waterLevel` scene
+control with what sets each fill, its surface's height and "Go" to fly over it (`waterHeight`,
+`surfaceView` in water-levels.ts). the viewer moves each volume to the fill its control's value
+picks, linearly at the speed the scripts move it at (else the volume's fill speed), so Suiming's
+stages take their two or three minutes; "Movement" speeds that up or jumps. a volume following
+another sits at its parent's surface within its own depth. a package's defaults and "Reset" (which
+drops the picks with every other control's) put each volume at its default fill at once, so a pool a
+finished story drained starts drained.
 
 it differs from the game in that:
 

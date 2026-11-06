@@ -30,7 +30,19 @@ test('reads a mission name, operator, the levels it names, its main flow and per
 					objectiveList: [
 						{
 							description: { key: 'objective_x1m1_1_001' },
-							condition: { _mapId: { constValue: 'dung01_rdg002' } },
+							condition: {
+								_mapId: { constValue: 'dung01_rdg002' },
+								// Treasure Beneath the Pond's drain: the pond at 800 of 40000 or less
+								subConditions: [
+									{
+										$type: 'Beyond.Gameplay.CheckFluidVolume, Gameplay.Beyond',
+										levelId: { constValue: 'map02_lv002' },
+										volumeId: { constValue: { id: 22800060004 } },
+										_comparer: { constValue: 5 },
+										_targetVolume: { constValue: 800 },
+									},
+								],
+							},
 							trackingInfoList: [{ sceneId: 'dung01_rdg001' }, { sceneId: 'map01_lv002' }],
 						},
 					],
@@ -51,7 +63,7 @@ test('reads a mission name, operator, the levels it names, its main flow and per
 		type: 0,
 		chapters: 1,
 		levelId: 'map01_lv002',
-		levels: ['map01_lv002', 'dung01_rdg002', 'dung01_rdg001'],
+		levels: ['map01_lv002', 'dung01_rdg002', 'map02_lv002', 'dung01_rdg001'],
 		charId: 'chr_0001_x',
 		mainPath: ['x1m1_q#1', 'x1m1_q#2'],
 		quests: [
@@ -61,6 +73,7 @@ test('reads a mission name, operator, the levels it names, its main flow and per
 				descriptionKey: null,
 				hidden: false,
 				previous: [],
+				fluidChecks: [{ levelId: 'map02_lv002', volume: '22800060004', compare: 5, target: 800 }],
 			},
 			{
 				id: 'x1m1_q#2',
@@ -68,8 +81,16 @@ test('reads a mission name, operator, the levels it names, its main flow and per
 				descriptionKey: 'x1m1_desc_002',
 				hidden: false,
 				previous: ['x1m1_q#1'],
+				fluidChecks: [],
 			},
-			{ id: 'x1m1_q#Deco', objectiveKey: null, descriptionKey: null, hidden: true, previous: ['x1m1_q#1'] },
+			{
+				id: 'x1m1_q#Deco',
+				objectiveKey: null,
+				descriptionKey: null,
+				hidden: true,
+				previous: ['x1m1_q#1'],
+				fluidChecks: [],
+			},
 		],
 	});
 });

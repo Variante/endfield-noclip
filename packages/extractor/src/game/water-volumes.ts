@@ -31,6 +31,15 @@ export interface LevelWaterVolume {
 	itemType: string;
 	/** the surface `WaterConfig` the volume draws with, or `null` when it names none */
 	configHash: bigint | null;
+	/**
+	 * whether it's factory water (`isPrototype` false): the server holds its amount, which the player's fluid
+	 * pumps drain
+	 */
+	factory: boolean;
+	/** whether its fill is a fraction scripts set (`isInfinite`) rather than an amount of water */
+	infinite: boolean;
+	/** the volume whose surface it follows, within its own depth (`parentId`), or `null` */
+	parent: string | null;
 	/** `<LevelData path>#<id>` */
 	source: string;
 }
@@ -179,8 +188,19 @@ const toVolume = (
 		fillSpeed: numberOf(row, 'fillSpeed'),
 		itemType: idOf(row, 'waterItemType'),
 		configHash: configHash === 0n ? null : configHash,
+		factory: !booleanOf(row, 'isPrototype'),
+		infinite: booleanOf(row, 'isInfinite'),
+		parent: row.parentId === undefined || idOf(row, 'parentId') === '0' ? null : idOf(row, 'parentId'),
 		source: `${owner.path}#${id}`,
 	};
+};
+
+const booleanOf = (row: Record_, key: string): boolean => {
+	const value = row[key];
+	if (typeof value !== 'boolean') {
+		throw new FormatError(`water volume ${key} is ${JSON.stringify(value)}`);
+	}
+	return value;
 };
 
 const toFloater = (row: MemoryPackValue): WaterVolumeFloater | null => {

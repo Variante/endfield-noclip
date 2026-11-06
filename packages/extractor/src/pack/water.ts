@@ -104,7 +104,17 @@ export interface WaterPlan {
 export interface WaterLevelSource {
 	authored: boolean;
 	actions: ScriptWaterLevel[];
+	/** whether it's the empty or full end of a pool the player pumps (see {@link pumped}) */
+	pumped: boolean;
 }
+
+/**
+ * @param volume a water volume
+ * @returns whether the player can pump it anywhere between empty and full: factory water holding an amount,
+ *   not following another volume's surface
+ */
+export const pumped = (volume: LevelWaterVolume): boolean =>
+	volume.factory && !volume.infinite && volume.parent === null && volume.id !== '0';
 
 /**
  * @param volume a water volume's id
@@ -574,29 +584,42 @@ export const volumeEntry = (
 	scripts: readonly ScriptWaterLevel[],
 ): { entry: WaterVolumeEntry; sources: WaterLevelSource[] } => {
 	const found: { fraction: number; speed: number | null; source: WaterLevelSource }[] = [
-		{ fraction: volume.fraction, speed: null, source: { authored: true, actions: [] } },
+		{ fraction: volume.fraction, speed: null, source: { authored: true, actions: [], pumped: false } },
 	];
+	const at = (fraction: number) => {
+		let entry = found.find((other) => Math.abs(other.fraction - fraction) < FRACTION_EPSILON);
+		if (entry === undefined) {
+			entry = { fraction, speed: null, source: { authored: false, actions: [], pumped: false } };
+			found.push(entry);
+		}
+		return entry;
+	};
 	for (const level of scripts) {
 		if (level.volume !== volume.id) {
 			continue;
 		}
 		const raw =
 			level.kind === 'fraction' ? level.value : volume.amountMax > 0 ? level.value / volume.amountMax : 0;
-		const fraction = Math.min(Math.max(raw, 0), 1);
-		let entry = found.find((other) => Math.abs(other.fraction - fraction) < FRACTION_EPSILON);
-		if (entry === undefined) {
-			entry = { fraction, speed: null, source: { authored: false, actions: [] } };
-			found.push(entry);
-		}
+		const entry = at(Math.min(Math.max(raw, 0), 1));
 		entry.source.actions.push(level);
 		if (level.speed !== null) {
 			entry.speed ??= level.speed;
 		}
 	}
+	if (pumped(volume)) {
+		at(0).source.pumped = true;
+		at(1).source.pumped = true;
+	}
+	// a volume holding an amount moves its fill speed in amount units a second
+	// (docs/game-data/water.md#depletable-pools)
+	const fillSpeed =
+		volume.infinite || volume.amountMax <= 0
+			? volume.fillSpeed
+			: (volume.fillSpeed * volume.heightMax) / volume.amountMax;
 	const sorted = found.toSorted((a, b) => a.fraction - b.fraction);
 	const levels: WaterVolumeLevel[] = sorted.map(({ fraction, speed }) => ({
 		fraction,
-		speed: speed ?? volume.fillSpeed,
+		speed: speed ?? fillSpeed,
 	}));
 	return {
 		entry: {
@@ -604,9 +627,10 @@ export const volumeEntry = (
 			base: volume.pivot[1],
 			heightMax: volume.heightMax,
 			initial: volume.fraction,
-			fillSpeed: volume.fillSpeed,
+			fillSpeed,
 			levels,
 			control: levels.length > 1 ? waterLevelControl(volume.id) : null,
+			parent: volume.parent,
 			floaters: [],
 		},
 		sources: sorted.map(({ source }) => source),
