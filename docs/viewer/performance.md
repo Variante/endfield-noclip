@@ -21,10 +21,10 @@
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
   panels don't re-render on a still view. the environment at the camera has its own revision, bumped
   only when its name or the applied volumes' phases and rounded weights change, which only the
-  settings panel follows: the blend changes on most frames while the camera moves, and each
-  re-render of the scene conditions panel took over 100 ms on map02. its collapsed sections build
-  nothing until opened (`LazyDetails`), which brought a re-render from 120–190 ms to about 35 ms
-  there; it still re-renders when the camera moves into another level.
+  settings panel's applied volumes and look legend follow: the blend changes on most frames while
+  the camera moves, and each re-render of the scene conditions panel took over 100 ms on map02. its
+  collapsed sections build nothing until opened (`LazyDetails`), which brought a re-render from
+  120–190 ms to about 35 ms there; it still re-renders when the camera moves into another level.
 - **culled in groups.** the mesh selection rejects groups of 32 rows by their bounds before testing
   rows ([per-instance LOD](streaming.md#per-instance-lod)); on map02 this took 15–30% off its time
   at dense views, where most rows walked are drawn.

@@ -109,6 +109,27 @@ const Choice = <K extends OptionKey<string>>({
 	/>
 );
 
+/** the environment volumes in effect at the camera, re-rendered on their own as the camera moves */
+const AppliedVolumes = ({ viewer }: { viewer: Viewer }) => {
+	useViewerEnvironment(viewer);
+	return (
+		<ol className="applied-volumes">
+			{viewer.appliedVolumes.map(({ id, name, phase, factor }) => (
+				<li key={id} title={name}>
+					{phase}
+					{factor < 1 ? ` · ${Math.round(factor * 100)}%` : ''}
+				</li>
+			))}
+		</ol>
+	);
+};
+
+/** the look section's legend, naming the environment profile at the camera */
+const LookLegend = ({ viewer }: { viewer: Viewer }) => {
+	useViewerEnvironment(viewer);
+	return <legend>look{viewer.environmentName === null ? '' : ` · ${viewer.environmentName}`}</legend>;
+};
+
 /** the environment volumes in effect at the camera, and a picker to pin one phase instead */
 const EnvironmentControls = ({ viewer }: { viewer: Viewer }) => {
 	const pinned = viewer.options.environmentPin;
@@ -125,14 +146,7 @@ const EnvironmentControls = ({ viewer }: { viewer: Viewer }) => {
 				]}
 				onChange={(value) => viewer.setOptions({ environmentPin: value === '' ? null : Number(value) })}
 			/>
-			<ol className="applied-volumes">
-				{viewer.appliedVolumes.map(({ id, name, phase, factor }) => (
-					<li key={id} title={name}>
-						{phase}
-						{factor < 1 ? ` · ${Math.round(factor * 100)}%` : ''}
-					</li>
-				))}
-			</ol>
+			<AppliedVolumes viewer={viewer} />
 		</fieldset>
 	);
 };
@@ -140,8 +154,6 @@ const EnvironmentControls = ({ viewer }: { viewer: Viewer }) => {
 /** layer toggles and quality sliders */
 export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 	useViewerState(viewer);
-	// the look's name and the applied volumes
-	useViewerEnvironment(viewer);
 	const tiers = viewer.options.hlodTiers;
 	const setTier = (tier: number, on: boolean): void => {
 		const next: [boolean, boolean, boolean] = [...tiers];
@@ -165,7 +177,7 @@ export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 				<Toggle viewer={viewer} name="wireframe" label="wireframe" />
 			</fieldset>
 			<fieldset>
-				<legend>look{viewer.environmentName === null ? '' : ` · ${viewer.environmentName}`}</legend>
+				<LookLegend viewer={viewer} />
 				<Toggle viewer={viewer} name="sky" label="sky" />
 				<Toggle viewer={viewer} name="heightFog" label="height and volumetric fog" />
 				<Toggle viewer={viewer} name="atmosphereFog" label="atmosphere fog" />
