@@ -1,6 +1,7 @@
 // the game's screen-space sun shafts (HGRP/PostProcessing/LightShaft, Unreal's light shaft bloom): the bright,
 // far parts of the composited scene near the sun are kept at a reduced size, blurred towards the sun's position
-// on screen over a few passes, and added back onto the scene. needs post-common.wgsl.
+// on screen over a few passes, and added back onto the scene. needs post-common.wgsl and
+// shaders/common/luminance.wgsl.
 
 struct Shafts {
 	// 1 / occlusion depth range (per m), bloom scale, occlusion mask darkness (unused here), bloom max brightness
@@ -27,7 +28,7 @@ fn fs_downsample(in: FullscreenOut) -> @location(0) vec4f {
 	let edge = 1.0 - uv.x * (1.0 - uv.x) * uv.y * (1.0 - uv.y) * 8.0;
 	let edge2 = edge * edge;
 	// the game's own luminance weights, kept off zero
-	let luma = max(dot(color, vec3f(0.2126729, 0.7151522, 0.0721750)), 6.1035156e-5);
+	let luma = max(dot(color, LUMINANCE), 6.1035156e-5);
 	let toward_sun = 1.0 - clamp(length(shafts.sun.xy - uv) * 2.0, 0.0, 1.0);
 	let size = vec2f(textureDimensions(depth_texture));
 	let texel = vec2i(clamp(uv * size, vec2f(0.0), size - 1.0));

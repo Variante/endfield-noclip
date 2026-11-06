@@ -7,6 +7,7 @@ import {
 } from '../../gfx/fullscreen-pass.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
+import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
 
 import lightShaftsWgsl from './light-shafts.wgsl?raw';
 import { postShaderModule } from './shader-source.ts';
@@ -70,7 +71,7 @@ export class LightShafts {
 			addressModeU: 'clamp-to-edge',
 			addressModeV: 'clamp-to-edge',
 		});
-		const module = postShaderModule(device, 'light shafts', [lightShaftsWgsl]);
+		const module = postShaderModule(device, 'light shafts', [luminanceWgsl, lightShaftsWgsl]);
 		const pipeline = (label: string, entryPoint: string, target: GPUColorTargetState): GPURenderPipeline =>
 			fullscreenPipeline(device, { label, module, entryPoint, targets: [target] });
 		const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' };

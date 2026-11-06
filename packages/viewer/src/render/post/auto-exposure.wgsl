@@ -1,6 +1,7 @@
 // the auto exposure's luminance histogram (auto-exposure.ts): 16 bins of log2 luminance over the metering
 // range from every `stride`-th pixel, each sample split linearly between its two nearest bins and optionally
 // weighted towards the screen's centre. weights accumulate as fixed point, since WGSL has no float atomics.
+// needs shaders/common/luminance.wgsl.
 
 struct Params {
 	size: vec2u,
@@ -29,7 +30,7 @@ fn cs_histogram(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocat
 	let p = id.xy * params.stride;
 	if (all(p < params.size)) {
 		let color = textureLoad(scene, p, 0).rgb;
-		let luminance = max(dot(color, vec3f(0.2126729, 0.7151522, 0.072175)), 0.01);
+		let luminance = max(dot(color, LUMINANCE), 0.01);
 		let ev = clamp(log2(luminance), params.ev_range.x, params.ev_range.y);
 		let x = (ev - params.ev_range.x) / (params.ev_range.y - params.ev_range.x) * (f32(BINS) - 0.0002);
 		let bin = min(u32(x), BINS - 1u);

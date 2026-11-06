@@ -250,23 +250,10 @@ struct Shaded {
 	@location(1) ambient: vec4f,
 	// rgb: the sky reflection the radiance holds, which a screen-space hit replaces; a unused
 	@location(2) reflection: vec4f,
-	// what the screen-space reflections need of the surface (`pack_reflection_surface`); 0 where none
+	// what the screen-space reflections need of the surface (`pack_reflection_surface` in
+	// shaders/common/reflection-surface.wgsl); 0 where none
 	@location(3) reflection_surface: vec2u,
 }
-
-// x: octahedral normal · 0.5 + 0.5 in 12 bits each, perceptual roughness in the top 8; y: the screen-space
-// reflection's weight (environment BRDF and specular occlusion) as the square root of each channel in 10 bits,
-// bit 30 set, bit 31 `SURFACE_NO_LIT_DECALS`. unpacked by `reflection_surface_at` in ssr.wgsl
-fn pack_reflection_surface(n: vec3f, roughness: f32, weight: vec3f) -> vec2u {
-	let e = vec2u(round(clamp(oct_encode(n) * 0.5 + 0.5, vec2f(0.0), vec2f(1.0)) * 4095.0));
-	let r = u32(round(clamp(roughness, 0.0, 1.0) * 255.0));
-	let w = vec3u(round(sqrt(clamp(weight, vec3f(0.0), vec3f(1.0))) * 1023.0));
-	return vec2u(e.x | (e.y << 12u) | (r << 24u), w.x | (w.y << 10u) | (w.z << 20u) | (1u << 30u));
-}
-
-// set in the packed surface's y where the material keeps `HGRP/DecalLit` decals off, as the game's stencil does
-// (`keepsLitDecalsOff` in lit-look.ts)
-const SURFACE_NO_LIT_DECALS = 1u << 31u;
 
 // what a material family hands to the lighting
 struct Surface {
@@ -456,8 +443,6 @@ fn ambient_irradiance(world: vec3f, n: vec3f) -> vec3f {
 	return max(c + base * fallback, vec3f(0.0));
 }
 
-const LUMINANCE = vec3f(0.2126729, 0.7151522, 0.0721750);
-
 // the game's scale on a sky reflection, from the surface's diffuse irradiance against the sky probe's L1 along the
 // normal (docs/game-data/lighting.md#ambient)
 fn reflection_normalisation(irradiance: vec3f, n: vec3f) -> f32 {
@@ -474,13 +459,18 @@ fn smith_visibility(n_dot_v: f32, n_dot_l: f32, a2: f32) -> f32 {
 	return 0.5 / max(v + l, 1e-5);
 }
 
-// Karis' analytic fit of the split-sum environment BRDF
-fn environment_brdf(f0: vec3f, roughness: f32, n_dot_v: f32) -> vec3f {
+// Karis' analytic fit of the split-sum environment BRDF: the scale on f0 and the bias (on f90)
+fn environment_brdf_terms(roughness: f32, n_dot_v: f32) -> vec2f {
 	let c0 = vec4f(-1.0, -0.0275, -0.572, 0.022);
 	let c1 = vec4f(1.0, 0.0425, 1.04, -0.04);
 	let r = roughness * c0 + c1;
 	let a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
-	let ab = vec2f(-1.04, 1.04) * a004 + r.zw;
+	return vec2f(-1.04, 1.04) * a004 + r.zw;
+}
+
+// the environment BRDF with f90 = 1
+fn environment_brdf(f0: vec3f, roughness: f32, n_dot_v: f32) -> vec3f {
+	let ab = environment_brdf_terms(roughness, n_dot_v);
 	return f0 * ab.x + ab.y;
 }
 
@@ -652,9 +642,7 @@ fn local_fog_lighting(rel: vec3f, px: vec2f, ray: vec3f, g: f32) -> vec3f {
 			if (light.attenuation <= 0.0) {
 				continue;
 			}
-			let mu = dot(ray, normalize(light.to_light));
-			let x = 1.0 + g * g - 2.0 * g * mu;
-			let phase = (1.0 - g * g) / max(4.0 * PI * x * sqrt(x), 0.001);
+			let phase = henyey_greenstein(g, dot(ray, normalize(light.to_light)));
 			sum += lights[i * LIGHT_VEC4S + 1u].rgb * (light.attenuation * phase * intensity);
 		}
 	}
@@ -741,7 +729,7 @@ fn shade_surface(s: Surface, rel: vec3f, px: vec2f) -> Shaded {
 		specular_ambient = reflected * reflection_normalisation(irradiance, n) * specular_weight;
 	}
 	let ambient = diffuse_ambient * s.occlusion + specular_ambient;
-	let albedo_luminance = dot(diffuse_color, vec3f(0.2126, 0.7152, 0.0722));
+	let albedo_luminance = dot(diffuse_color, LUMINANCE_ROUNDED);
 
 	var out: Shaded;
 	out.reflection = vec4f(0.0);
@@ -796,23 +784,6 @@ fn layer_distance_code(distance: f32) -> f32 {
 fn hue(h: f32) -> vec3f {
 	let k = vec3f(0.0, 2.0 / 3.0, 1.0 / 3.0);
 	return clamp(abs(fract(vec3f(h) + k) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
-}
-
-fn oct_encode(n: vec3f) -> vec2f {
-	let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
-	if (n.z < 0.0) {
-		return (1.0 - abs(p.yx)) * select(vec2f(-1.0), vec2f(1.0), p >= vec2f(0.0));
-	}
-	return p;
-}
-
-fn oct_decode(e: vec2f) -> vec3f {
-	var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0) {
-		let s = select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0));
-		n = vec3f((1.0 - abs(n.yx)) * s, n.z);
-	}
-	return normalize(n);
 }
 
 // an instance row (`ROW_WORDS` and `RowWord` in instance-rows.ts): its transform's rows (w: translation from

@@ -58,11 +58,6 @@ fn fog_density(y: f32) -> f32 {
 	return density;
 }
 
-fn henyey_greenstein(g: f32, mu: f32) -> f32 {
-	let x = 1.0 + g * g - 2.0 * g * mu;
-	return (1.0 - g * g) / max(4.0 * PI * x * sqrt(x), 0.001);
-}
-
 // the sun's visibility at a camera-relative position: one comparison in the sharpest layer holding it, as the
 // game takes one filtered lookup per froxel, times the cloud shadow, then the environment's override and strength
 fn froxel_sun(rel: vec3f) -> f32 {
@@ -143,7 +138,7 @@ fn cs_froxels(@builtin(global_invocation_id) id: vec3u) {
 			let rel = lit_ray * slice_depth(f32(s) + fog.jitter.z);
 			let sigma = max(0.5 * fog_density(fog.eye.y + rel.y) * fog.albedo.w, 0.0);
 			let scattering = fog.albedo.rgb * sigma;
-			let scattering_luminance = dot(scattering, vec3f(0.2126, 0.7152, 0.0722));
+			let scattering_luminance = dot(scattering, LUMINANCE_ROUNDED);
 			let light = fog.sun.rgb * (froxel_sun(rel) * phase) + sky + local_fog_lighting(rel, pixel, direction, g);
 			source = light * scattering + fog.emissive.rgb;
 			extinction = max(sigma - scattering_luminance, 0.0) + scattering_luminance;

@@ -8,6 +8,8 @@ import {
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';
+import octahedralWgsl from '../shaders/common/octahedral.wgsl?raw';
+import reflectionSurfaceWgsl from '../shaders/common/reflection-surface.wgsl?raw';
 import screenSpaceWgsl from '../shaders/common/screen-space.wgsl?raw';
 
 import { CAMERA_HISTORY_FLOATS, CameraHistory } from './camera-history.ts';
@@ -73,7 +75,13 @@ export class ScreenSpaceReflections {
 			addressModeU: 'clamp-to-edge',
 			addressModeV: 'clamp-to-edge',
 		});
-		const module = postShaderModule(device, 'ssr', [colorWgsl, screenSpaceWgsl, ssrWgsl]);
+		const module = postShaderModule(device, 'ssr', [
+			colorWgsl,
+			screenSpaceWgsl,
+			octahedralWgsl,
+			reflectionSurfaceWgsl,
+			ssrWgsl,
+		]);
 		const pipeline = (label: string, entryPoint: string, formats: GPUTextureFormat[]): GPURenderPipeline =>
 			fullscreenPipeline(device, {
 				label,

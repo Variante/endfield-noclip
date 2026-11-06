@@ -6,6 +6,7 @@ import {
 	targetExposure,
 } from '../../environment/exposure.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
 
 import autoExposureWgsl from './auto-exposure.wgsl?raw';
 
@@ -48,7 +49,10 @@ export class AutoExposure {
 		this.#pipelines = pipelines;
 		void pipelines.prepareCompute(PIPELINE_KEY, () => ({
 			layout: 'auto',
-			compute: { module: pipelines.module('auto exposure', autoExposureWgsl), entryPoint: 'cs_histogram' },
+			compute: {
+				module: pipelines.module('auto exposure', luminanceWgsl + '\n' + autoExposureWgsl),
+				entryPoint: 'cs_histogram',
+			},
 		}));
 		this.#uniforms = device.createBuffer({
 			label: 'auto exposure params',

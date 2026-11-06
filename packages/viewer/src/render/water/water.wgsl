@@ -80,18 +80,12 @@ fn glow_at(px: vec2i) -> vec3f {
 
 // the in-water Mie lobe: Henyey–Greenstein with the game's anisotropy
 fn water_mie_phase(cos_theta: f32) -> f32 {
-	let g = 0.854;
-	let x = 1.0 + g * g - 2.0 * g * cos_theta;
-	return (1.0 - g * g) / max(4.0 * PI * x * sqrt(x), 0.001);
+	return henyey_greenstein(0.854, cos_theta);
 }
 
 // Karis' environment BRDF with the game's water reflectance at grazing angles
 fn water_environment_brdf(f0: f32, f90: f32, roughness: f32, n_dot_v: f32) -> f32 {
-	let c0 = vec4f(-1.0, -0.0275, -0.572, 0.022);
-	let c1 = vec4f(1.0, 0.0425, 1.04, -0.04);
-	let r = roughness * c0 + c1;
-	let a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
-	let ab = vec2f(-1.04, 1.04) * a004 + r.zw;
+	let ab = environment_brdf_terms(roughness, n_dot_v);
 	return clamp(f0 * ab.x + f90 * ab.y, 0.0, 1.0);
 }
 

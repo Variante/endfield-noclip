@@ -3,7 +3,7 @@
 // `fs_temporal` filters the hit colour and fade over frames, `fs_downsample` builds a depth-aware pyramid of both,
 // and `fs_resolve` blurs by the reflected cone's footprint and writes the change to the radiance (composite adds
 // it before occlusion and fog). see docs/viewer/lighting.md#screen-space-reflections. needs post-common.wgsl and,
-// from shaders/common/, noise.wgsl, color.wgsl and screen-space.wgsl.
+// from shaders/common/, noise.wgsl, color.wgsl, screen-space.wgsl, octahedral.wgsl and reflection-surface.wgsl.
 
 struct Ssr {
 	// last frame's camera-relative view-projection, unjittered
@@ -18,7 +18,7 @@ struct Ssr {
 
 @group(1) @binding(0) var<uniform> ssr: Ssr;
 @group(1) @binding(1) var depth_texture: texture_depth_2d;
-// the main pass's `reflection_surface` (frame.wgsl)
+// the main pass's `reflection_surface` (frame.wgsl, packed as reflection-surface.wgsl describes)
 @group(1) @binding(2) var surface_texture: texture_2d<u32>;
 // last frame's composited scene, which the hits read
 @group(1) @binding(3) var previous_scene: texture_2d<f32>;
@@ -44,34 +44,8 @@ const SKY_DEPTH = 60000.0;
 // the game's 4 × 4 binomial for its pyramid and resolve
 const BINOMIAL = array<f32, 4>(0.125, 0.375, 0.375, 0.125);
 
-struct ReflectionSurface {
-	normal: vec3f,
-	roughness: f32,
-	// what a hit's radiance is multiplied by: environment BRDF and specular occlusion
-	weight: vec3f,
-	valid: bool,
-}
-
-fn oct_decode_unit(e: vec2f) -> vec3f {
-	var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0) {
-		let s = select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0));
-		n = vec3f((1.0 - abs(n.yx)) * s, n.z);
-	}
-	return normalize(n);
-}
-
-// unpacks `pack_reflection_surface` (frame.wgsl)
 fn reflection_surface_at(px: vec2i) -> ReflectionSurface {
-	let packed = textureLoad(surface_texture, px, 0).xy;
-	var s: ReflectionSurface;
-	s.valid = (packed.y & (1u << 30u)) != 0u;
-	let e = vec2f(f32(packed.x & 0xfffu), f32((packed.x >> 12u) & 0xfffu)) / 4095.0;
-	s.normal = oct_decode_unit(e * 2.0 - 1.0);
-	s.roughness = f32(packed.x >> 24u) / 255.0;
-	let w = vec3f(f32(packed.y & 0x3ffu), f32((packed.y >> 10u) & 0x3ffu), f32((packed.y >> 20u) & 0x3ffu)) / 1023.0;
-	s.weight = w * w;
-	return s;
+	return unpack_reflection_surface(textureLoad(surface_texture, px, 0).xy);
 }
 
 // the camera-relative point at a uv and device depth
