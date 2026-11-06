@@ -6,10 +6,6 @@ import type { Vec3 } from '../scene/camera.ts';
 /** an xyzw quaternion */
 export type Quat = [x: number, y: number, z: number, w: number];
 
-/** @returns the 3×3 rows `a` times `v` */
-export const times3 = (a: readonly number[], v: ArrayLike<number>): Vec3 =>
-	times3Into([0, 0, 0], a, v[0], v[1], v[2]);
-
 /** writes the 3×3 rows `a` times `(x, y, z)` into `out` @returns `out` */
 export const times3Into = (out: Vec3, a: readonly number[], x: number, y: number, z: number): Vec3 => {
 	out[0] = a[0] * x + a[1] * y + a[2] * z;
@@ -36,10 +32,6 @@ export const eulerQuaternionInto = (out: Quat, x: number, y: number, z: number):
 	out[3] = cy * cx * cz + sy * sx * sz;
 	return out;
 };
-
-/** @returns `v` rotated by the xyzw quaternion `q` */
-export const rotate = (q: ArrayLike<number>, v: ArrayLike<number>): Vec3 =>
-	rotateInto([0, 0, 0], q, v[0], v[1], v[2]);
 
 /** writes `(vx, vy, vz)` rotated by the xyzw quaternion `q` into `out` @returns `out` */
 export const rotateInto = (out: Vec3, q: ArrayLike<number>, vx: number, vy: number, vz: number): Vec3 => {
