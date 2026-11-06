@@ -22,8 +22,6 @@ import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
-import { mapDefined } from '@mary-ext/array-fns';
-
 import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
 import { instanceRowKinds } from '../content/row-kinds.ts';
 import {
@@ -81,53 +79,7 @@ import { StreamManager } from '../streaming/stream-manager.ts';
 import { streamWholeTexture } from '../streaming/texture-requests.ts';
 
 import { DEFAULT_OPTIONS, type ViewerOptions } from './options.ts';
-
-// #region stats
-
-/** numbers for the stats panel */
-export interface ViewerStats {
-	adapter: string;
-	features: string[];
-	/** smoothed time between rendered frames, ms */
-	frameMs: number;
-	/** smoothed CPU time per frame that did work (traversal, streaming, encoding), ms */
-	cpuMs: number;
-	/** {@link cpuMs} by frame phase, ms */
-	cpuPhases: Record<string, number>;
-	/** smoothed GPU time of all passes, ms, if timestamps are available */
-	gpuMs: number | null;
-	/** GPU time by pass label, ms; see {@link GpuProfiler.passes} for how far to trust it */
-	gpuPasses: Record<string, number>;
-	/** the auto exposure's adjustment, EV (0 when off) */
-	autoExposureEv: number;
-	draws: number;
-	triangles: number;
-	instances: number;
-	/** instances drawn as meshes (the rest are boxes) */
-	meshInstances: number;
-	/** mesh draws with their base colour texture bound */
-	texturedDraws: number;
-	/** GPU bytes of integrated texture levels */
-	textureBytes: number;
-	terrainPatches: number;
-	nodesVisited: number;
-	residentBytes: number;
-	pinnedBytes: number;
-	poolBytes: number;
-	queued: number;
-	requestsInFlight: number;
-	decoding: number;
-	uploading: number;
-	downloadedBytes: number;
-	requests: number;
-	evictions: number;
-	failed: number;
-	/** the package was re-packed since it was opened; streaming has stopped until a reload */
-	packageChanged: boolean;
-	geometriesReady: number;
-	geometriesTotal: number;
-	camera: { position: Vec3; yaw: number; pitch: number; speed: number };
-}
+import { type ViewerStats, FrameTimes, STATS_INTERVAL, collectStats, emptyStats } from './stats.ts';
 
 /** what the level list needs */
 export interface LevelEntry {
@@ -136,11 +88,8 @@ export interface LevelEntry {
 	instances: number;
 }
 
-// #endregion
-
 const TERRAIN_SLOTS = 4096;
 const INSTANCE_ROWS = 1_500_000;
-const STATS_INTERVAL = 250;
 /** the irradiance volume of a package without one */
 const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array(), groups: new Uint32Array() };
 /** the frame uniforms' local lights while they're off */
@@ -206,6 +155,8 @@ export class Viewer {
 	/** the loaded package's irradiance volume; an empty one without a package */
 	#irradiance: IrradianceVolume;
 	#water: WaterRenderer;
+	/** the systems whose GPU pools and targets the stats sum */
+	readonly #pools: readonly { readonly bytes: number }[];
 	#waterLevels = new WaterLevels();
 	/** the shown level's look */
 	#environment: Environment = deriveEnvironment(null);
@@ -243,14 +194,7 @@ export class Viewer {
 	#seenVersion = -1;
 	/** compiled pipelines when the last frame began */
 	#seenPipelines = 0;
-	#frameMs = 16.7;
-	#cpuMs = 0;
-	/** CPU time per frame phase in this frame so far, ms */
-	#frameSpans = new Map<string, number>();
-	/** {@link #frameSpans} smoothed over the frames that did work */
-	#cpuSpans = new Map<string, number>();
-	/** when the current span started */
-	#spanAt = 0;
+	readonly #times = new FrameTimes();
 	#visited = 0;
 	/** the traversal's frustum planes, rewritten each traversal */
 	#planes: Plane[] = [];
@@ -344,8 +288,17 @@ export class Viewer {
 			...this.#post.skyLayouts,
 		});
 		this.#pool = new DecodePool(Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) >> 1)));
+		this.#pools = [
+			this.#terrain,
+			this.#instances,
+			this.#meshes,
+			this.#targets,
+			this.#post,
+			this.#fog,
+			this.#shadows,
+		];
 		this.controls = new NoclipControls(this.camera, canvas);
-		this.stats = this.#emptyStats();
+		this.stats = emptyStats(gfx);
 	}
 
 	/**
@@ -1227,43 +1180,6 @@ export class Viewer {
 		}
 	}
 
-	#emptyStats(): ViewerStats {
-		const features = this.#gfx.features;
-		return {
-			adapter: this.#gfx.adapterName,
-			features: mapDefined(Object.entries(features), ([name, on]) => (on ? name : undefined)),
-			frameMs: 0,
-			cpuMs: 0,
-			cpuPhases: {},
-			gpuMs: null,
-			gpuPasses: {},
-			autoExposureEv: 0,
-			draws: 0,
-			triangles: 0,
-			instances: 0,
-			meshInstances: 0,
-			texturedDraws: 0,
-			textureBytes: 0,
-			terrainPatches: 0,
-			nodesVisited: 0,
-			residentBytes: 0,
-			pinnedBytes: 0,
-			poolBytes: 0,
-			queued: 0,
-			requestsInFlight: 0,
-			decoding: 0,
-			uploading: 0,
-			downloadedBytes: 0,
-			requests: 0,
-			evictions: 0,
-			failed: 0,
-			packageChanged: false,
-			geometriesReady: 0,
-			geometriesTotal: 0,
-			camera: { position: [0, 0, 0], yaw: 0, pitch: 0, speed: 0 },
-		};
-	}
-
 	// #endregion
 
 	// #region frame loop
@@ -1272,9 +1188,7 @@ export class Viewer {
 		this.#raf = requestAnimationFrame((next) => this.#tick(next));
 		const dt = this.#lastTime === 0 ? 1 / 60 : Math.min(0.1, (time - this.#lastTime) / 1000);
 		this.#lastTime = time;
-		const cpuStart = performance.now();
-		this.#spanAt = cpuStart;
-		this.#frameSpans.clear();
+		this.#times.begin();
 
 		const moved = this.controls.update(dt) || this.#settleFirstPose();
 		const watered = this.#waterLevels.update(dt, this.options.waterLevelRate);
@@ -1288,7 +1202,7 @@ export class Viewer {
 		this.#followStreamAreas();
 		const resized = this.#targets.update();
 		this.#blendEnvironment(false, dt);
-		this.#span('controls');
+		this.#times.span('controls');
 		const scene = this.scene;
 		const options = this.options;
 		// pipeline variants compile on first use (stencil effects), and draw once ready
@@ -1332,32 +1246,16 @@ export class Viewer {
 		}
 		if (render) {
 			this.#lastDraws = this.#render(scene !== null, post);
-			this.#frameMs = this.#frameMs * 0.9 + dt * 1000 * 0.1;
+			this.#times.rendered(dt);
 		}
 		if (render || traverse) {
-			this.#cpuMs = this.#cpuMs * 0.9 + (performance.now() - cpuStart) * 0.1;
-			const spans = this.#cpuSpans;
-			for (const name of spans.keys()) {
-				if (!this.#frameSpans.has(name)) {
-					spans.set(name, (spans.get(name) ?? 0) * 0.9);
-				}
-			}
-			for (const [name, ms] of this.#frameSpans) {
-				spans.set(name, (spans.get(name) ?? ms) * 0.9 + ms * 0.1);
-			}
+			this.#times.worked();
 		}
 
 		if (time - this.#lastStats > STATS_INTERVAL) {
 			this.#lastStats = time;
 			this.#publishStats();
 		}
-	}
-
-	/** ends the current CPU span, attributing its time to `name` */
-	#span(name: string): void {
-		const now = performance.now();
-		this.#frameSpans.set(name, (this.#frameSpans.get(name) ?? 0) + now - this.#spanAt);
-		this.#spanAt = now;
 	}
 
 	/**
@@ -1421,7 +1319,7 @@ export class Viewer {
 		this.#visited = selection.visited;
 		// spinning rows turn before instances are culled and listed by where they are
 		this.#spinsShown = this.#turnSpinningRows(selection.instances);
-		this.#span('tree');
+		this.#times.span('tree');
 		// per-instance LOD selection also requests geometry, so it runs before the stream update
 		let meshSelection: MeshSelection | null = null;
 		if (shadows) {
@@ -1453,7 +1351,7 @@ export class Viewer {
 			});
 		}
 		this.#particlesShown = meshSelection?.particles ?? false;
-		this.#span('mesh select');
+		this.#times.span('mesh select');
 		this.#updateSkyTextures(scene);
 		if (options.water) {
 			this.#water.prepare({
@@ -1468,11 +1366,11 @@ export class Viewer {
 		} else {
 			this.#water.clear();
 		}
-		this.#span('sky, water');
+		this.#times.span('sky, water');
 		this.#irradiance.prepare(stream, this.camera.position);
 		stream.update();
 		scene.textures.commit();
-		this.#span('stream');
+		this.#times.span('stream');
 		if (!prepare) {
 			return;
 		}
@@ -1491,7 +1389,7 @@ export class Viewer {
 			this.#meshes.prepare(meshSelection.buckets, spans, scene.textures);
 		}
 		this.#shadowsStale = true;
-		this.#span('prepare');
+		this.#times.span('prepare');
 	}
 
 	/**
@@ -1528,7 +1426,7 @@ export class Viewer {
 			}
 		}
 		ring.flush();
-		this.#span('uniforms');
+		this.#times.span('uniforms');
 
 		const encoder = this.#profiler.instrument(device.createCommandEncoder({ label: 'frame' }));
 		this.#irradiance.encode(encoder);
@@ -1683,11 +1581,11 @@ export class Viewer {
 			frameGroup: { group: this.#frameBindGroup, offset: uniforms.offset },
 		});
 		this.#profiler.resolve(encoder);
-		this.#span('encode');
+		this.#times.span('encode');
 		device.queue.submit([encoder.finish()]);
 		this.#profiler.afterSubmit();
 		this.#post.afterSubmit();
-		this.#span('submit');
+		this.#times.span('submit');
 		return draws;
 	}
 
@@ -1836,54 +1734,21 @@ export class Viewer {
 
 	/** refreshes {@link stats}, notifying subscribers only if something changed */
 	#publishStats(): void {
-		const scene = this.scene;
-		const stream = scene?.stream.stats;
-		const camera = this.camera;
-		const stats: ViewerStats = {
-			...this.stats,
-			frameMs: this.#frameMs,
-			cpuMs: this.#cpuMs,
-			cpuPhases: Object.fromEntries(this.#cpuSpans),
-			gpuMs: this.#profiler.milliseconds,
-			gpuPasses: Object.fromEntries(this.#profiler.passes),
-			autoExposureEv: this.#post.exposureEv,
+		const stats = collectStats(this.stats, {
+			times: this.#times,
+			profiler: this.#profiler,
+			post: this.#post,
+			terrain: this.#terrain,
+			instances: this.#instances,
+			meshes: this.#meshes,
+			terrainShown: this.options.terrain,
 			draws: this.#lastDraws,
-			triangles:
-				(this.options.terrain ? this.#terrain.patchCount * this.#terrain.patchTriangles : 0) +
-				this.#instances.triangles +
-				this.#meshes.triangles,
-			instances: this.#instances.instanceCount + this.#meshes.instanceCount,
-			meshInstances: this.#meshes.instanceCount,
-			texturedDraws: this.#meshes.texturedDraws,
-			textureBytes: scene?.textures.bytes ?? 0,
-			terrainPatches: this.#terrain.patchCount,
-			nodesVisited: scene === null ? 0 : this.#visited,
-			residentBytes: stream?.residentBytes ?? 0,
-			pinnedBytes: stream?.pinnedBytes ?? 0,
-			poolBytes:
-				this.#terrain.bytes +
-				this.#instances.bytes +
-				this.#meshes.bytes +
-				this.#targets.bytes +
-				this.#post.bytes +
-				this.#fog.bytes +
-				this.#shadows.bytes,
-			queued: stream?.queued ?? 0,
-			requestsInFlight: stream?.requestsInFlight ?? 0,
-			decoding: stream?.decoding ?? 0,
-			uploading: stream?.uploading ?? 0,
-			downloadedBytes: stream?.downloadedBytes ?? 0,
-			requests: stream?.requests ?? 0,
-			evictions: stream?.evictions ?? 0,
-			failed: stream?.failed ?? 0,
-			packageChanged: stream?.packageChanged ?? false,
-			camera: {
-				position: [...camera.position],
-				yaw: camera.yaw,
-				pitch: camera.pitch,
-				speed: this.controls.effectiveSpeed,
-			},
-		};
+			visited: this.#visited,
+			scene: this.scene,
+			pools: this.#pools,
+			camera: this.camera,
+			speed: this.controls.effectiveSpeed,
+		});
 		const key = JSON.stringify(stats);
 		if (key === this.#statsKey) {
 			return;
