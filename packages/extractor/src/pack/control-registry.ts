@@ -5,6 +5,7 @@ import type {
 	SceneControl,
 	VisibilityGroup,
 } from '@endfield-noclip/package-format/states';
+import type { Bounds, Vec3 } from '@endfield-noclip/package-format/values';
 
 import { sceneStateControl } from '../game/scene-conditions.ts';
 import { CONTROL_CATEGORIES } from '../game/scene-control.ts';
@@ -15,6 +16,43 @@ import { sourceVisibility } from './chunk-sources.ts';
 // one owner for a package's scene controls, conditional sets and visibility groups (docs/package-format.md#conditions).
 // mechanisms register controls in any order; finish() orders derived controls after the controls they read,
 // keeps only the controls something consumes, and fills in their level tags and derived defaults
+
+/**
+ * beyond this width or depth (metres), a control's content counts as spread over the scene, so a box around
+ * it says nothing about where it is: about a large level's size
+ */
+const LOCAL_EXTENT = 1024;
+
+const unionBounds = (a: Bounds, b: Bounds): Bounds => ({
+	min: [Math.min(a.min[0], b.min[0]), Math.min(a.min[1], b.min[1]), Math.min(a.min[2], b.min[2])],
+	max: [Math.max(a.max[0], b.max[0]), Math.max(a.max[1], b.max[1]), Math.max(a.max[2], b.max[2])],
+});
+
+const centre = ({ min, max }: Bounds): Vec3 => [
+	(min[0] + max[0]) / 2,
+	(min[1] + max[1]) / 2,
+	(min[2] + max[2]) / 2,
+];
+
+/** @returns whether the box is small enough to say where its content is */
+const local = ({ min, max }: Bounds): boolean =>
+	max[0] - min[0] <= LOCAL_EXTENT && max[2] - min[2] <= LOCAL_EXTENT;
+
+/** the levels and the box of what a control gates */
+interface Reach {
+	tags: Set<number>;
+	bounds: Bounds | null;
+}
+
+/** adds levels and a box to a reach */
+const spread = (into: Reach, tags: Iterable<number>, bounds: Bounds | null): void => {
+	for (const tag of tags) {
+		into.tags.add(tag);
+	}
+	if (bounds !== null) {
+		into.bounds = into.bounds === null ? structuredClone(bounds) : unionBounds(into.bounds, bounds);
+	}
+};
 
 /** a control's inputs: the controls its formula reads */
 const inputsOf = (control: SceneControl, conditions: readonly ConditionalSetInfo[]): Set<string> => {
@@ -102,53 +140,58 @@ export class ControlRegistry {
 
 	/**
 	 * orders the controls inputs first, drops those no visibility group or kept consumer needs (directly or
-	 * through a derived control), and fills in the rest's level tags and derived defaults
+	 * through a derived control), and fills in the rest's level tags, places and derived defaults
 	 *
+	 * @param options.groupBounds by visibility group index, a box around its placed content
+	 * @param options.locate names where a point is (the level and the nearest place name), `null` outside every
+	 *   level
 	 * @returns the kept controls in registration order, each derived control after its inputs, and the
 	 *   categories they list under, in listing order
 	 * @throws {Error} if a requirement names an unregistered control, or derived controls form a cycle
 	 */
-	finish(): { controls: SceneControl[]; categories: ControlCategory[] } {
+	finish(options: {
+		groupBounds: ReadonlyMap<number, Bounds>;
+		locate: (position: Readonly<Vec3>) => string | null;
+	}): { controls: SceneControl[]; categories: ControlCategory[] } {
 		const ordered = this.#ordered(this.#controls, true);
-		const tags = new Map<string, Set<number>>();
-		const note = (set: number, levelTags: Iterable<number>): void => {
+		/** per control, the levels and the box of what it gates */
+		const reaches = new Map<string, Reach>();
+		const reach = (id: string) => reaches.getOrInsertComputed(id, () => ({ tags: new Set(), bounds: null }));
+		const note = (set: number, tags: Iterable<number>, bounds: Bounds | null): void => {
 			for (const requirements of this.conditions[set].alternatives) {
 				for (const { control } of requirements) {
 					if (!this.#controls.has(control)) {
 						throw new Error(`a visibility expression requires unknown control ${control}`);
 					}
-					const current = tags.getOrInsertComputed(control, () => new Set());
-					for (const tag of levelTags) {
-						current.add(tag);
-					}
+					spread(reach(control), tags, bounds);
 				}
 			}
 		};
-		for (const { levelTag, condition } of this.groups) {
+		for (const [index, { levelTag, condition }] of this.groups.entries()) {
 			if (condition !== null) {
-				note(condition, [levelTag]);
+				note(condition, [levelTag], options.groupBounds.get(index) ?? null);
 			}
 		}
 		for (const [id, levelTags] of this.#kept) {
 			if (!this.#controls.has(id)) {
 				throw new Error(`kept control ${id} isn't registered`);
 			}
-			const current = tags.getOrInsertComputed(id, () => new Set());
-			for (const tag of levelTags) {
-				current.add(tag);
-			}
+			spread(reach(id), levelTags, null);
 		}
-		// every control reading another comes after it, so walking backwards passes a control's tags on to its
+		// every control reading another comes after it, so walking backwards passes a control's reach on to its
 		// inputs before those are visited
 		for (const control of ordered.toReversed()) {
-			const gated = tags.get(control.id);
+			const gated = reaches.get(control.id);
 			if (control.source.kind === 'derived' && gated !== undefined) {
-				note(control.source.condition, gated);
+				note(control.source.condition, [...gated.tags], gated.bounds);
 			}
 		}
-		const used = ordered.filter((control) => tags.has(control.id));
+		const used = ordered.filter((control) => reaches.has(control.id));
 		for (const control of used) {
-			control.levelTags = [...tags.get(control.id)!].toSorted((a, b) => a - b);
+			const { tags, bounds } = reaches.get(control.id)!;
+			control.levelTags = [...tags].toSorted((a, b) => a - b);
+			const position = control.place?.position ?? (bounds && local(bounds) ? centre(bounds) : null);
+			control.place = position === null ? null : { position, bounds, label: options.locate(position) };
 		}
 		const values = resolveSceneValues({ controls: used, conditionalSets: this.conditions }, {});
 		for (const control of used) {

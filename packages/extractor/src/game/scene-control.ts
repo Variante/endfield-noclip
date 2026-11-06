@@ -6,6 +6,7 @@ import type {
 	SceneControl,
 	SceneControlValue,
 } from '@endfield-noclip/package-format/states';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 // the package's control sections, and which mechanism (control kind) lists under which; see
 // docs/extraction/scene-controls.md. a new mechanism adds its kind here
@@ -106,9 +107,10 @@ export const derivedSource = (condition: number, rule: RuleText): ControlSource 
 });
 
 /**
- * @param fields the control's own fields; a control only the user sets unless `source` says otherwise
- * @returns the control, in its kind's category, with no level tags yet (the registry fills them in), no story
- *   place and the drivers given
+ * @param fields the control's own fields; a control only the user sets unless `source` says otherwise.
+ *   `position` is the spot it stands for (an interactive's placement), when it has one
+ * @returns the control, in its kind's category, with no level tags yet and its place only as far as its
+ *   position (the registry fills both in), no story place and the drivers given
  * @throws {Error} if its kind has no category
  */
 export const sceneControl = (fields: {
@@ -120,6 +122,7 @@ export const sceneControl = (fields: {
 	assumption: string;
 	source?: ControlSource;
 	drivers?: ControlDriver[];
+	position?: Readonly<Vec3>;
 }): SceneControl => {
 	const category = CATEGORY_OF_KIND[fields.kind];
 	if (category === undefined) {
@@ -137,5 +140,7 @@ export const sceneControl = (fields: {
 		levelTags: [],
 		story: null,
 		drivers: fields.drivers ?? [],
+		place:
+			fields.position === undefined ? null : { position: [...fields.position], bounds: null, label: null },
 	};
 };

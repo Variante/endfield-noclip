@@ -19,9 +19,44 @@ const derive = (registry: ControlRegistry, id: string, inputs: string[]): SceneC
 	),
 });
 
-const shows = (registry: ControlRegistry, levelTag: number, control: string): void => {
+/** @returns the visibility group of content shown while the control is on */
+const shows = (registry: ControlRegistry, levelTag: number, control: string): number =>
 	registry.group(levelTag, registry.condition({ alternatives: [[{ control, mask: 2 }]] }));
-};
+
+/** no content bounds and no levels */
+const NOWHERE = { groupBounds: new Map(), locate: () => null };
+
+test('a control is placed at its own spot, else around what it gates through the controls it drives', () => {
+	const registry = new ControlRegistry();
+	registry.add(
+		toggle('slot'),
+		derive(registry, 'door', ['slot']),
+		{ ...toggle('anchored'), place: { position: [5, 0, 5], bounds: null, label: null } },
+		toggle('spread'),
+	);
+	const boxes = new Map([
+		[shows(registry, 1, 'door'), { min: [0, 0, 0], max: [10, 2, 4] } as const],
+		[shows(registry, 1, 'anchored'), { min: [100, 0, 100], max: [110, 2, 110] } as const],
+		[shows(registry, 1, 'spread'), { min: [-2000, 0, 0], max: [2000, 2, 10] } as const],
+	]);
+	const { controls } = registry.finish({
+		groupBounds: new Map(
+			[...boxes].map(([group, { min, max }]) => [group, { min: [...min], max: [...max] }]),
+		),
+		locate: ([x]) => (x < 50 ? 'Test Level · Gate' : 'Test Level'),
+	});
+	const places = Object.fromEntries(controls.map(({ id, place }) => [id, place]));
+	// the slot reaches the door's content through the door it drives
+	assert.deepEqual(places.slot, {
+		position: [5, 1, 2],
+		bounds: { min: [0, 0, 0], max: [10, 2, 4] },
+		label: 'Test Level · Gate',
+	});
+	assert.deepEqual(places.anchored?.position, [5, 0, 5]);
+	assert.equal(places.anchored?.label, 'Test Level · Gate');
+	// content across the scene says nothing about where the control is
+	assert.equal(places.spread, null);
+});
 
 test('derived controls follow their inputs whatever order they are registered in', () => {
 	const registry = new ControlRegistry();
@@ -33,7 +68,7 @@ test('derived controls follow their inputs whatever order they are registered in
 		toggle('base', 1),
 	);
 	shows(registry, 7, 'top');
-	const { controls } = registry.finish();
+	const { controls } = registry.finish(NOWHERE);
 	assert.deepEqual(
 		controls.map(({ id }) => id),
 		['base', 'left', 'right', 'top'],
@@ -50,7 +85,7 @@ test('controls nothing consumes are dropped, kept ones stay with their levels', 
 	registry.add(toggle('unused'), toggle('water'), toggle('gated'));
 	registry.keep('water', [3]);
 	shows(registry, 2, 'gated');
-	const { controls, categories } = registry.finish();
+	const { controls, categories } = registry.finish(NOWHERE);
 	assert.deepEqual(
 		controls.map(({ id, levelTags }) => [id, levelTags]),
 		[
@@ -70,13 +105,13 @@ test('cycles, duplicates and unknown inputs throw', () => {
 		const registry = new ControlRegistry();
 		registry.add(derive(registry, 'a', ['b']), derive(registry, 'b', ['a']));
 		shows(registry, 0, 'a');
-		assert.throws(() => registry.finish(), /cycle/);
+		assert.throws(() => registry.finish(NOWHERE), /cycle/);
 	}
 	{
 		const registry = new ControlRegistry();
 		registry.add(derive(registry, 'a', ['missing']));
 		shows(registry, 0, 'a');
-		assert.throws(() => registry.finish(), /unknown control missing/);
+		assert.throws(() => registry.finish(NOWHERE), /unknown control missing/);
 	}
 	{
 		const registry = new ControlRegistry();

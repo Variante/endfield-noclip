@@ -131,6 +131,16 @@ by id in each cell's chunk. so:
 - MapRegionTable polygons are UI overlays (mist, toasts). they don't tile the level and overhang its
   cells
 
+### map place names
+
+the in-game map's place names are `Data/Json/UILevelMapLoadConfig/<level>.json` static elements of
+type 2: a `textId` (`scene_<level>_…_location_tips_<n>`, through `TextTable`) at a world `position`
+(x, z; y is 0). map01 has 71, map02 109 ("Bridge Approach" in The Hub, "Tianjing Courtyard" in
+Wuling City). a map with `basic.needInverseXZ` set swaps x and z; none of the packed scenes' levels
+were seen to. the same files give interior floor names (`tierNames`, `scene_<level>_layer_tips_<n>`)
+with per-tier bounds (`tierInfos`); how tiers relate to stream areas isn't established. level
+display names are `LevelDescTable.showName`.
+
 ## static scenery: InitChunkData and StreamingChunkData
 
 static scenery streams per 128 m cell:

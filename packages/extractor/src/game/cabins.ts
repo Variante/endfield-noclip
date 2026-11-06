@@ -205,7 +205,8 @@ export const loadCabins = async (
 			sceneControl({
 				kind: 'cabin',
 				id: control,
-				name: `Cabin slot (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
+				name: `Cabin slot: ${cabin.type}`,
+				position: slot.position,
 				values: switchValues('empty', 'built'),
 				default: 0,
 				assumption: 'empty, as before the player builds a cabin',
@@ -223,7 +224,8 @@ export const loadCabins = async (
 				sceneControl({
 					kind: 'cabinLevel',
 					id: levelControl,
-					name: `Cabin level (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
+					name: `Cabin level: ${cabin.type}`,
+					position: slot.position,
 					values: levels.map((value) => ({ value, label: `Level ${value}` })),
 					default: levels[0],
 					assumption: 'level 1, before the player upgrades it',

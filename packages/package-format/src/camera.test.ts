@@ -20,6 +20,7 @@ const control = (id: string, cameraTest: CameraTest): SceneControl => ({
 	levelTags: [],
 	story: null,
 	drivers: [],
+	place: null,
 });
 
 test('a near test holds within any reach, measured in 3D', () => {

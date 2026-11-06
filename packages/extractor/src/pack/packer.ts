@@ -100,6 +100,7 @@ import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
 import { allOf, GameState } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { Locator } from '../game/map-labels.ts';
 import { axisLengths, withAxisLengths } from '../game/particle-mesh.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
 import { placePrefabLight, readPrefabLights, type PrefabLight } from '../game/prefab-lights.ts';
@@ -2130,7 +2131,11 @@ const sceneStates = async (
 		);
 	const { states } = collected;
 	states.add(...scene.game.controls(), ...progressions, ...areas);
-	const { controls, categories } = states.finish();
+	const locator = await Locator.load(world, partition);
+	const { controls, categories } = states.finish({
+		groupBounds: collected.groupBounds(),
+		locate: (position) => locator.locate(position),
+	});
 	const missions = await labelStory(world, controls);
 	return {
 		levels,
@@ -2619,6 +2624,34 @@ class Collector {
 	// HLOD clusters stand in for instances that are counted already
 	#countInstance(level: number): void {
 		this.tagInstances.set(level, (this.tagInstances.get(level) ?? 0) + 1);
+	}
+
+	/** @returns by visibility group index, a box around the instances it shows */
+	groupBounds(): Map<number, Bounds> {
+		const bounds = new Map<number, Bounds>();
+		const add = (group: number, { bounds: rows }: Group): void => {
+			if (rows === null) {
+				return;
+			}
+			const current = bounds.get(group);
+			if (current === undefined) {
+				bounds.set(group, structuredClone(rows));
+			} else {
+				for (let axis = 0; axis < 3; axis++) {
+					current.min[axis] = Math.min(current.min[axis], rows.min[axis]);
+					current.max[axis] = Math.max(current.max[axis], rows.max[axis]);
+				}
+			}
+		};
+		for (const group of this.detail.values()) {
+			add(group.visibility, group);
+		}
+		for (const map of [this.hlod, this.global]) {
+			for (const [visibility, group] of map) {
+				add(visibility, group);
+			}
+		}
+		return bounds;
 	}
 
 	/** grows the bounds of a packed instance's level */

@@ -290,6 +290,15 @@ export class WorldIndex {
 	}
 
 	/**
+	 * @param name a game data JSON path, e.g. `Data/Json/UILevelMapLoadConfig/map01_lv001.json`
+	 * @returns the file parsed, or `undefined` if the install has no such file
+	 */
+	async json(name: string): Promise<unknown> {
+		const file = await this.vfs.find(VfsGroup.JsonData, name);
+		return file && (JSON.parse(new TextDecoder().decode(await this.vfs.readVerified(file))) as unknown);
+	}
+
+	/**
 	 * @param id a mission id, e.g. `e1m8`
 	 * @returns its definition, or `undefined` if the client has none
 	 * @throws {FormatError} if the file is malformed

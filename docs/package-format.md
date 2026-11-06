@@ -780,8 +780,9 @@ open-ended and descriptive only, see [scene controls](extraction/scene-controls.
 title and note in listing order), the selectable `values` (each below 32, with a label), a
 `default`, the `assumption` the default rests on, its `source`, the `levelTags` of the content it
 gates (directly or through a derived control), which a viewer uses to list a control only for the
-levels it matters to, a `story` place and its `drivers`. a value is a quest's state, a variable's
-range, a progression's level or form index, a water volume's fill index, or 0/1 for on/off controls.
+levels it matters to, a `story` place, its `drivers` and its `place`. a value is a quest's state, a
+variable's range, a progression's level or form index, a water volume's fill index, or 0/1 for
+on/off controls.
 
 only controls something consumes are listed: a visibility group, a derived control that is listed,
 or other content that follows the control's value (a water volume's surface follows its `waterLevel`
@@ -815,6 +816,11 @@ them.
   event, or an `unknown` event by its game name), each with the value it sets and a position where
   it has one ([script groups](extraction/scene-controls.md#script-groups), [water](#water)); empty
   when nothing found sets it.
+- **place** (`ControlPlace`): where the control matters: its `position` (the spot it stands for,
+  such as an interactive or a cabin slot, else the centre of its content), the `bounds` of the
+  placed content it shows, hides or poses (directly or through derived controls), and a `label`
+  naming where that is ([places](extraction/scene-controls.md#places)). `null` when its content is
+  spread over the scene or it has none of its own.
 
 ### stream areas
 

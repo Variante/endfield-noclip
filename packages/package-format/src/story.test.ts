@@ -21,6 +21,7 @@ const control = (
 	levelTags: [0],
 	story: { role: kind, mission, step },
 	drivers: [],
+	place: null,
 });
 
 const CONTROLS = [

@@ -20,6 +20,7 @@ const control = (
 		source: derived === undefined ? { kind: 'user' } : { kind: 'derived', condition: derived, rule: [] },
 		story: null,
 		drivers: [],
+		place: null,
 		...rest,
 	};
 };

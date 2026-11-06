@@ -97,7 +97,8 @@ const blightControl = (id: string, position: readonly [number, number, number]):
 	sceneControl({
 		kind: 'mapVar',
 		id,
-		name: `Blight (${Math.round(position[0])}, ${Math.round(position[2])})`,
+		name: 'Blight core',
+		position,
 		values: [
 			{ value: BLIGHT_PRESENT, label: 'present' },
 			{ value: BLIGHT_CLEANSED, label: 'cleansed' },

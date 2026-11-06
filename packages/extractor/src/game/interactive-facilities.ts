@@ -1637,7 +1637,8 @@ export const loadInteractiveFacilities = async (
 				sceneControl({
 					kind: 'script',
 					id: control,
-					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+					name: row.template,
+					position: row.position,
 					values: SWITCH_VALUES,
 					default: 1,
 					assumption: 'shown as placed until a level script hides it',
@@ -1777,7 +1778,8 @@ export const loadInteractiveFacilities = async (
 					sceneControl({
 						kind: 'bridge',
 						id: control,
-						name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+						name: `Telescopic bridge (${row.template})`,
+						position: row.position,
 						values: switchValues('retracted', `extended (${pieces} pieces)`),
 						default: 0,
 						assumption: 'retracted: the player or the server extends it',
@@ -1797,7 +1799,8 @@ export const loadInteractiveFacilities = async (
 				control: sceneControl({
 					kind: 'door',
 					id: control,
-					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+					name: `Door (${row.template})`,
+					position: row.position,
 					values: switchValues(`closed (${poses.closedState})`, `open (${poses.openState})`),
 					default: 0,
 					assumption: 'closed: the player or the server opens it',
@@ -1819,14 +1822,14 @@ export const loadInteractiveFacilities = async (
 				// oxlint-disable-next-line no-await-in-loop -- one settle per model, state and rope length
 				looks = (await looksFor(rest.model, campfire, rest.keys, state, floats)) ?? looks;
 			}
-			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
 			const activation = `activation:${row.id}`;
 			if (campfire) {
 				progressions.push(
 					sceneControl({
 						kind: 'activation',
 						id: activation,
-						name: `Campfire ${where}`,
+						name: 'Campfire',
+						position: row.position,
 						values: switchValues(
 							`not activated (${looks.away[0].states.join(', ')})`,
 							`activated (${looks.away[1].states.join(', ')})`,
@@ -1843,7 +1846,8 @@ export const loadInteractiveFacilities = async (
 					sceneControl({
 						kind: 'proximity',
 						id: nearness,
-						name: `${campfire ? 'Campfire' : row.template} ${where}`,
+						name: campfire ? 'Campfire, player nearby' : row.template,
+						position: row.position,
 						values: switchValues(
 							`away (${states(looks.away)})`,
 							`within ${radius} m (${states(looks.near)})`,
@@ -1879,7 +1883,6 @@ export const loadInteractiveFacilities = async (
 		}
 		const start = animatorStarts.get(row.template);
 		if (start !== undefined) {
-			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
 			const [form] = template.forms;
 			if (start.saved === null) {
 				// oxlint-disable-next-line no-await-in-loop -- one pose per prefab and parameter set
@@ -1892,7 +1895,8 @@ export const loadInteractiveFacilities = async (
 				sceneControl({
 					kind: 'activation',
 					id: control,
-					name: `${row.template} ${where}`,
+					name: row.template,
+					position: row.position,
 					values: switchValues(`${property} unset`, `${property} set`),
 					default: 1,
 					assumption: `${property} set, as in a finished save: the server sets it during play`,

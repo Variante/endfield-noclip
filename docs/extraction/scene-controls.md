@@ -320,6 +320,22 @@ label is its first objective's text, else the mission description it shows while
 quests are labelled "hidden step" with their id's suffix. quests whose mission the client lacks keep
 their raw id. the episode label is inferred from the id.
 
+## places
+
+the control registry gives each control a [place](../package-format.md#controls). its position is
+the spot the mechanism names (an interactive's placement for doors, bridges, campfires and the
+interactives scripts show; a cabin slot; a blight's core), else the centre of the box around the
+instances the control gates, carried back through the controls it derives. content wider or deeper
+than 1024 m counts as spread over the scene and gets no place, unless the mechanism names a spot.
+lights, water surfaces and environment volumes don't add to the box yet.
+
+the label names the position in the game's words
+([map-labels.ts](../../packages/extractor/src/game/map-labels.ts)): the display name of the level
+owning its cell, and the nearest of that level's
+[map place names](../game-data/world.md#map-place-names) within 150 m ("The Hub · Bridge Approach",
+"Wuling City · Tianjing Courtyard"). since the place says where, control names say what: "Door
+(int_door_common_v2)", "Campfire", "Blight core", rather than coordinates.
+
 ## rules
 
 - gate content on stored conditions; names do not establish activation. show the assumption behind

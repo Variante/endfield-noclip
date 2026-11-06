@@ -1,4 +1,4 @@
-import type { RuleText, SceneControl } from '@endfield-noclip/package-format/states';
+import type { ControlPlace, RuleText, SceneControl } from '@endfield-noclip/package-format/states';
 
 /**
  * @param bytes byte count
@@ -36,6 +36,20 @@ export const formatCount = (n: number): string => {
  * @returns its message
  */
 export const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * @param place where a control's content is
+ * @returns how big it is across, in metres, for flying to it; 20 m without content of its own
+ */
+export const placeSize = ({ bounds }: ControlPlace): number =>
+	bounds === null
+		? 20
+		: Math.max(
+				bounds.max[0] - bounds.min[0],
+				bounds.max[1] - bounds.min[1],
+				bounds.max[2] - bounds.min[2],
+				4,
+			);
 
 /**
  * @param control a scene control

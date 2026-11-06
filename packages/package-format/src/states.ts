@@ -1,5 +1,5 @@
 import type { StreamAreasInfo } from './stream-areas.ts';
-import type { Vec3 } from './values.ts';
+import type { Bounds, Vec3 } from './values.ts';
 
 /**
  * what decides whether placed content shows. controls hold the game's own state (a quest's state, a variable,
@@ -152,6 +152,24 @@ export interface SceneControl {
 	story: StoryPlace | null;
 	/** what sets it in game according to the level scripts, deduplicated; empty when nothing found does */
 	drivers: ControlDriver[];
+	/**
+	 * where it matters, or `null` for a control whose content is spread over the scene (a quest switching
+	 * several levels' scenery) or that has none of its own
+	 */
+	place: ControlPlace | null;
+}
+
+/** where a control's content is */
+export interface ControlPlace {
+	/** the spot it stands for (an interactive, a cabin slot, a blight core), else the centre of its content */
+	position: Vec3;
+	/**
+	 * a box around the content it shows, hides or poses, directly or through the controls derived from it;
+	 * `null` when it gates no placed content of its own (a water level moves a surface instead)
+	 */
+	bounds: Bounds | null;
+	/** where that is in the game's place names, e.g. "The Hub · Bridge Approach"; `null` outside every level */
+	label: string | null;
 }
 
 /**

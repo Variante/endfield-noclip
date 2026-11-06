@@ -4,8 +4,8 @@ import { definite } from '@mary-ext/array-fns';
 import type { ReactNode } from 'react';
 
 import type { Viewer } from '../../viewer/viewer.ts';
-import { ChoiceRow, ControlValueSelect, SceneToggle } from '../controls.tsx';
-import { isToggle, ruleOf } from '../format.ts';
+import { ChoiceRow, ControlValueSelect, FlyButton, SceneToggle } from '../controls.tsx';
+import { isToggle, placeSize, ruleOf } from '../format.ts';
 
 import { Drivers } from './drivers.tsx';
 
@@ -25,7 +25,8 @@ export const ControlRow = ({
 	describe: (rule: RuleText) => string;
 }) => {
 	const rule = ruleOf(control);
-	const detail = definite([rule && describe(rule), control.assumption]).join(' · ');
+	const { place } = control;
+	const detail = definite([place?.label, rule && describe(rule), control.assumption]).join(' · ');
 	let input: ReactNode;
 	if (isToggle(control)) {
 		input = (
@@ -46,6 +47,9 @@ export const ControlRow = ({
 	return (
 		<div>
 			{input}
+			{place !== null && (
+				<FlyButton viewer={viewer} point={place.position} size={placeSize(place)} back={1.5} />
+			)}
 			<Drivers viewer={viewer} control={control} />
 		</div>
 	);
