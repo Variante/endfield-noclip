@@ -38,7 +38,7 @@ export interface MeshBucket {
 }
 
 /** which hidden draws a view selects */
-export interface SlotFilter {
+interface SlotFilter {
 	/** select draws of materials in the unsupported look */
 	unsupportedMaterials: boolean;
 	/** select `DrawRole.Unsupported` stand-ins */
@@ -106,7 +106,7 @@ export const bucketIndex = (mirrored: 0 | 1, castOnly: boolean): number => mirro
 export const BUCKET_LIFETIME = 600;
 
 /** what {@link MeshBuckets} reads */
-export interface MeshBucketsInit {
+interface MeshBucketsInit {
 	/** LOD-chain templates */
 	chains: readonly Chain[];
 	/** the geometry table */

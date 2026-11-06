@@ -7,7 +7,7 @@
 import { DEPTH_COMPARE, type MainPassFormat } from './render-targets.ts';
 
 /** the stages of a filled or wireframe pipeline: its layout and shader entry points */
-export type FillOrWireStages = Pick<GPURenderPipelineDescriptor, 'layout' | 'vertex' | 'fragment'>;
+type FillOrWireStages = Pick<GPURenderPipelineDescriptor, 'layout' | 'vertex' | 'fragment'>;
 
 /**
  * @param format the main pass's targets

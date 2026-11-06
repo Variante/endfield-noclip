@@ -21,7 +21,7 @@ import { type FaceCull, FRONT_FACE, type UvFormat, VARIANTS, pipelineKey } from 
 export type PhaseDescriber = (cull: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor;
 
 /** what {@link prepareMeshPipelines} sets up */
-export interface MeshPipelines {
+interface MeshPipelines {
 	/** each phase's descriptor by key, from which its stencil variants are derived */
 	describers: Map<string, PhaseDescriber>;
 	/**
