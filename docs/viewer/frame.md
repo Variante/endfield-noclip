@@ -1,6 +1,11 @@
 # the render frame
 
-`#render` encodes one command buffer per frame. passes in order:
+`encodeFrame`
+([`render/frame/frame-graph.ts`](../../packages/viewer/src/render/frame/frame-graph.ts)) encodes one
+command buffer per frame from a `FrameContext` (camera, sizes, frame groups, frame index, clock and
+the settings in effect, which debug views turn the lit-only passes off in once per frame). the post
+chain runs in two halves around the passes over the composited scene (`encodeComposite`, then water
+and screen effects, then `encodeAfterScene`). passes in order:
 
 | #   | pass                                                                 | when                                                                                                                                                                                                                              |
 | --- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

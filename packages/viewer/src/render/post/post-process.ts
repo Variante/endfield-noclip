@@ -37,7 +37,18 @@ interface Sized {
 	historyViews: [GPUTextureView, GPUTextureView];
 }
 
-/** owns the post chain's shared uniforms and sampler, and runs its passes in order */
+/** what {@link PostProcess.encodeComposite} leaves for the passes over the composited scene */
+export interface CompositedScene {
+	/** the composited HDR scene, which those passes draw over */
+	target: GPUTextureView;
+	/** what the water pass reads, `null` when no water draws this frame */
+	water: WaterContext | null;
+}
+
+/**
+ * owns the post chain's shared uniforms and sampler, and runs its passes in order: {@link encodeComposite},
+ * then the caller's passes over the composited scene, then {@link encodeAfterScene}
+ */
 export class PostProcess {
 	/**
 	 * explicit layouts of the post uniforms and of the sky's reads (the sky-view LUT, its sampler and the
@@ -74,7 +85,7 @@ export class PostProcess {
 	 * @param pipelines the pipeline cache, which compiles the auto exposure's histogram pass
 	 * @param swapchainFormat the canvas format the final pass writes
 	 * @param environment the environment to start with
-	 * @param fog the volumetric fog, which the caller encodes before {@link encode}
+	 * @param fog the volumetric fog, which the caller encodes before {@link encodeComposite}
 	 */
 	constructor(
 		device: GPUDevice,
@@ -324,16 +335,18 @@ export class PostProcess {
 	}
 
 	/**
-	 * encodes the chain from the main pass's outputs to the swapchain.
+	 * encodes the chain from the main pass's outputs through the composite: the atmosphere LUTs, AO,
+	 * reflections, the celestial layers and the water's depth. the caller then draws what goes over the
+	 * composited scene (the water, screen effects) and finishes with {@link encodeAfterScene}.
 	 *
-	 * @param encoder this frame's encoder, after the main pass
+	 * @param encoder this frame's encoder, after the main and transparent passes
 	 * @param input the main pass's textures, the camera (unjittered), the render and output sizes and settings
+	 * @returns the composited scene, and what the water pass reads when water draws this frame
 	 */
-	encode(
+	encodeComposite(
 		encoder: GPUCommandEncoder,
 		input: {
 			scene: SceneTextures;
-			swapchain: GPUTextureView;
 			camera: Camera;
 			width: number;
 			height: number;
@@ -345,21 +358,13 @@ export class PostProcess {
 			frame: number;
 			/** whether the volumetric fog was encoded this frame */
 			froxels: boolean;
-			/** drawn after compositing, when it has surfaces */
+			/** drawn over the composite when it has surfaces */
 			water: WaterRenderer;
-			/** draws the WaterDecal boxes into the water's foam (`WaterContext.foam`), `null` without any */
-			waterFoam: WaterContext['foam'];
-			/**
-			 * draws effects over the composited scene, after the water: `target` is the scene, and `copy` copies it
-			 * into the main pass's radiance target (which nothing reads after compositing) for effects that sample
-			 * it
-			 */
-			screenEffects: (encoder: GPUCommandEncoder, target: GPUTextureView, copy: () => void) => void;
 			/** the main pass's frame group and its uniforms' offset, which the water pass lights with */
 			frameGroup: { group: GPUBindGroup; offset: number };
 		},
-	): void {
-		const { scene, swapchain, camera, width, height, outputWidth, outputHeight } = input;
+	): CompositedScene {
+		const { scene, camera, width, height, outputWidth, outputHeight } = input;
 		const settings = effectiveSettings(input.settings);
 		const environment = this.#environment;
 		const sized = this.#ensureSized(scene, { width, height, outputWidth, outputHeight });
@@ -401,7 +406,7 @@ export class PostProcess {
 				version: sized.version,
 				width,
 				height,
-				foam: input.waterFoam,
+				foam: false,
 			};
 		}
 		// the composite keeps back the transparent layers where there's water, which the water lays over itself
@@ -411,19 +416,54 @@ export class PostProcess {
 			water.clearDepth(encoder, scene);
 		}
 		this.#composite.encode(encoder);
-		// the water and effects that refract read a copy of the composited scene, kept in the main pass's radiance
-		// target, which nothing reads after compositing
-		const copyScene = (): void => {
-			encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [
-				width,
-				height,
-			]);
-		};
-		if (waterContext !== null) {
-			copyScene();
-			water.encode(encoder, sized.sceneView, waterContext);
+		return { target: sized.sceneView, water: waterContext };
+	}
+
+	/**
+	 * copies the composited scene into the main pass's radiance target, which nothing reads after compositing,
+	 * for the passes over it that refract it (the water, refracting effects)
+	 *
+	 * @param encoder this frame's encoder, after {@link encodeComposite}
+	 * @param scene the main pass's textures
+	 */
+	copyComposite(encoder: GPUCommandEncoder, scene: SceneTextures): void {
+		const sized = this.#sized;
+		if (sized === null) {
+			return;
 		}
-		input.screenEffects(encoder, sized.sceneView, copyScene);
+		encoder.copyTextureToTexture({ texture: sized.scene }, { texture: scene.radianceTexture }, [
+			sized.scene.width,
+			sized.scene.height,
+		]);
+	}
+
+	/**
+	 * encodes the rest of the chain over the composited scene, to the swapchain: light shafts, lens flare,
+	 * temporal antialiasing, auto exposure, bloom and tonemapping
+	 *
+	 * @param encoder this frame's encoder, after the passes over the composited scene
+	 * @param input the swapchain, the camera (unjittered), the render and output sizes and settings, as given
+	 *   to {@link encodeComposite}
+	 */
+	encodeAfterScene(
+		encoder: GPUCommandEncoder,
+		input: {
+			swapchain: GPUTextureView;
+			camera: Camera;
+			width: number;
+			height: number;
+			outputWidth: number;
+			outputHeight: number;
+			settings: PostSettings;
+		},
+	): void {
+		const { swapchain, camera, width, height, outputWidth, outputHeight } = input;
+		const settings = effectiveSettings(input.settings);
+		const environment = this.#environment;
+		const sized = this.#sized;
+		if (sized === null) {
+			return;
+		}
 		if (settings.debugView === 'lit') {
 			this.#lightShafts.encode(encoder, { camera, aspect: width / height, look: environment.lightShaft });
 			// the game draws the flare after the shafts, which don't see it

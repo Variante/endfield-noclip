@@ -37,13 +37,14 @@ the viewer draws the game's four layers ([shadows](../game-data/lighting.md#shad
 `depth32float` layers fitted to bounding spheres of frustum slices and snapped to world texels so
 edges don't crawl
 ([`render/shadows/shadow-map.ts`](../../packages/viewer/src/render/shadows/shadow-map.ts)). turning
-the camera doesn't change a sphere's fit. casters are what the main pass draws that frame, plus
-instances outside the view within 250 m whose shadows can reach it: the view frustum's planes are
-swept 250 m towards the sun, and instances inside the swept planes draw into the shadow layers only.
-off-screen casters smaller than 16 px (as if on screen) are skipped, and terrain outside the view
-doesn't cast. shadow-only renderers draw into the shadow layers only, in view or not. they cull back
-faces like any material, which is enough for Dijiang's roof; `_ShadowCullMode` isn't read. which
-layers each caster draws into and when the layers redraw is in [frame](frame.md).
+the camera doesn't change a sphere's fit. the layers are fitted once per frame, to the render size's
+aspect, before the mesh selection groups casters by layer. casters are what the main pass draws that
+frame, plus instances outside the view within 250 m whose shadows can reach it: the view frustum's
+planes are swept 250 m towards the sun, and instances inside the swept planes draw into the shadow
+layers only. off-screen casters smaller than 16 px (as if on screen) are skipped, and terrain
+outside the view doesn't cast. shadow-only renderers draw into the shadow layers only, in view or
+not. they cull back faces like any material, which is enough for Dijiang's roof; `_ShadowCullMode`
+isn't read. which layers each caster draws into and when the layers redraw is in [frame](frame.md).
 
 - a point uses the first cascade sphere containing it, dithered with the next one over the outer
   tenth of the sphere's radius.

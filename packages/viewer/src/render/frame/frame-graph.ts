@@ -1,0 +1,363 @@
+/**
+ * the passes of a frame, in order, from the irradiance update to the swapchain. which passes run and what
+ * they bind is in docs/viewer/frame.md.
+ *
+ * @module
+ */
+
+import type { Camera } from '../../scene/camera.ts';
+import type { InstanceRenderer } from '../instances/instance-renderer.ts';
+import type { IrradianceVolume } from '../lighting/irradiance-volume.ts';
+import type { MeshRenderer } from '../meshes/mesh-renderer.ts';
+import type { PostProcess } from '../post/post-process.ts';
+import { type PostSettings, effectiveSettings } from '../post/settings.ts';
+import { SHADOW_LAYERS, type ShadowMap } from '../shadows/shadow-map.ts';
+import type { VolumetricFog } from '../sky/volumetric-fog.ts';
+import type { TerrainRenderer } from '../terrain/terrain-renderer.ts';
+import type { WaterRenderer } from '../water/water-renderer.ts';
+
+import type { DebugView } from './debug-views.ts';
+import type { RenderTargets } from './render-targets.ts';
+
+/** a frame group and its uniforms' dynamic offset */
+export interface FrameGroup {
+	group: GPUBindGroup;
+	offset: number;
+}
+
+/** what a frame draws, from the options in effect: debug views turn the lit-only passes off */
+export interface FrameSettings {
+	/** a package is loaded */
+	scene: boolean;
+	/** the lit image, not a debug view */
+	lit: boolean;
+	/** the shadow layers are drawn and sampled */
+	shadows: boolean;
+	/** surfaces and the fog are lit by the package's local lights */
+	localLights: boolean;
+	/** the volumetric fog is computed */
+	volumetricFog: boolean;
+	terrain: boolean;
+	wireframe: boolean;
+	/** the post chain's settings, as {@link effectiveSettings} leaves them */
+	post: PostSettings;
+}
+
+/**
+ * @param options the viewer's options
+ * @param scene whether a package is loaded
+ * @param post the post chain's settings asked for
+ * @returns what the frame draws
+ */
+export const frameSettings = (
+	options: {
+		debugView: DebugView;
+		shadows: boolean;
+		localLights: boolean;
+		heightFog: boolean;
+		terrain: boolean;
+		wireframe: boolean;
+	},
+	scene: boolean,
+	post: PostSettings,
+): FrameSettings => {
+	const lit = options.debugView === 'lit';
+	return {
+		scene,
+		lit,
+		shadows: scene && lit && options.shadows,
+		localLights: scene && lit && options.localLights,
+		volumetricFog: scene && lit && options.heightFog,
+		terrain: options.terrain,
+		wireframe: options.wireframe,
+		post: effectiveSettings(post),
+	};
+};
+
+/** one frame's view, groups and settings, shared by every pass */
+export interface FrameContext {
+	/** the unjittered camera */
+	camera: Camera;
+	/** the render size, px */
+	width: number;
+	height: number;
+	/** the output (canvas) size, px */
+	outputWidth: number;
+	outputHeight: number;
+	/** the main pass's frame group */
+	frame: FrameGroup;
+	/** the shadow passes' frame group, and each shadow layer's uniforms offset (none when shadows are off) */
+	shadowFrame: { group: GPUBindGroup; offsets: readonly number[] };
+	/** the frame counter, which the fog's noise steps by */
+	index: number;
+	/** the animation clock, s */
+	time: number;
+	settings: FrameSettings;
+	/** whether pipelines are still compiling, which would leave shadow casters out */
+	compiling: boolean;
+}
+
+/** the systems whose passes a frame encodes */
+export interface FrameSystems {
+	targets: RenderTargets;
+	irradiance: IrradianceVolume;
+	shadowMap: ShadowMap;
+	shadowLayers: ShadowLayerCache;
+	terrain: TerrainRenderer;
+	instances: InstanceRenderer;
+	meshes: MeshRenderer;
+	fog: VolumetricFog;
+	water: WaterRenderer;
+	post: PostProcess;
+}
+
+/** a contribution to the main pass, returning its draws */
+type MainPassStep = (pass: GPURenderPassEncoder, systems: FrameSystems, context: FrameContext) => number;
+
+/**
+ * what the main pass draws, in order: the meshes' depth first, so the terrain and the meshes shade only what
+ * stays visible
+ */
+const MAIN_PASS: readonly MainPassStep[] = [
+	(pass, { meshes }) => meshes.encodePass('prepass', pass),
+	(pass, { terrain }) => terrain.encode(pass),
+	(pass, { meshes }) => meshes.encodePass('main', pass),
+	(pass, { instances }) => instances.encode(pass),
+	(pass, { instances }) => instances.encodeOutlines(pass),
+	(pass, { terrain }, { settings }) => (settings.wireframe ? terrain.encodeWireframe(pass) : 0),
+];
+
+/**
+ * whether the shadow layers need drawing. they hold what they drew last until the casters or a layer's fit
+ * change, so frames that only settle the antialiasing or drift the fog redraw nothing there
+ */
+export class ShadowLayerCache {
+	/** the casters changed, or the layers weren't drawn last frame */
+	#stale = true;
+	/** each layer's render matrix when it was last drawn */
+	readonly #fits = new Float32Array(16 * SHADOW_LAYERS);
+
+	/** marks the casters changed: a new selection was prepared */
+	invalidate(): void {
+		this.#stale = true;
+	}
+
+	/**
+	 * @param layers the layers as fitted this frame
+	 * @param frame whether shadows draw, whether an animated caster moved, and whether pipelines are compiling
+	 * @returns whether to draw the layers this frame
+	 */
+	update(
+		layers: ShadowMap['layers'],
+		frame: { shadows: boolean; skinned: boolean; compiling: boolean },
+	): boolean {
+		if (frame.shadows) {
+			const fits = this.#fits;
+			layers.forEach((layer, i) => {
+				if (layer.render.some((value, k) => value !== fits[i * 16 + k])) {
+					fits.set(layer.render, i * 16);
+					this.#stale = true;
+				}
+			});
+		}
+		// an animated caster moves whenever the clock does
+		const draw = this.#stale || frame.skinned;
+		// pipelines still compiling would leave casters out
+		this.#stale = !frame.shadows || frame.compiling;
+		return draw;
+	}
+}
+
+/**
+ * begins a render pass and binds group 0
+ *
+ * @param encoder this frame's encoder
+ * @param descriptor the pass
+ * @param frame the frame group to bind, or `null` for none
+ * @returns the pass
+ */
+const beginPass = (
+	encoder: GPUCommandEncoder,
+	descriptor: GPURenderPassDescriptor,
+	frame: FrameGroup | null,
+): GPURenderPassEncoder => {
+	const pass = encoder.beginRenderPass(descriptor);
+	if (frame !== null) {
+		pass.setBindGroup(0, frame.group, [frame.offset]);
+	}
+	return pass;
+};
+
+/**
+ * encodes one frame's passes, from the irradiance update to the swapchain
+ *
+ * @param encoder this frame's encoder; the frame uniforms are already written
+ * @param context the frame's view, groups and settings
+ * @param systems the systems whose passes run
+ * @returns the draws encoded
+ */
+export const encodeFrame = (
+	encoder: GPUCommandEncoder,
+	context: FrameContext,
+	systems: FrameSystems,
+): number => {
+	const { targets, meshes, post, water } = systems;
+	const { camera, width, height, outputWidth, outputHeight, settings } = context;
+	const sceneFrame = settings.scene ? context.frame : null;
+	let draws = 0;
+
+	systems.irradiance.encode(encoder);
+	const skinned = settings.scene && meshes.animate(encoder, context.time);
+	const drawShadows = systems.shadowLayers.update(systems.shadowMap.layers, {
+		shadows: settings.shadows,
+		skinned,
+		compiling: context.compiling,
+	});
+	if (drawShadows) {
+		context.shadowFrame.offsets.forEach((offset, i) => {
+			const pass = beginPass(
+				encoder,
+				{
+					label: `shadow layer ${i}`,
+					colorAttachments: [],
+					depthStencilAttachment: {
+						view: systems.shadowMap.views[i],
+						depthClearValue: 1,
+						depthLoadOp: 'clear',
+						depthStoreOp: 'store',
+					},
+				},
+				{ group: context.shadowFrame.group, offset },
+			);
+			if (settings.terrain) {
+				draws += systems.terrain.encodeShadow(pass);
+			}
+			draws += meshes.encodeShadow(pass, i);
+			pass.end();
+		});
+	}
+
+	// after the shadow layers, which it reads
+	const froxels =
+		settings.volumetricFog &&
+		systems.fog.encode(encoder, {
+			frameGroup: context.frame.group,
+			frameOffset: context.frame.offset,
+			camera,
+			aspect: width / height,
+			frame: context.index,
+		});
+
+	{
+		const { colors, depth } = targets.mainPassAttachments();
+		const pass = beginPass(
+			encoder,
+			{ label: 'main', colorAttachments: colors, depthStencilAttachment: depth },
+			sceneFrame,
+		);
+		if (settings.scene) {
+			for (const step of MAIN_PASS) {
+				draws += step(pass, systems, context);
+			}
+		}
+		pass.end();
+	}
+	const scene = targets.scene;
+	if (sceneFrame !== null) {
+		const pass = beginPass(
+			encoder,
+			{
+				label: 'decal relight',
+				colorAttachments: [{ view: scene.radiance, loadOp: 'load', storeOp: 'store' }],
+			},
+			sceneFrame,
+		);
+		draws += meshes.encodeEffectPass('relight', pass, scene);
+		pass.end();
+	}
+	// always run, so the composite reads cleared targets when nothing is transparent
+	{
+		const { colors, depth } = targets.transparentPassAttachments();
+		const pass = beginPass(
+			encoder,
+			{ label: 'transparent', colorAttachments: colors, depthStencilAttachment: depth },
+			sceneFrame,
+		);
+		if (sceneFrame !== null) {
+			draws += meshes.encodeEffectPass('transparent', pass, scene);
+		}
+		pass.end();
+	}
+
+	const composited = post.encodeComposite(encoder, {
+		scene,
+		camera,
+		width,
+		height,
+		outputWidth,
+		outputHeight,
+		settings: settings.post,
+		time: context.time,
+		frame: context.index,
+		froxels,
+		water,
+		frameGroup: context.frame,
+	});
+	// the water and effects that refract read a copy of the composited scene
+	if (composited.water !== null) {
+		post.copyComposite(encoder, scene);
+		const foam = sceneFrame !== null && meshes.has('waterFoam');
+		if (foam) {
+			// the foam boxes project onto the water's own depth
+			const pass = beginPass(
+				encoder,
+				{
+					label: 'water foam',
+					colorAttachments: [
+						{
+							view: water.foamTarget(composited.water),
+							clearValue: [0, 0, 0, 1],
+							loadOp: 'clear',
+							storeOp: 'store',
+						},
+					],
+					depthStencilAttachment: targets.readOnlyDepthAttachment(),
+				},
+				sceneFrame,
+			);
+			draws += meshes.encodeEffectPass('waterFoam', pass, { ...scene, depth: scene.waterDepth });
+			pass.end();
+		}
+		water.encode(encoder, composited.target, { ...composited.water, foam });
+	}
+	if (sceneFrame !== null) {
+		// effects over the composited scene
+		const over = (label: string): GPURenderPassDescriptor => ({
+			label,
+			colorAttachments: [{ view: composited.target, loadOp: 'load', storeOp: 'store' }],
+			depthStencilAttachment: targets.readOnlyDepthAttachment(),
+		});
+		if (meshes.has('multiply')) {
+			const pass = beginPass(encoder, over('effect multiply'), sceneFrame);
+			draws += meshes.encodeEffectPass('multiply', pass, scene);
+			pass.end();
+		}
+		if (meshes.has('refract')) {
+			// refraction samples the scene as the multiplies left it
+			post.copyComposite(encoder, scene);
+			const pass = beginPass(encoder, over('effect refract'), sceneFrame);
+			draws += meshes.encodeEffectPass('refract', pass, { ...scene, background: scene.radiance });
+			pass.end();
+		}
+	}
+	post.encodeAfterScene(encoder, {
+		swapchain: targets.swapchainView(),
+		camera,
+		width,
+		height,
+		outputWidth,
+		outputHeight,
+		settings: settings.post,
+	});
+	return draws;
+};

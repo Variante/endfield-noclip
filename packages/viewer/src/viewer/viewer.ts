@@ -16,6 +16,13 @@ import { openViewerPackage } from '../package/viewer-package.ts';
 import { type BindLayouts, createBindLayouts } from '../render/frame/bind-layouts.ts';
 import { FrameBindings } from '../render/frame/frame-bindings.ts';
 import {
+	type FrameSettings,
+	type FrameSystems,
+	ShadowLayerCache,
+	encodeFrame,
+	frameSettings,
+} from '../render/frame/frame-graph.ts';
+import {
 	FRAME_UNIFORM_BYTES,
 	FrameOffsets,
 	writeFrameUniforms,
@@ -136,10 +143,10 @@ export class Viewer {
 	#spinsShown = false;
 	/** the clock each resident block's spinning rows were last turned to */
 	#spinTimes = new WeakMap<ResidentInstances, number>();
-	/** whether the shadow layers need drawing: the casters changed, or they weren't drawn last frame */
-	#shadowsStale = true;
-	/** each shadow layer's render matrix when it was last drawn */
-	#shadowFits = new Float32Array(16 * SHADOW_LAYERS);
+	/** each shadow layer's uniforms offset this frame */
+	readonly #cascadeOffsets: number[] = [];
+	/** the systems whose passes a frame encodes */
+	readonly #frameSystems: FrameSystems;
 	/**
 	 * the animation time everything that moves by the clock reads, s. it advances only on rendered frames while
 	 * `animate` is on, so animation pauses when the view idles and resumes where it stopped
@@ -202,6 +209,18 @@ export class Viewer {
 			this.#fog,
 			this.#shadows,
 		];
+		this.#frameSystems = {
+			targets: this.#targets,
+			irradiance: this.#irradiance,
+			shadowMap: this.#shadows,
+			shadowLayers: new ShadowLayerCache(),
+			terrain: this.#terrain,
+			instances: this.#instances,
+			meshes: this.#meshes,
+			fog: this.#fog,
+			water: this.#water,
+			post: this.#post,
+		};
 		this.#groupsConsumers = [this.#water, this.#lights, this.#irradiance];
 		this.#sceneState = new SceneState(this.#waterLevels, this.options);
 		this.#sceneState.setPackage(null, this.#groupsConsumers);
@@ -674,8 +693,8 @@ export class Viewer {
 		}
 		// keep rendering while the exposure adapts. it meters only while the view changes or settles: water and
 		// particles change what it meters every frame, so a meter that kept running would never let it settle
-		const post = this.#postSettings();
-		const adapting = this.#post.adaptExposure(post, dt, { metering: changed || settling });
+		const settings = frameSettings(options, scene !== null, this.#postSettings());
+		const adapting = this.#post.adaptExposure(settings.post, dt, { metering: changed || settling });
 		const render = changed || settling || adapting;
 		if (render && options.animate) {
 			this.#time += dt;
@@ -687,12 +706,21 @@ export class Viewer {
 		const traverse =
 			scene !== null &&
 			((render && (changed || this.#particlesShown || this.#spinsShown)) || !scene.stream.idle);
+		if (settings.shadows && (traverse || render)) {
+			// once a frame, for both the mesh selection, which groups instances by the layers they reach, and the
+			// shadow passes
+			this.#shadows.fit(
+				this.camera,
+				this.#targets.width / this.#targets.height,
+				this.#environment.look.environment.sunDirection,
+			);
+		}
 		if (scene !== null && traverse) {
 			this.#frame++;
-			this.#traverseAndPrepare(scene, { prepare: render });
+			this.#traverseAndPrepare(scene, settings, { prepare: render });
 		}
 		if (render) {
-			this.#lastDraws = this.#render(scene !== null, post);
+			this.#lastDraws = this.#render(settings);
 			this.#times.rendered(dt);
 		}
 		if (render || traverse) {
@@ -739,7 +767,7 @@ export class Viewer {
 	}
 
 	/** selects and streams this frame's content, and when `prepare` is set, writes it for the renderers */
-	#traverseAndPrepare(scene: LoadedScene, { prepare }: { prepare: boolean }): void {
+	#traverseAndPrepare(scene: LoadedScene, settings: FrameSettings, { prepare }: { prepare: boolean }): void {
 		const options = this.options;
 		const stream = scene.stream;
 		stream.beginFrame(this.#frame);
@@ -747,7 +775,7 @@ export class Viewer {
 		// screen-space sizes are measured in output pixels, so the render scale trades shading only, not detail
 		const aspect = this.#targets.outputWidth / this.#targets.outputHeight;
 		const planes = this.camera.frustumPlanes(aspect, this.#planes);
-		const shadows = options.shadows && options.debugView === 'lit';
+		const { shadows } = settings;
 		const { environment, celestial } = this.#environment.look;
 		const view = {
 			camera: this.camera,
@@ -770,11 +798,6 @@ export class Viewer {
 		this.#times.span('tree');
 		// per-instance LOD selection also requests geometry, so it runs before the stream update
 		let meshSelection: MeshSelection | null = null;
-		if (shadows) {
-			// mesh selection groups instances by the shadow layers they reach; #render fits the same layers again,
-			// which changes nothing while the camera holds still
-			this.#shadows.fit(this.camera, aspect, environment.sunDirection);
-		}
 		if (scene.meshes !== null && options.instances) {
 			meshSelection = scene.meshes.run(selection.instances, {
 				eye: this.camera.position,
@@ -840,30 +863,25 @@ export class Viewer {
 			);
 			this.#meshes.prepare(meshSelection.buckets, spans, scene.textures);
 		}
-		this.#shadowsStale = true;
+		this.#frameSystems.shadowLayers.invalidate();
 		this.#times.span('prepare');
 	}
 
 	/**
-	 * @param hasScene whether a package is loaded
-	 * @param post this frame's post settings
+	 * writes the frame uniforms, encodes the frame's passes and submits them
+	 *
+	 * @param settings what the frame draws
 	 * @returns the draws encoded
 	 */
-	#render(hasScene: boolean, post: PostSettings): number {
+	#render(settings: FrameSettings): number {
 		const device = this.#gfx.device;
 		const ring = this.#ring;
 		ring.beginFrame();
 		const { environment, wetness } = this.#environment.look;
-		const shadows = hasScene && this.options.shadows && this.options.debugView === 'lit';
-		if (shadows) {
-			this.#shadows.fit(this.camera, this.#targets.width / this.#targets.height, environment.sunDirection);
-		}
-		const lit = hasScene && this.options.localLights && this.options.debugView === 'lit';
-		const lights = lit
-			? this.#lights.prepare(this.camera, this.#targets.width, this.#targets.height)
-			: NO_LOCAL_LIGHTS;
-		const uniforms = ring.allocate(FRAME_UNIFORM_BYTES);
+		const { shadows } = settings;
 		const { width, height, outputWidth, outputHeight } = this.#targets;
+		const lights = settings.localLights ? this.#lights.prepare(this.camera, width, height) : NO_LOCAL_LIGHTS;
+		const uniforms = ring.allocate(FRAME_UNIFORM_BYTES);
 		writeFrameUniforms(uniforms.f32, uniforms.u32, {
 			camera: this.camera,
 			jitter: this.#post.nextJitter(width, height, outputHeight),
@@ -875,7 +893,7 @@ export class Viewer {
 			windClock: this.#windClock,
 			environment,
 			wetness,
-			exposure: this.#post.exposure(post),
+			exposure: this.#post.exposure(settings.post),
 			bindings: this.#bindings,
 			terrain: this.scene?.pkg.manifest.terrain,
 			shadowMap: this.#shadows,
@@ -885,7 +903,8 @@ export class Viewer {
 			options: this.options,
 		});
 		// each cascade's frame: the main one with the cascade's view-projection
-		const cascadeOffsets: number[] = [];
+		const cascadeOffsets = this.#cascadeOffsets;
+		cascadeOffsets.length = 0;
 		if (shadows) {
 			for (const layer of this.#shadows.layers) {
 				const block = ring.allocate(FRAME_UNIFORM_BYTES);
@@ -898,157 +917,23 @@ export class Viewer {
 		this.#times.span('uniforms');
 
 		const encoder = this.#profiler.instrument(device.createCommandEncoder({ label: 'frame' }));
-		this.#irradiance.encode(encoder);
-		const skinned = hasScene && this.#meshes.animate(encoder, this.#time);
-		let draws = 0;
-		// the layers hold what they drew last until the casters or a layer's fit change; frames that only settle
-		// the antialiasing or drift the fog redraw nothing there
-		if (shadows) {
-			const fits = this.#shadowFits;
-			this.#shadows.layers.forEach((layer, i) => {
-				if (layer.render.some((value, k) => value !== fits[i * 16 + k])) {
-					fits.set(layer.render, i * 16);
-					this.#shadowsStale = true;
-				}
-			});
-		}
-		// an animated caster moves whenever the clock does
-		const drawShadows = this.#shadowsStale || skinned;
-		// pipelines still compiling would leave casters out
-		this.#shadowsStale = !shadows || this.#pipelines.compiling > 0;
-		(drawShadows ? cascadeOffsets : []).forEach((offset, i) => {
-			const pass = encoder.beginRenderPass({
-				label: `shadow layer ${i}`,
-				colorAttachments: [],
-				depthStencilAttachment: {
-					view: this.#shadows.views[i],
-					depthClearValue: 1,
-					depthLoadOp: 'clear',
-					depthStoreOp: 'store',
-				},
-			});
-			pass.setBindGroup(0, this.#bindings.shadow, [offset]);
-			if (this.options.terrain) {
-				draws += this.#terrain.encodeShadow(pass);
-			}
-			draws += this.#meshes.encodeShadow(pass, i);
-			pass.end();
-		});
-		// after the shadow layers, which it reads
-		const froxels =
-			hasScene &&
-			this.options.heightFog &&
-			this.options.debugView === 'lit' &&
-			this.#fog.encode(encoder, {
-				frameGroup: this.#bindings.main,
-				frameOffset: uniforms.offset,
+		const draws = encodeFrame(
+			encoder,
+			{
 				camera: this.camera,
-				aspect: this.#targets.width / this.#targets.height,
-				frame: this.#frame,
-			});
-		const { colors, depth } = this.#targets.mainPassAttachments();
-		const pass = encoder.beginRenderPass({
-			label: 'main',
-			colorAttachments: colors,
-			depthStencilAttachment: depth,
-		});
-		if (hasScene) {
-			pass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
-			// the meshes' depth first, so the terrain and the meshes shade only what stays visible
-			draws += this.#meshes.encodePass('prepass', pass);
-			draws += this.#terrain.encode(pass);
-			draws += this.#meshes.encodePass('main', pass);
-			draws += this.#instances.encode(pass);
-			draws += this.#instances.encodeOutlines(pass);
-			if (this.options.wireframe) {
-				draws += this.#terrain.encodeWireframe(pass);
-			}
-		}
-		pass.end();
-		if (hasScene) {
-			const relight = encoder.beginRenderPass({
-				label: 'decal relight',
-				colorAttachments: [{ view: this.#targets.scene.radiance, loadOp: 'load', storeOp: 'store' }],
-			});
-			relight.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
-			draws += this.#meshes.encodeEffectPass('relight', relight, this.#targets.scene);
-			relight.end();
-		}
-		// always run, so the composite reads cleared targets when nothing is transparent
-		{
-			const attachments = this.#targets.transparentPassAttachments();
-			const transparent = encoder.beginRenderPass({
-				label: 'transparent',
-				colorAttachments: attachments.colors,
-				depthStencilAttachment: attachments.depth,
-			});
-			if (hasScene) {
-				transparent.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
-				draws += this.#meshes.encodeEffectPass('transparent', transparent, this.#targets.scene);
-			}
-			transparent.end();
-		}
-		this.#post.encode(encoder, {
-			scene: this.#targets.scene,
-			swapchain: this.#targets.swapchainView(),
-			camera: this.camera,
-			width: this.#targets.width,
-			height: this.#targets.height,
-			outputWidth: this.#targets.outputWidth,
-			outputHeight: this.#targets.outputHeight,
-			settings: post,
-			time: this.#time,
-			frame: this.#frame,
-			froxels,
-			water: this.#water,
-			waterFoam:
-				hasScene && this.#meshes.has('waterFoam')
-					? (foamEncoder, { waterDepth, target }) => {
-							const foamPass = foamEncoder.beginRenderPass({
-								label: 'water foam',
-								colorAttachments: [
-									{ view: target, clearValue: [0, 0, 0, 1], loadOp: 'clear', storeOp: 'store' },
-								],
-								depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
-							});
-							foamPass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
-							draws += this.#meshes.encodeEffectPass('waterFoam', foamPass, {
-								...this.#targets.scene,
-								depth: waterDepth,
-							});
-							foamPass.end();
-						}
-					: null,
-			screenEffects: (screenEncoder, target, copy) => {
-				if (!hasScene) {
-					return;
-				}
-				const scene = this.#targets.scene;
-				const meshes = this.#meshes;
-				const begin = (label: string): GPURenderPassEncoder => {
-					const screenPass = screenEncoder.beginRenderPass({
-						label,
-						colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
-						depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
-					});
-					screenPass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
-					return screenPass;
-				};
-				if (meshes.has('multiply')) {
-					const multiply = begin('effect multiply');
-					draws += meshes.encodeEffectPass('multiply', multiply, scene);
-					multiply.end();
-				}
-				if (meshes.has('refract')) {
-					// refraction samples the scene as the multiplies left it
-					copy();
-					const refract = begin('effect refract');
-					draws += meshes.encodeEffectPass('refract', refract, { ...scene, background: scene.radiance });
-					refract.end();
-				}
+				width,
+				height,
+				outputWidth,
+				outputHeight,
+				frame: { group: this.#bindings.main, offset: uniforms.offset },
+				shadowFrame: { group: this.#bindings.shadow, offsets: cascadeOffsets },
+				index: this.#frame,
+				time: this.#time,
+				settings,
+				compiling: this.#pipelines.compiling > 0,
 			},
-			frameGroup: { group: this.#bindings.main, offset: uniforms.offset },
-		});
+			this.#frameSystems,
+		);
 		this.#profiler.resolve(encoder);
 		this.#times.span('encode');
 		device.queue.submit([encoder.finish()]);

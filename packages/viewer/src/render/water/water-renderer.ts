@@ -70,13 +70,8 @@ export interface WaterContext {
 	/** the main pass's size, px */
 	width: number;
 	height: number;
-	/**
-	 * draws the WaterDecal boxes into `target` (cleared to (0, 0, 0, 1) by the callee) over the water surface's
-	 * depth, or `null` when there are none this frame
-	 */
-	foam:
-		| ((encoder: GPUCommandEncoder, input: { waterDepth: GPUTextureView; target: GPUTextureView }) => void)
-		| null;
+	/** whether {@link WaterRenderer.foamTarget} holds this frame's WaterDecal boxes */
+	foam: boolean;
 }
 
 /**
@@ -445,8 +440,20 @@ export class WaterRenderer {
 	}
 
 	/**
-	 * draws this frame's surfaces into the scene, after {@link encodeDepth}, and lays the transparent layers the
-	 * composite kept back over them.
+	 * the target the WaterDecal boxes draw into, projected onto the water surface's depth
+	 * (`SceneTextures.waterDepth`); whoever draws them clears it to (0, 0, 0, 1) first and sets
+	 * {@link WaterContext.foam} for {@link encode}
+	 *
+	 * @param context what the pass reads
+	 * @returns the foam target, at the main pass's size
+	 */
+	foamTarget(context: WaterContext): GPUTextureView {
+		return this.#ensureFoamTargets(context).foamView;
+	}
+
+	/**
+	 * draws this frame's surfaces into the scene, after {@link encodeDepth} and any foam, and lays the
+	 * transparent layers the composite kept back over them.
 	 *
 	 * @param encoder this frame's encoder
 	 * @param target the composited HDR scene, drawn over
@@ -457,12 +464,7 @@ export class WaterRenderer {
 		if (pipeline === undefined || !this.active) {
 			return;
 		}
-		// the foam boxes project onto the water's own depth
-		const foamed = context.foam !== null;
-		if (context.foam !== null) {
-			const targets = this.#ensureFoamTargets(context);
-			context.foam(encoder, { waterDepth: context.scene.waterDepth, target: targets.foamView });
-		}
+		const foamed = context.foam;
 		if (this.#paramData[6] !== (foamed ? 1 : 0)) {
 			this.#paramData[6] = foamed ? 1 : 0;
 			this.#device.queue.writeBuffer(this.#params, 0, this.#paramData);
