@@ -98,8 +98,9 @@ import { RENDER_PIPELINE_QUAD_PATH } from '../game/builtin-resources.ts';
 import { cabinDoors, loadCabins } from '../game/cabins.ts';
 import { loadDynamicStructures } from '../game/dynamic-structures.ts';
 import type { SceneEnvironmentVolume } from '../game/environment.ts';
-import { allOf, GameState } from '../game/game-state.ts';
+import { allOf, GameState, type MapVariables } from '../game/game-state.ts';
 import { loadInteractiveFacilities } from '../game/interactive-facilities.ts';
+import { loadInteractiveVariables, nameInteractiveVariable } from '../game/interactive-variables.ts';
 import { Locator } from '../game/map-labels.ts';
 import { axisLengths, withAxisLengths } from '../game/particle-mesh.ts';
 import { loadPlacedVolumes } from '../game/prefab-environment.ts';
@@ -527,7 +528,13 @@ export const packScene = async (context: Context, options: PackOptions): Promise
 			timer.end('assets');
 		}
 
-		const states = await sceneStates(context.world, scene, entities.collected, environments.levels);
+		const states = await sceneStates(
+			context.world,
+			scene,
+			entities.collected,
+			environments.levels,
+			entities.placements,
+		);
 		timer.end('states');
 
 		const [environmentTextureIds, waterTextureIds] = assetTables.extraTextureIds;
@@ -686,6 +693,8 @@ interface SceneIndex {
 	sceneStates: SceneStateDefinition[];
 	/** the quests, missions and variables the scene's conditions read */
 	game: GameState;
+	/** how the scene's MapConfig names its map's variables, or `null` without a MapConfig */
+	variables: MapVariables | null;
 	pathOf: (hash: bigint) => string | undefined;
 	source: PackageManifest['source'];
 }
@@ -781,6 +790,7 @@ const indexScene = async (
 		files,
 		sceneStates,
 		game,
+		variables,
 		pathOf,
 		source: { buildGuid: bundleManifest.guid, contentHash: bundleManifest.contentHash },
 	};
@@ -814,6 +824,8 @@ const collectEntities = async (
 	scriptWater: { levels: ScriptWaterLevel[]; computed: number };
 	/** by {@link waterActionTarget}, what runs each script action setting a water fill */
 	waterDrivers: ReadonlyMap<string, ControlDriver[]>;
+	/** every placed interactive's template and position, by logic id */
+	placements: ReadonlyMap<string, { template: string; position: Vec3 }>;
 }> => {
 	const { scene } = pack;
 	const { world } = context;
@@ -1687,6 +1699,7 @@ const collectEntities = async (
 		waterVolumes: { volumes: waterVolumes.volumes, floaterRows, unsupported: waterVolumes.unsupported },
 		scriptWater,
 		waterDrivers,
+		placements: facilities.placements,
 	};
 };
 
@@ -2145,6 +2158,8 @@ const sceneStates = async (
 	collected: Collector,
 	/** per partition level: its base environment */
 	environments: readonly (LevelEnvironment | null)[],
+	/** every placed interactive's template and position, by logic id */
+	placements: ReadonlyMap<string, { template: string; position: Vec3 }>,
 ): Promise<SceneStateInfo> => {
 	const { partition } = scene;
 	const progressions = await progressionControls(world, scene);
@@ -2166,6 +2181,15 @@ const sceneStates = async (
 		);
 	const { states } = collected;
 	states.add(...scene.game.controls(), ...progressions, ...areas);
+	if (scene.variables !== null) {
+		// a map variable holding an interactive's saved property is named and placed after the interactive
+		for (const [id, variable] of await loadInteractiveVariables(world, scene.variables)) {
+			const control = states.get(id);
+			if (control !== undefined) {
+				nameInteractiveVariable(control, variable, placements.get(variable.interactive));
+			}
+		}
+	}
 	const locator = await Locator.load(world, partition);
 	const { controls, categories } = states.finish({
 		groupBounds: collected.groupBounds(),

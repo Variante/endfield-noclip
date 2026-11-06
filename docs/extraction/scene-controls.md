@@ -122,6 +122,13 @@ gate on the same variable share one control. a map variable the MapConfig doesn'
 none) keeps the key its source gives it. global variables have no name table, so MapConfig's named
 ones and gates' numbered ones stay apart.
 
+a map variable that is an interactive's saved property
+([variables](../game-data/scene-states.md#variables)) is named after that interactive and placed at
+it ([interactive-variables.ts](../../packages/extractor/src/game/interactive-variables.ts)): what
+its template is ("Sludge core", "Outfall", "Wuling bridge", from a short list by template id, else
+the template id), plus the property when it isn't `state`. its assumption says which interactive and
+property it is and the value a fresh world starts at; its default stays as for other variables.
+
 a blight's variable ([blight and its cores](../game-data/scene-states.md#dynamic-load-gates)),
 map01's erosion and map02's sludge alike, gets a control described for it instead, from
 [dynamic-structures.ts](../../packages/extractor/src/game/dynamic-structures.ts): still

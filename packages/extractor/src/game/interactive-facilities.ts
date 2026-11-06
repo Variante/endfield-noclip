@@ -24,6 +24,7 @@ import {
 } from '@endfield-noclip/formats/unity/transform';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
 import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -866,6 +867,8 @@ export const loadInteractiveFacilities = async (
 	bridges: SceneControl[];
 	unsupported: { path: string; reason: string }[];
 	standIns: InteractiveStandIn[];
+	/** every placed row's template and position, by logic id */
+	placements: Map<string, { template: string; position: Vec3 }>;
 }> => {
 	const { vfs, world } = context;
 	const reader = await context.memoryPack();
@@ -2064,5 +2067,8 @@ export const loadInteractiveFacilities = async (
 		bridges,
 		unsupported,
 		standIns,
+		placements: new Map(
+			placed.map(({ row }) => [row.id.toString(), { template: row.template, position: row.position }]),
+		),
 	};
 };
