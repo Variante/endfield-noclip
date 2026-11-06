@@ -1496,12 +1496,17 @@ export class Viewer {
 				continue;
 			}
 			this.#spinTimes.set(resident, this.#time);
-			const [first, end] = turnRows(resident.rowsF32, resident.spins, this.#time);
-			this.#instances.writeRows(
-				resident.alloc.start + first,
-				new Uint32Array(resident.rowsF32.buffer, first * ROW_BYTES, (end - first) * ROW_WORDS),
-				end - first,
-			);
+			turnRows(resident.rowsF32, resident.spins, this.#time);
+			const runs = resident.spins.runs;
+			for (let r = 0; r < runs.length; r += 2) {
+				const first = runs[r];
+				const count = runs[r + 1] - first;
+				this.#instances.writeRows(
+					resident.alloc.start + first,
+					new Uint32Array(resident.rowsF32.buffer, first * ROW_BYTES, count * ROW_WORDS),
+					count,
+				);
+			}
 		}
 		return shown;
 	}

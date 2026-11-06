@@ -65,10 +65,10 @@ neither loads.
 before it runs, the selected blocks' [spinning rows](../package-format.md#instance-block-inst-efin)
 are turned to the viewer's clock (`turnRows` in
 [instance-rows.ts](../../packages/viewer/src/content/instance-rows.ts)): their transform and bounds
-centre are rewritten from the stored ones in the CPU copy, and the block's span of rows from the
-first spinning row to the last is written to the GPU again. while any selected block has spinning
-rows, frames that render traverse again, as with particles, so the shadows follow. every wheel
-starts from its stored pose at the clock's zero; the game's phase is its gameplay clock's.
+centre are rewritten from the stored ones in the CPU copy, and the runs of rows holding them (runs
+bridge gaps of up to 8 still rows) are written to the GPU again. while any selected block has
+spinning rows, frames that render traverse again, as with particles, so the shadows follow. every
+wheel starts from its stored pose at the clock's zero; the game's phase is its gameplay clock's.
 
 [`streaming/mesh-selection.ts`](../../packages/viewer/src/streaming/mesh-selection.ts) runs on the
 CPU over the selected row ranges, with the sphere and shadow layer tests of

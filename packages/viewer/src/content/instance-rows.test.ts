@@ -71,7 +71,8 @@ it('turns spinning rows about their pivot as Unity turns, from their stored tran
 	const row = (): number[] =>
 		Array.from(f32.subarray(ROW_WORDS, ROW_WORDS + 15), (v) => Math.round(v * 1e5) / 1e5 + 0);
 	// Quaternion.Euler(0, 0, 90) * Vector3.right is Vector3.up
-	assert.deepEqual(turnRows(f32, built.spins!, 1), [1, 2]);
+	assert.deepEqual([...built.spins!.runs], [1, 2]);
+	turnRows(f32, built.spins!, 1);
 	assert.deepEqual(row(), [0, -1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0]);
 	// half extents stay, and turning again starts from the stored transform
 	assert.deepEqual(Array.from(f32.subarray(ROW_WORDS + 16, ROW_WORDS + 19)), [0.5, 0.5, 0.5]);
@@ -82,4 +83,14 @@ it('turns spinning rows about their pivot as Unity turns, from their stored tran
 		Array.from(f32.subarray(0, 12)),
 		Array.from({ length: 12 }, () => 0),
 	);
+});
+
+it('rewrites spinning rows in runs that bridge short gaps of rows holding still', () => {
+	const spinning = block(Array.from({ length: 40 }, () => 0));
+	const rows = [2, 3, 5, 30];
+	spinning.spins = {
+		rows: Uint32Array.from(rows),
+		values: new Float32Array(rows.length * 7),
+	};
+	assert.deepEqual([...buildInstanceRows(spinning, RowKind.Detail).spins!.runs], [2, 6, 30, 31]);
 });

@@ -164,7 +164,29 @@ export interface RowSpins {
 	values: Float32Array<ArrayBuffer>;
 	/** {@link SPIN_BASE_FLOATS} per row: what the rows hold at time 0 */
 	base: Float32Array<ArrayBuffer>;
+	/**
+	 * (first, end) pairs of row ranges that hold every spinning row, across gaps of up to {@link SPIN_RUN_GAP}
+	 * rows: what's rewritten after {@link turnRows}
+	 */
+	runs: Uint32Array<ArrayBuffer>;
 }
+
+/** rows that hold still between two spinning rows rewritten together rather than in two writes */
+const SPIN_RUN_GAP = 8;
+
+/** @returns {@link RowSpins.runs} of ascending spinning rows */
+const spinRuns = (rows: Uint32Array): Uint32Array<ArrayBuffer> => {
+	const runs: number[] = [];
+	for (const row of rows) {
+		const last = runs.length - 1;
+		if (last > 0 && row - runs[last] <= SPIN_RUN_GAP) {
+			runs[last] = row + 1;
+		} else {
+			runs.push(row, row + 1);
+		}
+	}
+	return new Uint32Array(runs);
+};
 
 /** an instance block laid out for the GPU */
 export interface InstanceRows {
@@ -255,7 +277,12 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 			const at = spinRows[s] * ROW_WORDS;
 			base.set(f32.subarray(at, at + SPIN_BASE_FLOATS), s * SPIN_BASE_FLOATS);
 		}
-		spins = { rows: spinRows, values: new Float32Array(block.spins.values), base };
+		spins = {
+			rows: spinRows,
+			values: new Float32Array(block.spins.values),
+			base,
+			runs: spinRuns(spinRows),
+		};
 	}
 	return {
 		count,
@@ -281,6 +308,10 @@ export const assignBlockSlot = (rows: Uint32Array, slot: number): void => {
 	}
 };
 
+/** {@link turnRows}' rotation matrix and pivot, kept so turning allocates nothing */
+const ROTATION = new Float64Array(9);
+const PIVOT = new Float64Array(3);
+
 /**
  * turns a block's spinning rows to where they are at `time`: each row's transform and bounds centre are its
  * stored ones turned `speed · time` radians about its axis through its pivot. the half extents stay the
@@ -289,10 +320,11 @@ export const assignBlockSlot = (rows: Uint32Array, slot: number): void => {
  * @param rows the block's rows, as f32; the spinning rows' transform and centre words are overwritten
  * @param spins the block's spinning rows
  * @param time seconds of the viewer's clock
- * @returns the first row and the end of the rows written
  */
-export const turnRows = (rows: Float32Array, spins: RowSpins, time: number): [first: number, end: number] => {
+export const turnRows = (rows: Float32Array, spins: RowSpins, time: number): void => {
 	const { rows: spinRows, values, base } = spins;
+	const r = ROTATION;
+	const pivot = PIVOT;
 	for (let s = 0; s < spinRows.length; s++) {
 		const v = s * SPIN_FLOATS;
 		const px = values[v];
@@ -306,20 +338,20 @@ export const turnRows = (rows: Float32Array, spins: RowSpins, time: number): [fi
 		const c = Math.cos(angle);
 		const sn = Math.sin(angle);
 		const k = 1 - c;
-		const r = [
-			c + k * ax * ax,
-			k * ax * ay - sn * az,
-			k * ax * az + sn * ay,
-			k * ay * ax + sn * az,
-			c + k * ay * ay,
-			k * ay * az - sn * ax,
-			k * az * ax - sn * ay,
-			k * az * ay + sn * ax,
-			c + k * az * az,
-		];
+		r[0] = c + k * ax * ax;
+		r[1] = k * ax * ay - sn * az;
+		r[2] = k * ax * az + sn * ay;
+		r[3] = k * ay * ax + sn * az;
+		r[4] = c + k * ay * ay;
+		r[5] = k * ay * az - sn * ax;
+		r[6] = k * az * ax - sn * ay;
+		r[7] = k * az * ay + sn * ax;
+		r[8] = c + k * az * az;
+		pivot[0] = px;
+		pivot[1] = py;
+		pivot[2] = pz;
 		const b = s * SPIN_BASE_FLOATS;
 		const at = spinRows[s] * ROW_WORDS;
-		const pivot = [px, py, pz];
 		for (let i = 0; i < 3; i++) {
 			for (let j = 0; j < 3; j++) {
 				rows[at + i * 4 + j] =
@@ -335,5 +367,4 @@ export const turnRows = (rows: Float32Array, spins: RowSpins, time: number): [fi
 			rows[at + 12 + i] = centre;
 		}
 	}
-	return [spinRows[0], spinRows[spinRows.length - 1] + 1];
 };

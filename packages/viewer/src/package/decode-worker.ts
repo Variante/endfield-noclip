@@ -391,7 +391,12 @@ const handle = (request: DecodeRequest): { response: DecodeResponse; transfer: T
 					built.placements.buffer,
 					...(built.spins === null
 						? []
-						: [built.spins.rows.buffer, built.spins.values.buffer, built.spins.base.buffer]),
+						: [
+								built.spins.rows.buffer,
+								built.spins.values.buffer,
+								built.spins.base.buffer,
+								built.spins.runs.buffer,
+							]),
 				],
 			};
 		}
