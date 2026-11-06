@@ -13,6 +13,7 @@ import type { LocalLightFrame } from '../lighting/local-lights.ts';
 import type { ShadowMap } from '../shadows/shadow-map.ts';
 
 import { DEBUG_VIEWS, type DebugView } from './debug-views.ts';
+import type { FrameBindings } from './frame-bindings.ts';
 
 /** byte size of `Frame` */
 export const FRAME_UNIFORM_BYTES = 928;
@@ -80,10 +81,8 @@ export interface FrameUniformInputs {
 	wetness: Float32Array;
 	/** the linear exposure the post chain shows the scene at */
 	exposure: number;
-	/** which of the frame group's optional textures hold a real texture rather than a placeholder */
-	bound: { reflection: boolean; shadowRamp: boolean; cloudShadow: boolean };
-	/** mip levels of the bound reflection cubemap, minus one */
-	reflectionMips: number;
+	/** which of the frame group's streamed textures are bound, and the reflection cubemap's mips */
+	bindings: Pick<FrameBindings, 'has' | 'reflectionMips'>;
 	/** the package's terrain, `null` (or `undefined` without a package) for none */
 	terrain: TerrainInfo | null | undefined;
 	/** the shadow layers as last fitted */
@@ -144,8 +143,8 @@ export const writeFrameUniforms = (f32: Float32Array, u32: Uint32Array, inputs: 
 		// emitters marked `_IgnorePostExposure` divide out the post exposure (the game's adapted exposure)
 		// the post chain applies, which debug views turn off
 		f32[FrameOffsets.ambient + 1] = 1 / inputs.exposure;
-		f32[FrameOffsets.ambient + 2] = inputs.bound.reflection ? 1 : 0;
-		f32[FrameOffsets.ambient + 3] = inputs.reflectionMips;
+		f32[FrameOffsets.ambient + 2] = inputs.bindings.has('reflection') ? 1 : 0;
+		f32[FrameOffsets.ambient + 3] = inputs.bindings.reflectionMips;
 	}
 	{
 		const at = FrameOffsets.viewport;
@@ -185,13 +184,16 @@ export const writeFrameUniforms = (f32: Float32Array, u32: Uint32Array, inputs: 
 		f32[at] = shadow.strength;
 		f32[at + 1] = shadow.override;
 		f32[at + 2] = shadow.attenuation;
-		f32[at + 3] = inputs.bound.shadowRamp ? 1 : 0;
+		f32[at + 3] = inputs.bindings.has('shadowRamp') ? 1 : 0;
 	}
 	{
 		const cloud = environment.cloudShadow;
 		const at = FrameOffsets.cloudShadow;
 		const on =
-			cloud !== null && inputs.bound.cloudShadow && options.cloudShadows && options.debugView === 'lit';
+			cloud !== null &&
+			inputs.bindings.has('cloudShadow') &&
+			options.cloudShadows &&
+			options.debugView === 'lit';
 		f32.fill(0, at, at + 16);
 		if (on) {
 			f32.set(cloud.center, at);

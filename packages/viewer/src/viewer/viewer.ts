@@ -46,6 +46,7 @@ import type { PackageSource } from '../package/package-source.ts';
 import { type ViewerPackage, openViewerPackage } from '../package/viewer-package.ts';
 import { ParticleField } from '../particles/particle-rows.ts';
 import { type BindLayouts, createBindLayouts } from '../render/frame/bind-layouts.ts';
+import { FrameBindings } from '../render/frame/frame-bindings.ts';
 import {
 	FRAME_UNIFORM_BYTES,
 	FrameOffsets,
@@ -59,10 +60,10 @@ import { MeshRenderer } from '../render/meshes/mesh-renderer.ts';
 import { PostProcess } from '../render/post/post-process.ts';
 import type { PostSettings } from '../render/post/settings.ts';
 import { SETTLE_FRAMES } from '../render/post/temporal-aa.ts';
-import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from '../render/shadows/shadow-map.ts';
+import { SHADOW_LAYERS, ShadowMap, offscreenCasters } from '../render/shadows/shadow-map.ts';
 import { VolumetricFog } from '../render/sky/volumetric-fog.ts';
 import { TerrainRenderer } from '../render/terrain/terrain-renderer.ts';
-import { type TextureBinding, TextureStore, placeholderView } from '../render/textures/texture-store.ts';
+import { TextureStore } from '../render/textures/texture-store.ts';
 import { WaterRenderer } from '../render/water/water-renderer.ts';
 import { volumesForLevel } from '../scene-states/listing.ts';
 import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
@@ -127,24 +128,9 @@ export class Viewer {
 	#layouts: BindLayouts;
 	#pipelines: PipelineCache;
 	#ring: UniformRing;
-	#frameBindGroup: GPUBindGroup;
-	#shadowFrameBindGroup: GPUBindGroup;
+	/** group 0 for the main and shadow passes */
+	#bindings: FrameBindings;
 	#shadows: ShadowMap;
-	#shadowPlaceholder: GPUTextureView;
-	/** bound while the level has no reflection cubemap, or it hasn't streamed in */
-	#noReflection: TextureBinding;
-	/** the reflection binding the frame groups were built with */
-	#reflection: TextureBinding;
-	/** mip levels of the bound reflection cubemap, minus one */
-	#reflectionMips = 0;
-	/** black: bound while the environment has no shadow ramp, or it hasn't streamed in */
-	#noShadowRamp: GPUTextureView;
-	/** the shadow ramp view the frame groups were built with */
-	#shadowRamp: GPUTextureView;
-	/** bound while the environment has no cloud shadow, or it hasn't streamed in */
-	#noCloudShadow: GPUTextureView;
-	/** the cloud shadow view the frame groups were built with */
-	#cloudShadow: GPUTextureView;
 	readonly #lights: LocalLights;
 	#profiler: GpuProfiler;
 	#terrain: TerrainRenderer;
@@ -246,25 +232,15 @@ export class Viewer {
 			3,
 		);
 		this.#shadows = new ShadowMap(device);
-		// the shadow passes can't bind the map they render into
-		this.#shadowPlaceholder = placeholderView(device, {
-			label: 'shadow placeholder',
-			dimension: '2d-array',
-			format: SHADOW_FORMAT,
-		});
-		this.#noReflection = {
-			view: placeholderView(device, { label: 'no reflection', dimension: 'cube' }),
-			sampler: device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' }),
-			version: -1,
-		};
-		this.#reflection = this.#noReflection;
-		this.#noShadowRamp = placeholderView(device, { label: 'no shadow ramp', dimension: '2d' });
-		this.#shadowRamp = this.#noShadowRamp;
-		this.#noCloudShadow = placeholderView(device, { label: 'no cloud shadow', dimension: '2d' });
-		this.#cloudShadow = this.#noCloudShadow;
 		this.#irradiance = new IrradianceVolume(device, this.#pipelines);
 		this.#lights = new LocalLights(device);
-		[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
+		this.#bindings = new FrameBindings(device, {
+			layout: this.#layouts.frame,
+			uniforms: this.#ring.buffer,
+			shadows: this.#shadows,
+			irradiance: this.#irradiance,
+			lights: this.#lights,
+		});
 		this.#profiler = new GpuProfiler(device, gfx.features.timestampQuery);
 		const format = this.#targets.format;
 		this.#terrain = new TerrainRenderer(device, this.#layouts, this.#pipelines, format, {
@@ -472,8 +448,8 @@ export class Viewer {
 		this.#meshes.releaseMaterials();
 		// the destroyed store's sky textures
 		this.#post.clearSkyTextures();
-		this.#setReflection(this.#noReflection, 1);
-		this.#setShadowRamp(null);
+		this.#bindings.setReflection(null, 1);
+		this.#bindings.set('shadowRamp', null);
 		this.scene = null;
 		this.#scenePicks = {};
 		this.#sceneValues = {};
@@ -492,39 +468,10 @@ export class Viewer {
 		this.#emitState();
 	}
 
-	/** @returns group 0 for the main pass and for the shadow passes, with the bound sky and shadow textures */
-	#frameGroups(): [main: GPUBindGroup, shadow: GPUBindGroup] {
-		const device = this.#gfx.device;
-		const reflection = this.#reflection;
-		const group = (label: string, shadowView: GPUTextureView): GPUBindGroup =>
-			device.createBindGroup({
-				label,
-				layout: this.#layouts.frame,
-				entries: [
-					{ binding: 0, resource: { buffer: this.#ring.buffer, size: FRAME_UNIFORM_BYTES } },
-					{ binding: 1, resource: shadowView },
-					{ binding: 2, resource: this.#shadows.sampler },
-					{ binding: 3, resource: reflection.view },
-					{ binding: 4, resource: reflection.sampler },
-					{ binding: 5, resource: irradiance.a },
-					{ binding: 6, resource: irradiance.b },
-					{ binding: 7, resource: this.#irradiance.sampler },
-					{ binding: 8, resource: this.#irradiance.clampSampler },
-					{ binding: 9, resource: this.#shadows.gatherSampler },
-					{ binding: 10, resource: this.#shadowRamp },
-					{ binding: 11, resource: { buffer: this.#lights.lightBuffer } },
-					{ binding: 12, resource: { buffer: this.#lights.binBuffer } },
-					{ binding: 13, resource: this.#cloudShadow },
-				],
-			});
-		const irradiance = this.#irradiance.views();
-		return [group('frame', this.#shadows.view), group('shadow frame', this.#shadowPlaceholder)];
-	}
-
 	/** swaps in a package's irradiance volume and rebinds the frame groups */
 	#setIrradiance(table: IrradianceTable, regions: readonly IrradianceRegionInfo[]): void {
 		this.#irradiance.setPackage(table, regions);
-		[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
+		this.#bindings.rebuild();
 	}
 
 	/** streams the level's sky textures (reflection cubemap, cloud panorama) and binds them as they arrive */
@@ -566,7 +513,7 @@ export class Viewer {
 			kind: 'cube',
 			priority: 1e6,
 		});
-		this.#setReflection(reflection?.binding ?? this.#noReflection, reflection?.entry.mipCount ?? 1);
+		this.#bindings.setReflection(reflection?.binding ?? null, reflection?.entry.mipCount ?? 1);
 
 		const ramp = streamWholeTexture({
 			stream,
@@ -575,7 +522,7 @@ export class Viewer {
 			kind: '2d',
 			priority: 1e6,
 		});
-		this.#setShadowRamp(ramp?.binding?.view ?? null);
+		this.#bindings.set('shadowRamp', ramp?.binding?.view ?? null);
 
 		const cloudShadow = streamWholeTexture({
 			stream,
@@ -584,34 +531,7 @@ export class Viewer {
 			kind: '2d',
 			priority: 1e6,
 		});
-		this.#setCloudShadow(cloudShadow?.binding?.view ?? null);
-	}
-
-	/** rebinds the frame groups when the cloud shadow's view changed; `null` binds the placeholder */
-	#setCloudShadow(view: GPUTextureView | null): void {
-		const next = view ?? this.#noCloudShadow;
-		if (next !== this.#cloudShadow) {
-			this.#cloudShadow = next;
-			[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
-		}
-	}
-
-	/** rebinds the frame groups when the shadow ramp's view changed; `null` binds the black placeholder */
-	#setShadowRamp(view: GPUTextureView | null): void {
-		const next = view ?? this.#noShadowRamp;
-		if (next !== this.#shadowRamp) {
-			this.#shadowRamp = next;
-			[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
-		}
-	}
-
-	/** rebinds the frame groups when the reflection's binding changed (the store hands out a new one then) */
-	#setReflection(binding: TextureBinding, mipCount: number): void {
-		if (binding !== this.#reflection) {
-			this.#reflection = binding;
-			this.#reflectionMips = mipCount - 1;
-			[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
-		}
+		this.#bindings.set('cloudShadow', cloudShadow?.binding?.view ?? null);
 	}
 
 	/** lights the scene with the shown level's environment, or the defaults */
@@ -1425,12 +1345,7 @@ export class Viewer {
 			environment: this.#environment,
 			wetness: this.#wetness,
 			exposure: this.#post.exposure(post),
-			bound: {
-				reflection: this.#reflection !== this.#noReflection,
-				shadowRamp: this.#shadowRamp !== this.#noShadowRamp,
-				cloudShadow: this.#cloudShadow !== this.#noCloudShadow,
-			},
-			reflectionMips: this.#reflectionMips,
+			bindings: this.#bindings,
 			terrain: this.scene?.pkg.manifest.terrain,
 			shadowMap: this.#shadows,
 			shadows,
@@ -1481,7 +1396,7 @@ export class Viewer {
 					depthStoreOp: 'store',
 				},
 			});
-			pass.setBindGroup(0, this.#shadowFrameBindGroup, [offset]);
+			pass.setBindGroup(0, this.#bindings.shadow, [offset]);
 			if (this.options.terrain) {
 				draws += this.#terrain.encodeShadow(pass);
 			}
@@ -1494,7 +1409,7 @@ export class Viewer {
 			this.options.heightFog &&
 			this.options.debugView === 'lit' &&
 			this.#fog.encode(encoder, {
-				frameGroup: this.#frameBindGroup,
+				frameGroup: this.#bindings.main,
 				frameOffset: uniforms.offset,
 				camera: this.camera,
 				aspect: this.#targets.width / this.#targets.height,
@@ -1507,7 +1422,7 @@ export class Viewer {
 			depthStencilAttachment: depth,
 		});
 		if (hasScene) {
-			pass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+			pass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
 			// the meshes' depth first, so the terrain and the meshes shade only what stays visible
 			draws += this.#meshes.encodePass('prepass', pass);
 			draws += this.#terrain.encode(pass);
@@ -1524,7 +1439,7 @@ export class Viewer {
 				label: 'decal relight',
 				colorAttachments: [{ view: this.#targets.scene.radiance, loadOp: 'load', storeOp: 'store' }],
 			});
-			relight.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+			relight.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
 			draws += this.#meshes.encodeEffectPass('relight', relight, this.#targets.scene);
 			relight.end();
 		}
@@ -1537,7 +1452,7 @@ export class Viewer {
 				depthStencilAttachment: attachments.depth,
 			});
 			if (hasScene) {
-				transparent.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+				transparent.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
 				draws += this.#meshes.encodeEffectPass('transparent', transparent, this.#targets.scene);
 			}
 			transparent.end();
@@ -1565,7 +1480,7 @@ export class Viewer {
 								],
 								depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
 							});
-							foamPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+							foamPass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
 							draws += this.#meshes.encodeEffectPass('waterFoam', foamPass, {
 								...this.#targets.scene,
 								depth: waterDepth,
@@ -1585,7 +1500,7 @@ export class Viewer {
 						colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
 						depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
 					});
-					screenPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
+					screenPass.setBindGroup(0, this.#bindings.main, [uniforms.offset]);
 					return screenPass;
 				};
 				if (meshes.has('multiply')) {
@@ -1601,7 +1516,7 @@ export class Viewer {
 					refract.end();
 				}
 			},
-			frameGroup: { group: this.#frameBindGroup, offset: uniforms.offset },
+			frameGroup: { group: this.#bindings.main, offset: uniforms.offset },
 		});
 		this.#profiler.resolve(encoder);
 		this.#times.span('encode');

@@ -29,8 +29,7 @@ const inputs = (patch: Partial<FrameUniformInputs> = {}): FrameUniformInputs => 
 		environment: deriveEnvironment(null),
 		wetness: wetnessParams(undefined),
 		exposure: 4,
-		bound: { reflection: true, shadowRamp: false, cloudShadow: false },
-		reflectionMips: 7,
+		bindings: { has: (slot) => slot === 'reflection', reflectionMips: 7 },
 		terrain: null,
 		shadowMap: {
 			layers: [],

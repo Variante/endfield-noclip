@@ -45,6 +45,10 @@
   lights and their bins, cloud shadow) for every family and the volumetric fog, so a pass binds it
   once; group 1 is per family; meshes add group 2 (per-draw parameters) and group 3 (material
   textures). shadow passes bind a placeholder in place of the shadow map they render into.
+  [`render/frame/frame-bindings.ts`](../../packages/viewer/src/render/frame/frame-bindings.ts)
+  builds both group 0s; the streamed textures in them (reflection cubemap, shadow ramp, cloud
+  shadow) are placeholders until resident, and setting one rebuilds the groups only when its view
+  changes.
 - **pipeline cache** ([`gfx/pipeline-cache.ts`](../../packages/viewer/src/gfx/pipeline-cache.ts)):
   modules by label, pipelines by a state key such as `mesh/opaque/back/unorm16x2`, compiled with
   `createRenderPipelineAsync` (or `createComputePipelineAsync` through `prepareCompute`, for the
