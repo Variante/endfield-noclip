@@ -20,7 +20,7 @@ export const postCommonSource = (uniformsGroup: number): string => {
  * @returns a post pass's shader source: the shared BRDF terms and the `Post` uniforms at group 0, then
  *   `parts`
  */
-export const postShaderSource = (parts: readonly string[]): string =>
+const postShaderSource = (parts: readonly string[]): string =>
 	[brdfWgsl, postCommonSource(0), ...parts].join('\n');
 
 /**

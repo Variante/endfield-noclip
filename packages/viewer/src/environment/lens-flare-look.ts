@@ -43,7 +43,7 @@ export interface LensFlareInput {
 /** `flareType` of an image element */
 export const FLARE_IMAGE = 0;
 /** `flareType` of a circle element */
-export const FLARE_CIRCLE = 1;
+const FLARE_CIRCLE = 1;
 
 /**
  * the sun's flare as the game overrides the sun's flare component with the environment's: the section's

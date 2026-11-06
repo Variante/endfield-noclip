@@ -12,7 +12,7 @@ import type { Camera } from '../../scene/camera.ts';
 import { type PostSettings, TONEMAPPERS } from './settings.ts';
 
 /** vec4 index of each `Post` field */
-export const PostSlot = {
+const PostSlot = {
 	forward: 0,
 	right: 1,
 	up: 2,
