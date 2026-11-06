@@ -9,7 +9,7 @@ import {
 
 import type { Vec3 } from '../scene/camera.ts';
 
-import { evaluateMinMax } from './curves.ts';
+import { evaluateMinMax, livedAt } from './curves.ts';
 
 /** the drag's deceleration per unit of speed (or speed squared), for a particle of a size */
 const dragRate = (drag: ParticleDragInfo, size: number, r: number): number =>
@@ -126,10 +126,7 @@ export const steppedPath = (path: {
 		const added = extra(t, offset);
 		const whole: Vec3 = [own[0] + added[0], own[1] + added[1], own[2] + added[2]];
 		const speed = Math.hypot(...whole);
-		const cap =
-			limit === null
-				? Infinity
-				: evaluateMinMax(limit.info.limit, life > 0 ? Math.min(t / life, 1) : 0, limit.r);
+		const cap = limit === null ? Infinity : evaluateMinMax(limit.info.limit, livedAt(t, life), limit.r);
 		if (speed > cap) {
 			const scale = (speed + (cap - speed) * pull) / speed;
 			for (let axis = 0; axis < 3; axis++) {
@@ -185,10 +182,7 @@ export const travelled = (
 	if (scale === undefined && (curve.mode === CurveMode.Constant || curve.mode === CurveMode.TwoConstants)) {
 		return evaluateMinMax(curve, 0, r) * age;
 	}
-	return integrateAge(
-		(a) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r) * (scale?.(a) ?? 1),
-		age,
-	);
+	return integrateAge((a) => evaluateMinMax(curve, livedAt(a, life), r) * (scale?.(a) ?? 1), age);
 };
 
 /**

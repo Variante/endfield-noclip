@@ -13,7 +13,7 @@ import {
 import { linearRgb } from '../math/color.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
-import { evaluateMinMax, evaluateMinMaxGradient, meanOf, upperBound } from './curves.ts';
+import { evaluateMinMax, evaluateMinMaxGradient, livedAt, meanOf, upperBound } from './curves.ts';
 import { applyForces, type ForceRandoms, type PreparedField, prepareField } from './forces.ts';
 import {
 	dragged,
@@ -251,7 +251,7 @@ export class ParticleSimulation {
 		if (point === null) {
 			return null;
 		}
-		const speed = evaluateMinMax(spline.speed, life > 0 ? Math.min(age / life, 1) : 0, r);
+		const speed = evaluateMinMax(spline.speed, livedAt(age, life), r);
 		const t = point.tangent;
 		return { position: point.position, moving: [t[0] * speed, t[1] * speed, t[2] * speed] };
 	}
@@ -530,7 +530,7 @@ export class ParticleSimulation {
 			worldToLocal,
 		} = motion;
 		// a ring buffer's paused particle moves on past its lifetime with its curves at their end
-		const lived = life > 0 ? Math.min(age / life, 1) : 0;
+		const lived = livedAt(age, life);
 		// the game moves a particle by its whole velocity times the speed modifier: `scaledAge` is the modifier's
 		// integral over the age, which a constant velocity moves by, and `scaleNow` its value now
 		const scaledAge = modifierAt === null ? age : integrateAge(modifierAt, age);
@@ -627,7 +627,7 @@ export class ParticleSimulation {
 			};
 			push = (t, moved, own, step) => {
 				const at: Vec3 = [start[0] + moved[0], start[1] + moved[1], start[2] + moved[2]];
-				applyForces(forces, at, own, life > 0 ? Math.min(t / life, 1) : 0, sizeAt(t), randoms, step);
+				applyForces(forces, at, own, livedAt(t, life), sizeAt(t), randoms, step);
 			};
 		}
 		const linearChannels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
@@ -639,7 +639,7 @@ export class ParticleSimulation {
 			if (velocity === null) {
 				return [0, 0, 0];
 			}
-			const lived = life > 0 ? Math.min(t / life, 1) : 0;
+			const lived = livedAt(t, life);
 			let linear: Vec3 = [0, 0, 0];
 			const spin: Vec3 = [0, 0, 0];
 			for (let axis = 0; axis < 3; axis++) {
@@ -711,10 +711,7 @@ export class ParticleSimulation {
 		const sizeAt = (a: number): number[] =>
 			startSize.map((value, axis) => {
 				const over = info.sizeOverLifetime;
-				return (
-					value *
-					(over === null ? 1 : evaluateMinMax(over[axis], life > 0 ? Math.min(a / life, 1) : 0, growth))
-				);
+				return value * (over === null ? 1 : evaluateMinMax(over[axis], livedAt(a, life), growth));
 			});
 		let path: { position: Vec3; moving: Vec3 };
 		const motion = info.motion;
@@ -736,7 +733,7 @@ export class ParticleSimulation {
 					modifier = evaluateMinMax(curve, 0, r);
 				} else {
 					// the game reads it each step at the particle's age over its lifetime, as linear velocities
-					modifierAt = (a) => evaluateMinMax(curve, life > 0 ? Math.min(a / life, 1) : 0, r);
+					modifierAt = (a) => evaluateMinMax(curve, livedAt(a, life), r);
 				}
 			}
 			const begin: PathStart = {
