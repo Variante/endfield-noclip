@@ -116,7 +116,8 @@ pnpm run dev --port 0
 mise exec -- agent-browser --session <task> open 'http://localhost:<port>/?package=<scene>&level=<level>'
 ```
 
-how to bisect materials on screen is in `.research/README.md` ("investigating a view"). when done, turn off `continuous` and any debug view, then close the session
+how to bisect materials on screen is in `.research/README.md` ("investigating a view"). when done,
+turn off `continuous` and any debug view, then close the session
 (`agent-browser --session <task> close`) and stop the dev server you started.
 
 ## 9. record and finish
