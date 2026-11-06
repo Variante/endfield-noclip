@@ -76,6 +76,12 @@ export interface MainPassFormat {
 	stencil: boolean;
 }
 
+/** a render pass's attachments, reused across frames: begin passes with them, don't modify them */
+export interface PassAttachments {
+	readonly colors: GPURenderPassColorAttachment[];
+	readonly depth: GPURenderPassDepthStencilAttachment;
+}
+
 /** the main pass's outputs, which the post passes read */
 export interface SceneTextures {
 	radiance: GPUTextureView;
@@ -135,6 +141,10 @@ export class RenderTargets {
 	#transparent: GPUTexture[] | null = null;
 	#waterDepth: GPUTexture | null = null;
 	#scene: SceneTextures | null = null;
+	/** the passes' attachments, built on first use after each resize */
+	#mainAttachments: PassAttachments | null = null;
+	#transparentAttachments: PassAttachments | null = null;
+	#readOnlyDepth: GPURenderPassDepthStencilAttachment | null = null;
 	#version = 0;
 
 	/**
@@ -244,6 +254,9 @@ export class RenderTargets {
 			usage,
 		});
 		this.#version++;
+		this.#mainAttachments = null;
+		this.#transparentAttachments = null;
+		this.#readOnlyDepth = null;
 		this.#scene = {
 			radiance: this.#colors[0].createView(),
 			radianceTexture: this.#colors[0],
@@ -279,13 +292,13 @@ export class RenderTargets {
 		return this.#scene;
 	}
 
-	/** @returns attachments for this frame's main pass, cleared to black */
-	mainPassAttachments(): {
-		colors: GPURenderPassColorAttachment[];
-		depth: GPURenderPassDepthStencilAttachment;
-	} {
+	/** @returns attachments for this frame's main pass, cleared to black; the same objects until the next resize */
+	mainPassAttachments(): PassAttachments {
 		if (this.#depth === null || this.#colors === null) {
 			throw new Error('render targets used before update()');
+		}
+		if (this.#mainAttachments !== null) {
+			return this.#mainAttachments;
 		}
 		const clear: GPUColor = { r: 0, g: 0, b: 0, a: 0 };
 		const colors = this.#colors.map((texture): GPURenderPassColorAttachment => ({
@@ -305,20 +318,21 @@ export class RenderTargets {
 			depth.stencilLoadOp = 'clear';
 			depth.stencilStoreOp = 'store';
 		}
-		return { colors, depth };
+		this.#mainAttachments = { colors, depth };
+		return this.#mainAttachments;
 	}
 
 	/**
 	 * @returns attachments for this frame's transparent pass: its targets cleared to nothing drawn, and the
 	 *   main pass's depth, tested but not written. the stencil stays writable, since some effects mask the ones
-	 *   drawn after them
+	 *   drawn after them. the same objects until the next resize
 	 */
-	transparentPassAttachments(): {
-		colors: GPURenderPassColorAttachment[];
-		depth: GPURenderPassDepthStencilAttachment;
-	} {
+	transparentPassAttachments(): PassAttachments {
 		if (this.#depth === null || this.#transparent === null) {
 			throw new Error('render targets used before update()');
+		}
+		if (this.#transparentAttachments !== null) {
+			return this.#transparentAttachments;
 		}
 		const [sum, revealage, glow, layerDistance] = this.#transparent;
 		const depth: GPURenderPassDepthStencilAttachment = {
@@ -329,7 +343,7 @@ export class RenderTargets {
 			depth.stencilLoadOp = 'load';
 			depth.stencilStoreOp = 'discard';
 		}
-		return {
+		this.#transparentAttachments = {
 			colors: [
 				{ view: sum.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' },
 				{
@@ -353,12 +367,19 @@ export class RenderTargets {
 			],
 			depth,
 		};
+		return this.#transparentAttachments;
 	}
 
-	/** @returns the main pass's depth, attached for testing only, for effects drawn over the composited scene */
-	readOnlyDepthAttachment(): GPURenderPassDepthStencilAttachment {
+	/**
+	 * @returns the main pass's depth, attached for testing only, for effects drawn over the composited scene;
+	 *   the same object until the next resize
+	 */
+	readOnlyDepthAttachment(): Readonly<GPURenderPassDepthStencilAttachment> {
 		if (this.#depth === null) {
 			throw new Error('render targets used before update()');
+		}
+		if (this.#readOnlyDepth !== null) {
+			return this.#readOnlyDepth;
 		}
 		const depth: GPURenderPassDepthStencilAttachment = {
 			view: this.#depth.createView(),
@@ -367,6 +388,7 @@ export class RenderTargets {
 		if (this.format.stencil) {
 			depth.stencilReadOnly = true;
 		}
+		this.#readOnlyDepth = depth;
 		return depth;
 	}
 
