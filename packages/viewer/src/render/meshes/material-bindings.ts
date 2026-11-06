@@ -1,3 +1,4 @@
+import { BindGroupCache } from '../../gfx/bind-group-cache.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_CLAMP, LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import { LookFlags, type MaterialLook, SLOTS, SLOT_FLAGS } from '../../looks/look.ts';
@@ -39,12 +40,6 @@ export interface EffectMaterial {
 	volume: TextureBinding | null;
 }
 
-interface MaterialBinding {
-	/** the slot bindings' versions the group was built from (-1 for the fallback) */
-	versions: number[];
-	group: GPUBindGroup;
-}
-
 /** derives the mesh materials' states from their textures' bindings, and owns their bind groups */
 export class MaterialBindings {
 	#device: GPUDevice;
@@ -56,13 +51,15 @@ export class MaterialBindings {
 	#defaultSampler: GPUSampler;
 	/** samples the composited scene's copy for refraction */
 	#clampSampler: GPUSampler;
-	/** material bind groups by material id */
-	#bindings = new Map<number, MaterialBinding>();
+	/** material bind groups by material id, over their slots' binding versions (-1 for the fallback) */
+	#materialGroups = new BindGroupCache<number>();
 	/** by material id */
 	#states = new Map<number, MaterialState>();
+	/** scratch for the versions a material group is looked up by */
 	#versions: number[] = SLOTS.map(() => -1);
-	/** effect bind groups by material id */
-	#effectBindings = new Map<number, MaterialBinding & { inputs: number }>();
+	/** effect bind groups by material id, over their slots' and volume's binding versions and the inputs' */
+	#effectGroups = new BindGroupCache<number>();
+	#effectParts: number[] = [...SLOTS.map(() => -1), -1, -1];
 
 	/**
 	 * @param device the device
@@ -81,9 +78,9 @@ export class MaterialBindings {
 
 	/** forgets every material's state and bind groups (when a package is unloaded) */
 	release(): void {
-		this.#bindings.clear();
+		this.#materialGroups.clear();
 		this.#states.clear();
-		this.#effectBindings.clear();
+		this.#effectGroups.clear();
 	}
 
 	/**
@@ -131,23 +128,19 @@ export class MaterialBindings {
 		for (let i = 0; i < slots.length; i++) {
 			versions[i] = slots[i]?.version ?? -1;
 		}
-		const cached = this.#bindings.get(material);
-		if (cached !== undefined && cached.versions.every((version, i) => version === versions[i])) {
-			return cached.group;
-		}
-		const detail = slots[1] ?? slots[2] ?? slots[0];
-		const group = this.#device.createBindGroup({
-			label: `material ${material}`,
-			layout: this.#materialLayout,
-			entries: [
-				...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
-				{ binding: SLOTS.length, resource: slots[0]?.sampler ?? this.#defaultSampler },
-				{ binding: SLOTS.length + 1, resource: detail?.sampler ?? this.#defaultSampler },
-				{ binding: SLOTS.length + 2, resource: slots[5]?.sampler ?? this.#defaultSampler },
-			],
+		return this.#materialGroups.get(material, versions, () => {
+			const detail = slots[1] ?? slots[2] ?? slots[0];
+			return this.#device.createBindGroup({
+				label: `material ${material}`,
+				layout: this.#materialLayout,
+				entries: [
+					...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
+					{ binding: SLOTS.length, resource: slots[0]?.sampler ?? this.#defaultSampler },
+					{ binding: SLOTS.length + 1, resource: detail?.sampler ?? this.#defaultSampler },
+					{ binding: SLOTS.length + 2, resource: slots[5]?.sampler ?? this.#defaultSampler },
+				],
+			});
 		});
-		this.#bindings.set(material, { versions: [...versions], group });
-		return group;
 	}
 
 	/**
@@ -156,37 +149,32 @@ export class MaterialBindings {
 	 * @returns the effect material's bind group over its slots' current bindings and the outputs
 	 */
 	effectGroup({ material, slots, volume }: EffectMaterial, inputs: EffectInputs): GPUBindGroup {
-		const cached = this.#effectBindings.get(material);
-		if (cached !== undefined && cached.inputs === inputs.version) {
-			// the slots' versions, then the volume's
-			let current = cached.versions[slots.length] === (volume?.version ?? -1);
-			for (let i = 0; i < slots.length && current; i++) {
-				current = cached.versions[i] === (slots[i]?.version ?? -1);
-			}
-			if (current) {
-				return cached.group;
-			}
+		// the slots' versions, then the volume's and the inputs'
+		const parts = this.#effectParts;
+		for (let i = 0; i < slots.length; i++) {
+			parts[i] = slots[i]?.version ?? -1;
 		}
-		const versions = [...slots, volume].map((slot) => slot?.version ?? -1);
-		const group = this.#device.createBindGroup({
-			label: `effect material ${material}`,
-			layout: this.#effectLayout,
-			entries: [
-				...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
-				...slots.map((slot, i) => ({
-					binding: SLOTS.length + i,
-					resource: slot?.sampler ?? this.#defaultSampler,
-				})),
-				{ binding: 14, resource: inputs.depth },
-				{ binding: 15, resource: inputs.reflectionSurface },
-				{ binding: 16, resource: inputs.ambient },
-				{ binding: 17, resource: volume?.view ?? this.#noVolume },
-				{ binding: 18, resource: volume?.sampler ?? this.#defaultSampler },
-				{ binding: 19, resource: inputs.background ?? this.#white },
-				{ binding: 20, resource: this.#clampSampler },
-			],
-		});
-		this.#effectBindings.set(material, { versions, inputs: inputs.version, group });
-		return group;
+		parts[slots.length] = volume?.version ?? -1;
+		parts[slots.length + 1] = inputs.version;
+		return this.#effectGroups.get(material, parts, () =>
+			this.#device.createBindGroup({
+				label: `effect material ${material}`,
+				layout: this.#effectLayout,
+				entries: [
+					...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
+					...slots.map((slot, i) => ({
+						binding: SLOTS.length + i,
+						resource: slot?.sampler ?? this.#defaultSampler,
+					})),
+					{ binding: 14, resource: inputs.depth },
+					{ binding: 15, resource: inputs.reflectionSurface },
+					{ binding: 16, resource: inputs.ambient },
+					{ binding: 17, resource: volume?.view ?? this.#noVolume },
+					{ binding: 18, resource: volume?.sampler ?? this.#defaultSampler },
+					{ binding: 19, resource: inputs.background ?? this.#white },
+					{ binding: 20, resource: this.#clampSampler },
+				],
+			}),
+		);
 	}
 }

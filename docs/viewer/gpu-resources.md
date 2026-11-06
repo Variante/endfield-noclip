@@ -80,4 +80,6 @@
   shrinks it the same way at the next `commit`. a piece that arrives before its coarser neighbour
   waits. BC blocks upload as stored, without transcoding. replaced textures are destroyed one commit
   later, because bindings from before the swap are still in that frame's command buffer; bind groups
-  rebuild when a binding's `version` changes.
+  rebuild when a binding's `version` changes
+  ([`gfx/bind-group-cache.ts`](../../packages/viewer/src/gfx/bind-group-cache.ts) keeps the
+  material, effect and water groups by the versions and views they were built from).

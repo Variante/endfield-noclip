@@ -5,6 +5,7 @@ import {
 	meteredExposure,
 	targetExposure,
 } from '../../environment/exposure.ts';
+import { BindGroupCache } from '../../gfx/bind-group-cache.ts';
 import { createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
@@ -34,7 +35,8 @@ export class AutoExposure {
 	#idle: GPUBuffer[];
 	/** the readback buffer this frame's histogram was copied into, mapped after submit, and its settings */
 	#pending: { buffer: GPUBuffer; settings: AutoExposureSettings } | null = null;
-	#group: { view: GPUTextureView; group: GPUBindGroup } | null = null;
+	/** the histogram's group, over the scene view it reads */
+	#group = new BindGroupCache<string>();
 	#metered: number | null = null;
 	/** jump straight to the next metered exposure instead of easing (a new level or a fresh start) */
 	#snap = true;
@@ -109,23 +111,20 @@ export class AutoExposure {
 			settings.meteringRange[1],
 		]);
 		this.#device.queue.writeBuffer(this.#uniforms, 0, params);
-		if (this.#group?.view !== view) {
-			this.#group = {
-				view,
-				group: this.#device.createBindGroup({
-					layout: pipeline.getBindGroupLayout(0),
-					entries: [
-						{ binding: 0, resource: view },
-						{ binding: 1, resource: { buffer: this.#uniforms } },
-						{ binding: 2, resource: { buffer: this.#bins } },
-					],
-				}),
-			};
-		}
+		const group = this.#group.get(PIPELINE_KEY, [view], () =>
+			this.#device.createBindGroup({
+				layout: pipeline.getBindGroupLayout(0),
+				entries: [
+					{ binding: 0, resource: view },
+					{ binding: 1, resource: { buffer: this.#uniforms } },
+					{ binding: 2, resource: { buffer: this.#bins } },
+				],
+			}),
+		);
 		encoder.clearBuffer(this.#bins);
 		const pass = encoder.beginComputePass({ label: 'auto exposure histogram' });
 		pass.setPipeline(pipeline);
-		pass.setBindGroup(0, this.#group.group);
+		pass.setBindGroup(0, group);
 		pass.dispatchWorkgroups(Math.ceil(width / WORKGROUP_PIXELS), Math.ceil(height / WORKGROUP_PIXELS));
 		pass.end();
 		encoder.copyBufferToBuffer(this.#bins, 0, readback, 0, BINS * 4);

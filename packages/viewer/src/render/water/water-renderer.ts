@@ -2,6 +2,7 @@ import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
+import { BindGroupCache } from '../../gfx/bind-group-cache.ts';
 import { createBufferWithData, createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
@@ -151,7 +152,7 @@ export class WaterRenderer {
 	#flow: TextureBinding | null = null;
 	#caustics: TextureBinding | null = null;
 	/** group 2, per water depth view bound: the depth pass's placeholder or the scene's */
-	#groups = new Map<GPUTextureView, { group: GPUBindGroup; key: unknown[] }>();
+	#groups = new BindGroupCache<GPUTextureView>();
 
 	/**
 	 * @param device the device
@@ -351,22 +352,29 @@ export class WaterRenderer {
 	 * @param waterDepth bound as the water's depth: the scene's, or a placeholder while drawing into it
 	 */
 	#bindGroup(context: WaterContext, waterDepth: GPUTextureView): GPUBindGroup | null {
-		if (this.#configs === null) {
+		const configs = this.#configs;
+		if (configs === null) {
 			return null;
 		}
 		const foam = this.#foamTargets?.foamView ?? this.#noFoam;
-		const key = [context.version, context.background, this.#normals, this.#flow, this.#caustics, foam];
-		const cached = this.#groups.get(waterDepth);
-		if (cached !== undefined && key.every((part, i) => part === cached.key[i])) {
-			return cached.group;
-		}
+		const parts = [context.version, context.background, this.#normals, this.#flow, this.#caustics, foam];
+		return this.#groups.get(waterDepth, parts, () => this.#createGroup(context, waterDepth, configs, foam));
+	}
+
+	/** @returns group 2 over the current textures */
+	#createGroup(
+		context: WaterContext,
+		waterDepth: GPUTextureView,
+		configs: GPUBuffer,
+		foam: GPUTextureView,
+	): GPUBindGroup {
 		const scene = context.scene;
-		const group = this.#device.createBindGroup({
+		return this.#device.createBindGroup({
 			label: 'water',
 			layout: this.#layout,
 			entries: [
 				{ binding: 0, resource: { buffer: this.#surfaces } },
-				{ binding: 1, resource: { buffer: this.#configs } },
+				{ binding: 1, resource: { buffer: configs } },
 				{ binding: 2, resource: context.background },
 				{ binding: 3, resource: context.scene.depth },
 				{ binding: 4, resource: this.#normals?.view ?? this.#noNormals },
@@ -383,8 +391,6 @@ export class WaterRenderer {
 				{ binding: 14, resource: waterDepth },
 			],
 		});
-		this.#groups.set(waterDepth, { group, key });
-		return group;
 	}
 
 	/** @returns whether there's anything to draw this frame, with both pipelines compiled */
