@@ -3,11 +3,12 @@ import type { RuleText, SceneControl } from '@endfield-noclip/package-format/sta
 
 import { useId, useState } from 'react';
 
-import { controlsForLevel, groupByLevel } from '../../scene-states/listing.ts';
+import { controlsForLevel, controlsNear, groupByLevel, NEARBY_RADIUS } from '../../scene-states/listing.ts';
 import type { Viewer } from '../../viewer/viewer.ts';
+import { ChoiceRow } from '../controls.tsx';
 import { ruleOf } from '../format.ts';
 import { LazyDetails } from '../lazy-details.tsx';
-import { useViewerState } from '../use-viewer.ts';
+import { useCameraCell, useViewerState } from '../use-viewer.ts';
 
 import { ControlRow } from './control-row.tsx';
 import { EnvironmentVolumes } from './environment-volumes.tsx';
@@ -22,6 +23,13 @@ const OPEN = new Set(['sceneStates', 'progression', 'dijiang']);
 const OWN_SECTIONS = new Set(['water', 'environment']);
 
 /**
+ * which controls the panel lists: those whose content is near the camera, those of the current level (the
+ * other levels' grouped below), every control, or the ones the user picked a value for, wherever they are
+ */
+const SCOPES = ['nearby', 'level', 'all', 'picked'] as const;
+type Scope = (typeof SCOPES)[number];
+
+/**
  * @param viewer the loaded scene and its preview selections
  * @returns the package's scene controls, a section per category
  */
@@ -29,6 +37,8 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	useViewerState(viewer);
 	const searchId = useId();
 	const [query, setQuery] = useState('');
+	const [scope, setScope] = useState<Scope>('nearby');
+	useCameraCell(viewer, scope === 'nearby');
 	const manifest = viewer.manifest;
 	if (manifest === null) {
 		return null;
@@ -37,6 +47,7 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 	const matches = (name: string): boolean => name.toLowerCase().includes(query.toLowerCase());
 	const missions = new Map(manifest.states.missions.map((mission) => [mission.id, mission]));
 	const byId = new Map(manifest.states.controls.map((entry) => [entry.id, entry]));
+	/** @returns a quest control's name with its mission's, else the control's name */
 	/** @returns a quest control's name with its mission's, else the control's name */
 	const storyName = (control: SceneControl): string => {
 		const { story } = control;
@@ -74,12 +85,53 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 				<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />
 			))
 		);
+	const picks = viewer.scenePicks;
+	const picked = controls.filter((entry) => picks[entry.id] !== undefined);
+	/** per category: the controls listed first, and the other levels' below them */
+	const listing = (inCategory: SceneControl[]) => {
+		switch (scope) {
+			case 'nearby': {
+				return { here: controlsNear(inCategory, viewer.camera.position), others: [] };
+			}
+			case 'level': {
+				const here = controlsForLevel(inCategory, level);
+				const listedHere = new Set(here);
+				const others = groupByLevel(
+					inCategory.filter((entry) => !listedHere.has(entry)),
+					manifest.levels,
+					level,
+					(entry) => entry.levelTags,
+				);
+				return { here, others };
+			}
+			case 'all': {
+				return { here: inCategory, others: [] };
+			}
+			case 'picked': {
+				return { here: inCategory.filter((entry) => picks[entry.id] !== undefined), others: [] };
+			}
+		}
+	};
 	return (
 		<section className="panel scene-controls" aria-label="scene conditions">
 			<header>
 				<h2>Scene conditions</h2>
 				<button onClick={() => viewer.resetSceneValues()}>Reset</button>
 			</header>
+			<ChoiceRow label="Show">
+				<select
+					value={scope}
+					onChange={(event) => {
+						const { value } = event.currentTarget;
+						setScope(SCOPES.find((entry) => entry === value) ?? 'nearby');
+					}}
+				>
+					<option value="nearby">Near the camera ({NEARBY_RADIUS} m)</option>
+					<option value="level">This level</option>
+					<option value="all">Everything</option>
+					<option value="picked">Picked ({picked.length})</option>
+				</select>
+			</ChoiceRow>
 			<label className="control-search" htmlFor={searchId}>
 				Filter controls
 				<input
@@ -93,22 +145,18 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 				.filter(({ id }) => !OWN_SECTIONS.has(id))
 				.map(({ id, title, note }) => {
 					const inCategory = controls.filter((entry) => entry.category === id);
-					const here = controlsForLevel(inCategory, level);
-					const listedHere = new Set(here);
-					const others = groupByLevel(
-						inCategory.filter((entry) => !listedHere.has(entry)),
-						manifest.levels,
-						level,
-						(entry) => entry.levelTags,
-					);
+					const { here, others } = listing(inCategory);
+					if (scope !== 'level' && here.length === 0) {
+						return null;
+					}
+					const count = others.length > 0 ? `${here.length} here · ${inCategory.length} in all` : here.length;
 					return (
 						<LazyDetails
-							key={id}
-							initiallyOpen={OPEN.has(id)}
+							key={`${scope}/${id}`}
+							initiallyOpen={scope === 'level' ? OPEN.has(id) : here.length <= 12}
 							summary={
 								<summary>
-									{title} ({here.length}
-									{others.length > 0 && ` here · ${inCategory.length} in all`})
+									{title} ({count})
 								</summary>
 							}
 						>

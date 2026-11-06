@@ -8,7 +8,8 @@
 import type { EnvironmentVolumeInfo } from '@endfield-noclip/package-format/environment';
 import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
-import type { SceneControl } from '@endfield-noclip/package-format/states';
+import type { ControlPlace, SceneControl } from '@endfield-noclip/package-format/states';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { volumeLevelTag } from '../environment/blend.ts';
 
@@ -58,6 +59,36 @@ export const controlsForLevel = <T extends SceneControl>(
 	controls: readonly T[],
 	level: LevelInfo | null,
 ): T[] => controls.filter((control) => controlListedFor(control, level));
+
+/** how far from the camera a control's content still counts as nearby, in metres */
+export const NEARBY_RADIUS = 200;
+
+/**
+ * @param place where a control's content is
+ * @param eye the camera's position, in Unity coordinates
+ * @returns the distance from the eye to the box around the content (0 inside it), else to its position
+ */
+export const placeDistance = (place: ControlPlace, eye: Readonly<Vec3>): number => {
+	if (place.bounds === null) {
+		return Math.hypot(...place.position.map((value, axis) => value - eye[axis]));
+	}
+	const { min, max } = place.bounds;
+	return Math.hypot(...eye.map((value, axis) => Math.max(min[axis] - value, 0, value - max[axis])));
+};
+
+/**
+ * @param controls scene controls
+ * @param eye the camera's position, in Unity coordinates
+ * @returns the controls with a place within {@link NEARBY_RADIUS} of the eye, nearest first
+ */
+export const controlsNear = <T extends SceneControl>(controls: readonly T[], eye: Readonly<Vec3>): T[] =>
+	controls
+		.flatMap((control) => {
+			const distance = control.place === null ? Infinity : placeDistance(control.place, eye);
+			return distance <= NEARBY_RADIUS ? [{ control, distance }] : [];
+		})
+		.toSorted((a, b) => a.distance - b.distance)
+		.map(({ control }) => control);
 
 /** an environment volume listed for a level */
 export interface ListedVolume {

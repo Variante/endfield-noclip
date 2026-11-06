@@ -75,12 +75,21 @@ user sets, else a select, with "Follow game" or "Follow camera" for derived and 
   (blend mode 3) default off, since the script that fades them in isn't followed (see
   [environment.md](../game-data/environment.md#activation))
 
-every row shows the control's rule and the assumption behind its default. each section lists first
-the controls whose `levelTags` include 0 or the [current level's](streaming.md#levels) tag, then,
-under "Other levels", a collapsed group per other level with the controls it gates; a control gating
-several levels is in each of their groups
+every row shows where the control's content is (its [place](../package-format.md#controls) label,
+with "Go" flying there), the control's rule and the assumption behind its default. "Show" picks
+which controls the sections list
 ([`scene-states/listing.ts`](../../packages/viewer/src/scene-states/listing.ts), which also decides
-the volumes listed). "Reset" drops every pick. the settings panel's "stream areas at camera" toggle
-switches every area that follows the camera between following it and showing. conditional detail
-ignores HLOD refinement and stops streaming once its tile is below the screen error threshold
-([streaming](streaming.md)).
+the volumes listed):
+
+- **near the camera** (the default): controls whose content lies within 200 m of the camera (the
+  distance to its box, else to its position), nearest first, in the sections that have any. the list
+  follows the camera in 25 m steps. controls whose content is spread over the scene have no place
+  and aren't listed here
+- **this level**: first the controls whose `levelTags` include 0 or the
+  [current level's](streaming.md#levels) tag, then, under "Other levels", a collapsed group per
+  other level with the controls it gates; a control gating several levels is in each of their groups
+- **everything**, and **picked**: the controls the user picked a value for, wherever they are
+
+"Reset" drops every pick. the settings panel's "stream areas at camera" toggle switches every area
+that follows the camera between following it and showing. conditional detail ignores HLOD refinement
+and stops streaming once its tile is below the screen error threshold ([streaming](streaming.md)).
