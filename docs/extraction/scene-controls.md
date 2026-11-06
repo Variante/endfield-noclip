@@ -179,10 +179,11 @@ levels (scaffolding, an unbuilt site) are hidden by default; the control still p
 level. each progression is selected independently, because the player's progress is per facility and
 no single completion percentage describes it.
 
-a resource group with a non-zero mask on an entity with no controller shows in the default state and
-needs no control if bit 0 is set; otherwise it gets a `logic:<entity id>:<mask>` toggle, off,
-because nothing recovered drives that entity's logic state. the entity id is its global id, or
-`<grid>:<ordinal>` for an entity without an `IdComp`.
+a resource group with a non-zero mask on an entity with no controller follows the entity's variable
+when it reads one ([variable-driven view states](#variable-driven-view-states)). without one, it
+shows in the default state and needs no control if bit 0 is set; otherwise it gets a
+`logic:<entity id>:<mask>` toggle, off, because nothing recovered drives that entity's logic state.
+the entity id is its global id, or `<grid>:<ordinal>` for an entity without an `IdComp`.
 
 trees' standing/felled bits get one `harvest` control per level that previews them all, standing by
 default, since the player fells each tree at runtime.
@@ -249,6 +250,21 @@ placed bridge gets a `bridge:<interactive id>` control, retracted (0, the defaul
 initial state) or extended (1), with its [poses](prefabs-and-interactives.md#view-state-poses)
 placed under it. a bridge whose prefab can't be read as one is reported in
 `unsupported-interactives.json` and drawn as saved.
+
+## variable-driven view states
+
+a DynamicStreaming entity whose view-state controller (current version) a variable drives
+([view states on dynamic entities](../game-data/scene-states.md#view-states-on-dynamic-entities)) is
+posed by that variable's control
+([dynamic-structures.ts](../../packages/extractor/src/game/dynamic-structures.ts)): the values its
+state machine compares `state` against (`testedValues`) are noted as tests of the variable, so its
+control tells them apart, and the entity's model is placed once per value, posed as the machine
+settles with `state` at that value (`settledPose`), and once as saved for every other value and
+while unset. the variable's default, the highest value tested, gives the finished-world look: The
+Hub → Valley Pass bridge lowered, the magic Wuling bridges extended. an entity with several
+variables follows its first. the same variable sets a controller-less entity's level: a resource
+group with logic-state bits loads while the variable equals one of them (or, for a mask of more than
+16 levels, none of the others), replacing the off `logic:` toggle such groups got before.
 
 ## doodad groups
 

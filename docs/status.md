@@ -443,17 +443,16 @@ packs or renders correctly.
   such levels would put overlapping levels in one package, which the viewer would then need to show
   one at a time again
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
-  map variables map01's MapConfig doesn't name show as numbers, except each blight's, named after
-  its core or its sludge ([blight and its cores](game-data/scene-states.md#blight-and-its-cores);
-  that map01's variable holds the core's state, and that a sludge core goes when its variable leaves
-  0, are inferred); Yinglung Pass's server-set outpost tier variables are separate controls, so all
-  four tiers show by default ([outpost tiers](game-data/scene-states.md#outpost-tiers)).
-  variable-driven view states on DynamicStreaming entities
-  ([view states on dynamic entities](game-data/scene-states.md#view-states-on-dynamic-entities):
-  bridges, floor tiles, puzzles, the magic
-  [Wuling bridges](game-data/interactives.md#wuling-bridges)) draw their prefab as saved; whether
-  the empty model override alone keeps the game from loading the template's drawbridge there is
-  inferred from the data, not read in the model component
+  map variables that aren't an interactive's property show as their MapConfig names or numbers;
+  Yinglung Pass's server-set outpost tier variables are separate controls, so all four tiers show by
+  default ([outpost tiers](game-data/scene-states.md#outpost-tiers)). variable-driven view states on
+  DynamicStreaming entities
+  ([view states on dynamic entities](game-data/scene-states.md#view-states-on-dynamic-entities))
+  pose only by their first variable, and draw as saved for values their state machine doesn't test
+  and while unset, where the game keeps the starting state; old-version controllers (type 5) and
+  trigger-driven ones (the lotus leaves) still draw as saved. whether the empty model override alone
+  keeps the game from loading the Wuling bridges' template drawbridge is inferred from the data, not
+  read in the model component
 - whether completing an outpost's `upgradeMissionId` raises its level at once or only unlocks the
   raise is unverified; the viewer treats them as one, reading the mission as complete exactly above
   the level that names it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions))

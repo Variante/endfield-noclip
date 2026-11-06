@@ -10,6 +10,7 @@ import {
 import type {
 	DynamicEntity as DynamicSceneEntity,
 	DynamicGate,
+	DynamicVariable,
 	ExtraSceneSlot,
 } from '@endfield-noclip/formats/endfield/dynamic-scene';
 import {
@@ -32,11 +33,12 @@ import { mapDefined } from '@mary-ext/array-fns';
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
 
-import { allOf, gateCondition, type Alternatives, type GameState } from './game-state.ts';
+import { allOf, gateCondition, type Alternatives, type GameCondition, type GameState } from './game-state.ts';
 import type { PrefabPose } from './prefab.ts';
 import { sceneStateControl } from './scene-conditions.ts';
 import { sceneControl, switchValues, SWITCH_VALUES } from './scene-control.ts';
 import { controllerKey, progressionId } from './scenery-variants.ts';
+import { readViewStates, settledPose, testedValues, type ViewStates } from './view-state-poses.ts';
 
 /** `EDynamicSceneEntityType.Tree`: harvestable trees, whose logic state is standing or felled */
 const TREE_ENTITY = 19;
@@ -109,6 +111,62 @@ const blightControl = (id: string, position: readonly [number, number, number]):
 
 // #endregion
 
+/**
+ * @param variable a variable an entity reads
+ * @param value one of its values
+ * @returns the condition that it holds that value, named as load gates name the variable, so both read one
+ *   control
+ */
+const variableIs = (variable: DynamicVariable, value: number): GameCondition =>
+	variable.kind === 'mapVar'
+		? { kind: 'mapVar', mapId: String(variable.mapId), name: `#${variable.key}`, compare: 0, target: value }
+		: { kind: 'globalVar', name: `#${variable.key}`, compare: 0, target: value };
+
+/**
+ * finds the entities whose view states a variable drives
+ * (docs/game-data/scene-states.md#view-states-on-dynamic-entities): a view-state controller of the current
+ * version and a variable, whose value the state machine reads as `state`. an entity with several variables is
+ * driven by its first; a controller file that's missing, can't be read or tests no `state` value leaves its
+ * entity as saved
+ *
+ * @param context install readers
+ * @param owners the scene's dynamic entities
+ * @param blights entities whose variable a blight control holds, left out
+ * @returns by entity, its variable, view states and the `state` values they tell apart
+ */
+const drivenViewStates = async (
+	context: Pick<Context, 'vfs' | 'memoryPack'>,
+	owners: readonly DynamicResourceEntity[],
+	blights: ReadonlyMap<DynamicSceneEntity, unknown>,
+): Promise<Map<DynamicSceneEntity, { variable: DynamicVariable; states: ViewStates; values: number[] }>> => {
+	const files = new Map<string, Promise<ViewStates | null>>();
+	const driven = new Map<
+		DynamicSceneEntity,
+		{ variable: DynamicVariable; states: ViewStates; values: number[] }
+	>();
+	for (const { entity } of owners) {
+		const model = entity.viewState?.oldVersion === false ? entity.viewState.model : null;
+		const [variable] = entity.variables;
+		if (model === null || variable === undefined || blights.has(entity)) {
+			continue;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- one read per controller file
+		const states = await files.getOrInsertComputed(model, () =>
+			readViewStates(context, { model, source: model }).catch((error: unknown) => {
+				if (!(error instanceof FormatError)) {
+					throw error;
+				}
+				return null;
+			}),
+		);
+		const values = states === null ? [] : testedValues(states, 'state');
+		if (states !== null && values.length > 0) {
+			driven.set(entity, { variable, states, values });
+		}
+	}
+	return driven;
+};
+
 /** a prefab placement and its owning level */
 export interface StructureModel {
 	model: DynamicModel;
@@ -163,7 +221,7 @@ export interface DynamicStructures {
  * @throws {FormatError} if a selected resource has no grid, chunk or group
  */
 export const loadDynamicStructures = async (
-	context: Pick<Context, 'vfs'>,
+	context: Pick<Context, 'vfs' | 'memoryPack' | 'world' | 'resolver'>,
 	scene: string,
 	partition: LevelPartition | undefined,
 	game: GameState,
@@ -218,12 +276,59 @@ export const loadDynamicStructures = async (
 			blights.set(entity, { link, control: blightControl(id, link.position) });
 		}
 	}
+	const driven = await drivenViewStates(context, owners, blights);
+	result.counts.viewStateEntities = driven.size;
 	game.note(
 		owners.flatMap(({ entity }) => {
 			const blight = blights.get(entity)?.link.gate;
 			return entity.gates.filter((gate) => gate !== blight).map(gateCondition);
 		}),
 	);
+	game.note(
+		[...driven.values()].flatMap(({ variable, values }) => values.map((v) => variableIs(variable, v))),
+	);
+	// a variable sets a controller-less entity's level too, which selects its groups by their logic-state bits
+	const levelCondition = (entity: DynamicSceneEntity, mask: number): GameCondition | null => {
+		const [variable] = entity.variables;
+		if (
+			variable === undefined ||
+			entity.controllers.length > 0 ||
+			entity.entityType === TREE_ENTITY ||
+			blights.has(entity)
+		) {
+			return null;
+		}
+		const bits = [...Array.from({ length: 32 }).keys()].filter((bit) => ((mask >>> bit) & 1) !== 0);
+		// a mask of most levels reads as "none of the others", keeping the variable's values few
+		if (bits.length <= 16) {
+			return { kind: 'any', reverse: false, conditions: bits.map((bit) => variableIs(variable, bit)) };
+		}
+		const others = [...Array.from({ length: 32 }).keys()].filter((bit) => !bits.includes(bit));
+		return { kind: 'any', reverse: true, conditions: others.map((bit) => variableIs(variable, bit)) };
+	};
+	game.note(
+		owners.flatMap(({ entity }) =>
+			mapDefined(entity.resourceGroups, (group) =>
+				group.logicState === 0 ? undefined : (levelCondition(entity, group.logicState) ?? undefined),
+			),
+		),
+	);
+	/** by model and value, the pose the state machine settles in with `state` at that value */
+	const settled = new Map<string, Promise<PrefabPose | null>>();
+	const poseAt = (states: ViewStates, value: number): Promise<PrefabPose | null> =>
+		settled.getOrInsertComputed(`${states.model}:${value}`, () =>
+			settledPose(context, states, `state=${value}`, new Map([['state', value]])).then(
+				({ pose }) => pose,
+				(error: unknown) => {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					result.counts.viewStatesUnsettled++;
+					return null;
+				},
+			),
+		);
+	result.counts.viewStatesUnsettled = 0;
 	const chunks = new Map<string, Map<number, ConditionalSetInfo>>();
 	const models = new Map<string, StructureModel>();
 	const ordinals = new Map<number, number>();
@@ -302,6 +407,8 @@ export const loadDynamicStructures = async (
 						);
 					}
 					alternatives = allOf(alternatives, [[{ control: id, mask: group.logicState }]]);
+				} else if (levelCondition(entity, group.logicState) !== null) {
+					alternatives = allOf(alternatives, game.requirements(levelCondition(entity, group.logicState)!));
 				} else if ((group.logicState & 1) === 0) {
 					const id = `logic:${owned}:${group.logicState}`;
 					addSwitch('logic', id, false);
@@ -349,17 +456,45 @@ export const loadDynamicStructures = async (
 					if (effect) {
 						result.counts.effects += rows.length;
 					}
+					// a model whose view states a variable drives is placed once per value its state machine tells
+					// apart, posed as it settles there, and as saved for the other values
+					const view = effect ? undefined : driven.get(entity);
+					const looks: { suffix: string; when: Alternatives; pose: PrefabPose | null }[] = [];
+					if (view === undefined) {
+						looks.push({ suffix: '', when: [[]], pose: null });
+					} else {
+						const { variable, states, values } = view;
+						for (const value of values) {
+							looks.push({
+								suffix: `@state=${value}`,
+								when: game.requirements(variableIs(variable, value)),
+								// oxlint-disable-next-line no-await-in-loop -- poses are cached per model and value
+								pose: await poseAt(states, value),
+							});
+						}
+						looks.push({
+							suffix: '@saved',
+							when: game.requirements({
+								kind: 'any',
+								reverse: true,
+								conditions: values.map((value) => variableIs(variable, value)),
+							}),
+							pose: null,
+						});
+					}
 					for (const [index, model] of rows.entries()) {
-						const key = `${effect ? 'effect:' : ''}${ref.grid}/${ref.index + index}`;
-						models
-							.getOrInsertComputed(key, () => ({
-								model,
-								levelTag: tag,
-								source: key,
-								visibility: { alternatives: [] },
-								pose: null,
-							}))
-							.visibility.alternatives.push(...alternatives);
+						for (const { suffix, when, pose } of looks) {
+							const key = `${effect ? 'effect:' : ''}${ref.grid}/${ref.index + index}${suffix}`;
+							models
+								.getOrInsertComputed(key, () => ({
+									model,
+									levelTag: tag,
+									source: key,
+									visibility: { alternatives: [] },
+									pose,
+								}))
+								.visibility.alternatives.push(...allOf(alternatives, when));
+						}
 					}
 					break;
 				}

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { restingEffects, restingLengths, settledPath, type ViewStateRecord } from './view-state-poses.ts';
+import {
+	restingEffects,
+	restingLengths,
+	settledPath,
+	testedValues,
+	type ViewStateRecord,
+} from './view-state-poses.ts';
 
 const effect = (
 	effectId: string,
@@ -113,4 +119,41 @@ test("the rope lift's length outlasts set_rope, from RopeLength plus its deviati
 		[...restingLengths([state('s', [length(rope, { val: 2, deviation: 0.5 })], null)], new Map())],
 		[[rope, 2.5]],
 	);
+});
+
+test('the values a state machine tests on an int key are listed once, ascending', () => {
+	const condition = (key: string, type: number, value: number): ViewStateRecord => ({
+		key,
+		comparison: 0,
+		conditionValue: { type, conditionValue: { intValue: value, floatValue: value } },
+	});
+	const go = (...conditions: ViewStateRecord[]): ViewStateRecord => ({
+		targetStateName: 'x',
+		conditionGroup: { conditions },
+	});
+	// a Wuling bridge's off and on, a float on another key, and an extra test of 1
+	const states = {
+		model: 'int_bridge_wuling_12m_postmodel',
+		path: 'test',
+		data: {
+			modelAnimatorDatas: [
+				{
+					layerFsmDatas: [
+						{
+							stateDatas: [
+								{ stateName: 'off', transitions: [go(condition('state', 2, 1))] },
+								{
+									stateName: 'on',
+									transitions: [go(condition('state', 2, 0)), go(condition('speed', 1, 3))],
+								},
+								{ stateName: 'again', transitions: [go(condition('state', 2, 1))] },
+							],
+						},
+					],
+				},
+			],
+		},
+	};
+	assert.deepEqual(testedValues(states, 'state'), [0, 1]);
+	assert.deepEqual(testedValues(states, 'speed'), []);
 });

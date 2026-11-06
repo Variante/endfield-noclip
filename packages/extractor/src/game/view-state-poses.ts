@@ -181,6 +181,32 @@ export const settledPath = (layer: ViewStateRecord, blackboard: Blackboard): Vie
 };
 
 /**
+ * @param states a model's view states
+ * @param key an int key their transitions test
+ * @returns the values any transition condition compares the key against, ascending and deduplicated
+ */
+export const testedValues = (states: ViewStates, key: string): number[] => {
+	const values = new Set<number>();
+	for (const animator of records(states.data.modelAnimatorDatas)) {
+		for (const layer of records(animator.layerFsmDatas)) {
+			for (const state of records(layer.stateDatas)) {
+				for (const transition of records(state.transitions)) {
+					const group = isRecord(transition.conditionGroup) ? transition.conditionGroup.conditions : [];
+					for (const condition of records(group)) {
+						const wrapper = isRecord(condition.conditionValue) ? condition.conditionValue : {};
+						const union = isRecord(wrapper.conditionValue) ? wrapper.conditionValue : {};
+						if (text(condition.key) === key && wrapper.type === 2 && typeof union.intValue === 'number') {
+							values.add(union.intValue);
+						}
+					}
+				}
+			}
+		}
+	}
+	return [...values].toSorted((a, b) => a - b);
+};
+
+/**
  * @param layer an animator layer's state machine
  * @param blackboard the values its conditions test
  * @returns the state the layer rests in ({@link settledPath})

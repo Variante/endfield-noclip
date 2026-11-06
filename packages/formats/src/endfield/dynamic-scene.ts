@@ -29,6 +29,8 @@ import { FlatBuffer } from '../binary/flatbuffer.ts';
 //     Vector3 erosionCorePos @32 (IL2CPP `FBDynamicSceneErosionRootComp`; the stride was measured on map01)
 //   44 [SludgeComp 264 B] = Vector3 pos @96, u64 coreId @248 (the core's level-data logic id); offsets follow
 //     IL2CPP `FBDynamicSceneSludgeComp`'s field order, whose natural alignment gives the measured stride
+//   37 [ModelViewStateControllerNewComp 36 B] = i32 modelIdStrId (root string) @0, bool useOldVersion @4,
+//     DataGroup keyStateToNameMap @8, i32 keyState @32 (IL2CPP `FBDynamicSceneModelViewStateControllerNewComp`)
 //   16 [MissionCondition 16 B] = i32 id (root string), i32 isQuest, i32 state, i32 isSame
 //   27 [MissionControlComp 32 B] = Conditions DataGroup @0 (MissionCondition rows), i32 compareType @24,
 //     i32 toBeTrue @28
@@ -55,6 +57,7 @@ export const DynamicData = {
 	FactoryRegionControlComp: 28,
 	ResourceComp: 30,
 	ErosionRootComp: 34,
+	ModelViewStateControllerNewComp: 35,
 	SludgeComp: 42,
 	ExtraSceneComp: 44,
 	MapVarControlComp: 51,
@@ -122,6 +125,23 @@ export type DynamicGate =
 			mapId: number | null;
 	  };
 
+/** a variable an entity reads */
+export interface DynamicVariable {
+	kind: 'globalVar' | 'mapVar';
+	/** variable id */
+	key: number;
+	/** MapVarControlComp mapId; `null` for global variables */
+	mapId: number | null;
+}
+
+/** an entity's view-state controller (`ModelViewStateControllerNewComp`) */
+export interface DynamicViewState {
+	/** the `ModelViewStateControllerData` file it runs, by name; `null` for an old controller without one */
+	model: string | null;
+	/** whether it runs the old controller, keyed by its own state-to-name map, rather than {@link model} */
+	oldVersion: boolean;
+}
+
 /** a DynamicStreaming entity */
 export interface DynamicEntity {
 	/** grid unique id */
@@ -134,6 +154,13 @@ export interface DynamicEntity {
 	controllers: DynamicController[];
 	/** load conditions; all must hold. variable components that don't control loading aren't listed */
 	gates: DynamicGate[];
+	/**
+	 * every variable component, whether or not it controls loading: each applies its variable's value to the
+	 * entity's level and view-state key `state`
+	 */
+	variables: DynamicVariable[];
+	/** the entity's view-state controller, or `null` without one */
+	viewState: DynamicViewState | null;
 	resourceGroups: DynamicResourceGroup[];
 	/** an `ExtraSceneSlot`'s slot, where a separately stored scene (a Dijiang cabin) is placed; `null` otherwise */
 	extraScene: ExtraSceneSlot | null;
@@ -186,6 +213,7 @@ const Slot = {
 	ResourceComp: 32,
 	RootComp: 33,
 	ErosionRootComp: 36,
+	ModelViewStateControllerNewComp: 37,
 	SludgeComp: 44,
 	ExtraSceneComp: 46,
 	MapVarControlComp: 52,
@@ -207,6 +235,7 @@ const Width = {
 	PoiControlComp: 8,
 	ExtraSceneComp: 40,
 	ErosionRootComp: 48,
+	ModelViewStateControllerNewComp: 36,
 	SludgeComp: 264,
 } as const;
 
@@ -260,21 +289,20 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 		}
 		return vector.start + index * width;
 	};
-	const variableGate = (kind: 'globalVar' | 'mapVar', at: number): DynamicGate | null => {
+	/** reads a variable component: the variable it reads, and its load gate when it controls loading */
+	const variableComp = (
+		kind: 'globalVar' | 'mapVar',
+		at: number,
+	): { variable: DynamicVariable; gate: DynamicGate | null } => {
 		const controlLoad = fb.u8(at + 4);
 		const compare = fb.i32(at + 8);
 		if (controlLoad > 1 || compare < 0 || compare > 5) {
 			throw new FormatError(`invalid ${kind} control (load ${controlLoad}, compare ${compare})`);
 		}
-		if (controlLoad === 0) {
-			return null;
-		}
+		const variable = { kind, key: fb.i32(at), mapId: kind === 'mapVar' ? fb.i32(at + 40) : null };
 		return {
-			kind,
-			key: fb.i32(at),
-			compare,
-			value: Number(fb.i64(at + 16)),
-			mapId: kind === 'mapVar' ? fb.i32(at + 40) : null,
+			variable,
+			gate: controlLoad === 0 ? null : { ...variable, compare, value: Number(fb.i64(at + 16)) },
 		};
 	};
 
@@ -306,6 +334,8 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 				components: [],
 				controllers: [],
 				gates: [],
+				variables: [],
+				viewState: null,
 				resourceGroups: [],
 				extraScene: null,
 				erosionCore: null,
@@ -358,7 +388,7 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 						break;
 					}
 					case DynamicData.GlobalVarControlComp: {
-						const gate = variableGate(
+						const { variable, gate } = variableComp(
 							'globalVar',
 							rowIn(
 								fb.u32(di + 8),
@@ -368,13 +398,14 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 								'GlobalVarControlComp',
 							),
 						);
+						entity.variables.push(variable);
 						if (gate) {
 							entity.gates.push(gate);
 						}
 						break;
 					}
 					case DynamicData.MapVarControlComp: {
-						const gate = variableGate(
+						const { variable, gate } = variableComp(
 							'mapVar',
 							rowIn(
 								fb.u32(di + 8),
@@ -384,9 +415,25 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 								'MapVarControlComp',
 							),
 						);
+						entity.variables.push(variable);
 						if (gate) {
 							entity.gates.push(gate);
 						}
+						break;
+					}
+					case DynamicData.ModelViewStateControllerNewComp: {
+						const s = rowIn(
+							fb.u32(di + 8),
+							Slot.ModelViewStateControllerNewComp,
+							index,
+							Width.ModelViewStateControllerNewComp,
+							'ModelViewStateControllerNewComp',
+						);
+						const model = fb.i32(s);
+						entity.viewState = {
+							model: model < 0 ? null : rootString(model),
+							oldVersion: fb.u8(s + 4) !== 0,
+						};
 						break;
 					}
 					case DynamicData.IdComp: {
