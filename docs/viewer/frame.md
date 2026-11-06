@@ -106,8 +106,11 @@ what each post pass computes is in [post-processing](post-processing.md) and
   pass's frame group for the sun shadow, irradiance volume and sky reflection; its shader moves the
   post uniforms to group 3
   ([`render/post/shader-source.ts`](../../packages/viewer/src/render/post/shader-source.ts)). WGSL
-  helpers that several shaders share (noise, colour conversions, the screen-space projection) are in
-  [`render/shaders/common/`](../../packages/viewer/src/render/shaders/common/).
+  helpers that several shaders share (noise, colour conversions, luminance weights, the screen-space
+  projection, the octahedral codec, the reflection surface's packing, the Henyey–Greenstein phase)
+  are in [`render/shaders/common/`](../../packages/viewer/src/render/shaders/common/); TS constants
+  a shader reads are declared into its source with `wgslConst`
+  ([`render/shaders/wgsl-const.ts`](../../packages/viewer/src/render/shaders/wgsl-const.ts)).
 - **debug views** (`albedo`, `normals`, `roughness`, `ambient`, and `clouds` for the raw cloud
   panorama) show the main pass as it is: no shadows, local lights, cloud shadows, exposure,
   tonemapping, fog, AO, reflections, bloom, light shafts, lens flare or water. temporal antialiasing
