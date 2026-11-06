@@ -1,9 +1,8 @@
 # environment
 
-how the game decides what a place looks like (sun, sky, fog, clouds, grading). the game has no
+how the game decides what a place looks like (sun, sky, fog, clouds, grading, weather). there is no
 per-level environment setting: environment volumes placed in the world apply environment phases,
-blended by priority at the camera. phases also contain weather settings; their activation is
-described under [weather](#weather). how the renderer turns a blended phase into pixels is in
+blended by priority at the camera. how the renderer turns a blended phase into pixels is in
 [lighting.md](lighting.md), [sky-and-fog.md](sky-and-fog.md) and
 [post-processing.md](post-processing.md).
 
@@ -34,7 +33,7 @@ values. read sections only after checking `m_active`.
 | `rainConfig`          | rain, rain wetness ([wetness](#wetness))                      |
 | `lensFlareConfig`     | the sun's [lens flare](post-processing.md#lens-flare)         |
 
-the phase has other sections too (`snowConfig`, `volumetricCloudConfig`, …).
+the phase has other sections too (`snowConfig`, `volumetricCloudConfig`, …), not described here.
 
 fields whose effect isn't known, with what shipped phases set (map01, map02 and the dungeon, base
 and race scenes checked):
@@ -96,7 +95,8 @@ level's rectangle.
 
 Unity post-processing `Volume`s (component `Volume`: `isGlobal`, priority, blend distance, weight, a
 `VolumeProfile`) share the same rows; local ones carry a `BoxCollider`. every level has its own
-global post volume.
+global post volume (on map02 all of them name the same profile, at priority 0), and a few levels add
+local boxes.
 
 ## scene states
 
@@ -149,11 +149,17 @@ the order among equal-priority volumes isn't known, nor how the plain fields ler
 fields and enums switch or round, whether the effect directions (`<effect>PitchYaw` with their
 modes, and the `rotation*` quaternions resolved from them) lerp as angles or rotations, and how a
 fog's negative `rayleighScatteringScale` (which defers to the atmosphere's) blends against a
-positive one. the per-section lerps have special cases. the cloud lerp crossfades the cloud panorama
-through `cloudFadeAlpha`: the old texture fades out to ½, the new one in after. the height fog's
-flow noise has its own rule ([flow noise](sky-and-fog.md#flow-noise)), as does the lens flare: a
-flare on one side fades in by the factor with that side's settings, and two flares cross through
-nothing at ½ without blending (unverified). the precipitation transitions are special cases too.
+positive one. the per-section lerps have special cases:
+
+- **clouds**: the cloud panorama crossfades through `cloudFadeAlpha`: the old texture fades out to
+  ½, the new one in after.
+- **height-fog flow noise**: its own rule ([flow noise](sky-and-fog.md#flow-noise)).
+- **lens flare**: a flare on one side fades in by the factor with that side's settings, and two
+  flares cross through nothing at ½ without blending (unverified).
+- **snow**: between an enabled and a disabled side, the intensity fades to or from 0 with the
+  enabled side's settings.
+- **rain**: the wetness blends as under [wetness](#wetness); the falling rain's transition between
+  enabled and disabled isn't recovered.
 
 ## wind
 
@@ -186,8 +192,11 @@ volume.
 ## weather
 
 precipitation is part of the environment phase. rain and snow are sections of their own
-(`rainConfig`, `snowConfig`), blended with the rest. there is no evidence of an independent weather
-schedule; a server or random weather controller has not been found.
+(`rainConfig`, `snowConfig`), blended with the rest. the game counts it as raining (or snowing)
+while the blended section is enabled, at the section's `intensity`, else at 0; water sensors, for
+one, react to rain only where the sky is exposed. there is no evidence of an independent weather
+schedule: no server or random weather controller has been found, and map02 has no time-of-day
+environment volumes (`HGTimeOfDayEnvironmentVolume`).
 
 field rules, from the authored data:
 
@@ -204,7 +213,8 @@ field rules, from the authored data:
 weather appears in two ways:
 
 - **spatial overrides**: ordinary chunk volumes whose phases enable or disable precipitation, such
-  as the Marker Stone lake-islet rain or Snowy Forest's snow with drier cave overrides.
+  as the Marker Stone lake-islet rain (and the stairs below its dam, where every volume enables
+  rain), or Snowy Forest's snow with drier cave overrides.
 - **dynamic volumes**: LevelData carries an environment-volume table (phase path, bounds and
   transform, priority, blend mode, fades) that `EnvironmentEnable` script actions load and unload.
   these never appear in chunk data. Marker Stone's outposts have such quest-driven rain volumes at
@@ -240,10 +250,13 @@ wetness on at 0.5–1 in both dry and rainy phases, so its stone floors read wet
 
 - script activation of chunk volumes, and the starting state of each; which volumes are permanent vs
   story state.
-- the game's precipitation enable/disable transition rules.
+- the falling rain's transition between an enabled and a disabled section.
+- quest-driven weather: what starts the level scripts that load dynamic rain volumes and how their
+  state properties are initialized.
 - where a `volumeType` 4 (cylinder) volume keeps its shape: map02's one, a waterfall volume, has no
   shape blob.
 - the game's order among equal-priority volumes.
+- whether a local post `Volume` replaces the level's global one or layers over it.
 - the plain-field lerp: integers, enums, effect directions and the fog's deferred Rayleigh scale.
 - what the cloud flow, `skyMaterialType`, `reflectionType`, `useCustomIVDefaultSH` and
   `heightFogConfig.enableVolumetricFog` do ([environment phases](#environment-phases)).

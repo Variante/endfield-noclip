@@ -4,28 +4,30 @@ endfield-noclip is four workspace packages under `packages/`. the extractor read
 install with the decoders in `formats` and writes a viewer package to disk in the layout
 `package-format` defines; the viewer streams that package in the browser and renders it with WebGPU.
 
-| page                                                         | covers                                                                    |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| [extraction.md](extraction.md)                               | the extractor's commands, keys, container layers and `pack`               |
-| [package-format.md](package-format.md)                       | the package layout, tables and binary encodings                           |
-| [viewer/index.md](viewer/index.md)                           | the viewer: loading, streaming, the frame, and how it draws each topic    |
-| [driving-the-viewer.md](driving-the-viewer.md)               | opening, posing, inspecting and profiling the viewer from an agent        |
-| [status.md](status.md)                                       | the index of known gaps                                                   |
-| [game-data/world.md](game-data/world.md)                     | scenes, maps, levels, chunk files, stream areas, terrain, LOD and HLOD    |
-| [game-data/assets.md](game-data/assets.md)                   | Unity objects, asset resolution, decoders, prefabs, dynamic structures    |
-| [game-data/scene-states.md](game-data/scene-states.md)       | scene states, load gates, progressions and how the package encodes them   |
-| [game-data/environment.md](game-data/environment.md)         | environment phases and volumes, blending, weather                         |
-| [game-data/lighting.md](game-data/lighting.md)               | sun, shadows, ambient, reflections, local lights; index of game rendering |
-| [game-data/materials.md](game-data/materials.md)             | HGRP surface shaders                                                      |
-| [game-data/effects.md](game-data/effects.md)                 | `HGRP/Effect/*` scenery effects                                           |
-| [game-data/sky-and-fog.md](game-data/sky-and-fog.md)         | atmosphere, clouds, celestial layers, fogs                                |
-| [game-data/post-processing.md](game-data/post-processing.md) | exposure, light shafts, lens flare, bloom, GTAO, grading                  |
-| [game-data/irradiance.md](game-data/irradiance.md)           | the baked irradiance volume                                               |
-| [game-data/water.md](game-data/water.md)                     | open-world water                                                          |
+| page                                                         | covers                                                                              |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [extraction.md](extraction.md)                               | the extractor's commands, keys, container layers and `pack`; per-topic stages below |
+| [package-format.md](package-format.md)                       | the package layout, tables and binary encodings                                     |
+| [viewer/index.md](viewer/index.md)                           | the viewer: loading, streaming, the frame, and how it draws each topic              |
+| [driving-the-viewer.md](driving-the-viewer.md)               | opening, posing, inspecting and profiling the viewer from an agent                  |
+| [status.md](status.md)                                       | the index of known gaps                                                             |
+| [game-data/world.md](game-data/world.md)                     | scenes, maps, levels, chunk files, stream areas, terrain, LOD and HLOD              |
+| [game-data/assets.md](game-data/assets.md)                   | Unity objects, asset resolution, asset classes, prefabs, dynamic structures         |
+| [game-data/interactives.md](game-data/interactives.md)       | interactive placements, templates and models, view states                           |
+| [game-data/animation.md](game-data/animation.md)             | clips and their curves, ACL, scenery Animators, spinning scenery                    |
+| [game-data/scene-states.md](game-data/scene-states.md)       | scene states, load gates, progressions, facility forms, script groups               |
+| [game-data/environment.md](game-data/environment.md)         | environment phases and volumes, blending, weather                                   |
+| [game-data/lighting.md](game-data/lighting.md)               | sun, shadows, ambient, reflections, local lights                                    |
+| [game-data/irradiance.md](game-data/irradiance.md)           | the baked irradiance volume                                                         |
+| [game-data/materials.md](game-data/materials.md)             | HGRP surface shaders                                                                |
+| [game-data/effects.md](game-data/effects.md)                 | `HGRP/Effect/*` scenery effects, particle systems, effect LOD tables                |
+| [game-data/sky-and-fog.md](game-data/sky-and-fog.md)         | atmosphere, clouds, celestial layers, fogs                                          |
+| [game-data/post-processing.md](game-data/post-processing.md) | exposure, light shafts, lens flare, bloom, GTAO, grading                            |
+| [game-data/water.md](game-data/water.md)                     | open-world water, water volumes, foam boxes                                         |
 
 `game-data/` holds only what we know about the game: its formats, its shaders' behaviour and what it
 shows in game, with unchecked facts marked as such. how our code implements any of it lives in the
-[viewer](viewer/index.md) pages, [extraction.md](extraction.md) and
+[viewer](viewer/index.md) pages, [extraction.md](extraction.md) and its subpages, and
 [package-format.md](package-format.md), and what it lacks in [status.md](status.md). links run from
 those pages to game-data, never the reverse.
 
@@ -91,9 +93,12 @@ is deferred, which is why `formats` stays environment-agnostic.
 **one package per streaming scene, one level shown at a time.** a package holds one scene (one world
 and coordinate frame, e.g. `map02`), and every instance carries the level that owns it. the viewer
 shows exactly one level (the `level` URL parameter, defaulting to the first level with content) plus
-content shared by all levels, over the scene's shared terrain. choosing levels by camera position
-leaked neighbouring levels' scenery into view (Snowy Forest's snow peaks over Test Area on map02),
-so level choice is explicit.
+content shared by all levels, over the scene's shared terrain. the split began when Snowy Forest's
+snow peaks showed over Test Area on map02; that overlap turned out to be stream-area content, which
+the viewer switches by camera, and the levels themselves don't overlap. showing a scene's seamless
+levels together, with the chosen level as a streaming priority, is planned
+([status](status.md#renderer-and-performance)); levels that stream another scene keep the one-level
+view.
 
 **czar archives as the package container, with assets shared across levels.** a package is a small
 always-resident `core.czar` plus shard and asset archives (layout in
@@ -120,6 +125,7 @@ viewer with a package is responsible for that deployment.
 credited in the module that implements them: [AnimeStudio](https://github.com/Escartem/AnimeStudio)
 and AssetStudio (bundle descrambling, SerializedFile, mesh layout),
 [An1X3R/Endfield-map-extractor](https://github.com/An1X3R/Endfield-map-extractor) (chunk framing,
-water), and [Variante/endfield_research_kit](https://github.com/Variante/endfield_research_kit)
-(bundle manifest, StringPathHash, string pools, LevelConfig). GPL, AGPL and non-commercial tools are
-reference only.
+water), [Variante/endfield_research_kit](https://github.com/Variante/endfield_research_kit) (bundle
+manifest, StringPathHash, string pools, LevelConfig) and
+[SaigyoujiYusora/Sora-Core](https://github.com/SaigyoujiYusora/Sora-Core) (16-bit dense animation
+curves). GPL, AGPL and non-commercial tools are reference only.

@@ -4,10 +4,13 @@ scenery effects are meshes placed like any other renderer, mostly in dynamic str
 `HGRP/Effect/*` materials. the magenta blight around Jingyu Valley's corrupted shrine (map02_lv001,
 near unity −905, 228, −1505) is one: `VFXDecal` boxes stain the ground and `VFXBaseV2` cards rise
 from it as red and blue smoke, all in script group `script:458752:41` with the shrine's damaged
-pieces (on by default). particle systems whose meshes carry effects are in
-[assets.md](assets.md#particle-systems).
+pieces (on by default). the components that play effects inside prefabs (particle systems, spline
+movers, one-shot effects and effect LOD tables) are at the end of this page; prefabs themselves and
+billboards are in [assets.md](assets.md#prefabs).
 
 ## VFXBaseV2 and VFXDecal
+
+### the texture stack
 
 both are unlit and premultiplied (one, one minus source alpha), and build their colour from a stack
 of textures by role:
@@ -32,56 +35,49 @@ used as stored, the others are converted to linear. colours ignore the post expo
 layer in between `_NearCameraFadeDistanceStart` and `…End` metres of view depth, and out between
 `…Start2` and `…End2`.
 
-**VFXBaseV2** takes the main texture plus up to six `_SampleTexN`, each playing the role its
+### VFXBaseV2
+
+**textures.** the main texture plus up to six `_SampleTexN`, each playing the role its
 `_SampleTexNUseWeightK` property selects (0 disturb, 1 second disturb, 2 weight, 3 mask, 4 blend, 5
 dissolve), with the `_ST` of that role's own texture property (`_DisturbTex1`, `_DisturbTex2`,
-`_WeightTex`, `_MaskTex`, `_BlendTex`, `_DissolveTex`). each texture's UVs start from its
-`*UVWeights` times UV0, UV1, polar and screen UVs (materials set one weight). polar UVs are computed
-with `_USE_POLARUV` and `_UsePolarUV`: about UV0's centre, the angle from +v as a fraction of a turn
-and twice the distance. screen UVs, with `_USE_SCREENUV` and `_UseScreenUV`, are the pixel's
-position, centred and divided by half the width, v optionally the world height
-(`_UsePosYAsScreenV`), times the object origin's view depth past the near plane
-(`_ScreenUVUseDepth`, on by default); `_LocalPivortSpace` makes them relative to the object. a
-source that isn't computed is zero, so a texture weighted to it only scrolls. the sixth sample
-texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`. a sample
-texture its keyword switches on samples the property's default (white for every `_SampleTexN`) when
-the material binds none: the white talosite's shards switch on a mask that way, so it masks nothing.
-on particles (`_InParticle`) UV1 is the first texture coordinate set's zw (the UV2 stream), and the
-second set is the particle's custom data c ([custom data](assets.md#particle-systems)). the effect
-shaders on particles share one rule: the main texture's UVs shift by its `*UVSpeed.zw · c.x` and
-every other texture's by its own `*UVSpeed.zw · c.y`, before the rotation, and c.z adds to
-`_DissolveScheduleOffset`. VFXBaseV2, VFXDitherAlpha, VFXWater and six-way smoke (whose lightmaps
-are its main texture) follow it under `_InParticle`; VFXRefract reads the second set without that
-gate, shifting its refraction texture by c.x and its mask by c.y, its dissolve UVs unshifted.
-VFXDitherAlpha's vertex offset, whose speed's zw c.y also scrolls, is off on particles anyway. only
-VFXBaseV2 reads c.w: with `_UseParticleDisturb` (off the ink-wash path, where that component holds
-UV0's v) it scales the whole distortion, so a mesh with it set isn't distorted. VFXDecal reads
-custom data only under `_USE_IN_PARTICLE`, from its own stream layout (centre, 3D size,
-Custom1.xyz); off particles its textures shift by their speed's zw times constants of the material
-instead (`_MainCustomData`, `_DisturbCustomData`, `_MaskCustomData`, `_BlendCustomData`,
-`_DissolveCustomData`), and its schedule takes nothing. no effect shader reads the second custom
-stream or a colour-mode custom value. the black smoke over the anchors in dung02_rdg011
-(`blackfire01` in `p_fxmap_map_lv006_angel_anchor_smoke_active_1p8`, `M_fx_angel_anchorlight_834`)
-gives each particle a random shift of its smoke texture and a dissolve that climbs from about 0.35
-to 0.95 over its life, so its 30–40 m streaks are mostly eaten away by the time they rise high and
-long enough to turn visibly with the camera. with `_USE_LIGHTING` the colour is an albedo lit by the
-irradiance volume, the shadowed sun and local lights, at the vertex normal turned towards the camera
-or at the world's up (`_RotateNormalToWorldUp`), and divided by the post exposure under
-`_IgnorePostExposure`. the mist cards rising at the foot of falls are lit so. the colour starts from
-`_TintColor · _TintColorIntensity` times the vertex colour, alpha from
-`_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`.
-`_USE_ANIM_BREATHING` pulses that alpha between `_BreathingMinAlpha` and 1, by
+`_WeightTex`, `_MaskTex`, `_BlendTex`, `_DissolveTex`). a sample texture its keyword switches on
+samples the property's default (white for every `_SampleTexN`) when the material binds none: the
+white talosite's shards switch on a mask that way, so it masks nothing. a material without a main
+texture samples the shader's default, white (the base ring of Origin Lodespring's crater column is
+one).
+
+**UV sources.** each texture's UVs start from its `*UVWeights` times UV0, UV1, polar and screen UVs
+(materials set one weight). polar UVs are computed with `_USE_POLARUV` and `_UsePolarUV`: about
+UV0's centre, the angle from +v as a fraction of a turn and twice the distance. screen UVs, with
+`_USE_SCREENUV` and `_UseScreenUV`, are the pixel's position, centred and divided by half the width,
+v optionally the world height (`_UsePosYAsScreenV`), times the object origin's view depth past the
+near plane (`_ScreenUVUseDepth`, on by default); `_LocalPivortSpace` makes them relative to the
+object. a source that isn't computed is zero, so a texture weighted to it only scrolls. the sixth
+sample texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`. on
+particles (`_InParticle`) UV1 is the first texture coordinate set's zw (the UV2 stream); the second
+set is the particle's [custom data](#particle-custom-data).
+
+**colour and alpha.** the colour starts from `_TintColor · _TintColorIntensity` times the vertex
+colour, alpha from `_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above
+`_ExpThreshold`. `_USE_ANIM_BREATHING` pulses that alpha between `_BreathingMinAlpha` and 1, by
 `saturate((cos(t · _BreathingSpeed) · 0.5 + 0.5)^_BreathingPower)`, t the shader's time scaled and
-offset by two per-draw values; the panels of Dijiang's clue board breathe so. a material without a
-main texture samples the shader's default, white (the base ring of Origin Lodespring's crater column
-is one). alpha fades by a Fresnel term (`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by
-`_FresnelFlip`, applied by `_FresnelAffectOpacity`) and, with `_USE_SOFTBLEND`, where the surface
-comes within `_SoftDistance` metres of what lies behind it. the shader writes its alpha times
-`1 − _BlendMode`, so under `_BlendMode` 1, the shader's default, the premultiplied colour adds to
-what lies behind instead of covering it; about a quarter of the scenery's VFXBaseV2 materials are
-such, among them the glare at the corroded planet's centre seen from Dijiang's deck. `_BlendMode` 2
-writes `lerp(1, colour, alpha)` for a `Blend DstColor Zero` state, which multiplies what lies behind
-by it.
+offset by two per-draw values; the panels of Dijiang's clue board breathe so. alpha fades by a
+Fresnel term (`saturate(N·V + _FresnelBias)^_FresnelPower`, flipped by `_FresnelFlip`, applied by
+`_FresnelAffectOpacity`) and, with `_USE_SOFTBLEND`, where the surface comes within `_SoftDistance`
+metres of what lies behind it.
+
+**lighting.** with `_USE_LIGHTING` the colour is an albedo lit by the irradiance volume, the
+shadowed sun and local lights, at the vertex normal turned towards the camera or at the world's up
+(`_RotateNormalToWorldUp`), and divided by the post exposure under `_IgnorePostExposure`. the mist
+cards rising at the foot of falls are lit so.
+
+**blend modes.** the shader writes its alpha times `1 − _BlendMode`, so under `_BlendMode` 1, the
+shader's default, the premultiplied colour adds to what lies behind instead of covering it; about a
+quarter of the scenery's VFXBaseV2 materials are such, among them the glare at the corroded planet's
+centre seen from Dijiang's deck. `_BlendMode` 2 writes `lerp(1, colour, alpha)` for a
+`Blend DstColor Zero` state, which multiplies what lies behind by it.
+
+### edge colour
 
 `_USE_EDGECOLOR` marks where the surface meets what lies behind it, after the dissolve and before
 the brightening: `e = _EdgeColor.a · saturate(_EdgeDistance / max(d, 0.001) − _EdgeDistanceOffset)`,
@@ -92,15 +88,21 @@ mode. the frames of Dijiang's aisle-guide panels (`M_fxmap_base01_lv001_ship_ais
 mode 1, `_EdgeDistance` 0.002) glow only within millimetres of a contact, so they draw almost as
 without the keyword.
 
+### vertex offset and brightening
+
 `_USE_VERTOFFSET` moves each vertex along `_OffsetDir` (`_OffsetSwitchDir` 0: object space, 1: world
 space, 2: the vertex normal) by `_OffsetIntensity · (r · (1 + _Bi_Offset) − _Bi_Offset)`, where r is
 `_OffsetTex`'s red channel at UV set 0 (set 1 with `_OffsetUVSet`), after its `_ST`, scrolled by
 `_OffsetSpeed` per second. `_UseVertexColorAlphaAsVertOffsetWeight` weights it by the vertex alpha,
 and every vertex is also pulled towards the camera by up to `_VertCameraOffset` metres (plus 1 mm).
-the whole offset is scaled by `1 − _InParticle`, so a mesh material left at the default
-`_InParticle` of 1 doesn't move. `_USE_BRIGHT` with `_BrightType` 0 and no `_BrightCenter` (w 0)
-adds `_BrightColor` and a UV wobble within `_OuterRadius` of the player. the teal streams winding
-between Wuling City's floating pillars (`M_fx_map02_zhenlie_*`, map02_lv002) use both.
+the whole offset is scaled by `1 − _InParticle`, so it never moves particles, and a mesh material
+left at the default `_InParticle` of 1 doesn't move either.
+
+`_USE_BRIGHT` with `_BrightType` 0 and no `_BrightCenter` (w 0) adds `_BrightColor` and a UV wobble
+within `_OuterRadius` of the player. the teal streams winding between Wuling City's floating pillars
+(`M_fx_map02_zhenlie_*`, map02_lv002) use both.
+
+### water blending
 
 `_USE_WATER_BLEND` fades the colour as if seen through water below `_WaterHeight`: it absorbs by
 `_WaterAbsorption`/`_WaterAbsorption2` and adds inscattered light over the distance the view ray
@@ -111,6 +113,8 @@ its code isn't read). materials keep an authored `_WaterHeight` of −9999, −9
 they're placed, so placed effects out of water draw as without the keyword. the glows of Aurelyne,
 the collectible orbs (`int_collection_coin_*_postmodel`, e.g. in Aburrey Quarry near unity 364, 44,
 −700), are such: the orbs placed in map01 and map02 lie at y 18.8 and above.
+
+### soft-body animation
 
 `_VAT_SOFTBODY` plays a Houdini vertex animation: each vertex moves by `_PositionTexture`'s texel at
 UV set 1's column and the current frame's row, in object space. the frame is
@@ -123,6 +127,8 @@ times `_boundMinZ` and `_boundMaxX` (1 for the bounds seen). textures of HDR off
 `_RotationTexture` holds a quaternion per vertex that turns the normal and tangent from +y and −x.
 the wobbling blob at the heart of the Hub's Aurelyne (`M_erosionmud_core`, map01_lv001 near unity
 −104, 118, −534) is one, 100 frames looped 3.5 times a second.
+
+### VFXDecal
 
 **VFXDecal** draws a unit box (`s_fx_particle_decal_cube`): each covered pixel finds the surface
 behind from the scene depth and, if that point lies inside the box, projects the textures down the
@@ -138,6 +144,37 @@ alpha its alpha times `_TintColorAlpha`, faded towards the box's x and z faces (
 `_EdgeFadeIntensity`), its top and bottom (`_HeightFade` around `_HeightFadeOffset`), and with
 `_USE_NORMALBLEND` on surfaces facing away from the box's y (`N·up` to the power
 `_AngleBlendFallOff`, N the surface's normal). the colour is premultiplied by the alpha twice.
+
+off particles its textures shift by their speed's zw times constants of the material
+(`_MainCustomData`, `_DisturbCustomData`, `_MaskCustomData`, `_BlendCustomData`,
+`_DissolveCustomData`), where VFXBaseV2's take custom data, and its dissolve schedule takes nothing.
+under `_USE_IN_PARTICLE` it reads custom data from its own stream layout instead
+([below](#particle-custom-data)).
+
+## particle custom data
+
+on a particle, an effect shader's second texture coordinate set holds the particle's custom data c
+([custom data](#particle-systems)). the effect shaders share one rule: the main texture's UVs shift
+by its `*UVSpeed.zw · c.x` and every other texture's by its own `*UVSpeed.zw · c.y`, before the
+rotation, and c.z adds to `_DissolveScheduleOffset`. per shader:
+
+- VFXBaseV2, VFXDitherAlpha, [VFXWater](#waterfalls) and [six-way smoke](#six-way-smoke) (whose
+  lightmaps are its main texture) follow it under `_InParticle`.
+- [VFXRefract](#refraction) reads the second set without that gate, so on a mesh its second UV set
+  stands in: c.x shifts its refraction texture and c.y its mask; its dissolve UVs aren't shifted.
+- VFXDitherAlpha's vertex offset, whose speed's zw c.y also scrolls, is off on particles anyway
+  ([vertex offset](#vertex-offset-and-brightening)).
+- only VFXBaseV2 reads c.w: with `_UseParticleDisturb` (off the ink-wash path, where that component
+  holds UV0's v) it scales the whole distortion, so a mesh with it set isn't distorted.
+- VFXDecal reads custom data only under `_USE_IN_PARTICLE`, from its own stream layout (box centre
+  and 3D size from the Center and SizeXYZ streams, c.xyz from Custom1.xyz). one material uses it,
+  `M_fx_map_lv007_angeresidue_2104`, on mesh particles of the decal cube.
+
+no effect shader reads the second custom stream or a colour-mode custom value. the black smoke over
+the anchors in dung02_rdg011 (`blackfire01` in `p_fxmap_map_lv006_angel_anchor_smoke_active_1p8`,
+`M_fx_angel_anchorlight_834`) gives each particle a random shift of its smoke texture and a dissolve
+that climbs from about 0.35 to 0.95 over its life, so its 30–40 m streaks are mostly eaten away by
+the time they rise high and long enough to turn visibly with the camera.
 
 ## portals
 
@@ -155,14 +192,14 @@ transparent layer and draw a second layer only where it didn't (`NotEqual`).
 
 `HGRP/Effect/VFXDitherAlpha` writes the G-buffer like an opaque surface, for effect meshes that are
 solid, such as the rocks floating over Origin Lodespring's crater (mesh particles,
-[assets](assets.md#particle-systems)). the colour is `_TintColor · _TintColorIntensity` times
-`_MainTex` (the tint alone with `_UseMainTexAsAlpha`), times `_MainTex2Color` when `_USE_MAIN2`
-takes only the alpha of `_MainTex2` (`_UseMainTex2AsAlpha`) and multiplies (`_MainTex2BlendMode` 0).
-with `_UseLighting` it is the albedo, saturated as the G-buffer stores it, else emitted.
-`_NORMAL_MAP` adds a tangent-space normal map (`_NormalScale`; x from alpha times red, as Unity
-unpacks it); roughness and metallic are `_Roughness` and `_Metallic`. the shader has no shadow
-caster pass. the rocks' material multiplies a gold mask by a tint twelve times over, so the
-saturated albedo is black rock with gold veins.
+[assets](#particle-systems)). the colour is `_TintColor · _TintColorIntensity` times `_MainTex` (the
+tint alone with `_UseMainTexAsAlpha`), times `_MainTex2Color` when `_USE_MAIN2` takes only the alpha
+of `_MainTex2` (`_UseMainTex2AsAlpha`) and multiplies (`_MainTex2BlendMode` 0). with `_UseLighting`
+it is the albedo, saturated as the G-buffer stores it, else emitted. `_NORMAL_MAP` adds a
+tangent-space normal map (`_NormalScale`; x from alpha times red, as Unity unpacks it); roughness
+and metallic are `_Roughness` and `_Metallic`. the shader has no shadow caster pass. the rocks'
+material multiplies a gold mask by a tint twelve times over, so the saturated albedo is black rock
+with gold veins.
 
 its depth pass keeps a pixel where the alpha beats an interleaved gradient noise of the pixel
 position times `_DitherTilling`, so a fraction of the pixels equal to the alpha survives. the alpha
@@ -175,7 +212,7 @@ stack: `_DisturbTex1` shifts the main and dissolve UVs (`_MainTexUseDisturb`,
 `_DissolveTexUseDisturb`, both 1 by default), each texture's UVs start from its `*UVWeights` of UV0,
 UV1, polar and screen UVs, and the dissolve multiplies the tested alpha and colours its edge as
 VFXBaseV2's does. the vertex alpha and the near camera fade also scale the tested alpha. the walls
-of the rift's ripples are such (below).
+of the rift's ripples are such ([below](#the-very-large-rifts-ripples)).
 
 `_USE_MASK` exists only in the depth pass: `_MaskTex` multiplies the tested alpha by its alpha, or
 its red under the default `_UseMaskTexAsAlpha`, and doesn't colour the surface. its UVs scroll,
@@ -198,8 +235,9 @@ a draw list of their own, and only the
 roughness and depth it marches from, as water does. the pass writes the mesh's normal with a
 roughness of 1 wherever its alpha (VFXBaseV2's tint, vertex colour, `_MainTex` and near camera fade)
 reaches `_ReflectionPassAlphaCutout`, so behind a transparent effect the reflections are traced from
-the effect's surface instead of the opaque one. the Very Large Rift portal's `quan_ad_01` ring
-(VFXBaseV2) has such a twin, `quan_ad_01_pass`. what this changes on screen behind the ring isn't
+the effect's surface instead of the opaque one. two materials use it: the Very Large Rift portal's
+`quan_ad_01_pass` (dung02_dg005), twin of its VFXBaseV2 `quan_ad_01` ring, and
+`zhuangfangyi_shu_04_03_pass` (indie_dg005). what this changes on screen behind the ring isn't
 checked against the game.
 
 ## refraction
@@ -227,16 +265,14 @@ metres of view depth in front of the opaque scene.
 `d = saturate((r − (_DissolveScheduleOffset · 2.02 − 1.01)) · _DissolveEdgeSharp)`, with r the red
 of `_DissolveTex` (UV0 scrolled by `_DissolveUVSpeed`, rotated by `_DissolveUVRotate` degrees about
 the centre), scales the refraction offset, so the mask's UVs take the dissolved offset too, but not
-the colour split's further shift. `_DissolveAffectBlend` blends the alpha from 1 to `d`. a
-particle's custom data's z adds to the schedule offset; a mesh's second UV set would stand in for
-it, unconfirmed ([custom data](#vfxbasev2-and-vfxdecal)). the balloons (`int_balloon_postmodel`)
-glitch the scene behind their "connecting" sign this way (`distortion01` in
-`P_interactive_ballonconnecting`, `M_fx_robotemoji_821`), whose split tints the main sample magenta
-(`_RBMainColorMask`) against a cyan further one.
+the colour split's further shift. `_DissolveAffectBlend` blends the alpha from 1 to `d`. custom data
+z adds to the schedule offset ([custom data](#particle-custom-data)).
 
-Deep Dale Street (dung02_rdg008) uses a split for the heat haze of its fog walls
-(`p_fxmap_map02_lv008_fogwall_01`, child `refract`): particle sheets whose red and blue are pushed
-apart vertically.
+the balloons (`int_balloon_postmodel`) glitch the scene behind their "connecting" sign this way
+(`distortion01` in `P_interactive_ballonconnecting`, `M_fx_robotemoji_821`), whose split tints the
+main sample magenta (`_RBMainColorMask`) against a cyan further one. Deep Dale Street
+(dung02_rdg008) uses a split for the heat haze of its fog walls (`p_fxmap_map02_lv008_fogwall_01`,
+child `refract`): particle sheets whose red and blue are pushed apart vertically.
 
 ### the Very Large Rift's ripples
 
@@ -258,8 +294,12 @@ one-particle system that emits a mesh every 6 s and grows it over its life, so t
 
 a falls is a stack of prefab placements: the river surface running down the cliff behind it, one or
 two VFXWater sheets (a flipbook sheet and a frothier outer one), [WaterDecal](water.md#waterdecal)
-foam boxes at its foot, particle mist and splashes, and FogSimple cards around it. the sheets of
-falling water are `HGRP/Effect/VFXWater` meshes (about 1800 placements on map02, in
+foam boxes at its foot, particle mist and splashes, and FogSimple cards around it. some add a
+shimmer: `niuqu` planes of [VFXRefract](#refraction) and VFXBaseV2 `add2`/`dark` planes with a
+[vertex offset](#vertex-offset-and-brightening) (`P_fxmap_waterfall_map01lv005_00x`). a few falls
+are ECS entities in dynamic streaming chunks instead of prefab placements (33
+`P_waterfall_map02lv001_*` on map02), with VFXWater, VFXBaseV2 or VFXRefract materials. the sheets
+of falling water are `HGRP/Effect/VFXWater` meshes (about 1800 placements on map02, in
 `P_fxmap_*waterfall*` prefabs). per pixel:
 
 - **colour and opacity.** `_TintColor · _TintColorIntensity` (alpha `· _TintColorAlpha`) times the
@@ -287,9 +327,8 @@ falling water are `HGRP/Effect/VFXWater` meshes (about 1800 placements on map02,
   (`_Roughness`, f0 `0.08 · _Specular`, `· _DirSpecularStrength`, divided by the opacity so it
   survives premultiplication) and the subsurface colour through a wrap lobe plus a see-through lobe
   towards the sun, the light that makes falls glow against a low sun.
-- `_BlendMode` 1 adds the sheet to what lies behind, as VFXBaseV2's does.
-
-under `_IgnorePostExposure` the colour, lit share included, is divided by the post exposure.
+- **output.** under `_IgnorePostExposure` the colour, lit share included, is divided by the post
+  exposure. `_BlendMode` 1 adds the sheet to what lies behind, as VFXBaseV2's does.
 
 ## six-way smoke
 
@@ -307,8 +346,8 @@ per pixel:
   (degrees) and `_ST` the same way; the blend texture's `_ST` is applied a second time after the
   distortion. every texture reads UV set 0; `_MaskUVSet` and `_DissolveUVSet` switch the mask and
   dissolve to UV set 1: on particles the UV2 stream, which holds the particle's own UVs without a
-  texture sheet, on meshes their UV1. custom data shifts and dissolves as in
-  [VFXBaseV2](#vfxbasev2-and-vfxdecal).
+  texture sheet, on meshes their UV1. custom data shifts and dissolves as the
+  [shared rule](#particle-custom-data) says.
 - **distortion.** `_USE_DISTURB` (and `_USE_DISTURB_TEX2` for the second texture): each texture's
   red, remapped by `_Bi_Disturb`, times `_DisturbU/VIntensityN` (or its normal with
   `_DisturbTexNNormal`), summed, shifts the lightmap, mask, blend and dissolve UVs by their
@@ -329,7 +368,8 @@ per pixel:
   shadow (the shadow is sampled per vertex and tinted by a ramp texture). the irradiance volume at
   the normal takes the sum of all six absorbed channels, desaturated by `_EnvLightSaturation`. the
   game's global scene-effect colour adjustment applies to both.
-- `_USE_FOG` fogs the smoke at its own distance. the materials blend `SrcAlpha, OneMinusSrcAlpha`.
+- **output.** `_USE_FOG` fogs the smoke at its own distance. the materials blend
+  `SrcAlpha, OneMinusSrcAlpha`.
 
 ## mist
 
@@ -342,13 +382,13 @@ the drifting mist banks are effects too: `HGRP/FogSimple` cards (841 on map02, `
   `(−_WindDirX, _WindDirY) · _WindSpeed` per second, remapped by `_WindNoiseContrast` and mixed in
   by `_WindNoiseIntensity`, scales both colour and alpha. the colour is `_BaseColor` (`[HDR]`, like
   `_IndirectColor`, so used as stored); with `_USE_LIGHTING` it's `_BaseColor` times the sun's light
-  colour, mixed towards `_IndirectColor` away from the sun by `_LightFactor`. alpha then fades in
-  over `_DistanceFadeStart…End` and out over `_NearCameraFadeDistanceStart…End` metres of view
-  depth, upwards (`saturate(h · _TopFadeContract + _TopFadeOffset)`, where `h` is the world height
-  below the card's origin divided by the length of its y axis, so a card placed upside down, like
-  the 77 m one at Suiming's cave exit, still fades towards the sky rather than the ground), with
-  `_USE_SOFTBLEND` within `_SoftDistance` metres of what lies behind, and is scaled by
-  `_BaseAlphaIntensity`.
+  colour, mixed towards `_IndirectColor` away from the sun by `_LightFactor`, at the normal its
+  normal map gives. alpha then fades in over `_DistanceFadeStart…End` and out over
+  `_NearCameraFadeDistanceStart…End` metres of view depth, upwards
+  (`saturate(h · _TopFadeContract + _TopFadeOffset)`, where `h` is the world height below the card's
+  origin divided by the length of its y axis, so a card placed upside down, like the 77 m one at
+  Suiming's cave exit, still fades towards the sky rather than the ground), with `_USE_SOFTBLEND`
+  within `_SoftDistance` metres of what lies behind, and is scaled by `_BaseAlphaIntensity`.
 - **light through openings.** some cards fake daylight falling into a cave rather than mist. at
   Suiming's cave exit (near unity −145, 149, −188) a 77 m card, flipped so its mask
   (`T_fog_smoothradial_grad_01_M`, a half-radial glow brightest along v = 0) lights its top edge,
@@ -381,3 +421,228 @@ middle distance.
 the game draws effects after its fog and its water, so mist in front of water covers it, and only
 effects with `_USE_FOG` are fogged, at their own distance; the rest stay clear of the fog, as Origin
 Lodespring's red light stripes along the crystal ridge (`M_fx_prop_connectline_*`) do.
+
+## particle systems
+
+a `ParticleSystemRenderer`'s `m_RenderMode` is 4 for meshes, otherwise a quad: billboard 0,
+stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's effects set them:
+
+- **cap.** without a ring buffer, the cap (`maxNumParticles`) only limits emission: each emission,
+  by rate or burst, makes at most the cap minus the live particles, none when the system is full,
+  and the skipped ones aren't made up later. live particles are never cut short to make room. the
+  Very Large Rift's ripple rings (`wenli_02` and the others in
+  `p_fxmap_dung02_dg005_boss_semicircle_ripple_01`) rely on this: a burst every 0.1 s loop with a
+  cap of 1 lets in one ring per 6 s lifetime. some systems store a cap of 0 yet show in game, such
+  as the tilted torch flames (`P_fxmap_common_tiltedflame_2501`), though the engine reads 0 as no
+  particles; why isn't traced.
+- **scaling.** `scalingMode` picks the scale that sizes particles: Hierarchy the whole hierarchy's,
+  Local the system's own transform's, and Shape none, where the scale moves particles but leaves
+  their size. effects stretch a spawn box this way: Jingyu Valley's bird flock
+  (`p_fxmap_map_bird_03`) sits under a parent scaled 363 × 150 × 148 m, in Shape mode, so its birds
+  stay their start size.
+- **pivot.** the renderer's `m_Pivot` offsets each particle's mesh from the particle's position, in
+  the particle's turned frame, in multiples of the particle's size. in mesh mode it is also measured
+  in the mesh's own size, per axis twice the farthest its bounds reach from the origin
+  (`2·(|centre| + extent)`), as the renderer's bounds code sizes it. Dijiang's robot lamps
+  (`P_fxmap_common_robot_lamp_802`) offset their eyes, a 0.1 m plane, by ±0.95 of it: each eye sits
+  7 cm off centre under the eyes' 30× scaled parent, not 70 cm.
+- **Limit Velocity.** with `dampen` 0 the speed limit does nothing, and the module only applies its
+  drag: an amount, optionally scaled by the particle's size and by its speed squared. the splashes
+  at the foot of Jingyu Valley's falls (`shuihua` in `P_fxmap_common_splashes_middle_2501`) rely on
+  it to hang in the air rather than drop under their 2–6× gravity. with `dampen` above 0 the engine
+  runs the module right after Velocity over Lifetime each frame and limits the whole speed `s`, the
+  particle's own velocity plus the velocity-over-lifetime part: above the limit `L` (`magnitude`,
+  read at the particle's age; two constants pick a random value per particle) the speed becomes
+  `s + (L − s)·k` with `k = 1 − (1 − dampen)^(30·dt)`, frame-rate independent against 30 fps, and
+  the excess comes out of the particle's own velocity alone, so the velocity-over-lifetime part is
+  added in full again next frame. a particle moved only by velocity over lifetime thus builds up an
+  opposing velocity of its own and settles at the limit. the challenge start point's rising rock
+  cards (`stone` in `int_challenge_start_point_once_postmodel`) start still, are pushed up at 0.2–1
+  m/s and limited to 0.1–1 m/s with a dampen of 0.1.
+- **speed modifier.** each frame the engine reads Velocity over Lifetime's `speedModifier` at the
+  particle's age over its lifetime (the time the linear velocity curves are read at; two constants
+  pick a random value per particle) and moves the particle by its whole velocity, its own plus the
+  velocity-over-lifetime part, times that value. a curve thus scales the start speed as much as the
+  module's own terms. the floating stones of Valley's Aberrants (`floatstone01` in
+  `p_fxmap_map01_lv001_floatstone_*`) rise at 0.5–1.5 m/s under a modifier ramping from 0.39 to 1
+  over their 5–10 s. whether gravity's part of the velocity is scaled too isn't traced.
+- **ring buffer.** `ringBufferMode` 1 holds a particle's age at its end until a newer one replaces
+  it, 2 replays `ringBufferLoopRange`. a held particle isn't frozen: every module goes on moving and
+  turning it, reading its curves at their end, and it moves by its velocity as before. emission
+  isn't capped; an emission past the cap replaces the particles in slot order, oldest first, and
+  only then fires their death sub-emitters. Jingyu Valley's fish school relies on this: its one
+  burst lives 5–10 s, then swims on in its force field for good.
+- **external forces.** `ExternalForcesModule` pushes particles with `ParticleSystemForceField`s:
+  those in `influenceList` (`influenceFilter` 1), those on the layers of `influenceMask` along with
+  wind zones (0), or both (2), when active and enabled. the module does nothing unless its
+  multiplier's scalar is above 0. each step, after gravity and before velocity over lifetime, noise
+  and the speed limit, each field changes the particle's own velocity in turn. a sphere field
+  measures the particle's distance from its centre in its own frame, scale included, so a field
+  squashed up its y reaches less far vertically; outside `m_StartRange`…`m_EndRange` it does
+  nothing, and its curves are read at the distance's place between the two. two constants pick one
+  value per particle, the same for every field; the multiplier is read at the particle's age. in
+  order: the direction curves add `direction · m · dt` along the field's axes; gravity adds
+  `−n · gravity · m · dt · 30` (`n` from the centre to the particle, reversed within
+  `m_GravityFocus` of the range); the swirl, only when both its speed and attraction scalars are
+  nonzero, pulls the velocity `v` towards `t · speed` by `attraction · m · dt · 30` of the way, `t`
+  the unit tangent about the field's +y tilted per particle by up to ± half a turn times
+  `m_RotationRandomness` (about x, then z); drag takes `drag · m · dt` off the speed, times
+  `π (size / 2)²` and the speed squared when its flags say so, to no less than 0. the ×30 makes the
+  pulls frame-rate independent against 30 fps. the fish school's field (start 3 m, end 15 m,
+  squashed to 0.2 up its y) swirls its fish at ±4 m/s with a 2–5% pull per 1/30 s, pulls them in at
+  3–7.5 m/s² and drags them by their speed squared; the large fish's field has no swirl attraction,
+  so it only holds them in and slows them.
+- **texture sheet.** `UVModule` in grid mode plays the whole sheet or one row (fixed, random or by
+  mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
+  `startFrame`, on the UV sets of `uvChannelMask`.
+- **meshes.** each particle draws one of up to four meshes (`m_Mesh` … `m_Mesh3`), evenly or by
+  `m_MeshWeighting*` when `m_MeshDistribution` is 1.
+- **render alignment.** `m_RenderAlignment` is Unity's: View 0, World 1, Local 2, Facing 3 and
+  Velocity 4, which points a particle's +z along its motion. the accelerate mushroom's arrows
+  (`dajiantou02`/`03` in `int_acceleratemushroom_postmodel`) are flat arrow meshes pointing along
+  their +z, launched straight up a cone of angle 0 and lifted by a slightly negative gravity, so
+  Velocity alignment stands them upright as they rise, spun about the vertical by their rotation
+  over lifetime. for meshes, the velocity is turned into the world (through the emitter's whole
+  matrix, scale included) and the particle takes a look rotation along it, rolled level by the
+  world's +y: forward along the velocity, right `(F.z, 0, −F.x)` normalized (the world's +x when
+  moving straight up or down), up their cross product; a still particle faces the world's +z. the
+  mesh is offset by its pivot, sized, turned by the particle's own rotation, scaled by the emitter's
+  scale (Hierarchy the lossy scale, Local the system's own, Shape none) along that rotation's axes,
+  then turned into it. the fish (`p_fxmap_map02_lv001_fish_2101`) are modelled along their y and
+  turned −90° about x, so they swim level along their path.
+- **stretched quads.** with `m_FreeformStretching` off, a stretched particle is a streak from the
+  particle back along its velocity, `size.y · m_LengthScale` (times the emitter's x scale) plus
+  `speed · m_VelocityScale` long, with the camera's velocity times `m_CameraVelocityScale` taken off
+  the velocity first (the camera's world velocity, not turned into the camera's frame). its width,
+  `size.x`, runs across the velocity as seen from the camera's position (the cross product of the
+  velocity and the camera-to-particle direction), flattened onto the view plane; the particle's
+  rotation and `m_RotateWithStretchDirection` don't enter. turning the camera in place thus barely
+  moves it, while a streak tilted off the line of sight turns about itself as the camera moves. a
+  still particle, or one moving along the line of sight, has no width and isn't drawn. the pivot
+  moves the head forward along the velocity by `pivot.y · size.y` (no length scale) and the whole
+  streak across by `pivot.x` times half the width; `pivot.z` is unused. each corner's normal leans
+  from the face's own normal (perpendicular to the width and the 3D streak, towards the camera) out
+  along its edge by `cos(m_NormalDirection · 90°)`; at `m_NormalDirection` 1 every corner takes the
+  face's normal. Suiming's drifting fog (`smoke` in `p_fxmap_map02_lv007_windice01`, 10–13 m streaks
+  twice their size long, blown sideways at 5–15 m/s) is such a streak, faded by a steep Fresnel term
+  on that normal. the freeform path isn't traced.
+- **on-screen size.** for every quad mode the renderer holds a particle's larger side between
+  `m_MinParticleSize` and `m_MaxParticleSize` times the viewport's width at the particle's view
+  depth (`2·tan(fov/2)·aspect·depth`; twice the orthographic size times the aspect for orthographic
+  cameras), scaling x and y together. behind the camera the minimum's bound is negative, which hides
+  the particle only when `m_MinParticleSize` is above 0; the maximum's negative bound is ignored, so
+  with no minimum a particle behind the camera keeps its whole size. a stretched quad's length is
+  worked out from its size before the limit, so the limit only narrows it. a dead particle (age at
+  or past 100% of its lifetime) gets no size.
+- **custom data.** `CustomDataModule` in vector mode (`mode0` 1) gives each particle up to four
+  values (`vectorComponentCount0`, the rest 0), each a MinMaxCurve read every step at the particle's
+  age over its lifetime (clamped below 1). a random between two constants or curves is fixed per
+  particle: it comes from the particle's random seed, salted per component, with no time input. with
+  `m_UseCustomVertexStreams` the renderer packs its `m_VertexStreams` past position, normal, tangent
+  and colour into 4-wide texture coordinate sets in list order (UV and UV2 two components each,
+  Custom1XYZW four), the same on all four corners of a quad: with streams [0, 1, 3, 4, 5, 34] the
+  first set is UV and UV2 (equal without a texture sheet) and the second is the custom data, which
+  effect materials read ([particle custom data](#particle-custom-data)).
+- **rotation over lifetime.** `RotationModule`'s rates (`curve` about z, and `x`, `y` with
+  `separateAxes`) are angular velocities read at the particle's age over its lifetime, so curves
+  speed up or slow the spin. the mushroom's wind sheets (`wind01`/`wind02`) start spinning at up to
+  60°/s either way, between two curves, and slow to a stop.
+- **donut shape.** `ShapeModule.type` 17 emits from a torus: `radius` around the shape's z,
+  `donutRadius` the tube's, `radiusThickness` the tube's outer part used, each particle leaving
+  outwards from the tube's centre line, as Unity documents it (not checked against the engine). the
+  mushroom's coin motes (`lizi1`) burst from one stretched tall by the shape's scale.
+
+examples:
+
+- Wuling City's threads swirling over the pillar array (`p_fxmap_lv002_fangyuzhenlie_*`) are single
+  particles kept past their lifetime by a ring buffer, without a texture sheet.
+- the floating rocks over Origin Lodespring's crater (`Rock02` in `P_fxmap_common_brokentree_01/02`)
+  draw four rock meshes each.
+- the campfire flames (`fire01`/`fire02` in `P_fxmap_common_damagefire_small_2501`) are one
+  ring-buffered particle stepping through an 8×8 flipbook every loop.
+- the spray and stretched mist cards at the foot of falls are `shuihua` and `shuiwu`.
+
+## spline movers
+
+Beyond's `HGSplineMovingObjects` MonoBehaviour emits whole prefabs along a spline, simulated in
+native code rather than by a `ParticleSystem`. the cargo crates riding up and down Dijiang's central
+shaft are such movers: ten of them in `p_fxmap_base01_lv001_zmdlogistics_02_01` (and `_01_01` for
+the other scene state), placed with the shaft's effects in base01_lv001. it is recognised by its
+`desc`, `knotData` and `fixedPostion` fields. `desc` holds Unity `MinMaxCurve`s in their managed
+form (`m_Mode`, `m_ConstantMin/Max`, `m_CurveMultiplier`, `m_CurveMin/Max`), and the game:
+
+- **emits** `emissionRateOverTime` objects per second of the mover's own time, the frame's time
+  times `simulateSpeed` (the logic clock's with `useLogicDeltaTime`). an object emitted partway
+  through a frame starts aged by the rest of it. each picks one of `lodGroups` at random and draws
+  that LOD group's renderers as one object.
+- **places** an object `d` metres along `knotData`, cubic Bézier segments (`p0`–`p3`) laid end to
+  end, each taking up its stored `length`. the segment's parameter is `d`'s share of that length, so
+  the speed along the curve follows the control points' spacing: the shaft's straight segments, with
+  their handles on their ends, ease objects in and out. `d` grows by `velocityOverLifeTime`, read at
+  the object's age over its lifetime, times the step. past the last segment the object is removed.
+  with `emissionType` 0 it starts at a random point of the `aabb` box, an offset added to every
+  spline point.
+- **lives** `startLifeTime` clamped to 0–1, times a span the game derives per mover: a fraction of
+  the trip, so the shaft's descending crates (lifetime 5) ride the whole 60 m and the rising ones
+  (0.6–0.75) stop part of the way up. the span read as the spline's length over the speed is
+  unverified.
+- **sizes and turns** it: uniform scale `startSize` times `sizeOverLifeTime`, Euler angles in
+  degrees from `startRotationX/Y/Z` in Unity's order (only z without `has3dStartRotation`), plus
+  rotation over lifetime with `hasRotation` and a noise offset with `hasNoise`; the shaft's movers
+  use neither. the object's matrix is the mover's `objectToWorld`, updated from its transform.
+- **fades** with `hasAlphaControl`: an object whose `alphaOverLifeTime` falls below
+  `transparentAlpha` draws transparent at that alpha. the shaft's movers set `transparentAlpha` 0,
+  so they stay opaque.
+
+## one-shot effects
+
+a prefab can carry its own view-state controller (`PostModelViewStateController`, recognised by its
+`stateList` and `animatorNode` fields). each state's `effectPlayConfigs` can name an `effectNode`, a
+GameObject the state plays as an effect; with `controlActive` set, playing it switches the node on.
+an `EffectSetting` MonoBehaviour (recognised by `effectLogicCfg`) under the node says whether the
+effect loops (`isLoop`) and for how long it plays (`duration`, in seconds).
+
+a node that is switched off as saved, and whose `EffectSetting`s all have `isLoop` 0, is a burst: it
+shows only for the moments after its state plays it, and never at rest. the challenge start point
+(`int_challenge_start_point_once_postmodel`) is one: its `OneShot` node, a 3 s ring of expanding
+spheres, 40 m decal boxes, a radial blur and smoke, plays when the challenge starts
+(`SwitchToRunning`).
+
+the controller's states drive an Animator in the prefab, whose clips switch GameObjects on and off
+([activity bindings](animation.md#bindings)). a GameObject switched off as saved that every clip
+animating it starts and ends off is never shown by any state. the one-time and repeatable challenge
+points share an effect block: in the repeatable one (`int_challenge_start_point_postmodel`) its
+rising motes (`dotAdd3stages`) and blue decal are part of the idle and running looks, while the
+one-time point's clips hold both off in every state.
+
+## effect LOD tables
+
+an enabled `EffectSetting` lists GameObjects in its `lodSetting` table, each with a `gameobject`, a
+quality level and per-distance `_distanceLodInfos` (`isActive`, `speedPercent`). the first time the
+table is applied it records each GameObject's saved activity, and from then on it shows a GameObject
+only when its LOD entry is on and it was saved on; the only other switch it makes is off. so a
+GameObject the table lists and that is saved off never shows through the table, even with `isActive`
+1 at every distance, and the table's next refresh switches it back off if something else switched it
+on. the Very Large Rift (dung02_dg005) places two `p_fxmap_map02_lv002_qinshihuoyan_middle_01_half`
+walls whose `dither` layer (a `VFXDitherAlpha` sheet) is one, beside the drawn `caihong`, `wenli`
+and `trans` layers on the same mesh.
+
+the table can list the setting's own GameObject, even a prefab's root. effects placed by dynamic
+structures are instantiated as saved and have their table applied when they load, and nothing on
+that path switches the root on, so a root saved off and listed in its own table never shows. in
+map02 there's one such prefab: `p_fxmap_lv002_fangyuzhenlie_middle_01`, eleven ungated placements of
+thread particles and stream meshes along Wuling City's pillar array, beside the drawn `_high_03`,
+`_middle_02` and `_middle_03` streams.
+
+with `isUseDistanceLod` set, the setting picks a distance band from the camera's distance to its own
+GameObject, whenever either moves. `distanceLodCfgList` holds each band's `distance`; the band is
+the last one whose distance the camera is beyond (strictly), else the first, and each listed
+GameObject is on in band `i` while its `_distanceLodInfos[i].isActive` is 1. an entry switches its
+whole GameObject, so its subtree with it. past `cullDis` the setting stops picking bands, and with
+`_isCullDisable` set it switches its own GameObject off, hiding the whole effect, until the camera
+comes back within it. `lodFadeTime` fades between bands.
+
+the collectible marker (`int_collection_common_postmodel`, whose view states only switch it off once
+collected) is one: bands from 0, 30 and 60 m, culled at 80 m. within 30 m it shows everything: the
+triangle icon, its glow card, two line trails, sparks and rings; from 30 to 60 m the icon and the
+rings; from 60 to 80 m the icon alone.

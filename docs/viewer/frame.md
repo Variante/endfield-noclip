@@ -9,15 +9,16 @@
 | 2   | `shadow layer 0–3`                                                   | `shadows` on, a package loaded, `debugView` is `lit`, and the casters or a layer's fit changed since the layers were drawn, or an animated geometry is drawn                                                            |
 | 3   | `volumetric fog` (compute)                                           | `heightFog` on, a package loaded, `lit`, and the environment's volumetric fog on ([`render/volumetric-fog.ts`](../../packages/viewer/src/render/volumetric-fog.ts))                                                     |
 | 4   | `main`                                                               | always (empty without a package)                                                                                                                                                                                        |
+| 4b  | `decal relight`                                                      | a package loaded                                                                                                                                                                                                        |
 | 5   | `transparent`                                                        | always, so the composite reads cleared targets                                                                                                                                                                          |
 | 6   | `transmittance lut`, `multiple scattering lut`                       | once per environment                                                                                                                                                                                                    |
-| 7   | `sky view lut`, `sky mean`                                           | `sky` on                                                                                                                                                                                                                |
+| 7   | `sky view lut`                                                       | `sky` on                                                                                                                                                                                                                |
 | 8   | `ao depth`, `gtao`, `gtao blur`                                      | `ao` on, `lit`, and the environment has AO settings                                                                                                                                                                     |
 | 9   | `ssr march`, `ssr temporal`, `ssr downsample` ×n, `ssr resolve`      | `reflections` on, `lit`, and the environment has reflection settings; otherwise `ssr off` only clears the output ([`render/screen-space-reflections.ts`](../../packages/viewer/src/render/screen-space-reflections.ts)) |
 | 10  | `celestial`                                                          | always; writes nothing with `sky` off or nothing beyond the atmosphere                                                                                                                                                  |
 | 10b | `water depth`                                                        | always; draws the nearest water surface's depth when the `water` pass will run, else only clears it                                                                                                                     |
 | 11  | `composite`                                                          | always                                                                                                                                                                                                                  |
-| 12  | scene copy + `water`                                                 | `water` on, `lit`, and visible water surfaces                                                                                                                                                                           |
+| 12  | scene copy, `water foam`, `water`                                    | `water` on, `lit`, and visible water surfaces; `water foam` only when foam effects are drawn                                                                                                                            |
 | 12b | `effect multiply`, scene copy + `effect refract`                     | effects that multiply or refract the composited scene are drawn ([effects](effects.md#over-the-composited-scene))                                                                                                       |
 | 13  | `light shaft downsample`, `light shaft blur` ×n, `light shaft apply` | `lit`, the environment has light shafts, and the sun is in front of the camera ([`render/light-shafts.ts`](../../packages/viewer/src/render/light-shafts.ts))                                                           |
 | 14  | `lens flare`                                                         | `lit`, the environment has a flare, and the sun is on screen (or the flare allows it off screen) ([`render/lens-flare.ts`](../../packages/viewer/src/render/lens-flare.ts))                                             |
@@ -59,14 +60,15 @@ what each post pass computes is in [post-processing](post-processing.md) and
   projection is offset by a Halton (2, 3) subpixel jitter each frame (8 positions per cycle, more
   when upsampling), and the post passes that reconstruct view rays undo it. `taa` reconstructs each
   output pixel from the 3×3 render-size samples around it (a Gaussian fit to Blackman-Harris),
-  reprojects the previous output through the depth buffer and the previous camera (the scenery is
-  static, so there are no motion vectors), samples it with Catmull-Rom, clips it to the
-  neighbourhood's colour box in YCoCg and blends in 10% of the new frame, less where upsampling
-  leaves no sample near the pixel. colours are weighted by `1 / (1 + luminance · exposure)` while
-  filtering. two output-size histories alternate. a cut (a new package, the first pose, a debug view
-  or antialiasing toggle) drops the history. below the output size, material textures sample with a
-  mip bias of `log2(renderScale)` (terrain layers by scaling their gradients), and selection, LOD
-  and texture streaming measure screen sizes in output pixels, so `renderScale` trades shading cost
+  reprojects the previous output through the depth buffer and the previous camera only, with no
+  motion vectors, so moving content (particles, animated and spinning geometry, swaying cloth)
+  reprojects as if it stood still; samples it with Catmull-Rom, clips it to the neighbourhood's
+  colour box in YCoCg and blends in 10% of the new frame, less where upsampling leaves no sample
+  near the pixel. colours are weighted by `1 / (1 + luminance · exposure)` while filtering. two
+  output-size histories alternate. a cut (a new package, the first pose, a debug view or
+  antialiasing toggle) drops the history. below the output size, material textures sample with a mip
+  bias of `log2(renderScale)` (terrain layers by scaling their gradients), and selection, LOD and
+  texture streaming measure screen sizes in output pixels, so `renderScale` trades shading cost
   only.
 - **shadows.** four depth layers, fitted, filtered and fed with off-screen casters as
   [lighting](lighting.md#shadows) describes
@@ -78,9 +80,9 @@ what each post pass computes is in [post-processing](post-processing.md) and
   each bucket's rows are grouped by the first layer they can cast into (within the layer's radius
   across the light, and up to the caster reach towards the sun), so a layer draws a prefix of each
   bucket: the three sharp cascades skip everything beyond their 80 m, and instances no layer reaches
-  don't draw into the shadow map at all. this cut draws by more than half at every profiled pose.
-  the depth-only stages (shadow casters, alpha-tested depth) bind only the vertex streams they read:
-  positions, plus the UV sets for alpha testing.
+  don't draw into the shadow map at all. this cuts shadow draws by more than half at every profiled
+  pose. the depth-only stages (shadow casters, alpha-tested depth) bind only the vertex streams they
+  read: positions, plus the UV sets for alpha testing.
 - **animated geometries** ([package format](../package-format.md#geometry-blob-mesh-efgm)) are
   skinned on the GPU before anything draws: each frame, `skin` blends the two current frames' bone
   matrices, skins the bind pose (kept in its own storage buffer with the weights and bones) and

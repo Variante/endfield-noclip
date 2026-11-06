@@ -20,8 +20,7 @@ implementation pages link to the corresponding [game-data](../game-data/lighting
 | [performance](performance.md)         | how the frame stays cheap                                                        |
 | [scene states](scene-states.md)       | evaluating scene controls and the scene conditions panel                         |
 | [environment](environment.md)         | blending environment volumes at the camera                                       |
-| [lighting](lighting.md)               | units, sun, shadows, ambient, reflections, local lights                          |
-| [irradiance](irradiance.md)           | the irradiance clipmaps and room bakes                                           |
+| [lighting](lighting.md)               | units, sun, shadows, ambient, reflections, local lights, the irradiance volume   |
 | [materials](materials.md)             | how materials become looks, and unsupported materials                            |
 | [effects](effects.md)                 | scenery effects in the transparent pass                                          |
 | [terrain](terrain.md)                 | terrain layers, puddles and foliage grids                                        |

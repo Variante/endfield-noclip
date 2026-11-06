@@ -1,9 +1,8 @@
 # world: maps, levels, streaming and terrain
 
-how Endfield lays out its worlds: streaming scenes and their coordinate frames, levels as exact sets
-of 128 m cells, entity level tags, the static and dynamic streaming files, stream areas, terrain
-tiles, and the game's LOD/HLOD data. which scenery a scene state, quest or variable switches on is
-covered in [scene-states.md](scene-states.md).
+streaming scenes and their coordinate frames, levels as sets of 128 m cells, entity level tags, the
+static and dynamic streaming files, stream areas, terrain tiles, and LOD/HLOD data. which scenery a
+scene state, quest or variable switches on is in [scene-states.md](scene-states.md).
 
 ## scenes, maps and levels
 
@@ -71,13 +70,13 @@ there (`charId`, and the `c<n>` mission prefix matches `chr_00<n>`). a mission n
 (`{ constValue }`). some entries no mission names: `dung02_rdg012` (`dung_lizhiyan_02`), and
 `dung02_rdg015`, which its mission (`c34m3d6`) spells `dung02_rdg0015`.
 
-`dung02_rdg012` is most likely Deep Dale Street's revisit, the version Arcane (Li Zhiyan) sends the
-player to after chapter 11 (inferred, not traced to the dialogue): it streams `dung02_rdg008`'s
-scene, spawns the player at (3.4, 63.1, 89.6) in the ruined plaza rather than at the story's start
-(-77, 103, 231), and its LevelData holds only a checkpoint, a rope-port pair from the plaza up to
-the street (-77, 64.7 → 82.5, 128) and a sub-file for `e11m8d5`, the post-story "keep exploring"
-mission. nothing in the plain JSON, tables or pooled files names `dung_lizhiyan_02` except its own
-rows, so whatever enters it isn't in those.
+`dung02_rdg012` is most likely Deep Dale Street's revisit, where Arcane (Li Zhiyan) sends the player
+after chapter 11 (inferred, not traced to the dialogue): it streams `dung02_rdg008`'s scene, spawns
+the player in the ruined plaza (3.4, 63.1, 89.6) rather than at the story's start (-77, 103, 231),
+and its LevelData holds only a checkpoint, a rope-port pair from the plaza up to the street (-77,
+64.7 → 82.5, 128) and a sub-file for `e11m8d5`, the post-story "keep exploring" mission. no plain
+JSON, table or pooled file names `dung_lizhiyan_02` outside its own rows, so whatever enters it is
+elsewhere.
 
 ### LevelConfig
 
@@ -85,15 +84,15 @@ rows, so whatever enters it isn't in those.
 `Data/Json/StringPool/StringPool<n>.byte`, despite its extension. the root has 18 members and
 `defaultState` 3, and the payload ends exactly at EOF. fields with known meaning:
 
-| field                                             | meaning                                                                                                                                 |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`, `idNum`                                     | string id and the numeric id MapConfig's grid stores                                                                                    |
-| `mapId`                                           | the level's map (stored as `mapIdStr`), e.g. `map02`; not always its streaming scene, see above                                         |
-| `defaultState.exportedSceneConfigPath`            | streaming scene asset, e.g. `map02/map02_streaming.asset`                                                                               |
-| `defaultState.sourceSceneName`                    | the level's art sub-scene, e.g. `map02_lv001_art`                                                                                       |
-| `levelGrids`                                      | the 128 m cells the level owns                                                                                                          |
-| `levelDataPathHashes`                             | StringPathHash keys (stored as `levelDataPaths`) of the level's LevelData files (interactives, see [assets.md](assets.md#interactives)) |
-| `rectLeftBottom`, `rectRightTop`, `playerInitPos` | the level's playable rect and the player's spawn point                                                                                  |
+| field                                             | meaning                                                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `id`, `idNum`                                     | string id and the numeric id MapConfig's grid stores                                                                             |
+| `mapId`                                           | the level's map (stored as `mapIdStr`), e.g. `map02`; not always its streaming scene, see above                                  |
+| `defaultState.exportedSceneConfigPath`            | streaming scene asset, e.g. `map02/map02_streaming.asset`                                                                        |
+| `defaultState.sourceSceneName`                    | the level's art sub-scene, e.g. `map02_lv001_art`                                                                                |
+| `levelGrids`                                      | the 128 m cells the level owns                                                                                                   |
+| `levelDataPathHashes`                             | StringPathHash keys (stored as `levelDataPaths`) of the level's LevelData files (interactives, see [assets.md](interactives.md)) |
+| `rectLeftBottom`, `rectRightTop`, `playerInitPos` | the level's playable rect and the player's spawn point                                                                           |
 
 ### MapConfig and the ownership grid
 
@@ -165,23 +164,23 @@ a component group is an ECS archetype stored column-major: a descriptor list of
 `(component id, stride)` and one blob of `count · Σ stride` bytes. component ids are anonymous
 column selectors; the ones with established meaning:
 
-| id    | content                                                                                                                                                                                                                                                                                                   |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0–5   | world AABB, centre xyz then extents xyz (f32 each)                                                                                                                                                                                                                                                        |
-| 8–14  | draw infos for capacity `2^(id − 8)`: count, 24-byte infos (the game's `RendererInfo`: submesh, `renderFlags`), then `(max², min²)` LOD bounds                                                                                                                                                            |
-| 18    | 256-byte instance constants starting with the object-to-world matrix                                                                                                                                                                                                                                      |
-| 21    | 64-byte name prefix (root object names win when present)                                                                                                                                                                                                                                                  |
-| 27    | rect decal constants (160 bytes): matrix, inverse, UV scale and offset, RGBA8 colour, intensity, an angle, flags; material in StreamingChunkData under `0xff010000` ([materials](materials.md#decals))                                                                                                    |
-| 28    | terrain decal constants in 27's layout (matrix, inverse, params, packed colour); material in StreamingChunkData, `HGRP/TerrainDecalLit`                                                                                                                                                                   |
-| 30    | a water surface placement ([water](water.md#placements-initchunkdata-component-30))                                                                                                                                                                                                                       |
-| 31    | water decal constants (172 bytes, unread); StreamingChunkData names the render pipeline's cube under `0xff000000` and its material under `0xff010000` (map02's `P_waterdecal_01`: 248, all Global)                                                                                                        |
-| 42    | a local light's runtime data, zero-filled in the file (244 bytes); the values are in the object row (below)                                                                                                                                                                                               |
-| 44    | on collider-only entities (`…_COL1`, `P_box_collider`, `MergedCollider_…`), always with 21 alone (27k on map02); content unread                                                                                                                                                                           |
-| 61    | an oriented box (44 bytes): u32 0, centre xyz, a size xyz (half or full unchecked), rotation quaternion xyzw; with 21 and the 1-byte 62 on map02's 61 `shadowOC_CAVE_*` entities, the only ones seen                                                                                                      |
-| 54    | a constant spin (92 bytes): speed (rad/s, non-negative), unit axis, pivot (world), six floats not checked (a local box, by their values), then the stored position, rotation quaternion xyzw and scale; only on Qingbo Stockade's waterwheels' renderers ([spinning scenery](assets.md#spinning-scenery)) |
-| 63    | the same light's settings, zero-filled (448 bytes)                                                                                                                                                                                                                                                        |
-| 67    | LOD ranges: LOD count and cumulative draw count per LOD                                                                                                                                                                                                                                                   |
-| 68–74 | draw refs for capacity `2^(id − 68)`: `(u64 material hash, u64 mesh hash, …)`                                                                                                                                                                                                                             |
+| id    | content                                                                                                                                                                                                                                                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0–5   | world AABB, centre xyz then extents xyz (f32 each)                                                                                                                                                                                                                                                           |
+| 8–14  | draw infos for capacity `2^(id − 8)`: count, 24-byte infos (the game's `RendererInfo`: submesh, `renderFlags`), then `(max², min²)` LOD bounds                                                                                                                                                               |
+| 18    | 256-byte instance constants starting with the object-to-world matrix                                                                                                                                                                                                                                         |
+| 21    | 64-byte name prefix (root object names win when present)                                                                                                                                                                                                                                                     |
+| 27    | rect decal constants (160 bytes): matrix, inverse, UV scale and offset, RGBA8 colour, intensity, an angle, flags; material in StreamingChunkData under `0xff010000` ([materials](materials.md#decals))                                                                                                       |
+| 28    | terrain decal constants in 27's layout (matrix, inverse, params, packed colour); material in StreamingChunkData, `HGRP/TerrainDecalLit`                                                                                                                                                                      |
+| 30    | a water surface placement ([water](water.md#placements-initchunkdata-component-30))                                                                                                                                                                                                                          |
+| 31    | water decal constants (172 bytes, unread); StreamingChunkData names the render pipeline's cube under `0xff000000` and its material under `0xff010000` (map02's `P_waterdecal_01`: 248, all Global)                                                                                                           |
+| 42    | a local light's runtime data, zero-filled in the file (244 bytes); the values are in the object row (below)                                                                                                                                                                                                  |
+| 44    | on collider-only entities (`…_COL1`, `P_box_collider`, `MergedCollider_…`), always with 21 alone (27k on map02); content unread                                                                                                                                                                              |
+| 54    | a constant spin (92 bytes): speed (rad/s, non-negative), unit axis, pivot (world), six floats not checked (a local box, by their values), then the stored position, rotation quaternion xyzw and scale; only on Qingbo Stockade's waterwheels' renderers ([spinning scenery](animation.md#spinning-scenery)) |
+| 61    | an oriented box (44 bytes): u32 0, centre xyz, a size xyz (half or full unchecked), rotation quaternion xyzw; with 21 and the 1-byte 62 on map02's 61 `shadowOC_CAVE_*` entities, the only ones seen                                                                                                         |
+| 63    | the same light's settings, zero-filled (448 bytes)                                                                                                                                                                                                                                                           |
+| 67    | LOD ranges: LOD count and cumulative draw count per LOD                                                                                                                                                                                                                                                      |
+| 68–74 | draw refs for capacity `2^(id − 68)`: `(u64 material hash, u64 mesh hash, …)`                                                                                                                                                                                                                                |
 
 object row kinds by census: 1 = GameObjects the client rebuilds as MonoBehaviours (environment and
 post volumes, probes, water, terrain root), 2 = component-group entities, 3 = proxies: audio, grass
@@ -318,13 +317,12 @@ MonoBehaviour at
 - `sectorSplatInfo`: one u64 per 64 m sector, a bitmask of the layer ordinals the sector uses
   (checked against the index map on map02)
 
-world Y of a sample is `position.y + (h & 0x7fff) · heightScale / 32768`. bit 15 marks a hole; holes
-keep a plausible height in the low bits, which suits skirts and morphing but not drawing.
+world Y of a sample is `position.y + (h & 0x7fff) · heightScale / 32768`. bit 15 marks a hole, whose
+low bits still hold a plausible height.
 
 ### close-up layers
 
-near the camera the game draws a blend of tiling material layers instead of the baked pages. the
-distance it switches at, and how it fades between the two, aren't recovered.
+near the camera the game draws a blend of tiling material layers instead of the baked pages.
 
 - **index**: `terrain/splatindexmap.tga`, an RGBA32 Texture2D of `terrainSize / 8` texels (row 0 at
   the minimum z), names 4 layer ordinals per 8 m cell, each stored times 4
@@ -363,10 +361,10 @@ atlases.
 
 - **per-entity LOD chains.** every static draw carries its LOD index and a
   `(minSquared, maxSquared]` range of squared screen-relative height, as in Unity's LODGroup.
-  `maxSquared` is `FLT_MAX` on the nearest LOD; a negative `minSquared` means never culled by size.
-  the negative values seen are all `−k²` with `k` between 0.005 and 0.05 (−0.000225 on 9,189 map02
+  `maxSquared` is `FLT_MAX` on the nearest LOD. a negative `minSquared` would read as never culled
+  by size, but every one seen is `−k²` with `k` between 0.005 and 0.05 (−0.000225 on 9,189 map02
   draws, −0.0001 on every map02 HLOD cluster, −0.0025 on every indie_dg005 one, −0.0004, −0.000025),
-  so they may be ordinary cull heights stored negated rather than a "never" sentinel.
+  so they may be ordinary cull heights stored negated.
 - **foliage cards.** imposter card meshes (`…_cardmesh`) appear as ordinary LODs, usually the last
   but not always: 4,162 map02 card draws are an earlier LOD with a size cull (LOD 3 of 5, 4 of 6).
 - **shadow proxies.** draws with `renderFlags` bit 10 only cast shadows.
@@ -388,18 +386,22 @@ atlases.
   cells and dung02_dg002's HLOD1 cells are offset from the terrain quadtree by half a cell.
 
 the game streams HLOD as the streaming layers `HLOD0`–`HLOD2`, each with its own load radius
-(`hlod0LayerLoadRadius`, …, set in its streaming settings), and calls a tier an HLOD level. the
-switch distances themselves are unknown. the other layers are `Default`, `Persistent`, `Collider`,
-`Tiny`, `Water`, `Lighting`, `Audio` and `RendererWithCollider`; every one but `Persistent` has a
-load radius setting, and the game's grid identifiers carry a layer next to the scene state, area and
-cell, while the chunk file names carry none. so an entity likely streams by its layer's radius
-wherever its file puts it, Global included, and detail would then drop out where the HLOD layer
-shows; where an entity's layer is stored isn't found (the InitChunkData schema is native).
+(`hlod0LayerLoadRadius`, …, in its streaming settings), and calls a tier an HLOD level. the radii's
+values and the switch distances are unknown. the other layers are `Default`, `Persistent`,
+`Collider`, `Tiny`, `Water`, `Lighting`, `Audio` and `RendererWithCollider`; every one but
+`Persistent` has a load radius setting, and the game's grid identifiers carry a layer next to the
+scene state, area and cell, while the chunk file names carry none. so an entity likely streams by
+its layer's radius wherever its file puts it, Global included, and detail would then drop out where
+the HLOD layer shows; where an entity's layer is stored isn't found (the InitChunkData schema is
+native).
 
 ## open
 
-- the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`:
-  never culled by size, or culled below `√−minSquared`
+- terrain: the distance where the close-up layers give way to the baked pages and how they fade; how
+  the cliff projection (`C` page) and the cone-map parallax (`LAYER_C`) shade; what `maxHeightError`
+  is for
+- the meaning of the `renderFlags` bits other than shadow-only, and of a negative `minSquared`
+  (never culled by size, or culled below `√−minSquared`)
 - the size the LODGroup thresholds are authored against (the object's bounds, a LODGroup size, …)
 - HLOD switch distances, and the HLOD generated-material channel layout
 - where a scene's HLOD grid (tier-0 cell and origin) is defined, and why it leaves the terrain
@@ -407,7 +409,11 @@ shows; where an entity's layer is stored isn't found (the InitChunkData schema i
 - whether HLOD clusters stand in for Global chunk content: indie_dg005 has every static renderer in
   its Global chunk (14k, 9k of them inside an HLOD0 cluster's bounds) and none in cell files, so
   there the clusters can only stand in for Global content
+- where an entity's streaming layer is stored, and what the HLOD-unload volumes
+  ([stream areas](#stream-areas)) unload, and when
 - the cell size of `fb_main` grids; the levels are known from file names, the metric size is unknown
 - `farmod` far-field assets: whether they form a layer outside HLOD
-- whether dungeon levels that reuse an open-world scene add content of their own beyond LevelData
-  and DynamicStreaming
+- what dungeon levels that reuse an open-world scene add of their own: a census of map02's chunk
+  files found no tags but 0, 31 and lv001–lv010's, so it can only come from LevelData and
+  DynamicStreaming
+- where teleport points are stored: players arrive by teleport, not at `playerInitPos`

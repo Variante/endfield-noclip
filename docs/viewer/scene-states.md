@@ -46,12 +46,14 @@ panel:
   lists a quest for the levels it gates and shows where its mission takes place
 - **variables**: a select of ranges, the default marked "(initial)"
 - **progression**: one select per progression, "Level n", "Visual form n" or "Group level n",
-  starting at the highest (the finished world) with every lower one selectable, and one per
-  campfire, activated by default; facility forms are labelled "Visual form", not "Level", because
-  form numbers aren't gameplay levels
+  starting at the highest (the finished world) with every lower one selectable, and one per campfire
+  or saved Animator bool (The Hub's comm terminal), activated or set by default; facility forms are
+  labelled "Visual form", not "Level", because form numbers aren't gameplay levels
   ([facility visual forms](../game-data/scene-states.md#facility-visual-forms))
 - **Dijiang**: a Control Nexus level select, a checkbox per cabin slot, built or empty, and a level
   select for the growth chamber
+- **created during play**: a checkbox per level for its interactives created after it loads
+  (`createState` ≠ 0), off by default
 - **doors and bridges**: a checkbox per door, open or closed, or "Follow game" for a cabin's door; a
   checkbox per telescopic bridge, extended or retracted
 - **stream areas**: a select per area, "Follow camera (shown/hidden)", shown or hidden

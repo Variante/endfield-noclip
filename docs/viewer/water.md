@@ -2,7 +2,8 @@
 
 how the viewer draws the open-world water that [game-data/water.md](../game-data/water.md)
 describes: [water-renderer.ts](../../packages/viewer/src/render/water-renderer.ts) and
-[water.wgsl](../../packages/viewer/src/render/shaders/water.wgsl).
+[water.wgsl](../../packages/viewer/src/render/shaders/water.wgsl). the packed table is in
+[package-format.md](../package-format.md#water).
 
 ## placements
 
@@ -16,13 +17,14 @@ ones inside the frustum are drawn, up to 4096.
 
 the vertex stage reads the dequantized `unorm16x4` positions and, for surfaces whose `meshNormals`
 is set and whose mesh has them, its octahedral normals; other surfaces face straight up. the packer
-sets `meshNormals` on proxy-only surfaces only, since the game shades LOD surfaces through its grid
-([shading](../game-data/water.md#shading)); this also hides the polygon meshes' downward-facing
-triangles. transforms are made eye-relative on the CPU.
+sets `meshNormals` on proxy-only surfaces only, standing in for the game's upward-facing grid
+([how surfaces are drawn](../game-data/water.md#how-surfaces-are-drawn)); this also hides the
+polygon meshes' downward-facing triangles. transforms are made eye-relative on the CPU.
 
 ## `Global_Water_Config`
 
-the wave-normal array, the global flow map and the caustic map are streamed whole.
+the wave-normal array, the global flow map and the caustic map are streamed whole. the sector tiles
+and the rain map are packed but not bound: flow and foam come from the global map everywhere.
 
 ## shading
 
@@ -48,6 +50,23 @@ where the game writes a G-buffer and lights it full-screen after the opaque scen
   written into its inputs. water draws after the composite here, so it marches separately, with the
   same march ([`ssr-trace.wgsl`](../../packages/viewer/src/render/shaders/ssr-trace.wgsl)).
 
+it differs from the game in that:
+
+- LOD surfaces face up at every distance, where the game shades them around their mesh normals
+  beyond its grid's reach; the grid's wave displacement isn't drawn
+- back faces are drawn, where the game culls them
+- the sun highlight isn't aimed at the nearest point of the sun's disc and has no multiple
+  scattering, and the direct light is divided by π like the viewer's other sun terms
+  ([sun](lighting.md#sun))
+- `FlowmapOption` 1's coverage mask isn't applied (the waves take full amplitude there); no map02
+  config sets it
+- configs are bound by asset, so two that share a `materialIndex` keep their own looks, where the
+  game shades both with the one loaded last
+- water isn't in the reflection march's depth, so a ray towards another, higher water surface
+  (terraced pools, rivers) hits its bed
+- rain, character ripples, the wetness the water leaves on the ground around it and the TAA hint
+  aren't drawn
+
 ## water volumes
 
 [water-levels.ts](../../packages/viewer/src/render/water-levels.ts) holds each
@@ -66,12 +85,19 @@ every volume back at its authored fill.
 
 it differs from the game in that:
 
+- only volumes that bind a `WaterConfig` are packed and drawn; the others, which the game draws
+  through its per-type surface prefabs, are listed in `debug/water.json`
 - moves are linear: the game's ease over the last metres, and the eased moves of scripts that don't
-  fix the speed, aren't reproduced
+  fix the speed, aren't reproduced (those use the fill speed as metres per second)
 - floaters keep their authored height above the surface instead of settling to `surface_offset`, and
   follow it without lag
 - nothing is triggered: the switches, clocks and quests that move volumes are listed by script id in
   the level labels, not run
+- `ground_distance`, `isPrototype`, the volume's own flow speed and direction, and amount-based
+  transfers aren't read
+- a volume coinciding with a placed surface (five map02 lv006 pools, lv010's 37900010002, several
+  lv002/lv003 ones) draws twice; whether the game draws both isn't checked
+- a volume's surface leaves no wetness on the shore
 
 ## WaterProxy and WaterDecal
 
@@ -95,7 +121,11 @@ the frame has any:
 3. **shading.** the water reads the target at its pixel: foam colour `= rgb + saturate(own) · a`,
    saturated, the game's 8-bit clamp. the water's own foam is saturated too, with boxes or without.
 
-it differs from the game in that the per-placement `HGWaterDecalRenderer` values aren't packed
-(every map02 prefab has the neutral ones), the static boxes of InitChunkData component 31 aren't
-packed, the soft blend's device depths use the viewer's near plane, and the game's mip bias
-(`_MinMipLevel`, `_Bias`) is left out (0 on every map02 material).
+materials with keywords beyond `_BLEND_BASECOLOR`, `_USE_DISTURB`, `_USE_MASK`, `_USE_SOFTBLEND` and
+`_USE_DISSOLVE`, or a `_ZTest` other than 4 or 5, show as
+[unsupported](materials.md#unsupported-materials). it differs from the game in that the
+per-placement `HGWaterDecalRenderer` values (and so the displacement pass) aren't packed (every
+map02 prefab has the neutral ones), the static boxes of InitChunkData component 31 aren't packed
+(they're counted in `debug/skipped-entities.json`), the soft blend's device depths use the viewer's
+near plane, and the game's mip bias (`_MinMipLevel`, `_Bias`) is left out (0 on every map02
+material).

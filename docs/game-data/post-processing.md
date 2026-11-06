@@ -75,8 +75,8 @@ uses polygon elements or inverse SDFs.
 on top of the fixed [pre-exposure](lighting.md), the game adapts a post exposure to the view,
 following the profile's `autoExposure` section (blended across volumes like the rest):
 
-- a 16-bin histogram of log2 luminance over `autoExposureEv100Range`, from every 16th pixel of the
-  antialiased scene before bloom, each sample split between its two nearest bins.
+- a 16-bin histogram of log2 luminance over `autoExposureEv100Range`, from one pixel per 16 × 16
+  block of the antialiased scene before bloom, each sample split between its two nearest bins.
   `autoExposureMeteringMode` 1 weights samples towards the screen's centre
   (`1 − 0.75 · (1 − 2^(−170.6 · r²))`, `r` from the centre in uv).
 - the average counts each bin as its lower edge, clamped to `autoExposureEv100HistogramRange`, keeps
@@ -116,16 +116,19 @@ bloom also has dirt, an additive upsample mode, character bloom and anamorphic s
 ## colour grading and tonemapping
 
 the game's uber pass multiplies the scene by the exposure, adds bloom, then vignettes in HDR before
-grading.
+grading. the post profile's `vignette` is URP's (colour, centre, intensity, smoothness, roundness,
+rounded) plus the game's `mode`, `blink` and `opacity`; the uber shader has an aspect or ellipse
+variant, and what selects it and what the extra fields do isn't read.
 
 `colorGradingConfig` maps onto URP's colour utilities (white balance, colour adjustments, channel
-mixer, shadows/midtones/highlights, lift/gamma/gain, split toning); each sub-section that's off
-reads as its neutral default. the game bakes grading and curve into a LogC LUT, with its HG-specific
-contrast and its modified-ACES curve (the only tonemapper the game ships besides none; every profile
-sets `tonemappingMode` 5). no shipped profile enables the external lookup texture.
+mixer, shadows/midtones/highlights, lift/gamma/gain, split toning, colour curves); each sub-section
+that's off reads as its neutral default. the game bakes grading and curve into a LogC LUT, with its
+HG-specific contrast and its modified-ACES curve (the only tonemapper the game ships besides none;
+every profile sets `tonemappingMode` 5). no shipped profile enables the external lookup texture.
 
 ## open
 
+- the vignette's extra mode and fields (above).
 - the flare component's own settings, which apply while the environment's flare is off.
 - unverified: at Origin Lodespring's overview the game's flare seems not to be occluded by the
   crystal mountain behind the sun, as if the mountain weren't in its depth buffer.

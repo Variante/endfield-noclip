@@ -9,18 +9,19 @@
   units, with frees coalescing neighbours so streaming in and out doesn't fragment the space without
   bound. it sub-allocates the instance-row mega storage buffer (one range per block), the irradiance
   cell buffer and the terrain height page pool (one unit per page), all
-  [`GrowableBuffer`s](../../packages/viewer/src/gfx/growable-buffer.ts): they start at 10, 32 and 8
-  MiB and, when a range doesn't fit, copy themselves into a buffer twice the size, up to 1.5M rows
-  (114 MiB), 192 MiB and 4096 pages (33 MiB). a level's view holds 2–5 MiB of rows, 20–40 MiB of
-  cells and 4–7 MiB of heights, so they grow only as content from several views piles up under a
-  large budget; they never shrink, since the budget bounds them. owners rebuild their bind groups
-  when the buffer's `version` changes. surface pages use a pair of BC3 texture arrays, one layer per
-  page (1024 layers, or the device's array-layer limit if lower; 34 MiB); splat pages use 256 slots
-  of an RGBA8 control array, a BC3 tint array and an index buffer (22 MiB); the package's layer
-  textures get two BC7 arrays sized at load. the surface and splat arrays are allocated at full size
-  up front, since a texture array can't grow without copying every layer. geometry gets one vertex
-  and one index buffer per blob; an animated one also gets its bind pose, frames and skinning
-  parameters, and its vertex buffer is writable from compute.
+  [`GrowableBuffer`s](../../packages/viewer/src/gfx/growable-buffer.ts): they start at 128k 96-byte
+  rows (12 MiB), 32 MiB and 1024 pages (8 MiB) and, when a range doesn't fit, copy themselves into a
+  buffer twice the size, up to 1.5M rows (137 MiB), 192 MiB and 4096 pages (33 MiB); rect decal
+  placements get a buffer of their own the same way. a level's view holds a few MiB of rows, 20–40
+  MiB of cells and 4–7 MiB of heights, so they grow only as content from several views piles up
+  under a large budget; they never shrink, since the budget bounds them. owners rebuild their bind
+  groups when the buffer's `version` changes. surface pages use a pair of BC3 texture arrays, one
+  layer per page (1024 layers, or the device's array-layer limit if lower; 34 MiB); splat pages use
+  256 slots of an RGBA8 control array, a BC3 tint array and an index buffer (22 MiB); the package's
+  layer textures get two BC7 arrays sized at load. the surface and splat arrays are allocated at
+  full size up front, since a texture array can't grow without copying every layer. geometry gets
+  one vertex and one index buffer per blob; an animated one also gets its bind pose, frames and
+  skinning parameters, and its vertex buffer is writable from compute.
 - **uniform ring** ([`gfx/uniform-ring.ts`](../../packages/viewer/src/gfx/uniform-ring.ts)): one
   uniform buffer in 3 per-frame regions, sub-allocated at `minUniformBufferOffsetAlignment`. callers
   fill CPU views; `flush` uploads the frame's region in one `writeBuffer`, and draws bind group 0 at

@@ -2,7 +2,8 @@
 
 each frame that does work runs one traversal (`#traverseAndPrepare` in `viewer.ts`):
 
-1. `Selector.run` walks the tile tree for terrain patches and instance row ranges.
+1. `Selector.run` walks the tile tree for terrain patches and instance row ranges, and the selected
+   blocks' spinning rows are turned ([per-instance LOD](#per-instance-lod)).
 2. `MeshSelector.run` culls and LOD-selects instances in those ranges and buckets them for drawing.
 3. sky textures, water surfaces and irradiance cells are requested.
 4. `StreamManager.update` cancels, dispatches, uploads and evicts; `TextureStore.commit` applies
@@ -25,40 +26,39 @@ REPLACE refinement on screen-space error, `geometricError · pixelFactor / dista
   shown HLOD always refines. with `detail` on, a leaf refines into its detail blocks, even when it
   has none: some clusters stand for scenery filed under neighbouring leaves or as global scenery,
   which draws anyway, so keeping the cluster would overlay it.
+- a node's geometric error is the packer's placeholder (1/16 of its edge) for the game's unknown
+  HLOD switch distances ([LOD and HLOD](../game-data/world.md#lod-and-hlod)), so `maxSse` is what
+  tunes where clusters give way to detail.
 - until everything a refinement needs is resident, the node keeps drawing its own HLOD, so streaming
   never opens holes. disabled HLOD tiers are refined past.
 - conditional content has no HLOD stand-in, so it follows its own rule: drawn, while `detail` is on,
   while its tile spans more than `maxSse` pixels.
-- manifest `global` refs are pinned and drawn whenever they're resident, never requested.
+- manifest `global` refs are pinned and drawn whenever they're resident, never requested. they have
+  no tile to refine, so where an HLOD cluster covers global scenery both draw until the cluster's
+  tile refines.
 - every ref is drawn only while its visibility group shows. the viewer evaluates `groupsShown` (see
   [package-format.md](../package-format.md#visibility-groups)) whenever the level, a scene value or
-  the stream areas at the camera change, and hands the same array to the selector, the water and the
-  local lights, which is how one level is shown alone over the shared terrain and how scene states
-  switch content.
+  the stream areas at the camera change, and hands the same array to the selector, the water, the
+  local lights and the irradiance volume, which is how one level is shown alone over the shared
+  terrain and how scene states switch content.
 
 ## terrain selection
 
-terrain is CDLOD; how its pages shade is in [terrain](terrain.md). each level's distance range comes
-from its sample spacing and `terrainPixels` (default 3 px per sample). a node subdivides while the
-next finer range reaches it; a quadrant whose child page isn't resident is drawn from the parent
-page while the child is requested, and vertices morph to the coarser grid over the last 30% of a
-level's range (the coarsest level never morphs). every selected page quadrant is an instance of one
-shared grid, so terrain is a single draw
+terrain is CDLOD, with the viewer's own LOD rule: the game's per-node `maxHeightError` isn't an
+error bound ([terrain](../game-data/world.md#terrain)). each level's distance range comes from its
+sample spacing and `terrainPixels` (default 3 px per sample). a node subdivides while the next finer
+range reaches it; a quadrant whose child page isn't resident is drawn from the parent page while the
+child is requested, and vertices morph to the coarser grid over the last 30% of a level's range (the
+coarsest level never morphs). every selected page quadrant is an instance of one shared grid, so
+terrain is a single draw
 ([`render/terrain-renderer.ts`](../../packages/viewer/src/render/terrain-renderer.ts)).
 
 each visited node also wants its surface page at the same priority. a patch is shaded from the
 finest resident surface page at or above its node, magnified when it's an ancestor's, so the ground
-keeps its colours while finer pages stream. the shader draws the pages as stored: albedo, normal,
-roughness and occlusion ([world.md](../game-data/world.md#terrain)). patches with no resident page,
-or with `terrainSurface` off or no BC textures, fall back to stand-in colours by slope.
-
-leaves within `DETAIL_DISTANCE` (160 m) also want their splat page. once it and all of the package's
-layer textures (pinned at load) are resident, the shader blends the leaf's close-up layers as
-[world.md](../game-data/world.md#close-up-layers) describes, with a smooth triplanar projection in
-place of the game's random one, and fades them into the baked page between 96 and 144 m. the layers
-sample with explicit gradients so slots and planes without weight are skipped. `terrainSplat` turns
-this off. one measurement on an Apple M-series GPU at 1600×1000 showed about 7 ms added GPU time
-over open ground; the blend's individual costs remain unprofiled.
+keeps its colours while finer pages stream. leaves within `DETAIL_DISTANCE` (160 m) also want their
+splat page, which the [close-up layers](terrain.md#close-up-layers) need along with every layer
+texture (pinned at load). `terrainSurface` and `terrainSplat` turn the two off; without BC textures
+neither loads.
 
 ## per-instance LOD
 
@@ -109,10 +109,10 @@ next to indirect draw arguments ([optimization candidates](performance.md#optimi
 priority is SSE (or projected pixels for geometry and textures). content in the focused level's
 cells is boosted 8×. nodes outside the frustum are requested at 0.1× where the traversal still
 reaches them: terrain children of a node in view (prefetch around the camera) and instance tiles in
-the shadow casters' volume; shadow-only geometry is requested at 0.1× of its pixel height. a
-texture's pieces are requested at the bucket's priority divided by one plus the piece's index, so
-coarse levels come first. irradiance cells and whole-streamed textures (sky, reflection) use fixed
-priorities above all scenery.
+the [off-screen casters'](lighting.md#shadows) volume, whose instances' geometry is requested at
+0.1× of its pixel height. a texture's pieces are requested at the bucket's priority divided by one
+plus the piece's index, so coarse levels come first. irradiance cells and whole-streamed textures
+(sky, reflection) use fixed priorities above all scenery.
 
 ## residency and budgets
 
@@ -129,13 +129,13 @@ isn't retried).
   once), upload first and are never evicted. pinned height pages keep their samples on the CPU for
   ground-height queries (the first pose).
 - **fetching.** at most 32 range reads in flight (`maxRequests`): a dense view wants thousands of
-  blobs averaging ~60 KiB, so latency, not bandwidth, bounds loading. from the dev server, 32
-  instead of 8 brought Wuling's first views from 9–12 s to 3–4 s; 64 gained little more, neither did
-  dispatching freed request slots between frames, and coalescing more widely saved less while
-  fetching up to 75% more bytes. queued blobs are sorted by priority, and each seed coalesces
-  neighbours in the same archive (gaps ≤ 64 KiB, span ≤ 2 MiB, ≤ 96 blobs) into one range read. core
-  blobs are read from memory without a request slot. requests whose blobs nobody wanted for more
-  than 2 frames are aborted; queued blobs not wanted this frame return to idle.
+  blobs averaging ~60 KiB, so latency, not bandwidth, bounds loading. measured from the dev server
+  on Wuling's first views: 32 takes 3–4 s where 8 took 9–12 s; 64, dispatching freed slots between
+  frames, and wider coalescing (up to 75% more bytes fetched) gain little or nothing. queued blobs
+  are sorted by priority, and each seed coalesces neighbours in the same archive (gaps ≤ 64 KiB,
+  span ≤ 2 MiB, ≤ 96 blobs) into one range read. core blobs are read from memory without a request
+  slot. requests whose blobs nobody wanted for more than 2 frames are aborted; queued blobs not
+  wanted this frame return to idle.
 - **uploading.** pinned first, then by priority, until the frame has uploaded 24 MiB. decoded
   content nobody has wanted for 30 frames is dropped instead. a full pool evicts up to 16 resident,
   unpinned blobs of the same kind that weren't used this frame and have no higher priority, oldest

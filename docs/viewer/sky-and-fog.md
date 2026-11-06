@@ -11,17 +11,21 @@ transmittance, multiple-scattering and per-frame sky-view LUTs of the
 [atmosphere model](../game-data/sky-and-fog.md#sky). the game's LUT scale (`skyViewScale` in
 [`render/environment.ts`](../../packages/viewer/src/render/environment.ts)) is applied when
 [`shaders/sky.wgsl`](../../packages/viewer/src/render/shaders/sky.wgsl) samples the LUT rather than
-when it's rendered, which comes to the same.
+when it's rendered, which comes to the same. the sky-view LUT has no ground bounce below the horizon
+(only the multiple-scattering LUT takes the ground albedo), and the global colour adjustment is left
+out. at Power Plateau's overcast the sky stays 15–20 sRGB levels brighter than an in-game shot,
+while Wuling City's matches.
 
 the cloud panorama is drawn in the celestial pass (see
-[beyond the atmosphere](#beyond-the-atmosphere)), with contrast and rotation applied as authored.
-its tint goes in raw, as the game passes it; decoding it from sRGB made some skies near-black.
+[beyond the atmosphere](#beyond-the-atmosphere)), with contrast and rotation applied as authored and
+its tint raw. the cloud flow isn't read, so it never moves.
 
 ## sun disc
 
 the disc is drawn in
 [`shaders/celestial.wgsl`](../../packages/viewer/src/render/shaders/celestial.wgsl), following the
-[game's lobe](../game-data/sky-and-fog.md#sun-disc).
+[game's lobe](../game-data/sky-and-fog.md#sun-disc), unchecked against an in-game shot facing the
+sun.
 
 ## beyond the atmosphere
 
@@ -34,11 +38,14 @@ drawn in the same pass so it can sit between the layers in the
 [game's order](../game-data/sky-and-fog.md#beyond-the-atmosphere).
 
 - **the ray-traced planet**: `render/celestial.ts` copies its parameters from the
-  `HGRP/Planet/PlanetBillboard` material, linearising the colours. its light's brightness is taken
-  as the viewer's pre-exposed sun, unchecked against a shot.
+  `HGRP/Planet/PlanetBillboard` material, linearising the colours. its light is the viewer's
+  pre-exposed sun; which light the game gives it in a space level is unchecked.
 - **sky planets**: the body's frame hands its right vector to the shader as "forward" and its
-  forward as "right", as the game does. the viewer always adds the planets on top; the game's blend
-  modes, and the planets' ring thinning the stars, are unchecked against a shot.
+  forward as "right", as the game does. the viewer always adds the planets, whatever their
+  `_BlendMode`, and doesn't thin the stars behind their rings.
+- the moon's sky-wide ring and the aurora aren't drawn.
+
+none of the layers is checked against an in-game shot.
 
 ## fog
 
@@ -48,13 +55,14 @@ surfaces and sky) and water passes. the height fog's packed base-2 units are `FO
 [`render/environment.ts`](../../packages/viewer/src/render/environment.ts).
 
 the volumetric fog's froxels are computed each frame by a compute pass
-([`render/volumetric-fog.ts`](../../packages/viewer/src/render/volumetric-fog.ts)). the game's grid
-size, depth distribution and history weight aren't recovered, so the viewer takes Unreal's defaults:
-slices spaced logarithmically in view depth, and 90 % history. its sky term takes the ambient probe
-without the native diffuse-ambient scale.
+([`render/volumetric-fog.ts`](../../packages/viewer/src/render/volumetric-fog.ts)). it slices depth
+as the game does, but with the quality presets unrecovered it takes Unreal's defaults for the rest:
+a fixed 160 × 90 × 64 grid, 32 slices per doubling and 90 % history. its sky term takes the ambient
+probe without the native diffuse-ambient scale. local fog volumes and the volumetric light's flow
+noise aren't drawn.
 
 - the height fog's start distance and inscatter colour belong to the far fog while the volumetric
-  fog is on; drawing the height fog alone with them puts a hard, bright fog wall at the start
+  fog is on; drawn alone with them, the height fog would put a hard, bright fog wall at the start
   distance inside caves.
 - where the last frame's grid didn't cover a froxel, the viewer takes this frame's sample alone; the
   game averages several jittered samples there instead.

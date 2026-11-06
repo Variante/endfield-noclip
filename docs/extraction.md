@@ -1,8 +1,15 @@
 # extraction
 
 the extractor (`packages/extractor`) is a node CLI that reads a local Endfield install and writes
-viewer packages in the [package format](package-format.md). game formats and behaviour are
-documented in [game-data](game-data/); this page covers the CLI and extraction pipeline.
+viewer packages in the [package format](package-format.md). game formats and behaviour are in
+[game-data](game-data/); this page covers the CLI, keys, container layers, decoders and the `pack`
+pipeline. per-topic pack stages have their own pages:
+
+| page                                                               | covers                                                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| [prefabs and interactives](extraction/prefabs-and-interactives.md) | prefab hierarchies, dynamic structures, interactives and their poses, clips |
+| [environments](extraction/environments.md)                         | phase sections, the blend schema, volumes, each level's base environment    |
+| [scene controls](extraction/scene-controls.md)                     | how conditional content becomes controls, and how their defaults are chosen |
 
 ## running it
 
@@ -17,13 +24,12 @@ pnpm extract --help
 ```
 
 `cli.ts` loads every file in `commands/` as a subcommand exporting `summary`, `usage` and
-`run(args)`, so a new command is a new file there. shared argument helpers live in `cli-args.ts`,
-outside `commands/`, because every file in that directory is treated as a command. each command
-exports its usage text; run it without arguments or with `--help` / `-h` for details. help works
-without a config or install, including `world find --help`. every command takes `--config <file>`
-(default `endfield.local.json` in the working directory) and, except for `init`, opens the install
-through `withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the
-asset resolver on first use.
+`run(args)`, so a new command is a new file there; shared argument helpers live outside that
+directory, in `cli-args.ts`. run a command without arguments or with `--help` / `-h` for its usage,
+which works without a config or install. every command takes `--config <file>` (default
+`endfield.local.json` in the working directory) and, except for `init`, opens the install through
+`withContext` in `context.ts`, which mounts the VFS, builds the world index and creates the asset
+resolver on first use.
 
 | command    | what it does                                                                                                                                                                                                                                                                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -37,9 +43,8 @@ asset resolver on first use.
 | `terrain`  | lists terrain scenes and tiles, and exports heightmaps as PNG                                                                                                                                                                                                                                                                                                             |
 | `water`    | lists water surfaces by map, level or cell, counts them, and dumps water configs                                                                                                                                                                                                                                                                                          |
 
-the inspection commands (`world`, `variants`, `vfs`, `bundle`, `asset`, `terrain`, `water`) are for
-research and debugging; only `init` and `pack` are needed to produce a package. their glTF/PNG/KTX2
-exports (`export/`) mirror Unity's X axis and use base colours only.
+only `init` and `pack` are needed to produce a package; the others are for research and debugging.
+their glTF/PNG/KTX2 exports (`export/`) mirror Unity's X axis and use base colours only.
 
 ### finding assets and scenery
 
@@ -51,70 +56,71 @@ pnpm extract bundle find --class Shader --group initial --limit 20
 ```
 
 `world paths` searches both StringPathHash catalogs with a case-insensitive regular expression. rows
-include the hex hash, full path and all matching manifest bundles; identical hash/path pairs are
-emitted once, while different hashes for the same path remain distinguishable. an empty bundle list
-means the catalog entry has no manifest asset. use `world resolve` for its dependency details.
+give the hex hash, full path and every matching manifest bundle; identical hash/path pairs are
+emitted once, while different hashes for the same path stay apart. an empty bundle list means the
+catalog entry has no manifest asset; `world resolve` gives its dependency details.
 
 `world find` searches everything a scene places, in every scene state and stream area, and says what
 gates each row. `--kind` picks sources (default all):
 
-| kind       | source                                                                 | visibility from                       |
-| ---------- | ---------------------------------------------------------------------- | ------------------------------------- |
-| `static`   | chunk entities ([world](game-data/world.md))                           | the chunk file's scene state and area |
-| `dynamic`  | ECS entities of [dynamic structures](#dynamic-structures)              | the owner's gates, states and areas   |
-| `model`    | DynamicStreaming prefab rows                                           | as `dynamic`                          |
-| `effect`   | DynamicStreaming effect prefab rows                                    | as `dynamic`                          |
-| `facility` | [interactives](#interactives), including those whose model isn't found | facility, door and bridge controls    |
-| `cabin`    | rows of built [Dijiang cabins](#dijiang-cabins-and-region-walls)       | the slot's cabin control              |
+| kind       | source                                                                                          | visibility from                       |
+| ---------- | ----------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `static`   | chunk entities ([world](game-data/world.md))                                                    | the chunk file's scene state and area |
+| `dynamic`  | ECS entities of [dynamic structures](extraction/prefabs-and-interactives.md#dynamic-structures) | the owner's gates, states and areas   |
+| `model`    | DynamicStreaming prefab rows                                                                    | as `dynamic`                          |
+| `effect`   | DynamicStreaming effect prefab rows                                                             | as `dynamic`                          |
+| `facility` | [interactives](extraction/prefabs-and-interactives.md#interactives), including unfound models   | facility, door and bridge controls    |
+| `cabin`    | rows of built [Dijiang cabins](extraction/scene-controls.md#dijiang-cabins-and-region-walls)    | the slot's cabin control              |
 
 visibility prints as the scene controls the package would carry, under the default game state:
-alternatives joined by `|`, requirements by `&`, each `control=values` with the control values that
-satisfy it (`always` when nothing gates the row). `--name` matches entity names, mesh and material
-paths, prefab paths and row sources. `--near x,y,z --radius n` keeps rows whose world bounds (else
-pivot or placement position) lie within `n` m, in Unity coordinates, sorted nearest first and, among
-rows whose bounds hold the point, smallest first; `--max-size n` drops rows whose bounds' longest
-side exceeds `n` m, such as HLOD clusters and wide volumes. prefab rows have positions but no
-bounds. `--scene-state` and `--area` filter static chunk files before entity-id deduplication and
-leave other kinds alone. when `out/<scene>/debug/stand-ins.json` exists, rows the package drew as
-[stand-ins](package-format.md#stand-ins) are marked with the reasons: a prefab's renderers by its
-asset path, placed cubes by name within 2 m. a source that fails to load is reported on stderr and
-the rest are still searched.
+alternatives joined by `|`, requirements by `&`, each `control=values` with the values that satisfy
+it (`always` when nothing gates the row).
 
-each text line gives the distance, kind, level, position, name, size, visibility, the first draw's
-mesh, material and material bundle (the prefab path and bundle for prefab rows, the component ids
-for entities without a renderer) for `asset` and `bundle dump`, and the source chunk, dynamic row,
-LevelData row or cabin row. JSON adds every draw, matrices, bounds, the raw visibility alternatives
-and rotation and scale for prefabs.
+- `--name` matches entity names, mesh and material paths, prefab paths and row sources.
+- `--near x,y,z --radius n` keeps rows whose world bounds (else pivot or placement position) lie
+  within `n` m, in Unity coordinates, sorted nearest first and, among rows whose bounds hold the
+  point, smallest first. `--max-size n` drops rows whose bounds' longest side exceeds `n` m, such as
+  HLOD clusters and wide volumes. prefab rows have positions but no bounds.
+- `--scene-state` and `--area` filter static chunk files before entity-id deduplication and leave
+  other kinds alone.
+- when `out/<scene>/debug/stand-ins.json` exists, rows the package drew as
+  [stand-ins](package-format.md#stand-ins) are marked with the reasons: a prefab's renderers by its
+  asset path, placed cubes by name within 2 m.
+
+a source that fails to load is reported on stderr and the rest are still searched. each text line
+gives the distance, kind, level, position, name, size, visibility, the first draw's mesh, material
+and material bundle (the prefab path and bundle for prefab rows, the component ids for entities
+without a renderer) for `asset` and `bundle dump`, and the source chunk, dynamic row, LevelData row
+or cabin row. JSON adds every draw, matrices, bounds, the raw visibility alternatives and rotation
+and scale for prefabs.
 
 both searches default to 100 results; `--limit` must be positive. summaries and limit notices go to
-stderr, leaving `--json` as one JSON array (including `[]` for no matches). without `--near`,
-reaching the limit stops the scan, so the notice does not imply more matches were found; with it,
-every source is searched and the nearest rows are kept.
+stderr, leaving `--json` as one JSON array (`[]` for no matches). without `--near`, reaching the
+limit stops the scan, so the notice doesn't imply more matches exist; with it, every source is
+searched and the nearest rows are kept.
 
 `bundle find --class` prints one row per object with bundle, SerializedFile node, path id, class,
-name and container paths, so the result can be passed to `bundle dump` or `asset`. `--filter`
-matches container paths; combined with `--class`, it selects objects of that class in matching
-SerializedFiles. `--group` selects `main` (default), `initial` or `all`. `--limit` counts output
-rows and `--scan` counts bundles.
+name and container paths, ready for `bundle dump` or `asset`. `--filter` matches container paths;
+with `--class`, it selects objects of that class in matching SerializedFiles. `--group` selects
+`main` (default), `initial` or `all`. `--limit` counts output rows and `--scan` counts bundles.
 
 `variants --areas` lists every selected chunk, including area zero. with `--json`, it adds a
-`selection` object containing sorted area ids and chunk file names to the variants object, without
-trailing text.
+`selection` object of sorted area ids and chunk file names to the variants object, without trailing
+text.
 
 ## local config and keys
 
 `endfield.local.json` holds the install path (`gameData`, the `Endfield_Data` directory) and the key
 material the containers need (`keys.vfsKey` for catalogs and encrypted logical files, `keys.bundle`
 for the bundle cipher). it matches the gitignored `*.local.json` pattern and is written with mode
-0600; keys never go into committed files or bundled code (see
-[architecture.md](architecture.md#decisions) for why). `config.ts` validates its shape and key
-lengths on load and tells the user to run `init` when it's missing.
+0600; keys never go into committed files or bundled code ([decisions](architecture.md#decisions)).
+`config.ts` validates its shape and key lengths on load and tells the user to run `init` when it's
+missing.
 
 `pack` also reads the install's IL2CPP metadata
 (`Endfield_Data/il2cpp_data/Metadata/global-metadata.dat`) and `GameAssembly.dll` beside
-`Endfield_Data`, for the schema of MemoryPack game data such as level scripts (see
-[scene-states.md](game-data/scene-states.md#level-scripts)). the schema is derived on each run, in
-under a second, and never written out.
+`Endfield_Data`, for the schema of [MemoryPack data](#memorypack-data). the schema is derived on
+each run, in under a second, and never written out.
 
 `init` builds the keys in three steps (`hg/key-derive.ts`):
 
@@ -125,11 +131,11 @@ under a second, and never written out.
    `hg/key-import.ts` reads them from local checkouts of tools that embed them
    (Endfield-map-extractor for the VFS key, AnimeStudio for the bundle cipher). without
    `--keys-from`, `init` fails naming the missing key.
-3. validate every key against the install with an oracle before saving: the VFS key must decrypt a
-   `.blc` catalog into a parseable layout, and the bundle cipher must decrypt and decompress the
-   first data block of a few small bundles into a valid SerializedFile header. a supplied key that
-   fails is an error, not a warning. `init` then reopens the VFS with the final keys and mounts the
-   Bundle group, so a bad key fails during setup rather than partway through a pack.
+3. validate every key against the install before saving: the VFS key must decrypt a `.blc` catalog
+   into a parseable layout, and the bundle cipher must decrypt and decompress the first data block
+   of a few small bundles into a valid SerializedFile header. a supplied key that fails is an error,
+   not a warning. `init` then reopens the VFS with the final keys and mounts the Bundle group, so a
+   bad key fails during setup rather than partway through a pack.
 
 ## container layers
 
@@ -161,27 +167,28 @@ reads little. the descrambling is ported from AnimeStudio.
 world data references assets by 64-bit path hash; the StringPathHash tables map hashes to paths and
 the bundle manifest maps asset paths to bundles and their dependency closures
 ([lookup tables](game-data/assets.md#lookup-tables)). StringPathHash lookups try the main table,
-then the initial one. path → hash (`WorldIndex.hashesOf`) scans the StringPathHash tables, about a
-second per lookup. `world resolve <path|hash>` prints both directions plus the holding bundle and
-its dependencies. code: [string-path-hash.ts](../packages/formats/src/hg/string-path-hash.ts),
+then the initial one. path → hash (`WorldIndex.hashesOf`) scans both tables, about a second per
+lookup, because the [path hash function](game-data/assets.md#open) isn't ported.
+`world resolve <path|hash>` prints both directions plus the holding bundle and its dependencies.
+code: [string-path-hash.ts](../packages/formats/src/hg/string-path-hash.ts),
 [bundle-manifest.ts](../packages/formats/src/hg/bundle-manifest.ts),
 [world-index.ts](../packages/extractor/src/game/world-index.ts).
 
 `AssetResolver` ([assets.ts](../packages/extractor/src/game/assets.ts)) turns a hash or a PPtr into
-an `ObjectRef` (bundle index, SerializedFile, object info), relying on the game facts in
-[how a reference reaches an object](game-data/assets.md#how-a-reference-reaches-an-object).
+an `ObjectRef` (bundle index, SerializedFile, object info), relying on
+[how a reference reaches an object](game-data/assets.md#how-a-reference-reaches-an-object):
 
-the resolver opens dependency directories in batches and caches each CAB location. sub-asset lookup
-checks the main asset and same-bundle preload pointers, skipping dependency preloads. `findUnique`
-requires exactly one match; missing containers, class mismatches, ambiguous sub-assets and invalid
-preload ranges fail. failed lookups retain their errors in the pack's debug index. a PPtr into
-Unity's built-in files resolves to the bundled copy of a
-[built-in mesh](game-data/assets.md#built-in-meshes)
-([builtin-resources.ts](../packages/extractor/src/game/builtin-resources.ts)), looked up on first
-use; any other throws a `FormatError` naming its path id.
-
-an `AssetRef` reached through a prefab carries an `ObjectLocator` (bundle, CAB, path id), bypassing
-path lookup. `objectKey` (`CAB-<hex>:<pathId>`) identifies objects for deduplication and caching.
+- it opens dependency directories in batches and caches each CAB location.
+- sub-asset lookup checks the main asset and same-bundle preload pointers, skipping dependency
+  preloads. `findUnique` requires exactly one match; missing containers, class mismatches, ambiguous
+  sub-assets and invalid preload ranges fail, and the pack's debug index keeps the errors.
+- a PPtr into Unity's built-in files resolves to the bundled copy of a
+  [built-in mesh](game-data/assets.md#built-in-meshes) (the Cube and Quad;
+  [builtin-resources.ts](../packages/extractor/src/game/builtin-resources.ts)), looked up on first
+  use; any other throws a `FormatError` naming its path id.
+- an `AssetRef` reached through a prefab carries an `ObjectLocator` (bundle, CAB, path id),
+  bypassing path lookup. `objectKey` (`CAB-<hex>:<pathId>`) identifies objects for deduplication and
+  caching.
 
 ### objects
 
@@ -215,29 +222,34 @@ to the resolver so stream data and PPtrs are followed across bundles.
 **mesh.** [mesh.ts](../packages/formats/src/unity/mesh.ts) decodes `Mesh` (class 43) vertex channels
 and streams, the index buffer and submeshes into typed arrays, reading vertex data from
 `m_StreamData` when present. packed normals ([mesh](game-data/assets.md#mesh)) are decoded by
-`unpackHgNormal`; the decoder keeps the raw words as `packedNormals`. meshes with f32 tangents use
-them as is; for packed-normal meshes the packer generates MikkTSpace tangents from the UV set a
-normal-mapped material draws the mesh with
+`unpackHgNormal`, and the raw words are kept as `packedNormals`. skinned meshes expose weights, bone
+indices and bind pose counts in `skin`. it fails a mesh on:
+
+- channels whose packing nibble the decoder hasn't seen
+- submeshes whose index count leaves a partial triangle or quad
+- collision-only meshes (`m_CollisionMeshBaked`) and vertices stored in `m_CompressedMesh`
+
+meshes with f32 tangents use them as is. for packed-normal meshes the packer generates MikkTSpace
+tangents from the UV set a normal-mapped material draws the mesh with
 ([geometry blob](package-format.md#geometry-blob-mesh-efgm)), the lowest when its materials
-disagree; the report counts those meshes and `debug/assets.json` lists their sets (`tangentUvs`).
-likewise a mesh any swaying material draws is converted with the strongest of their sways, which
-puts the sway weights in position W and grows its bounds
-([swaying geometry](package-format.md#geometry-blob-mesh-efgm)). channels whose packing nibble the
-decoder hasn't seen, and submeshes whose index count leaves a partial triangle or quad, fail the
-mesh. skinned meshes expose weights, bone indices and bind pose counts in `skin`.
+disagree; the report counts those meshes and `debug/assets.json` lists their sets (`tangentUvs`). a
+mesh any swaying material draws is converted with the strongest of their sways, which puts the sway
+weights in position W and grows its bounds
+([swaying geometry](package-format.md#geometry-blob-mesh-efgm)).
 
 **skin pose.** [skin-pose.ts](../packages/formats/src/unity/skin-pose.ts) bakes linear blend
 skinning into a new static mesh: positions, normals, tangents and bounds move into the space of the
 supplied pose (bone matrix × bind pose per bone). it throws on missing influences, bad bone indices
-or singular transforms. skinned prefab renderers are drawn in their authored pose this way, unless a
-looping clip moves their bones ([interactives](#interactives)).
+or singular transforms. skinned prefab renderers are drawn in their authored pose this way unless a
+[looping clip](extraction/prefabs-and-interactives.md#looping-clips) moves their bones.
 
 **texture.** [texture.ts](../packages/formats/src/unity/texture.ts) handles `Texture2D`, `Cubemap`,
 `Texture2DArray`, `CubemapArray` and `Texture3D`. it reads format, colour space, sampler settings
 and the raw mip chain and regroups the data into KTX2's level-major order, passing BC blocks through
 unchanged. sRGB-ness is taken from the texture, never from the material slot. alpha-only textures
 (`TextureFormat` Alpha8, `GraphicsFormat` 54) are stored as `r8unorm`, so shaders read their alpha
-from red.
+from red. formats without a WebGPU equivalent fail conversion and are listed in the report and
+`assets.json`.
 
 **material and shader.** [material.ts](../packages/formats/src/unity/material.ts) copies a
 `Material`'s serialized state (shader PPtr, keywords, custom queue, tags, texture slots with
@@ -245,27 +257,29 @@ scale/offset and HGRP's per-slot `m_UVSetIndex`, floats, colours;
 [material and shader](game-data/assets.md#material-and-shader)). the packer replaces `m_UVSetIndex`
 with the Lit shader's UV-set floats where it declares them
 ([lit layers](game-data/materials.md#lit-layers)). `summarizeShader` reads a shader's name,
-first-subshader tags and declared properties from `m_ParsedForm`. `loadMaterial`
-([game/material-load.ts](../packages/extractor/src/game/material-load.ts)) locates a material's
-shader and textures and classifies it. it lives apart from asset-decode.ts so the conversion worker,
-which loads meshes and textures from there, doesn't import the classification, and changing it keeps
-the [pack cache](#pack-cache). `classifyHgrpMaterial`
-([game/material-classify.ts](../packages/extractor/src/game/material-classify.ts)) derives the
-shader family (from the shader name), blend kind, queue, alpha-test threshold, cull mode and the Lit
-normal/MRO layout; Unity's queue boundaries (≥2450 alpha test, ≥3000 transparent) are refined by
-HGRP's own surface, blend, alpha-test and cull properties. it reads only properties the shader
-declares, falling back to the shader's defaults: materials keep the properties of shaders they used
-before, and map02's Lit materials carrying LitTransparent's `_SurfaceType` and blend factors would
-otherwise classify as glass. a texture slot whose PPtr can't be followed is left empty and the
-material still converts; `pack` counts it as a `texture slot` failure and lists it in the material's
-debug row. `describeMaterial`
-([game/material-describe.ts](../packages/extractor/src/game/material-describe.ts)) then interprets
-the converted material into its [surface](package-format.md#materials): the surface shaders in
-[game/material-surfaces.ts](../packages/extractor/src/game/material-surfaces.ts), the effects in
-[game/material-effects.ts](../packages/extractor/src/game/material-effects.ts), each reading its
-properties through [game/material-values.ts](../packages/extractor/src/game/material-values.ts),
-which falls back to the shader's declared defaults. like the classification, these stay out of the
-conversion worker's imports.
+first-subshader tags and declared properties from `m_ParsedForm`. then, in the extractor:
+
+- `loadMaterial` ([material-load.ts](../packages/extractor/src/game/material-load.ts)) locates a
+  material's shader and textures and classifies it. a texture slot whose PPtr can't be followed is
+  left empty and the material still converts; `pack` counts it as a `texture slot` failure and lists
+  it in the material's debug row.
+- `classifyHgrpMaterial`
+  ([material-classify.ts](../packages/extractor/src/game/material-classify.ts)) derives the shader
+  family (from the shader name), blend kind, queue, alpha-test threshold, cull mode and the Lit
+  normal/MRO layout. Unity's queue boundaries (≥2450 alpha test, ≥3000 transparent) are refined by
+  HGRP's own surface, blend, alpha-test and cull properties. it reads only properties the shader
+  declares, falling back to the shader's defaults, because materials keep the properties of shaders
+  they used before: map02's Lit materials carrying LitTransparent's `_SurfaceType` and blend factors
+  would otherwise classify as glass.
+- `describeMaterial` ([material-describe.ts](../packages/extractor/src/game/material-describe.ts))
+  interprets the converted material into its [surface](package-format.md#materials): the surface
+  shaders in [material-surfaces.ts](../packages/extractor/src/game/material-surfaces.ts), the
+  effects in [material-effects.ts](../packages/extractor/src/game/material-effects.ts), each reading
+  its properties through [material-values.ts](../packages/extractor/src/game/material-values.ts),
+  which falls back to the shader's declared defaults.
+
+all of these live apart from asset-decode.ts, outside the conversion worker's imports, so changing
+them keeps the [pack cache](#pack-cache)'s conversions.
 
 **transform.** [transform.ts](../packages/formats/src/unity/transform.ts) builds column-major TRS
 matrices, applying Unity Euler angles in the game's order
@@ -285,7 +299,7 @@ field names, curves as keys and gradients as colour and alpha keys.
 - **MapConfig**
   ([MapConfig and the ownership grid](game-data/world.md#mapconfig-and-the-ownership-grid),
   [map-config.ts](../packages/formats/src/endfield/map-config.ts)); its scene-state conditions are
-  covered under [scene controls](#mapconfig-scene-states).
+  in [MapConfig scene states](extraction/scene-controls.md#mapconfig-scene-states).
 - **InitChunkData and StreamingChunkData**
   ([static scenery](game-data/world.md#static-scenery-initchunkdata-and-streamingchunkdata),
   [init-chunk-data.ts](../packages/formats/src/endfield/init-chunk-data.ts),
@@ -295,7 +309,7 @@ field names, curves as keys and gradients as colour and alpha keys.
   decoder accepts versions 47 and 49 and throws on any other
   ([layout](game-data/world.md#initchunkdata-layout)). `readChunkEntities` turns a component group
   into `ChunkEntity` rows with id, tag, name, matrix, bounds, decal flag and a `StaticRenderer`
-  (draws with mesh/material StringPathHash keys, submesh, flags and LOD range). it throws on any
+  (draws with mesh/material StringPathHash keys, submesh, flags and LOD range), throwing on any
   stride or count disagreement. kind-1 object rows are read by
   [mono-objects.ts](../packages/formats/src/endfield/mono-objects.ts); local lights' runtime and
   settings blocks are laid out by
@@ -320,10 +334,10 @@ collected as `issues` rather than thrown, and `world levels <map>` prints them.
 fall; backdrop cells don't vote, since skyline props would outvote small levels. because content
 ownership follows the tag, not position, the extractor:
 
-- selects a level's content by tag. clipping by its cells or rect cuts real scenery
+- selects a level's content by tag; clipping by its cells or rect cuts real scenery
 - keeps unowned cells; they are part of their tag's level
 - treats MapRegionTable polygons as UI overlays (mist, toasts), never as clip volumes, since they
-  overhang the level's cells and using them would cut scenery
+  overhang the level's cells
 
 `classifyEntity` returns a bucket (`level`, `shared` for tag 0, `unassigned`) and a placement
 relative to the grid (`own`, `neighbour`, `backdrop`, `unplaced`); `world members <level>` counts a
@@ -339,42 +353,38 @@ decoders for the [water data](game-data/water.md):
 | StreamingChunkData property tables                   | [streaming-chunk-data.ts](../packages/formats/src/endfield/streaming-chunk-data.ts)                        |
 | `WaterConfig` / `Global_Water_Config` MonoBehaviours | `readWaterSurfaceConfig`, `readWaterGlobalConfig` in [water.ts](../packages/formats/src/endfield/water.ts) |
 | scene-wide join over chunk files, asset loading      | [water-source.ts](../packages/extractor/src/game/water-source.ts)                                          |
+| LevelData water volumes and their floaters           | [water-volumes.ts](../packages/extractor/src/game/water-volumes.ts)                                        |
+| fills the level scripts set                          | [water-volume-scripts.ts](../packages/extractor/src/game/water-volume-scripts.ts)                          |
 
-the component layout follows An1X3R/Endfield-map-extractor (MIT, `extractor_core/water.py`).
+- **surfaces**: the component layout follows An1X3R/Endfield-map-extractor (MIT,
+  `extractor_core/water.py`). `readWaterSurfaces` rejects a row with a zero mask, a non-finite value
+  or a missing binding, which violate the observed layout. a surface can appear in several chunk
+  files; `readSceneWater` keeps the first copy by id (files in name order) and records the scene
+  state of every file holding it. surface meshes resolve with
+  `AssetResolver.findUnique(…, UnityClass.Mesh)`.
+- **configs**: `readWaterSurfaceConfig` keeps every top-level numeric field of a `WaterConfig` under
+  its serialized camelCase name, flags as 0/1 and Unity math structs as `[x, y(, z, w)]` /
+  `[r, g, b, a]`. configs are bound to surfaces by asset key, never by the config's `materialIndex`
+  ([surface `WaterConfig`](game-data/water.md#surface-waterconfig)). `readWaterGlobalConfig` keeps
+  only sectors with `sectorDataExists` set, takes each sector's `(x, z)` from its path
+  (`…/Sector/T_<x>_<z>.asset`) rather than its array index, and turns the signed
+  `sectorDataAssetHashes` entry into an unsigned 64-bit key.
+- **volumes**: [water volumes](game-data/water.md#water-volumes) come from LevelData, decoded whole
+  through the [MemoryPack schema](#memorypack-data), since `waterVolumes` lies past the interactives
+  that `readLevelInteractives`' prefix reader stops after. water-volumes.ts reads each volume and
+  the interactives whose component 39 names one (the floaters), skipping a file the schema can't
+  decode whole (only Dijiang's two, whose spaceship data holds a tuple the schema has no wrapper
+  for).
+- **scripted fills**: water-volume-scripts.ts collects the constant fills the scene's level scripts
+  set volumes to, with the fill speed set just before a smooth move, from the scripts the packer
+  decoded once for [script groups](extraction/scene-controls.md#script-groups). actions whose volume
+  or value the script computes at runtime aren't listed; the pack report counts them
+  (`waterScriptActionsComputed`). `WaterVolumeSetAmount` is listed as moving the surface at the
+  volume's speed, a guess: whether it moves or snaps isn't recovered.
 
-`readWaterSurfaces` rejects a row with a zero mask, a non-finite value or a missing binding, because
-these violate the observed layout.
-
-a surface can appear in several chunk files. `readSceneWater` keeps the first copy by id (files in
-name order) and records the scene state of every file holding it. surface meshes all resolve with
-`AssetResolver.findUnique(…, UnityClass.Mesh)`.
-
-`readWaterSurfaceConfig` keeps every top-level numeric field of a `WaterConfig` under its serialized
-camelCase name: flags as 0/1, Unity math structs as `[x, y(, z, w)]` / `[r, g, b, a]`. configs are
-bound to surfaces by asset key, never by the config's `materialIndex` (see
-[surface `WaterConfig`](game-data/water.md#surface-waterconfig)).
-
-`readWaterGlobalConfig` keeps only sectors with `sectorDataExists` set. it takes each sector's
-`(x, z)` from its path (`…/Sector/T_<x>_<z>.asset`) rather than from its array index, and turns the
-signed `sectorDataAssetHashes` entry into an unsigned 64-bit key.
-
-[water volumes](game-data/water.md#water-volumes) come from LevelData, decoded whole through the
-MemoryPack schema rather than by `readLevelInteractives`' prefix reader, since `waterVolumes` lies
-past the interactives in the serialized order:
-[water-volumes.ts](../packages/extractor/src/game/water-volumes.ts) reads each volume and the
-interactives whose component 39 names one (the floaters), skipping a file the schema can't decode
-whole (only Dijiang's two, whose spaceship data holds a tuple the schema has no wrapper for).
-[water-volume-scripts.ts](../packages/extractor/src/game/water-volume-scripts.ts) collects the
-constant fills the scene's level scripts set volumes to, with the fill speed set just before a
-smooth move. it reads the scripts the packer decoded once for [script groups](#script-groups); water
-actions whose volume or value the script computes at runtime aren't listed, and the pack report
-counts them (`waterScriptActionsComputed`). `WaterVolumeSetAmount` is listed as moving the surface
-at the volume's speed, a guess: whether it moves or snaps isn't recovered.
-
-for inspection without packing, `water surfaces|census|config` dumps placements, counts per level,
-chunk file, mask, mesh and config, and single config assets
-([commands/water.ts](../packages/extractor/src/commands/water.ts)). how `pack` turns surfaces into
-the package's water table is in [package-format.md](package-format.md#water).
+`water surfaces|census|config` ([commands/water.ts](../packages/extractor/src/commands/water.ts))
+dumps placements, counts per level, chunk file, mask, mesh and config, and single config assets. how
+`pack` turns all of this into the water table is in [water](package-format.md#water).
 
 ### irradiance
 
@@ -382,13 +392,29 @@ the [irradiance volume](game-data/irradiance.md)'s parser is
 [hg/irradiance.ts](../packages/formats/src/hg/irradiance.ts) (`parseIrradianceRegion` there reads
 Dijiang's [room bakes](game-data/irradiance.md#region-bakes)); compressed cells are one block of
 inverted LZ4, decoded by `decodeInvertedLz4Block` in
-[binary/lz4.ts](../packages/formats/src/binary/lz4.ts). the parser rejects index magics other than
-`0x03000004` and `0x03000003` (gacha and legacy indices) and skips the top-level spatial hash header
-and the pair table. it checks that records tile each payload contiguously from 0 and that every
-payload has records; the packer also checks that each payload ends where its last record does. it
-takes the payload index from directory word 7, never from filename order, and moves every cell key
-to the 8192 m layout (`0x03000004`'s, world 0 at 128), so the package and viewer share one origin.
-how the cells are stored is in [package-format.md](package-format.md#irradiance-cells).
+[binary/lz4.ts](../packages/formats/src/binary/lz4.ts). the parser:
+
+- rejects index magics other than `0x03000004` and `0x03000003` (gacha and legacy indices), and
+  skips the top-level spatial hash header and the pair table
+- checks that records tile each payload contiguously from 0 and that every payload has records; the
+  packer also checks that each payload ends where its last record does
+- takes the payload index from directory word 7, never from filename order
+- moves every cell key to the 8192 m layout (`0x03000004`'s, world 0 at 128), so the package and
+  viewer share one origin
+
+how the cells are stored is in [irradiance cells](package-format.md#irradiance-cells).
+
+### MemoryPack data
+
+[level scripts](game-data/scene-states.md#level-scripts), interactive templates and LevelData are
+MemoryPack, decoded by [memory-pack.ts](../packages/formats/src/endfield/memory-pack.ts) with the
+schema read at extract time from the install's IL2CPP metadata and `GameAssembly.dll`
+([il2cpp/](../packages/formats/src/il2cpp); see [local config and keys](#local-config-and-keys)).
+the formatting rules beyond the wrappers are described in the decoder. every level script and
+interactive template of the client decodes to its exact length.
+
+LevelData files with populated blackbox settings (factory puzzle scenes) are listed in
+`unsupported-interactives.json` rather than partially read.
 
 ## pack
 
@@ -397,14 +423,16 @@ a package holds one scene ([scenes, maps and levels](game-data/world.md#scenes-m
 ([game/dungeons.ts](../packages/extractor/src/game/dungeons.ts)) lists every DungeonTable entry with
 its level, the scene that level streams (`=` for its own; pack that scene), its operator, and the
 missions whose definition names the level. an entry no mission names is entered from a menu
-(training, challenges), an NPC or interaction, or not at all yet. a level of another map, such as
-`dung02_rdg012` on `dung02_rdg008`'s scene, can't be selected with `--level` ([status](status.md)).
+(training, challenges), an NPC or interaction, or not at all yet. `--level` takes only levels of the
+scene's own map, so a level streaming another map's scene, such as `dung02_rdg012` on
+`dung02_rdg008`'s, can't be selected ([status](status.md#scene-states-and-controls)).
+
 `pack <scene>` ([pack/packer.ts](../packages/extractor/src/pack/packer.ts), `packScene`) writes one
 streaming scene to `out/<scene>` or `out/<scene>-<level>` at the repo root by default, or to
 `-o <dir>`. the output directory must be absent, empty, or hold a previous package (plus, at most, a
-`.DS_Store`); anything else there aborts the pack. the package is built in a hidden sibling and
-renamed into place when complete, so a failed pack leaves the previous package as it was (see
-[package-format.md](package-format.md#layout)). the full option list is in the command's usage text.
+`.DS_Store`); anything else aborts the pack. the package is built in a hidden sibling and renamed
+into place when complete, so a failed pack leaves the previous package as it was
+([layout](package-format.md#layout)). the full option list is in the command's usage text.
 
 `--level` keeps the content one level owns plus the terrain under its cells; `--bounds` keeps
 content whose centre lies in a world x/z rectangle. both record the subset in the manifest.
@@ -423,7 +451,7 @@ the phases run in this order, and the report times each one:
 | environments and water | plan per-level environment profiles, environment volumes, and water surfaces and sectors, concurrently; then give volumes, water surfaces and lights their visibility groups and add the scene-state controls                                 |
 | irradiance             | store the base and scene-state bakes' irradiance cells, or recall them from the cache                                                                                                                                                         |
 | instances              | encode and store instance blocks, attaching detail and HLOD blocks to the tile tree                                                                                                                                                           |
-| materials              | decode materials and build the shader and material tables (below); with `--no-assets`, one `assets` phase that only lists pending entries replaces this phase and the next two                                                                |
+| materials              | decode materials and build the shader and material tables; with `--no-assets`, one `assets` phase that only lists pending entries replaces this phase and the next two                                                                        |
 | geometry               | convert meshes                                                                                                                                                                                                                                |
 | textures               | convert textures                                                                                                                                                                                                                              |
 | states                 | build the manifest's levels and scene controls                                                                                                                                                                                                |
@@ -442,12 +470,14 @@ the entity pass ([packer.ts](../packages/extractor/src/pack/packer.ts), `collect
 scene's chunk files in a fixed order (always-loaded before scene-state files, the default area
 before stream areas, then by name). an entity first met in an always-loaded file of the default area
 stays unconditional; any other entity collects every file holding it and loads while any of them
-does: the file's scene state and stream area both on. entities without a renderer, matrix or bounds
-are skipped and tallied in `debug/skipped-entities.json` (lights and water surfaces among them,
-which other passes pack); rect decals draw the decal cube instead
-([decal copies](package-format.md#materials)). every row goes to a block of one visibility group
-(its level tag and the condition that loads it, see
-[package-format.md](package-format.md#visibility-groups)), so a level, a scene state or a stream
+does: the file's scene state and stream area both on. DynamicStreaming entities' area lists
+([stream areas](game-data/world.md#stream-areas)) gate them the same way. entities without a
+renderer, matrix or bounds are skipped and tallied in `debug/skipped-entities.json` (lights and
+water surfaces among them, which other passes pack); rect decals draw the decal cube instead
+([rect decals](package-format.md#materials)).
+
+every row goes to a block of one visibility group (its level tag and the condition that loads it,
+see [visibility groups](package-format.md#visibility-groups)), so a level, a scene state or a stream
 area can be shown or hidden as a whole:
 
 | destination | what goes there                                                                                                                                              | where it lives                           |
@@ -459,291 +489,21 @@ area can be shown or hidden as a whole:
 
 HLOD clusters stand in for instances already counted, so they're left out of a level's instance
 count. with `--level`, the subset keeps entities with that level's tag and terrain tiles touching
-its cells. DynamicStreaming entities' area lists ([stream areas](game-data/world.md#stream-areas))
-gate them the same way as stream-area files.
+its cells. the packer keeps the game's [LOD and HLOD](game-data/world.md#lod-and-hlod):
 
-the packer preserves the game's [LOD and HLOD](game-data/world.md#lod-and-hlod):
-
-- per-entity LOD chains: the packer keeps whole chains, thresholds included.
-- foliage cards: ordinary chain draws, not told apart.
+- per-entity LOD chains are kept whole, thresholds included. foliage cards are ordinary chain draws,
+  not told apart.
 - HLOD clusters: setup reads the Global chunks' clusters and fits the scene's HLOD grid to their
   names; the pack report gives the grid, how many names it explains, and how many clusters' bounds
   centres lie in the tile they're filed under. a cluster whose name leaves several tiles (a clamped
   coordinate, or a cell straddling tiles) is filed under the one whose detail instances it contains
-  most often ([hlod-cells.ts](../packages/extractor/src/pack/hlod-cells.ts); see
+  most often ([hlod-cells.ts](../packages/extractor/src/pack/hlod-cells.ts),
   [tile tree](package-format.md#tile-tree)).
-- foliage grids ([foliage grids](game-data/world.md#foliage-grids)): each grass and tree instance is
-  an ordinary row with its cluster's bounds, so a cluster culls and changes LOD as a whole.
+- [foliage grids](game-data/world.md#foliage-grids): each grass and tree instance is an ordinary row
+  with its cluster's bounds, so a cluster culls and changes LOD as a whole.
 
-### prefabs
-
-`readPrefabRenderers` ([prefab.ts](../packages/extractor/src/game/prefab.ts)) walks a prefab's
-GameObject hierarchy through exact PPtrs and returns its drawable renderers relative to the prefab
-root; the caller supplies the root's placement. the hierarchy rules it follows are in
-[prefabs](game-data/assets.md#prefabs). it walks inactive subtrees for their Transforms, taking a UI
-node's RectTransform as its Transform (as the light, volume and effect walkers do). for an enabled
-`LODGroup`, each LOD's renderers, matched by object identity, never by name, carry the span of
-screen-relative heights it shows them at (a renderer in consecutive LODs, one span), and the packer
-makes those the chain's thresholds; distance bands win on a renderer that has both. a skinned
-renderer's bounds are the union of the mesh bounds under every bone so weighted vertices stay
-inside.
-
-the packer resolves a prefab from its StringPathHash key, which must name exactly one manifest path.
-a prefab's environment volumes are read separately
-([prefab-environment.ts](../packages/extractor/src/game/prefab-environment.ts), see
-[prefab volumes](#prefab-volumes)), and so are its lights ([lights](package-format.md#lights)).
-particle system renderers become particle draws ([particles](package-format.md#particles)), and
-renderers under a billboard become billboard chains ([chains](package-format.md#binary-encodings)).
-
-### dynamic structures
-
-the [fb_main grids](game-data/assets.md#fb_main-grids) reader
-([dynamic-scene.ts](../packages/formats/src/endfield/dynamic-scene.ts),
-[dynamic-resources.ts](../packages/formats/src/endfield/dynamic-resources.ts)) validates every slice
-and throws on a layout change (e.g. a resource slice not typed as resource groups) instead of
-truncating.
-
-for a model or effect row ([payloads](game-data/assets.md#payloads)), the packer resolves the
-prefab, reads its renderers, and places each one under the row's TRS. the reader checks the effect
-row's repeated position (+116) to confirm the stride. `parseDynamicChunk` reads ECS rows'
-`fb_init`/`fb_streaming` pairs with the same group decoder as InitChunkData.
-
-`loadDynamicStructures`
-([dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts)) deduplicates models
-and ECS entities by their stored reference, merging the visibility alternatives of every group that
-shows them. each structure keeps the level tag of its resource group's `levelNum`. prefab renderers
-have no game entity id, so the packer gives them a synthetic one: the level tag over an index
-counted down from the top of the 27-bit id space, away from the game's ids. ECS entities already
-present in static chunks keep their static copy. the local lights in the selected ECS groups are
-kept the same way ([lights](package-format.md#lights)). rect decals take their material from the
-chunk's `fb_streaming` payload and draw the decal cube as static ones do. an entity with a spin
-component (column 54, [spinning scenery](game-data/assets.md#spinning-scenery); static or dynamic)
-becomes a spinning row of its block, and its tile and level bounds grow by the cylinder its box
-sweeps (`sweptBounds` in [bounds.ts](../packages/extractor/src/pack/bounds.ts)) so a turned row
-never leaves them.
-
-### interactives
-
-`readLevelInteractives` decodes LevelData's sequential prefix through the interactive list
-([interactives](game-data/assets.md#interactives)); `readInteractiveTable` reads
-`InteractiveTable.json`; `readInteractiveBaseModel` reads a template's model component and
-`readInteractiveVariantModels` its variant table. a placement draws its variant's model, else the
-template's, always visible; a variant whose override is enabled but empty draws nothing, so the
-magic [Wuling bridges](game-data/assets.md#wuling-bridges) show only their DynamicStreaming row, not
-the template's drawbridge as well. a doodad-group shell places one form per group level instead
-([doodad groups](#doodad-groups)).
-
-between the model component and the variant table sit hundreds of component and action-graph types,
-so the reader locates the [variant table](game-data/assets.md#the-variant-table) from the end of the
-file. a position frames the table when the parse ends exactly at the end of the file and its keys
-are exactly the InteractiveTable ids that name this template (other than the template's own id).
-
-every placed template is decoded whole, through the MemoryPack schema, for a model-upgrade
-component. the placements of a template that has one are emitted one model per visual form, each
-visible under its form's bit of a per-facility control
-([facility visual forms](#facility-visual-forms)). the four known facilities get our own English
-labels; others are labelled by template id. a model-upgrade component the reader can't use is
-reported in `unsupported-interactives.json` and the template draws its base model.
-
-the extractor treats an interactive as a door when its template has a door component and its model's
-states include exactly one settled state whose clip is an open idle
-([interactive doors](game-data/assets.md#interactive-doors)); models with no such state draw as
-before. `readPrefabRenderers` takes a pose (the state's clip end pose plus its `SetActive`
-switches), sets the bound local transforms and switches while walking the hierarchy, so skinned door
-leaves follow their bones. the placement is emitted once per pose, under a door control
-([doors](#doors)).
-
-view states are read from the model's own file, or from the model its `ModelTable` row names in
-`dependModelViewDataId` ([interactive view states](game-data/assets.md#interactive-view-states)),
-for doors, rest looks and facility forms alike.
-
-every other interactive whose model has view states is drawn in its settled pose: every animator
-layer settled ([view states](game-data/assets.md#interactive-view-states)) with its keys false. a
-pose holds one clip end pose per animator, each with its GameObject switches, the material values it
-sets on renderers and their particle pivots; inside a clip that switches GameObjects, a node saved
-off and left alone by the clip draws nothing rather than a stand-in. clips name material properties
-by a hash, resolved against the renderer's materials' saved property names (a property the material
-doesn't save is dropped); a renderer whose materials take posed values draws a material variant
-whose record carries them before conversion. each facility visual form with view states is posed the
-same way, under its own model id, with every key false (a facility's player-set keys aren't read).
-doodad-group shells aren't posed.
-
-a settled state whose clip loops keeps playing it
-([playing a clip](game-data/assets.md#interactive-view-states)): its pose clip carries the curves
-(`readClipMotion`), and the walk records every Transform so `poseFrames` can pose the hierarchy
-again at each of the clip's frames (its duration times its sample rate), the pose's other clips
-holding their end poses. a skinned renderer whose bones move between those frames gets a `motion`:
-its bones' skinning matrices (prefab-space bone matrix × bind pose) per frame, with bounds over
-every frame. the packer interns it as an animated geometry, which keeps the mesh in its bind space
-with its weights, bone indices and frames
-([geometry blob](package-format.md#geometry-blob-mesh-efgm)), rather than baking the end pose. a
-mesh renderer (not billboarded) whose own Transform moves between those frames gets a `rigid` motion
-the same way, its Transform as the one bone with an identity bind pose: conversion gives every
-vertex bone 0 at full weight (`rigidSkin`), never reading the mesh's own bone weights. a clip the
-sampler can't read holds its end pose as before. the balloon's tube (`int_balloon_postmodel`, 46
-bones, 420 frames) and the regional upgrade terminal's robot
-(`int_system_fac_region_upgrade_postmodel`) play this way, and Qingbo Stockade's octagonal
-waterwheels ([scenery animators](game-data/assets.md#scenery-animators)) rigidly: 44 of their 49
-mesh renderers, at 1500 frames each.
-
-a prefab drawn without a view-state pose (every model placement but posed interactives) is drawn in
-what its own Animators play ([scenery animators](game-data/assets.md#scenery-animators)):
-`animatorDefaultPose` walks the hierarchy's active GameObjects for enabled Animators with a plain
-AnimatorController and takes, per showing layer, the single clip of the state the layer settles in
-under the controller's saved parameters, as a pose clip like a view state's (its end pose, or its
-motion at the state's speed when it loops). layers that blend, blend-tree states, transitions into
-sub-machines and override controllers are left out. an interactive whose template sets Animator
-bools on load ([scenery animators](game-data/assets.md#scenery-animators)) is posed by
-`animatorPose` with those values on every Animator in the prefab (which Animators the game's
-component reaches isn't checked); one bool read from a saved property places the model once per
-value under an `activation:<row id>` control, set by default, as in a finished save.
-
-`readClipMotion` plays an [ACL-compressed clip](game-data/assets.md#acl-compressed-clips) through
-[acl.ts](../packages/formats/src/unity/acl.ts), a TypeScript port of ACL 2.1's transform-track
-decompression (MIT; its notice is in the file) for the formats the game uses: full or w-dropping
-rotations, full or variable vectors, any number of segments, stripped keyframes. it decodes every
-stored sample, rebuilding w and range-reducing in float32 as ACL does (near w = 0 the rounding
-decides w), and interpolates stripped samples as ACL plays them; on the cube's buffer it agrees with
-upstream ACL's decompressor to 5e-6 in translations and 1.3e-4 in rotations. the clip then samples
-between frames like the dense block, wrapping when the buffer does, with tracks mapped to bindings
-through the sub-track masks and constant bindings held at their listed values.
-
-- a template with a campfire component is drawn with `Enabled` false and true, under a per-campfire
-  `activation:<id>` control (0 not activated; 1 activated, the default), in the viewer's progression
-  list.
-- a template whose components drive a [player-set key](game-data/assets.md#keys-the-player-sets)
-  (`Distance`, `InZone`) is settled once more with those keys true. where that changes a settled
-  state, the two poses sit under a `proximity:<id>` control (0 away, 1 near) with the key's radius
-  (the largest, if several), which a viewer sets from the camera
-  ([package format](package-format.md#proximity)).
-
-a template whose logic controller is a [telescopic bridge](game-data/assets.md#telescopic-bridges)
-is drawn through the same poses, all with the prefab root as the Animator: retracted (the end port
-moved back, track and piece switched off), extended (the end port moved out, the track scaled), and
-one more placement of the whole prefab per piece that switches everything but the piece off, moves
-it to its slot and applies its open-idle clip. that clip binds below the piece's own Animator, so
-its paths are re-keyed to paths below the root ([bridges](#bridges)).
-
-code: [interactive-model.ts](../packages/formats/src/endfield/interactive-model.ts),
-[level-interactives.ts](../packages/formats/src/endfield/level-interactives.ts),
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts),
-[animation-clip.ts](../packages/formats/src/unity/animation-clip.ts),
-[animator-defaults.ts](../packages/extractor/src/game/animator-defaults.ts),
-[door-poses.ts](../packages/extractor/src/game/door-poses.ts),
-[telescopic-bridge.ts](../packages/extractor/src/game/telescopic-bridge.ts),
-[prefab.ts](../packages/extractor/src/game/prefab.ts)
-
-### environments
-
-the extractor reads these sections of an
-[`HGEnvironmentPhase`](game-data/environment.md#environment-phases)
-([hg/environment-phase.ts](../packages/formats/src/hg/environment-phase.ts),
-`ENVIRONMENT_SECTIONS`), renamed in the package:
-
-| phase field           | package key     |
-| --------------------- | --------------- |
-| `lightConfig`         | `light`         |
-| `skyConfig`           | `sky`           |
-| `atmosphereConfig`    | `atmosphere`    |
-| `fogConfig`           | `fog`           |
-| `heightFogConfig`     | `heightFog`     |
-| `volumetricFogConfig` | `volumetricFog` |
-| `cloudConfig`         | `cloud`         |
-| `windConfig`          | `wind`          |
-| `lightShaftConfig`    | `lightShaft`    |
-| `colorGradingConfig`  | `colorGrading`  |
-| `autoExposureConfig`  | `autoExposure`  |
-| `shadowConfig`        | `shadow`        |
-| `celestialConfig`     | `celestial`     |
-| `starConfig`          | `star`          |
-| `rainConfig`          | `rain`          |
-| `lensFlareConfig`     | `lensFlare`     |
-
-the light section leaves out the fields the game derives from the others (`DERIVED_LIGHT_FIELDS`:
-the precomputed intensities, `forwardDirect`, `localToWorld` and the effects' `rotation*`
-quaternions), which some phases carry stale ([sun](game-data/lighting.md#sun)).
-
-to extract another section (`snowConfig`, `volumetricCloudConfig`, …), extend `ENVIRONMENT_SECTIONS`
-and `mapSections`, the `SECTION_KEYS` map in
-[pack/environments.ts](../packages/extractor/src/pack/environments.ts), and the matching interface
-in [package-format/src/environment.ts](../packages/package-format/src/environment.ts).
-
-#### blend schema
-
-the manifest's `environmentSchema` tells the viewer how each section field blends between phases.
-the extractor builds it from the fields' TypeTree types (`plainKinds` in
-[unity/plain-object.ts](../packages/formats/src/unity/plain-object.ts)), merged over every packed
-phase: floats, colours, vectors and SH lerp; booleans, strings and references (textures, materials,
-lens flares) switch at ½; integers round, except those named like an enum (`…Mode`, `…Type`), which
-switch. Unity serializes C# enums as plain integers without their type, so that name rule is an
-assumption.
-
-section values keep the game's field names. colours stay raw (no sRGB decode; HDR colours exceed 1),
-because the game feeds them to its shaders raw. `SphericalHarmonicsL2` is 27 numbers, channel-major.
-`m_*` editor fields and object references other than textures, materials and lens flare data are
-dropped; texture references become texture-table ids. material references (the celestial bodies'
-draw materials) become the material flattened: shader name, keywords, every float and colour
-property the shader declares (the material's value, else the declared default; properties left from
-earlier shaders are dropped, as the [material table](package-format.md#materials) does), and
-texture-table ids and scale/offset per declared slot. the lens flare's `LensFlareDataSRP` reference
-becomes the flare's elements ([lens flare data](#asset-classes)), each image a texture-table id. the
-textures that resolve in practice are the sky reflection cubemap (BC6H), the cloud panorama, its
-flow map, the cloud-shadow texture and the flares' images. editor-only previews (`*ForEdit`) are
-skipped. the render pipeline's `HeightFogFlowNoise` texture
-([flow noise](game-data/sky-and-fog.md#flow-noise)) is packed once, as the manifest's
-`heightFogFlowNoise`. what the manifest's environment lists hold is in
-[package-format.md](package-format.md#environments).
-
-#### volumes
-
-a volume is repeated in every cell chunk it overlaps; the extractor dedupes by object id
-([game/environment.ts](../packages/extractor/src/game/environment.ts), `loadSceneVolumes`). the
-component is decoded by
-[endfield/environment-volume.ts](../packages/formats/src/endfield/environment-volume.ts). prism
-points are rotated by the yaw and made absolute at parse time.
-
-the extractor reads volumes from the default stream area's chunk files of every scene state. the
-packer files each volume under a visibility group (its owning level and its loading condition; see
-[scene states](game-data/environment.md#scene-states)): a volume's states are collected from every
-chunk file it appears in, and any appearance in a state-0 file makes it unconditional.
-
-#### prefab volumes
-
-the packer finds [prefab volumes](game-data/environment.md#prefab-volumes) by their components (an
-`HGEnvironmentVolume` MonoBehaviour on an active GameObject), not by the
-`P_lightingDeco_<entity id>_envvolume` name. phases embedded in prefabs are packed like the others.
-the level base vote counts a prefab volume only when its placement's visibility holds under the
-default scene values ([defaults](#defaults)).
-
-#### the level's base environment
-
-`resolveLevelEnvironment` picks one volume per level, which `LevelInfo.environment` names and whose
-phase the viewer's blend starts from. the game has no per-level environment setting, so this "base"
-environment is something the extractor derives. it samples a 32 m grid (4 × 4 per 128 m level cell)
-over the level's `levelGrids`, among volumes the level owns that load with the default scene states:
-
-1. at each sample, the volume shown is the one stacked on top among those whose footprint holds it
-   (a box at its centre's height), in the order the viewer's blend stacks them: `compareVolumes` in
-   [`package-format/environment-volumes.ts`](../packages/package-format/src/environment-volumes.ts),
-   whose tie rule among equal priorities is an assumption.
-2. the base is the volume covering the most samples among those shown at least once, the lower
-   priority on a tie. a volume always beaten everywhere can't be the level's look.
-3. without one, the scene's global volume stands in.
-
-heights are ignored here: the vote is 2D, on the volume's footprint. the package doesn't stack the
-base phase over anything: the viewer seeds its blend with every section of the base phase, inactive
-ones included, and the scene's global volume applies over it like any other. so a section is the
-level's if active there, else the global's if active, else the level's own inactive values. that
-last fallback is an assumption: what the game shows for a section no applying phase sets isn't
-known. the debug index records the same per-section sources (`composeEnvironment`). the post profile
-is the level's own global `Volume`, else the scene's, highest priority first; its `Bloom`,
-`GTAmbientOcclusion`, `Vignette` and `ScreenSpaceReflectionVolume` components become a manifest
-`environmentPosts` entry that `LevelInfo.environment.post` names.
-
-every loaded volume counts as enabled during this vote (see
-[activation](game-data/environment.md#activation)). the pack report lists each level's base volume,
-its coverage and where it's shown, and which sections were inherited; check it when a level looks
-wrong.
+prefabs, dynamic structures and interactives are placed as
+[their page](extraction/prefabs-and-interactives.md) describes.
 
 ### asset conversion and workers
 
@@ -754,14 +514,19 @@ which textures are used. meshes and textures then convert on worker threads
 [pack/convert-worker.ts](../packages/extractor/src/pack/convert-worker.ts)): conversion is CPU-bound
 (LZ4, meshopt, zstd, hashing), so each worker opens the install itself, writes its blobs straight
 into the blob directory, and returns only small results. workers start as jobs need them, so a pack
-whose conversions all come from the cache starts none.
+whose conversions all come from the cache starts none. texture objects with identical content are
+merged into one table entry after conversion (the report counts them).
+
+an asset reached both by path hash (static entities) and by object (prefabs) is interned under each
+key, so it gets two table entries and converts twice (`AssetIds` in pack/assets.ts).
 
 `--jobs` defaults to one worker per core but one, capped at 8, since each worker holds its own
 catalogs, manifest and block caches (a few hundred MB). `--zstd-level` (default 19) applies to
 geometry, instance blocks and terrain height and splat pages; `--texture-zstd-level` (default 9)
 applies to textures, terrain surface pages and layer textures, and is the main lever on cold pack
 time while barely changing size or decode speed. irradiance cells and the core's JSON tables always
-use level 9. a blob keeps its zstd frame only when compression pays.
+use level 9. a blob keeps its zstd frame only when compression pays
+([codec](package-format.md#containers-and-blobs)).
 
 ### pack cache
 
@@ -771,14 +536,14 @@ it), implemented in [pack/pack-cache.ts](../packages/extractor/src/pack/pack-cac
 - `blobs/` is the pack's blob store: every blob is written there once and archives are streamed from
   it. without a cache the same store lives in the staging package's `.spool` and is deleted after
   the pack.
-- `memo/` holds conversion results keyed by the job (the mesh or texture, the tangent UV set, the
-  zstd level) and a fingerprint of the converter: every workspace module `convert-worker.ts`
-  transitively imports, the extractor's `package.json` and node's zstd version. each memo records
-  the bundles the conversion read and their catalog MD5s; a memo is used only while those MD5s match
-  and its blobs exist. so an install update or a change to converter code reconverts exactly what it
-  affects, without reading bundle bytes to find out. code outside the worker's import graph doesn't
-  invalidate conversions, which is why anything that changes conversion output belongs in that
-  graph.
+- `memo/` holds mesh and texture conversion results keyed by the job (the mesh or texture, the
+  tangent UV set, the sway, the zstd level) and a fingerprint of the converter: every workspace
+  module `convert-worker.ts` transitively imports, the extractor's `package.json` and node's zstd
+  version. each memo records the bundles the conversion read and their catalog MD5s; it's used only
+  while those MD5s match and its blobs exist. so an install update or a change to converter code
+  reconverts exactly what it affects, without reading bundle bytes to find out. code outside the
+  worker's import graph doesn't invalidate conversions, which is why anything that changes
+  conversion output belongs in that graph.
 - `memo/` also holds whole steps whose output depends only on VFS files: terrain
   ([pack/terrain.ts](../packages/extractor/src/pack/terrain.ts)) and irradiance
   ([pack/irradiance.ts](../packages/extractor/src/pack/irradiance.ts)). a step's key covers its own
@@ -792,6 +557,10 @@ it), implemented in [pack/pack-cache.ts](../packages/extractor/src/pack/pack-cac
   by hand releases its share at the next pack, and deleting the whole cache is always safe.
 - `lock` holds the packing process's pid; one pack uses a cache at a time, and a lock left by a dead
   process is taken over.
+
+not cached: material conversion, the entities phase (which re-reads every chunk file, ~7 s on
+map02), and failed mesh and texture conversions, which are retried on every pack, so a warm pack can
+still start workers.
 
 ### report and debug outputs
 
@@ -816,331 +585,12 @@ ignores:
 start from these when something is missing in the viewer: `instances.jsonl` maps a drawn block back
 to entities and chunk files, and `assets.json` says why an asset didn't convert.
 
-## scene controls
-
-the packer turns the game's conditional content ([scene states](game-data/scene-states.md)) into one
-control/condition system, which the viewer exposes as preview controls. spatial stream areas
-([stream areas](game-data/world.md#stream-areas)) are a separate axis; the package encodes them as
-controls the viewer sets from the camera. the encoding of controls and sets is in
-[package-format.md](package-format.md#conditions).
-
-the controls hold the game's own state, not one switch per condition: one control per quest, mission
-and variable that some condition reads, and scene states derived from those. conditions on the same
-quest therefore stay consistent: no selection makes `quest = completed` and `quest ≠ completed` both
-hold.
-
-the package side of [the selectors](game-data/scene-states.md#the-selectors-at-a-glance):
-
-| selector                   | package control                                    | default                                                           |
-| -------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
-| quest / mission state      | `quest:<id>` / `mission:<id>` (state values)       | completed (a finished story)                                      |
-| map / global variable      | `mapVar:<map>:#<id>` / `globalVar:<name>` (ranges) | the highest value the scene compares it against                   |
-| MapConfig scene state      | `sceneState:<index>`, derived from its condition   | its condition under the defaults above; condition-less states off |
-| mission gate               | requirements on quest and mission controls         | —                                                                 |
-| variable gate              | a requirement on the variable's control            | —                                                                 |
-| progression                | `<kind>:<key>`                                     | highest authored level (a finished world)                         |
-| facility visual form       | `facility:<interactive id>`                        | the last visual form (fully upgraded)                             |
-| campfire activation        | `activation:<interactive id>`                      | activated (a finished save)                                       |
-| interactive created later  | `created:<level id>`, not created / created        | not created                                                       |
-| doodad group level         | `doodadGroups:<level id>`                          | the highest level its shells name                                 |
-| Dijiang cabin slot         | `cabin:<entity id>`, empty / built                 | empty                                                             |
-| growth chamber level       | `cabinLevel:<entity id>`, the table's levels       | level 1                                                           |
-| Dijiang region wall        | `controlNexus:<level id>`                          | level 1                                                           |
-| door                       | `door:<interactive id>`, closed / open             | closed; a cabin's follows its slot                                |
-| telescopic bridge          | `bridge:<interactive id>`, retracted / extended    | retracted                                                         |
-| tree harvest state         | `harvest:<level tag>`, standing / felled           | standing                                                          |
-| script group               | `script:<entity id>`                               | the stored default, or its scripts' quest checks on activation    |
-| script-shown interactive   | `script:<logic id>`                                | shown, or its scripts' quest checks on activation                 |
-| controller-less logic gate | `logic:<entity id>:<mask>`                         | off                                                               |
-
-### MapConfig scene states
-
-[MapConfig scene states](game-data/scene-states.md#mapconfig-scene-states) are implemented by
-[map-config.ts](../packages/formats/src/endfield/map-config.ts) (parsing),
-[scene-conditions.ts](../packages/extractor/src/game/scene-conditions.ts) (controls) and
-[game-state.ts](../packages/extractor/src/game/game-state.ts) (the quests and variables conditions
-read, and turning conditions into required control values).
-
-the condition classes map to `SceneCondition.kind` as: `SimpleConditionCheckQuestState` → `quest`,
-`SimpleConditionCheckMissionState` → `mission`, `SimpleConditionCheckMapVar` → `mapVar`,
-`SimpleConditionCheckGlobalVar` → `globalVar`, `CombinedConditionRuntime` → `all` / `any`. the
-parser throws on any other class or a malformed field, so a new class surfaces as an extraction
-error instead of a guessed truth value.
-
-the world index exposes chunk files' suffixes as `ChunkFile.sceneState` / `ChunkFile.area`, and
-`world entities` / `asset cell` take `--scene-state` and `--area` filters. dynamic visible-state
-lists are read by [dynamic-resources.ts](../packages/formats/src/endfield/dynamic-resources.ts) as
-`states` and `groupStates`, visible-area lists as `areas` and `groupAreas`; gating uses those lists,
-never the resource group's `sceneState` field.
-
-what they gate ([what they gate](game-data/scene-states.md#what-they-gate)):
-
-- **static renderers** in a non-zero scene-state file become conditional instances visible while any
-  of the files' states is on. the packer reads state-0 files first, so an entity that also appears
-  in an always-loaded file stays unconditional
-  ([how the packer files instances](#how-the-packer-files-instances)). scene-state content streams
-  as conditional detail only.
-- **environment and post volumes** follow the same collection rule ([volumes](#volumes)); each
-  level's base environment is chosen among the volumes loaded under the default states
-  ([the level's base environment](#the-levels-base-environment)).
-- **water surfaces** follow the same collection rule
-  ([water-source.ts](../packages/extractor/src/game/water-source.ts),
-  [water table](package-format.md#water)).
-
-### defaults
-
-a state with a condition is derived: it follows the quest and variable controls its condition reads,
-unless the user picks a value. its control's `rule` spells out the condition. the defaults of those
-inputs are those of a player who finished the story:
-
-- every quest and mission is completed (3)
-- every variable holds the highest value the scene compares it against (see [variables](#variables)
-  below); the client ships no variable defaults ([variables](game-data/scene-states.md#variables))
-- condition-less states are off, because nothing offline sets them
-- a state index that a visibility list requires but the MapConfig doesn't name gets an off control
-  (`unnamedSceneStateControl`)
-
-under these defaults, the map01 example in
-[how the game applies them](game-data/scene-states.md#how-the-game-applies-them) gives: `001_normal`
-on, `001_damaged` off, `001_overcast_rainy` off, `001_sunny` on, `dung01_rdg008_006_liino` off,
-`dung01_rdg008_006_liino_hide` on.
-
-variable-driven states have no offline value; the highest-compared default is a guess.
-
-### variables
-
-a variable's control takes one value per range of values the scene's conditions tell apart: below,
-at and between the values they compare it against, and above the highest. a load gate fails while
-its variable is unset, so a variable some gate reads also has an "unset" value; a MapConfig test
-reads an unset variable as 0 (an assumption). the default is the highest compared value, on the
-reading that the story moves variables forward (erosion cleansed, machines repaired, the last stage
-of a staged change). the guess fails at Origin Lodespring (map01_lv006), where an in-game shot
-matches value 2 of the light column's variable, not the default 4; the red-ringed spires there are
-gated on a sentinel-looking 9999, which shouldn't set the default
-([variables](game-data/scene-states.md#variables)). a map variable is keyed by the map's numeric id
-and its numeric variable id (`mapVar:85:#125`) wherever the scene's MapConfig names it: a MapConfig
-condition's name resolves through `mapVarName2NumId`, and the control is labelled from
-`mapVarNumId2Name`, so a scene state and a load gate on the same variable share one control. a map
-variable the MapConfig doesn't name (map01 names none) keeps the key its source gives it. global
-variables have no name table, so MapConfig's named ones and gates' numbered ones stay apart.
-
-a blight's variable ([blight and its cores](game-data/scene-states.md#dynamic-load-gates)) gets a
-control described for it instead, from
-[dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts): still
-`mapVar:<map>:#<id>`, named `Blight (x, z)` after its core's position, with two values, present (the
-core alive) and cleansed (destroyed, the default, as in a finished world). its patches and its core
-both require present. `GameState.claimVariable` hands the variable over only when no other condition
-reads it; otherwise the patches keep the generic control and the core stays unconditional.
-
-### dynamic load gates
-
-[dynamic load gates](game-data/scene-states.md#dynamic-load-gates) are decoded by
-[dynamic-scene.ts](../packages/formats/src/endfield/dynamic-scene.ts) into `DynamicEntity.gates`;
-turned into requirements on quest, mission and variable controls by
-[game-state.ts](../packages/extractor/src/game/game-state.ts). a mission gate is expressed as a
-combined condition (`all`/`any`, `reverse = !loadWhen`) over the quest and mission controls. a
-gate's variable is a variable control like a MapConfig one. variables with `controlLoad` 0 aren't
-listed as gates.
-
-server-set variable gates stay plain variable controls: Yinglung Pass's
-[outpost tiers](game-data/scene-states.md#dynamic-load-gates) (#321–324) and energy point towers
-(`defenceFnish`) each follow their own control. a variable's default is the highest value the scene
-compares it against, so every tier variable defaults to 1 and all four tiers show until the user
-turns some off.
-
-**outpost upgrade missions.** [upgrade missions](game-data/scene-states.md#outpost-upgrade-missions)
-are read from `SettlementBasicDataTable` by
-[settlement-upgrades.ts](../packages/extractor/src/game/settlement-upgrades.ts) and passed to
-`GameState`, which reads a test of one completing (`= completed`, `≠ completed`) as the outpost's
-level control instead of a mission control: complete above the level that names the mission. a test
-that tells the mission's unfinished states apart keeps the mission control. a mission whose outpost
-isn't in the scene, or has no authored level above that one, stays a mission control. an outpost
-defaults to its highest authored level like every progression, which is at or above every one of its
-missions completing, so content gated on its upgrade missions (Cardiac Remediation Station's light
-column, on `f1m19d3`) shows by default. the upgrade missions are factory missions, not main story
-ones, so "Main story progress" doesn't move these outposts; the outpost's own level control does.
-
-### progressions
-
-[progressions](game-data/scene-states.md#progressions) are implemented in
-[scenery-variants.ts](../packages/extractor/src/game/scenery-variants.ts); `variants <scene>` prints
-them with the scene's stream areas.
-
-a progression is keyed `<kind>:<key>` (settlement id, POI id, or region level id); a settlement's
-main and secondary controlling entity share one progression. its selectable levels are the bits any
-of its groups use, and its default is the highest: the finished world, as quests default to
-completed and facilities to their last visual form. groups shown only at lower levels (scaffolding,
-an unbuilt site) are hidden by default; the control still picks any authored level. each progression
-is selected independently, because the player's progress is per facility and no single completion
-percentage describes it.
-
-a resource group with a non-zero mask on an entity with no controller: if bit 0 is set it shows in
-the default state and needs no control; otherwise it gets a `logic:<entity id>:<mask>` toggle, off,
-because nothing recovered drives that entity's logic state. the entity id is its global id, or
-`<grid>:<ordinal>` for an entity without an `IdComp`.
-
-trees' standing/felled bits get one `harvest` control per level that previews them all, standing by
-default, since the player fells each tree at runtime.
-
-### facility visual forms
-
-[facility visual forms](game-data/scene-states.md#facility-visual-forms) are implemented in
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts), with the
-templates decoded as MemoryPack (`InteractiveTemplateData`, see [level scripts](#level-scripts)).
-placements are deduplicated by id, a row created with its level (`createState` 0) winning over one
-created later. a row created later (any other `createState`) is placed like the rest and also
-requires its level's `created:<level id>` control, one per level, off by default, since the server
-or a level script creates those rows during play. every facility placement becomes a `facility:<id>`
-progression whose levels are the list indices and whose default is the last form, fully upgraded as
-in a finished world (the template's base model, form 1 for a recycling station, is still
-selectable). since form numbers aren't gameplay levels, the viewer labels them "Visual form", not
-"Level".
-
-### Dijiang cabins and region walls
-
-[Dijiang cabins](game-data/scene-states.md#dijiang-cabins) are implemented in
-[cabins.ts](../packages/extractor/src/game/cabins.ts). the packer gives a slot the largest cabin
-whose row pivots fit its box, else the smallest, which puts the growth chamber in the medium slot
-and manufacturing cabins in the small ones. that rule is ours: no client data assigning a cabin type
-to a slot was found, so a slot shows the type that fits, not necessarily the one the game builds
-there. the small slot with no door and no room-table row is offered like the others. the cabin
-types' room type ids (which name their rooms' bakes) are matched to `SpaceshipRoomTypeTable` rows by
-hand, by the rows' icon names (`…_icon_manufacturing_station` is 1, `…_icon_grow_cabin` 2): the
-table names no cabin types. each slot is a `cabin:<id>` control, empty by default. a slot's region
-bake goes with the built cabin ([irradiance cells](package-format.md#irradiance-cells)).
-
-the packer numbers a growth chamber's planting boxes in the order the cabin scene's entity lists
-them in its resource groups. a growth chamber slot gets a `cabinLevel:<id>` control with the table's
-levels, level 1 by default, and each box gets two rows: the prefab as saved below its field's level
-and with the shutter hidden from it on. a planted crop and the box's status bar aren't drawn.
-
-[region walls](game-data/scene-states.md#dijiang-region-walls) are implemented in
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts). the packer
-makes one `controlNexus:<level id>` control, level 1 by default, offering level 1 and each level
-that unlocks an area; levels between them change no wall. each wall shows at the offered levels
-below its area's unlock level. the cabin slot behind a locked wall stays selectable.
-
-### doors
-
-[doors](game-data/scene-states.md#doors) are implemented in
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts) and
-[cabins.ts](../packages/extractor/src/game/cabins.ts); the poses come from
-[interactives](#interactives). each placed interactive whose model has door poses gets a
-`door:<interactive id>` control, closed (0) or open (1), with its closed and open poses placed under
-it. since what opens doors in game isn't in client data:
-
-- a door defaults to closed, its state before the player or the server opens it
-- a Dijiang cabin's door follows its cabin slot: derived, open while the slot is built and closed
-  while it's empty. each door goes to the nearest slot origin within 12 m in plan; the spare small
-  slot has none
-- Dijiang's reception room door stays closed by default, since its unlock is server-only
-
-### bridges
-
-[telescopic bridges](game-data/scene-states.md#telescopic-bridges) are implemented in
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts). each placed
-bridge gets a `bridge:<interactive id>` control, retracted (0, the default and the template's
-initial state) or extended (1), with its poses from [interactives](#interactives) placed under it. a
-bridge whose prefab can't be read as one is reported in `unsupported-interactives.json` and drawn as
-saved.
-
-### doodad groups
-
-[doodad groups](game-data/scene-states.md#doodad-groups) are implemented in
-[doodad-shell.ts](../packages/extractor/src/game/doodad-shell.ts) and
-[interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts). a shell
-without identity slots is reported and keeps only its own renderers. every level with doodad groups
-gets one `doodadGroups:<level id>` progression ("Resource nodes") over the group levels its shells
-name, defaulting to the highest. each form is placed at the interactive's transform and shown under
-`1 << level`.
-
-### script groups
-
-each [script-control entity](game-data/scene-states.md#script-groups) gets a `script:<entity id>`
-control defaulting to its default-load flag
-([dynamic-structures.ts](../packages/extractor/src/game/dynamic-structures.ts)), unless its scripts'
-quest checks settle it (below). event content such as a limited-time race course lands here,
-typically off. a level interactive that one of the scene's own scripts shows or hides by a constant
-entity pointer gets a `script:<logic id>` control too, shown by default (as placed), and its
-placements also require it
-([interactive-facilities.ts](../packages/extractor/src/game/interactive-facilities.ts)). the packer
-reads the scene's level scripts once, collects those targets before placing interactives, then finds
-drivers for both kinds. pointers to a script's own slots and computed targets aren't followed; the
-pack report counts them (`scriptVisibilityUntraced`).
-
-toggle names for script and logic controls are the one or two most frequent renderer names under
-them. they are labels for finding the control, not evidence of what activates it.
-
-**drivers** ([what sets a script group](game-data/scene-states.md#what-sets-a-script-group)) are
-found by [script-drivers.ts](../packages/extractor/src/game/script-drivers.ts) over the level
-scripts the MemoryPack decoder reads. the packer follows every path from each header to each
-show/hide action (up to 16 guard sets per node), and custom events and script starts back up to five
-hops. each root cause becomes a `ControlDriver` of the group's control, with the `visible` the
-action sets: quest ids found on the way (in guards and quest events), a switch, a trigger area, the
-script's own area, or the server. header types map to causes by an explicit list: an interactive's
-use events (`OnInteractiveStateChanged`, `OnUIInteract`, unlocks, saved-property changes, being
-scanned) are switches; script stage, property and lifecycle events are the server; fights, spawners
-and deaths, dialogues and cutscenes, variable changes, and entity starts or custom events are
-`event` drivers of those kinds. any other header type becomes an `unknown` driver naming it, and the
-pack report counts and logs those types (`scriptEventTypesUnmapped`). scripts of other levels that
-name a scene's group (dungeons reusing the open world, such as the racing courses) become `level`
-drivers; they're found by the group's id in their bytes. missions whose objectives check a script
-(stage, property) are listed as quest drivers of its activation. the viewer lists each control's
-drivers and flies to a driver's position.
-
-**following quest checks on activation**
-([following quest checks](game-data/scene-states.md#following-quest-checks-on-activation)). a script
-that checks a quest when it runs is built to run on both sides of that check, so such a group
-follows the check rather than its stored flag. when every path from one of the scene's own scripts'
-activation headers (`OnScriptActive`, `…Start`, `…PreActive`) to a group's show or hide action
-passes only `CheckMissionOrQuestIsComplete` / `…IsProcessing` guards (and constants), each path is a
-conjunction of quest and mission tests. the group's control is then derived: shown while a show path
-holds, or, for a group authored to load, while no hide path holds. a path without any quest test
-(the script running is the only cause), a guard of another kind, or a state under which both a show
-and a hide path hold leaves the control at its stored flag. other drivers (switches, areas, quest
-events, other levels) don't enter the formula: they act after activation, until the script runs
-again. under the finished-story defaults the Power Plateau gate is open and the props are shown, and
-both follow "Main story progress".
-
-### level scripts
-
-[level scripts](game-data/scene-states.md#level-scripts) and other MemoryPack game data are decoded
-by [memory-pack.ts](../packages/formats/src/endfield/memory-pack.ts), with the schema read at
-extract time from the install's IL2CPP metadata and `GameAssembly.dll`
-([il2cpp/](../packages/formats/src/il2cpp); see [local config and keys](#local-config-and-keys)).
-the formatting rules beyond the wrappers are described in the decoder. every level script and
-interactive template of the client decodes to its exact length.
-
-### quest and mission labels
-
-[quest and mission labels](game-data/scene-states.md#quest-and-mission-labels) are implemented by
-[mission-runtime.ts](../packages/formats/src/endfield/mission-runtime.ts) (parsing) and
-[story.ts](../packages/extractor/src/game/story.ts) (labels), and land in the package as
-[story places](package-format.md#controls). rich-text tags (`<@…>…</>`) are stripped for labels. a
-quest's label is its first objective's text, else the mission description it shows while running
-(`descriptionOverride`). a quest off the main flow sits half a step after its predecessors. hidden
-quests are labelled "hidden step" with their id's suffix. quests whose mission the client lacks keep
-their raw id. the episode label is inferred from the id.
-
-### rules
-
-- gate content on stored conditions; names do not establish activation. show the assumption behind
-  each default ([defaults](#defaults)).
-- preserve compound requirements and union alternatives for shared resources
-  ([conditional sets](package-format.md#conditional-sets)).
-- present controls as previews. by-name state writers, script overrides, activity conditions and
-  server state remain incomplete ([status](status.md#coverage-and-conditional-content)).
-- unknown condition classes, operators, out-of-range spans and invalid flags throw during
-  extraction.
-
 ## open
 
-- path → hash lookups reverse-scan StringPathHash: the
-  [path hash function](game-data/assets.md#open) isn't ported.
-- material conversion isn't cached, and failed mesh and texture conversions aren't memoized, so
-  they're retried on every pack and a warm pack can still start workers.
-- LevelData files with populated blackbox settings (factory puzzle scenes) are listed in
-  `unsupported-interactives.json` rather than partially read.
-- texture formats without a WebGPU equivalent (`formats/src/unity/texture.ts`,
-  `formats/src/binary/ktx2.ts`) aren't convertible; they appear as failures in the report and
-  `assets.json`.
+- path → hash lookups reverse-scan StringPathHash ([asset resolution](#asset-resolution)).
+- not cached: material conversion, the entities phase and failed conversions
+  ([pack cache](#pack-cache)); duplicate textures are compressed before they're merged.
+- assets reached both by path hash and by object convert twice
+  ([asset conversion](#asset-conversion-and-workers)).
+- LevelData with populated blackbox settings isn't read ([MemoryPack data](#memorypack-data)).
+- texture formats without a WebGPU equivalent aren't convertible ([texture](#asset-classes)).

@@ -157,11 +157,11 @@ its screen-space error, `geometricError · viewportHeight / (2 · distance · ta
 within the threshold; otherwise it refines to its children, and a refined leaf draws its detail
 blocks. per-instance LOD inside detail uses the chain thresholds. conditional blocks have no HLOD
 stand-in, so they draw by their tile's screen size regardless of refinement
-([viewer/index.md](viewer/streaming.md#instance-selection)). `manifest.global` content (the game's
-Global chunk scenery) is drawn whenever its group shows and never replaced. `geometricError` is a
-placeholder, `edge / 16` (64 m leaf → 4 m), until the game's HLOD switch distances are known; the
-viewer's SSE threshold tunes it. which entities become HLOD, detail, global and conditional content
-is in [extraction.md](extraction.md#how-the-packer-files-instances).
+([instance selection](viewer/streaming.md#instance-selection)). `manifest.global` content (the
+game's Global chunk scenery) is drawn whenever its group shows and never replaced. `geometricError`
+is a placeholder, `edge / 16` (64 m leaf → 4 m), until the game's HLOD switch distances are known;
+the viewer's SSE threshold tunes it. which entities become HLOD, detail, global and conditional
+content is in [extraction.md](extraction.md#how-the-packer-files-instances).
 
 **content refs** (`ContentRef`, `ContentKind`):
 
@@ -213,11 +213,11 @@ level over the playable rectangle, falling back to the spawn height while coarse
 
 the manifest carries three lists
 ([pack/environments.ts](../packages/extractor/src/pack/environments.ts); how the extractor reads
-them is in [extraction.md](extraction.md#environments)):
+them is in [packing environments](extraction/environments.md)):
 
 - `environmentPosts`: the levels' post-processing profiles, deduplicated by name.
 - `environmentSchema`: per section field, whether it lerps, lerps and rounds, or switches at ½
-  ([blend schema](extraction.md#blend-schema)); fields it doesn't list switch.
+  ([blend schema](extraction/environments.md#blend-schema)); fields it doesn't list switch.
 - `environmentPhases`: every phase a volume applies, uncomposed: all sections, with the list of
   those it marks active. deduplicated by name.
 - `environmentVolumes`: every global, box and prism volume: name without its `#…` suffix, visibility
@@ -227,8 +227,8 @@ them is in [extraction.md](extraction.md#environments)):
   when the phase can't be read; such a volume has no control and never applies).
 
 `LevelInfo.environment` names a level's base volume (whose phase is never `null`) and post profile
-([the level's base environment](extraction.md#the-levels-base-environment)); a viewer starts its
-blend from all of that phase's sections.
+([the level's base environment](extraction/environments.md#the-levels-base-environment)); a viewer
+starts its blend from all of that phase's sections.
 
 nothing in the chunk data says whether a volume starts enabled
 ([activation](game-data/environment.md#activation)), so each volume with a phase gets an
@@ -271,7 +271,7 @@ transform's rotation is then relative to the camera's, and their bounds hold eve
 ([billboards](game-data/assets.md#billboards)). `CameraDistance` makes the chain's thresholds
 squared camera distances, in m², instead of screen-relative sizes, measured from the chain's
 distance origin: a point in the instance's frame, which the instance's transform takes to the world.
-the packer sets it on prefab renderers an [effect LOD table](game-data/assets.md#effect-lod-tables)
+the packer sets it on prefab renderers an [effect LOD table](game-data/effects.md#effect-lod-tables)
 switches by distance, with one draw per span of distances they show at, and puts the origin on the
 effect's own GameObject as the game measures it (to the millimetre, so placements of a prefab share
 chains); under a billboard the stored rotation turns the offset, not the one the camera gives. it
@@ -301,9 +301,9 @@ group, the probe grid's origin and size, and an `.iv` blob of its probes), which
 probes inside their grid while their group shows
 ([region bakes](game-data/irradiance.md#region-bakes)). a cabin slot's region bake is the one whose
 box holds the slot origin and whose room type is the slot's cabin's
-([Dijiang cabins](extraction.md#dijiang-cabins-and-region-walls)); the packer stores its probes as
-one blob and lists it with the visibility group of the built cabin, so it applies exactly while the
-cabin shows.
+([Dijiang cabins](extraction/scene-controls.md#dijiang-cabins-and-region-walls)); the packer stores
+its probes as one blob and lists it with the visibility group of the built cabin, so it applies
+exactly while the cabin shows.
 
 ### instance block (`.inst`, `EFIN`)
 
@@ -314,7 +314,7 @@ translation relative to origin), `f32×6 bounds` (world AABB centre relative to 
 half-extents, as the game stores them), `u32 entity id`. then the rect decal placements:
 `placementCount` ascending `u32 row`s and their `f32×8` placements (the RGBA8 colour, used as
 stored, with RGB times the intensity, then the UV scale and offset of the box's `local.xz + 0.5`).
-then the spinning rows ([spinning scenery](game-data/assets.md#spinning-scenery)): `spinCount`
+then the spinning rows ([spinning scenery](game-data/animation.md#spinning-scenery)): `spinCount`
 ascending `u32 row`s and their `f32×7` spins (pivot relative to origin, unit axis, radians per
 second). at time `t` a spinning row's transform and bounds centre are its stored ones turned
 `speed · t` about the axis through the pivot, as Unity's `Quaternion.AngleAxis` turns; the stored
@@ -472,8 +472,8 @@ packs a surface into its draw parameters without reading Unity properties.
 which multiplies the placement's alpha.
 
 **posed copies**: a prefab renderer whose placement's pose sets material values (an interactive's
-settled view state; [interactives](extraction.md#interactives)) draws a copy of its material with
-those values in place of the saved ones.
+settled view state; [view-state poses](extraction/prefabs-and-interactives.md#view-state-poses))
+draws a copy of its material with those values in place of the saved ones.
 
 ### lights
 
@@ -532,9 +532,11 @@ packing rules:
 - **transform**: the column-major matrix becomes rows3x4 like instance transforms, but absolute (no
   block origin).
 - **mesh normals**: `meshNormals` is set on placed surfaces whose render type mask lacks the LOD bit
-  ([placements](game-data/water.md#placements-initchunkdata-component-30)); LOD and volume surfaces
-  face straight up. the raw mask and `param1` (nothing reads them) stay in `debug/water.json`'s
-  rows.
+  ([placements](game-data/water.md#placements-initchunkdata-component-30)). LOD and volume surfaces
+  are drawn facing straight up, a choice of ours: the game shades LOD surfaces with their mesh
+  normals beyond its wave grid's reach
+  ([how surfaces are drawn](game-data/water.md#how-surfaces-are-drawn)). the raw mask and `param1`
+  (nothing reads them) stay in `debug/water.json`'s rows.
 - **visibility groups**: each surface's `group` indexes `StatesInfo.groups`, the owning level tag
   and the scene states of the files holding it (`gateByScene` in
   [packer.ts](../packages/extractor/src/pack/packer.ts)), shared with instances, lights and
@@ -581,14 +583,14 @@ mesh UVs are remapped into. a system's `motion` is `free` (start speed, gravity,
 and the Limit Velocity module's drag or speed limit) or a `spline` its particles follow at its speed
 instead.
 
-a [spline mover](game-data/assets.md#spline-movers) packs as such a system
+a [spline mover](game-data/effects.md#spline-movers) packs as such a system
 ([spline-movers.ts](../packages/extractor/src/game/spline-movers.ts)): one entry per renderer of
 each LOD group's first LOD, the mesh index naming the group, all at the mover's GameObject. its
 start lifetime becomes seconds: the clamped fraction times the spline's length over the speed. a
 mover with noise, rotation over lifetime, an alpha fade, another emission type, a lifetime or speed
 curve, or more than four groups draws its first group once at its origin as a stand-in.
 
-a `ParticleSystemRenderer` ([particle systems](game-data/assets.md#particle-systems)) whose
+a `ParticleSystemRenderer` ([particle systems](game-data/effects.md#particle-systems)) whose
 `ParticleSystem` plays on awake is packed one of three ways. mesh-mode renderers draw their meshes;
 the others (billboard, stretched, horizontal, vertical) draw the render pipeline's unit quad
 (`Packages/com.hg.render-pipelines/Runtime/RenderPipelineResources/Mesh/Quad.fbx`), which the packer
@@ -600,7 +602,7 @@ particle and keeps it past its lifetime (`ringBufferMode` not 0), without a text
 particle takes the renderer's `m_Mesh` and materials at the shape's centre, oriented by world, local
 or (for a box shape, which emits along the emitter's forward axis) velocity alignment, then its
 start rotation (Euler, Z then X then Y) and start size, offset by its
-[pivot](game-data/assets.md#particle-systems) and scaled and placed as its scaling mode sizes and
+[pivot](game-data/effects.md#particle-systems) and scaled and placed as its scaling mode sizes and
 moves played particles (below). random ranges between two constants take their midpoint, since the
 game's draws can't be reproduced; curves and camera-facing alignments disqualify a system.
 
@@ -619,7 +621,7 @@ unless the mode is Shape. the entry keeps:
   particle cap and simulation speed, and the emission bound: the most one longest lifetime of
   emission holds, the top rate times the lifetime plus each loop's top burst counts times the loops
   that lifetime spans. a system that stores a cap of 0
-  ([particle systems](game-data/assets.md#particle-systems)) gets the bound as its cap
+  ([particle systems](game-data/effects.md#particle-systems)) gets the bound as its cap
 - the start lifetime, speed, size and rotation, gravity modifier and emission rate as
   `MinMaxCurve`s, the bursts, and the start colour and colour over lifetime as `MinMaxGradient`s.
   their curves and gradients are the `AnimationCurve` and `Gradient` of
@@ -634,7 +636,7 @@ unless the mode is Shape. the entry keeps:
   amount and whether it scales with the particle's size and its speed squared), or its speed limit
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
   rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz,
-  applying the limit as [the game does](game-data/assets.md#particle-systems)
+  applying the limit as [the game does](game-data/effects.md#particle-systems)
 - the External Forces module as the free motion's `forces`: its multiplier and the sphere fields it
   feels within the same prefab (by list, by layer or both; wind zones and fields elsewhere in the
   scene aren't followed), each with its ranges, gravity focus, swirl tilt, curves and drag flags and
@@ -645,7 +647,7 @@ unless the mode is Shape. the entry keeps:
   Hz too
 - the render alignment (Facing is kept as View; Velocity too) and pivot, in multiples of the
   particle's size: a mesh particle's pivot is first multiplied by the mesh's size
-  ([pivot](game-data/assets.md#particle-systems))
+  ([pivot](game-data/effects.md#particle-systems))
 - the ring buffer mode and `ringBufferLoopRange`
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
   random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
@@ -672,14 +674,14 @@ content the game draws but the viewer can't is packed as `Unsupported` draws, so
 where something is missing. each is listed with why in the debug index's `stand-ins.json`
 ([extraction](extraction.md)):
 
-| content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | drawn as                                                                                                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| particle systems the viewer can't play ([above](#particles))                                                                                                                                                                                                                                                                                                                                                                                                                            | the system's mesh or a camera-facing quad at the emitter, scaled as its particles ([scaling](game-data/assets.md#particle-systems)) |
-| skinned meshes whose skeleton can't be posed                                                                                                                                                                                                                                                                                                                                                                                                                                            | the mesh unposed, at its renderer                                                                                                   |
-| skinned meshes with nonzero blend shapes                                                                                                                                                                                                                                                                                                                                                                                                                                                | the mesh posed without them                                                                                                         |
-| prefabs that can't be read (see `unsupported-prefabs.json`)                                                                                                                                                                                                                                                                                                                                                                                                                             | a 1 m cube on the placement's pivot, scaled with it                                                                                 |
-| interactives whose template is missing or unreadable, or whose model id is unknown                                                                                                                                                                                                                                                                                                                                                                                                      | a 1 m cube on the placement's pivot, scaled with it                                                                                 |
-| prefab renderers and particle systems under GameObjects switched off as saved (a script or view state switches them on; not those a placement's pose switches off, whose states are placed on their own, nor [one-shot effects](game-data/assets.md#one-shot-effects), GameObjects the prefab's own Animator never shows or those an [effect LOD table](game-data/assets.md#effect-lod-tables) lists, its own GameObject included, outside a view state's effects, which aren't packed) | the renderer as it would draw, or the particle stand-in above                                                                       |
+| content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | drawn as                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| particle systems the viewer can't play ([above](#particles))                                                                                                                                                                                                                                                                                                                                                                                                                              | the system's mesh or a camera-facing quad at the emitter, scaled as its particles ([scaling](game-data/effects.md#particle-systems)) |
+| skinned meshes whose skeleton can't be posed                                                                                                                                                                                                                                                                                                                                                                                                                                              | the mesh unposed, at its renderer                                                                                                    |
+| skinned meshes with nonzero blend shapes                                                                                                                                                                                                                                                                                                                                                                                                                                                  | the mesh posed without them                                                                                                          |
+| prefabs that can't be read (see `unsupported-prefabs.json`)                                                                                                                                                                                                                                                                                                                                                                                                                               | a 1 m cube on the placement's pivot, scaled with it                                                                                  |
+| interactives whose template is missing or unreadable, or whose model id is unknown                                                                                                                                                                                                                                                                                                                                                                                                        | a 1 m cube on the placement's pivot, scaled with it                                                                                  |
+| prefab renderers and particle systems under GameObjects switched off as saved (a script or view state switches them on; not those a placement's pose switches off, whose states are placed on their own, nor [one-shot effects](game-data/effects.md#one-shot-effects), GameObjects the prefab's own Animator never shows or those an [effect LOD table](game-data/effects.md#effect-lod-tables) lists, its own GameObject included, outside a view state's effects, which aren't packed) | the renderer as it would draw, or the particle stand-in above                                                                        |
 
 the material still names what the game draws where it's known, and is `0xffffffff` otherwise. cubes
 are a synthetic geometry (`synthetic:cube` in the debug index), a unit cube from −0.5 to 0.5 the
@@ -720,7 +722,7 @@ majority placement would give smaller per-tile archives but lose the ancestor gu
 
 `manifest.states` (`StatesInfo`, [states.ts](../packages/package-format/src/states.ts)) decides
 which placed content shows. what the controls mean, how the packer derives their conditions and how
-their defaults are chosen is in [extraction.md](extraction.md#scene-controls), over the game's
+their defaults are chosen is in [scene controls](extraction/scene-controls.md), over the game's
 [scene states](game-data/scene-states.md); this section covers the encoding and its evaluation, in
 [conditions.ts](../packages/package-format/src/conditions.ts) (`resolveSceneValues`,
 `conditionVisible`, `conditionResults`, `groupsShown`).
@@ -770,12 +772,14 @@ a `SceneControl` holds one piece of game state: its `kind`, `id`, `name`, the se
 `followsCamera` (stream areas and proximity, which a viewer sets from the camera unless the user
 picks a value), and the `levelTags` of the content it gates (directly or through a derived control),
 which a viewer uses to list a control only for the levels it matters to. it's a union on `kind`:
-only quest and mission controls carry a `story` place, and only script controls `drivers`. a value
-is a quest's state, a variable's range, a progression's level or form index, or 0/1 for on/off
-controls. only controls some group requires, directly or through a derived scene state, are listed;
-a derived state passes its level tags on to the quests and variables it reads. quests, missions and
-variables come first in `controls`, then progressions, facilities, doodad groups, cabins, doors and
-bridges, stream areas, script, logic and harvest controls, then scene states.
+only quest and mission controls carry a `story` place, and only script and water level controls
+`drivers` (`DrivenControl`). the kinds are listed with `SceneControlKind`. a value is a quest's
+state, a variable's range, a progression's level or form index, a water volume's fill index, or 0/1
+for on/off controls. only controls some group requires, directly or through a derived scene state,
+are listed, plus every water level control, which gates nothing; a derived state passes its level
+tags on to the quests and variables it reads. quests, missions and variables come first in
+`controls`, every derived control comes after the controls it reads, and water level controls come
+last.
 
 - **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
   `conditionalSets[derived]` holds, and its `rule` gives that condition in words (`RuleText`: text
@@ -788,15 +792,16 @@ bridges, stream areas, script, logic and harvest controls, then scene states.
   main-flow step), and `StatesInfo.missions` names those missions (`MissionInfo`: name, quest log
   category, chapter, episode, where it takes place), so a viewer can group them; the names are the
   install's English text, extracted at pack time
-  ([quest and mission labels](extraction.md#quest-and-mission-labels)). `StatesInfo.mainStory` lists
-  the main story's missions in story order, which the extractor reads from their ids
-  (`e<episode>m<mission>[d<decimal>]`, compared number by number), not from game data.
-  [story.ts](../packages/package-format/src/story.ts) turns a point in an ordered mission list into
-  consistent picks for all of them.
-- **drivers**: script controls carry `drivers`, what sets them in game according to the level
-  scripts (`ControlDriver`: quests, a switch, a trigger area, the script's area, another level, the
-  server, another classified game event, or an `unknown` event by its game name), each with the
-  visibility it sets and a position where it has one ([script groups](extraction.md#script-groups)).
+  ([quest and mission labels](extraction/scene-controls.md#quest-and-mission-labels)).
+  `StatesInfo.mainStory` lists the main story's missions in story order, which the extractor reads
+  from their ids (`e<episode>m<mission>[d<decimal>]`, compared number by number), not from game
+  data. [story.ts](../packages/package-format/src/story.ts) turns a point in an ordered mission list
+  into consistent picks for all of them.
+- **drivers**: script and water level controls carry `drivers`, what sets them in game according to
+  the level scripts (`ControlDriver`: quests, a switch, a trigger area, the script's area, another
+  level, the server, another classified game event, or an `unknown` event by its game name), each
+  with the value it sets and a position where it has one
+  ([script groups](extraction/scene-controls.md#script-groups), [water](#water)).
 
 ### stream areas
 
@@ -821,7 +826,7 @@ its reaches and 0 beyond all; a viewer sets it from the camera unless the user p
 default (away) only holds without a camera. two kinds exist:
 
 - `proximity:<interactive id>`: one reach around an interactive, whose away and near poses require
-  its values 0 and 1 ([interactives](extraction.md#interactives))
+  its values 0 and 1 ([view-state poses](extraction/prefabs-and-interactives.md#view-state-poses))
 - `proximity:volume:<script id>:<slot id>`: a level script's trigger volume, a reach per sphere.
   script groups the script shows and hides as the player enters and leaves it derive from it
   ([what sets a script group](game-data/scene-states.md#what-sets-a-script-group))
@@ -849,8 +854,7 @@ binary tables and inflates the JSON ones. a non-core blob is the byte range
 `[dataOffset + offset, + length)` of its archive (`blobRange` in the viewer), so reads can be
 coalesced; the archive's `size` from the manifest lets a reader notice an archive replaced by a
 re-pack. range reads skip czar's CRC; the blob's SHA-256 name is the integrity check when one is
-needed. the viewer's sources, decode workers and zstd decoder are in
-[viewer/index.md](viewer/loading.md).
+needed. the viewer's sources, decode workers and zstd decoder are in [loading](viewer/loading.md).
 
 ## debug
 

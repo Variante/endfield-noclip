@@ -5,13 +5,24 @@ describes at the camera, and applies its wetness.
 
 ## environment phases
 
-the package's [phase sections](../extraction.md#environments) retain the game's field names. `wind`
-is packed but unused; the other sections feed lighting, sky, fog and post-processing.
+the package's [phase sections](../extraction/environments.md) retain the game's field names. they
+feed lighting, sky, fog, post-processing and the rain wetness; `wind` only clocks
+[swaying cloth](materials.md#swaying-cloth). the fields the
+[game-data page](../game-data/environment.md#environment-phases) can't explain (`cloudFlowType`,
+`skyMaterialType`, `reflectionType`, `useCustomIVDefaultSH`, `heightFogConfig.enableVolumetricFog`)
+are packed but unread: the cloud panorama never moves, and the PC fog path switches on
+`volumetricFogConfig.enable` alone.
 
 ## environment volumes
 
 `eyeInLevelVolume` moves a level's initial viewpoint along its view line until the base volume holds
 it fully and no other level's volume does, because neighbours' volumes overlap a level's rectangle.
+
+the viewer blends the chunk and [prefab](../game-data/environment.md#prefab-volumes) volumes the
+package holds. it never sees cylinder volumes, a prefab prism under a non-identity placement, or
+LevelData's dynamic volumes, which the packer leaves out (the first two listed in
+`debug/environments.json`), nor local post `Volume`s: each level takes only its global post profile.
+a scene without levels has no environment.
 
 ## scene states
 
@@ -31,16 +42,16 @@ the post profile, not a Unity `VolumeProfile`.
   equal priorities isn't known, so this tie-break is an assumption. the order and the shape tests
   are
   [`package-format/environment-volumes.ts`](../../packages/package-format/src/environment-volumes.ts),
-  which the extractor's [base-environment vote](../extraction.md#the-levels-base-environment)
-  shares.
+  which the extractor's
+  [base-environment vote](../extraction/environments.md#the-levels-base-environment) shares.
 - time-mode factors are kept per camera in `EnvironmentFades`.
 - manual volumes stay off unless ticked in the scene-conditions panel, which previews them at full
   strength, since the scripts that drive them aren't recovered.
 - a factor ≥ 1 copies the section. below that, each field blends as the manifest's
-  `environmentSchema` says ([schema](../extraction.md#blend-schema)): lerp, lerp and round, or
-  switch at ½. the cloud panorama, height-fog flow noise and lens flare follow the game's special
-  cases; its other per-section special cases (the precipitation transitions, for one) aren't
-  followed.
+  `environmentSchema` says ([schema](../extraction/environments.md#blend-schema)): lerp, lerp and
+  round, or switch at ½. the cloud panorama, height-fog flow noise, lens flare and rain wetness
+  follow the game's special cases; the falling rain's has no use while rain isn't drawn, and snow
+  isn't packed.
 - where the game's lerp of a plain field isn't known
   ([blending](../game-data/environment.md#blending-at-the-camera)), the viewer picks one that keeps
   the value meaningful: the sun's and every effect's direction lerp as pitch and yaw (the yaw the
@@ -64,10 +75,16 @@ establish activation ([activation](../game-data/environment.md#activation)).
 
 ## weather
 
+rain sections apply wherever their chunk or prefab volumes do, so spatial rain such as Marker
+Stone's lake islet shows its wetness; quest-driven rain lives in LevelData's dynamic volumes, which
+aren't extracted. falling rain and snow aren't drawn, and `snowConfig` isn't packed.
+
 ### wetness
 
 `rain_wet_surface` ([`shaders/frame.wgsl`](../../packages/viewer/src/render/shaders/frame.wgsl), fed
-by [`render/wetness.ts`](../../packages/viewer/src/render/wetness.ts)) wets surfaces as the
-[game's deferred lighting](../game-data/environment.md#wetness) does. the one-sided `enableWetness`
-blend is `lerpRain` in
-[`environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts).
+by [`render/wetness.ts`](../../packages/viewer/src/render/wetness.ts)) wets the mesh and terrain
+surfaces as the [game's deferred lighting](../game-data/environment.md#wetness) does. the one-sided
+`enableWetness` blend is `lerpRain` in
+[`environment-blend.ts`](../../packages/viewer/src/render/environment-blend.ts). the rain occlusion
+map isn't rendered, so every surface counts as open to the sky, and its range is taken as 100 m; the
+coverage edges have no jitter, and walls don't run with water nor normal-mapped dips flood.

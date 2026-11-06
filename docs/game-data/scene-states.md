@@ -5,8 +5,9 @@ their quest, mission and variable conditions; the load gates on DynamicStreaming
 progression levels (outposts, POI facilities, factory regions); facility visual forms, Dijiang's
 cabins, doors, telescopic bridges and resource-node groups; script-loaded groups; and quest labels.
 spatial stream areas (interiors, caves, off-map places) are a separate axis, covered in
-[world.md](world.md#stream-areas). the dynamic ECS scene's format and the interactives' models are
-in [assets.md](assets.md#dynamic-structures).
+[world.md](world.md#stream-areas). the dynamic ECS scene's format is in
+[assets.md](assets.md#dynamic-structures), and the interactives' models and view states in
+[interactives.md](interactives.md).
 
 ## the selectors at a glance
 
@@ -121,8 +122,8 @@ every gate on an entity must pass.
   any other value one. the entity loads while the combined result equals `toBeTrue == 1`.
 - **variable gate** (`GlobalVarControlComp`, `MapVarControlComp`): with `controlLoad` 1 the entity
   loads while `variable <compareType> compareValue` holds, and not while the variable is unset. with
-  `controlLoad` 0 the variable doesn't gate loading; it drives the entity's level and animator state
-  (e.g. a bridge raised or lowered in place).
+  `controlLoad` 0 the variable doesn't gate loading; it drives the entity's level and view state
+  ([below](#view-states-on-dynamic-entities)).
 
 variable keys are numeric client game-variable ids, not root strings. MapConfig's `mapVarName2NumId`
 and `mapVarNumId2Name` map a map's variable names to these ids and back, and a gate's map id is the
@@ -130,22 +131,48 @@ MapConfig's numeric `mapId` (85 for map02), so a MapConfig condition and a gate 
 variable: map02's `map02lv005stateflower` is #125, which 5 dynamic entities gate on. map01's tables
 are empty.
 
-**outpost tiers.** Yinglung Pass (`stm_hongs_3`) has per-level scenery (its beacon beam, boards and
-screens) on map variables rather than logic-state masks: one `ResourceWithIdControlByMapVar` owner
-per tier, each loading while its variable equals 1 (`judianEffect1`–`4`, #321–324 on map02). its
-owners follow the outpost's own (`u`) and its factory region's (`u + 1`) ids, on consecutive
-variable ids; no other outpost on map01 or map02 has them. nothing in readable client data sets
-these variables: no table, level script, mission or C# string names them, and MapConfig only names
-them (most Lua scripts are encrypted, so those weren't searched). they're server-driven, and their
-link to the outpost's level is only suggested by name and layout.
+### view states on dynamic entities
+
+a DynamicStreaming entity can carry a view-state controller (`ModelViewStateControllerNewComp`)
+whose `modelIdStrId` names a `ModelViewStateControllerData` file
+([view states](interactives.md#interactive-view-states)). a variable with `controlLoad` 0 writes its
+value to that state machine's int key `state`. every such entity holds exactly one model row with
+`logicState` 0, so a state changes the prefab's pose and switches, never swaps the prefab. by entity
+type (owners on map01 / map02):
+
+| type                               | owners   | driver                                                                                                             |
+| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| 3 `MVCByTrigger`                   | 0 / 244  | the entity's own `TriggerComp` box sets the bool `InTrigger`: the lotus leaves' reaction                           |
+| 4 `MVCWithoutIdControlByGlobalVar` | 1 / 0    | a global variable: The Hub → Valley Pass bridge, raised or lowered                                                 |
+| 5 `RefInteractiveState`            | 38 / 1   | an interactive's state (`InteractiveStateComp`), on an old-version controller of its own (`state_off`, `state_on`) |
+| 34 `MVCWithIdControlByGlobalVar`   | 10 / 214 | a global variable; 199 of map02's floor tiles share 21 of them                                                     |
+| 37 `InteractiveMapVarProxy`        | 3 / 116  | one map variable per owner: puzzles, the magic [Wuling bridges](interactives.md#wuling-bridges), rifts, wheels     |
+| 40 `MVCWithIdControlByMapVar`      | 0 / 52   | a map variable: towers, bridges, dreamcatchers, altar rocks                                                        |
+
+no level script writes these variables: scripts only read them, and the one view-state writer,
+`SetDecorationViewState`, sets a state by name. so the server sets them. a few owners also set
+`controlLoad` 1, gating their loading on the same variable.
+
+### outpost tiers
+
+Yinglung Pass (`stm_hongs_3`) has per-level scenery (its beacon beam, boards and screens) on map
+variables rather than logic-state masks: one `ResourceWithIdControlByMapVar` owner per tier, each
+loading while its variable equals 1 (`judianEffect1`–`4`, #321–324 on map02). its owners follow the
+outpost's own (`u`) and its factory region's (`u + 1`) ids, on consecutive variable ids; no other
+outpost on map01 or map02 has them. nothing in readable client data sets these variables: no table,
+level script, mission or C# string names them, and MapConfig only names them (most Lua scripts are
+encrypted, so those weren't searched). they're server-driven, and their link to the outpost's level
+is only suggested by name and layout.
 
 other variable gates are set by the server too. Yinglung Pass's energy point towers switch between a
 red and a green set on map variable `defenceFnish` (#297, = 0 / = 1), presumably set when its
 defence encounter is cleared; no client quest, script or scene state reads it, so it has no link to
 story progress.
 
-**blight and its cores.** each patch of clearable blight (the glowing `P_erosion_map01_dynamic…`
-pieces, [erosion](materials.md#erosion)) is an erosion root: a DynamicStreaming entity of type 36
+### blight and its cores
+
+each patch of clearable blight (the glowing `P_erosion_map01_dynamic…` pieces,
+[erosion](materials.md#erosion)) is an erosion root: a DynamicStreaming entity of type 36
 (`ErosionMapVarControl`) whose `ErosionRootComp` names its core, by the core's level-data logic id
 (`erosionCoreId`) and position, next to the patch meshes (`ResourceComp`) and a map variable gate
 loading them while the variable ≠ 2. the core is an `int_erosion_core` interactive in level data,
@@ -169,7 +196,10 @@ group belongs to. all variants are stored side by side; nothing is a file swap. 
 exclusive per level, some groups span several levels, and group counts need not grow with level.
 
 settlements have a main and a secondary controlling entity. whether bit 0 means "unbuilt" or "level
-1" is unknown. the player's progress is per facility.
+1" is unknown: level scripts' upgrade presentation (`RequireSettlementShow`) targets levels 1–4 (2–4
+at some settlements), which suggests bit 0 is the look before the first upgrade. among POIs, the
+Trial of Swordmancy and the archery range use bits 0–4 while `SimulationTrainingLevelTable` lists 4
+levels, and Si's Painting's inn table uses 1–4. the player's progress is per facility.
 
 a resource group can carry a non-zero mask on an entity with no controller; nothing in client data
 drives that entity's logic state.
@@ -185,9 +215,9 @@ that takes it past that level; the later ones open with "Raise Outpost Prosperit
 limit". Cardiac Remediation Station (`stm_hongs_2`, Marker Stone) lists `f1m19d1`, `f1m19d2` and
 `f1m19d3` ("OD Project: Remediation Station I–III") at levels 1, 2 and 3, and every other outpost
 follows the same pattern. so an outpost stands above a level once that level's mission is complete.
-unverified: whether completing it raises the level at once or only unlocks the raise; the viewer
-treats the two as one. the level numbers match logic-state bits: groups named for an outpost level
-(`lt_Map02_据点_lv4_r`, `…lv3_r`, `…lv2_r`) are shown at the same bit.
+unverified: whether completing it raises the level at once or only unlocks the raise. the level
+numbers match logic-state bits: groups named for an outpost level (`lt_Map02_据点_lv4_r`, `…lv3_r`,
+`…lv2_r`) are shown at the same bit.
 
 scenery gated on a level-up mission is per-level outpost scenery: the station's green light column
 (`p_fxmap_map02_lv004_landmark_poi_801`) loads once `f1m19d3` is complete, that is at level 4,
@@ -199,8 +229,8 @@ stock redistribution facilities (`int_system_domain_shop`), depots (`int_system_
 recycling stations (`int_doodad_core_recycle`), environment monitoring terminals
 (`int_system_kite_station`, in Wuling City and Marker Stone), farm terminals
 (`int_system_farm_terminal`) and simulation training (`int_system_simulation_training`) are the
-templates with a model-upgrade component ([interactives](assets.md#interactives)), placed by
-LevelData interactive rows rather than DynamicStreaming. their template's model component
+templates with a model-upgrade component ([interactives](interactives.md#placements-and-models)),
+placed by LevelData interactive rows rather than DynamicStreaming. their template's model component
 (`InteractiveModelComponentData`) names the base model, and its model-upgrade component
 (`InteractiveModelLevelUpComponentData`, `modelLevelList`) lists ModelTable ids in authored order;
 each entry is one visual form with its own prefab (a terminal's five forms are its upgrades,
@@ -210,15 +240,16 @@ form numbers are positions in that list, not gameplay upgrade levels: how shop c
 levels or terminal levels (`KiteStationLevelTable`) map onto the list isn't recovered.
 
 every other interactive has one model (its variant's, else its template's; see
-[assets.md](assets.md#interactives)): Dijiang's guest terminal desk and screens, for instance.
-[doors](#doors), [telescopic bridges](#telescopic-bridges) and [region walls](#dijiang-region-walls)
-follow runtime state. rows with another `createState` aren't created from client data: Dijiang's
-Control Nexus terminal is one, so the server creates it; its mission condition, `e1m9` completed,
-only locks interaction with it. Dijiang's operator summon point (`int_system_spaceship_summon`, in
-the hall near unity −24, 1, −13) is another: its row is `Disable`, no level script, mission or Lua
-names its id, and its map marker (`mark_ss_contact_center`) shows only once the server reports the
-`SpaceshipSystem` unlock, so the server creates it. some templates have no data file of their own
-(the weapon-wall racks, some doors), and some templates name no model.
+[interactives](interactives.md#placements-and-models)): Dijiang's guest terminal desk and screens,
+for instance. [doors](#doors), [telescopic bridges](#telescopic-bridges) and
+[region walls](#dijiang-region-walls) follow runtime state. rows with another `createState` aren't
+created from client data: Dijiang's Control Nexus terminal is one, so the server creates it; its
+mission condition, `e1m9` completed, only locks interaction with it. Dijiang's operator summon point
+(`int_system_spaceship_summon`, in the hall near unity −24, 1, −13) is another: its row is
+`Disable`, no level script, mission or Lua names its id, and its map marker
+(`mark_ss_contact_center`) shows only once the server reports the `SpaceshipSystem` unlock, so the
+server creates it. some templates have no data file of their own (the weapon-wall racks, some
+doors), and some templates name no model.
 
 ## destructible props
 
@@ -226,6 +257,22 @@ map01 and map02's type-20 dynamic destructibles have one resource group with `lo
 controller. they store the intact model, with no destroyed variant to select; destruction removes
 the prop at runtime. interactive destructibles are separate placements whose scripts can react to
 destruction.
+
+## sludge and miasma
+
+map02's sludge, cleared by spraying it, is 68 DynamicStreaming entities of type 25 with a
+`SludgeComp` and a map variable gate but no resource group. each names one of 65 cores, LevelData
+placements of the `int_erosion_sludge_core` family (some `empty` variants, presumably with no
+visible core), and loads while its core's variable is 0; patches of one core share it. the surface
+isn't a mesh: each patch has a baked height map (`Slu__<level>__<local id>[__n]`, a 128² BC4 `.png`
+and a `.json` repeating the component's fields, under
+`Assets/Beyond/DynamicAssets/Gameplay/Sludge/`) that the game builds into a voxel heightfield over a
+`sludgeSize`² grid and draws with `M_sludgeV2` or `M_sludgeV2_high`. sprayed sludge grows back
+(`rebornTime`) unless its core is cleared; the variable is the persistent part.
+
+North Wuling Exclusion Zone's blight miasma (map02_lv008) is five type-51 entities whose resource
+groups hold effects (smoke, dust, fog walls, small fires), each loading while its map variable
+(#191–195) is 0.
 
 ## Dijiang cabins
 
@@ -263,9 +310,9 @@ and `_4` have no row, so their walls always show in this client.
 
 ## doors
 
-door poses are in [assets.md](assets.md#interactive-doors). the game opens doors by gameplay and
-server state the client doesn't hold (a Power Plateau gate opens when a level script hears an event
-from a mission's cutscene and calls the server).
+door poses are in [interactives.md](interactives.md#interactive-doors). the game opens doors by
+gameplay and server state the client doesn't hold (a Power Plateau gate opens when a level script
+hears an event from a mission's cutscene and calls the server).
 
 - a Dijiang cabin's door is open while its slot is built and closed (`unlocked`, its "to be
   constructed" panel showing) while it's empty. the slots don't name their doors; a small slot's
@@ -279,9 +326,9 @@ from a mission's cutscene and calls the server).
 
 ## telescopic bridges
 
-a telescopic bridge ([assets.md](assets.md#telescopic-bridges)) is retracted or extended by its
-interactive's `state` property, which starts at 0 (retracted) in the template. what sets it in game
-(a switch, a script, the server) isn't followed. map01 places ten, five in The Hub.
+a telescopic bridge ([interactives.md](interactives.md#telescopic-bridges)) is retracted or extended
+by its interactive's `state` property, which starts at 0 (retracted) in the template. what sets it
+in game (a switch, a script, the server) isn't followed. map01 places ten, five in The Hub.
 
 ## doodad groups
 

@@ -59,13 +59,16 @@ with `_EMISSIVE_MAP`, Lit and LitEffect also add the map's G, B and A channels t
 and blue colours, so they glow in their emissive map's own colour bands rather than its red channel
 alone.
 
+`_EmissiveSpeed` scrolls the emissive map's UVs (xy per tick of a shader clock whose source isn't
+traced); the stripe rings set it to (0, 0.1).
+
 `_EMISSIVE_ANIM` makes the emission pulse: each cycle it rises smoothly from
 `_EmissiveMinBrightness` to full and falls back, over the share of the cycle `_EmissiveAnimInterval`
 gives it. `_EmissiveAnimSpeed` sets the rate, `_EmissiveAnimRandom` offsets the phase and
 `_EmissiveColor`'s alpha sets how deep the pulse goes. the cycle runs on [the clock](#clock), so the
 white lamp cubes on Wuling's and Marker Stone's towers (`M_module_tylight+1_001_03`, speed 40) pulse
-about every 3 s. `_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker; no map02
-material sets it.
+about every 3 s. `_EnableEmissiveAnimFlicker` swaps the pulse for random on/off flicker, value noise
+over time hashed per object position; no map02 material sets it.
 
 `_EMISSIVE_ANIM_SWEEP` (88 map02 materials, among them the clearable rocks and the drones' targets)
 lights a band that sweeps up the object along its own y: each emission colour (the main one and G,
@@ -79,13 +82,13 @@ factor. outside the band it is 0. Jingyu's clearable rock
 grey glow of 2.1 from its emissive map's G (alpha 1), which covers the whole rock.
 
 each draw also carries a runtime emission colour in its per-draw data, which replaces
-`_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet those tower cubes
-glow green at Wuling and red at Marker Stone in the game, always, whatever the story state or time
-of day, where each reads as a white cube with a coloured glow (likely a saturated colour too bright
-for the tonemapper to keep its hue; unverified), so something sets it while the game runs. the
-client's known setters work on GameObject renderers: interactives' emissive configs and VFX-driven
-emission. none of them covers static scenery, and the client declares no level- or environment-wide
-emission setting, so the source is unknown.
+`_EmissiveColor` by its alpha. the static scenery's files store it as zero, yet the tower cubes glow
+green at Wuling and red at Marker Stone in the game, always, whatever the story state or time of
+day, each reading as a white cube with a coloured glow (likely a saturated colour too bright for the
+tonemapper to keep its hue; unverified), so something sets it while the game runs. the client's
+known setters work on GameObject renderers (interactives' emissive configs, VFX-driven emission),
+none covers static scenery, and the client declares no level- or environment-wide emission setting:
+the source is unknown.
 
 the mask channel is 0 for no emission, 1 for the base colour's alpha, 2 for the normal map's B
 (two-basemap layout) or the base alpha (MRO layout), and 3 or more for the normal map's alpha
@@ -109,9 +112,10 @@ detail map tile ×5 over UV set 1.
   `_Mask*Scale` and the offset from `_Mask*Offset`. albedo, roughness and metallic then blend toward
   `_MaskAlbedo*` (an LDR colour, linearized), `_MaskRoghness*` and `_MaskMetallic*`, B first and R
   last. the originium crystals are grey rock tinted brown at strength 0.5 where R is set. the
-  `_TRI_CHANNEL_MASK_SWITCH_TEXTURE*` variants take G and B from extra textures.
-  `_UseMaskRUVSetAndTilingScale` samples the mask's R from `_MaskRUVSet` tiled by
-  `_MaskRTilingScale`; no map01 material sets it.
+  `_TRI_CHANNEL_MASK_SWITCH_TEXTURE*` variants colour G and B from textures instead
+  (`_MaskAlbedoGTex` and `…BTex`, tiled by `_MaskAlbedoGUVTilling` and `…B…`, times
+  `_MaskAlbedoTintG` and `…B`, whose alpha is the strength). `_UseMaskRUVSetAndTilingScale` samples
+  the mask's R from `_MaskRUVSet` tiled by `_MaskRTilingScale`; no map01 material sets it.
 - **`_DETAIL_MAP`**: a weight from `_DetailMaskMode` (1, the detail's alpha, the base colour's
   alpha, or the normal map's B or A) fades out with view depth between `_DetailFalloffStart` and
   `…End`. the detail normal (`× _DetailNormalIntensity`) is reoriented onto the base normal.
@@ -226,8 +230,12 @@ parameter vector's RGB, covering the albedo by its A.
 
 `HGRP/LitTransparent` is the glass shader (16 materials on map01: windows and glass walls such as
 the Originium Science Park offices). its materials alpha-blend (`_EnableAlphaBlend`, source alpha
-over one minus source alpha, queue 3000, no depth write) and use Lit's texture layouts. Fresnel
-opacity (`_UseFresnel`) is off on every map01 material.
+over one minus source alpha, queue 3000, no depth write) and use Lit's texture layouts; some set the
+source factor to one instead, which suggests premultiplied colour, unchecked against the shader.
+Fresnel opacity (`_UseFresnel`, `_FresnelAffectOpacity`) is off on every map01 material. the shader
+also declares screen refraction (`_IoR`, `_RefractionIntensity`, `_RefractThickness`,
+`_RefractTint`, `_RefractTex`, `_UseProbeRefraction`) and planar reflection
+(`_EnabledPlanarReflection`); how they shade isn't decompiled.
 
 ## decals
 
@@ -330,8 +338,8 @@ that is until their core is destroyed ([blight and its cores](scene-states.md#dy
 ## swaying cloth
 
 `HGRP/Lit` materials with `_SIMPLE_VERTEXANIM` and `_SIMPLE_VERTEXANIM_CLOTH` (map02's kites, flags,
-canvases and logos; 26 materials across the shipped packages) sway in the wind in the vertex stage
-of every pass. the offset is added in world space after the object-to-world transform, and only when
+canvases and logos; 26 materials in the scenes surveyed) sway in the wind in the vertex stage of
+every pass. the offset is added in world space after the object-to-world transform, and only when
 `_SimpleVertexAnimationWindIntensity + _NoiseOffsetIntensity` is non-zero and the vertex colour's
 alpha `a` is. with `I` the intensity, `F` `_SimpleVertexAnimationWindFreq`, `S` the soft factor, `T`
 `_DirectionTendency`, `t` [the wind clock](environment.md#wind) and `x₀` the object's world X:
@@ -357,11 +365,14 @@ rather than swayed.
 the animated surface terms share one rate, `T` = seconds / 20: the emission pulse reads Unity's
 `_Time.x`, which Unity defines as seconds since startup / 20, and the parallax glow's pulse and the
 erosion flow advance 0.05 × their speed per tick of the shader clock. that HGRP keeps Unity's
-`_Time` and that its clock ticks in seconds are assumed, unchecked against the game.
+`_Time` and that its clock ticks in seconds are assumed.
 
 ## open
 
-- the [clock](#clock)'s rate is unchecked against the game.
-- the detail map's channels per `_DetailMode` (roughness from B in mode 1, from the alpha in mode 0)
-  are unchecked against a shot.
-- the layers' UV set 2 is read as set 0 on the strength of map02's meshes and one in-game shot.
+- the [clock](#clock)'s rate, and the clock that scrolls the emissive map
+- the detail map's channels per `_DetailMode` (roughness from B in mode 1, from the alpha in mode
+  0), unchecked against a shot
+- the layers' UV set 2 read as set 0, on the strength of map02's meshes and one in-game shot
+- what sets the per-draw emission colour of static scenery (the [tower lamps](#emission))
+- whether premultiplied [glass](#glass) multiplies its colour by its alpha, and how glass refracts
+- what the game does with the bump on meshes without tangents

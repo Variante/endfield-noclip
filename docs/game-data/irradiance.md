@@ -21,10 +21,12 @@ little-endian, read front to back to EOF:
 3. state groups: `u32` count, each `u32 hash` + counted `u32` indices into the names. hash 0 with no
    members is the base bake; payload filenames carry these hashes.
 4. payload filenames: counted, length-prefixed UTF-16LE.
-5. the scene's top-level spatial hash header (`u32` table size, `u32 O`, `O³` offset words), then a
-   counted table of `(u32 value, u32 state-group hash)` pairs. neither is needed to read cells. the
-   pair table has one entry per level-2 cell record (3898 on map02), so it is probably
-   per-level-2-cell data.
+5. the scene's top-level spatial hash header (`u32` table size, `u32 O`, `O³` offset words; the
+   GPU's top-level hash is built like the cells' below, keyed `x | y << 10 | z << 20` on cell
+   coordinates, and maps each cell to its byte offset in the GPU's cell buffer), then a counted
+   table of `(u32 value, u32 state-group hash)` pairs. neither is needed to read cells. the pair
+   table has one entry per level-2 cell record (3898 on map02), so it is probably per-level-2-cell
+   data.
 6. the cell directory: `u32` count, each nine `u32`:
 
    | word | meaning                                            |
@@ -57,10 +59,14 @@ a stored cell is raw when its stored length equals its size, else one block of H
 LZ4. decompressed, it is the structure the game's GPU update pass reads (all `u32`):
 
 - a perfect spatial hash over blocks of 4³ probes: `u32 T`, `u32 O`, `O³` offset words (byte
-  triples), then `T³` entries of `(block key, probe offset, mask lo, mask hi)`. a block key is
+  triples, x lowest), then `T³` entries (both x fastest) of
+  `(block key, probe offset, mask lo, mask hi)`. a block `b` (its coordinates within the cell) sits
+  at entry `(b + offset[b mod O]) mod T` per axis, and matches when the entry's key is
   `bx | by << 8 | bz << 16`.
-- the 64-bit mask marks which of the block's 64 probes exist; a probe's address is the entry's probe
-  offset + 16 × the number of set mask bits below its own (relative to the cell).
+- the 64-bit mask marks which of the block's 64 probes exist, a probe's bit interleaving its
+  coordinates within the block (x in bits 0 and 3, y in 1 and 4, z in 2 and 5). its address is the
+  entry's probe offset (in bytes, relative to the cell) + 16 × the number of set mask bits below its
+  own.
 - a probe is 16 bytes: L0 rgb as R11G11B10F, then three rgba8 words, the L1 direction of red, green
   and blue (unpacked as `· 4 − 2`, relative to that channel's L0) with the probe's validity in
   alpha.

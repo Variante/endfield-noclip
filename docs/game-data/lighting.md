@@ -2,16 +2,8 @@
 
 how the game lights surfaces: the sun and its shadows, ambient and reflections, and local lights,
 with the environment-profile fields that drive each. the profile itself (phases, volumes, blending)
-is in [environment.md](environment.md). the other rendering pages split by topic:
-
-| page                                     | covers                                                        |
-| ---------------------------------------- | ------------------------------------------------------------- |
-| [materials.md](materials.md)             | HGRP surface shaders: Lit layers, emission, foliage, glass, … |
-| [effects.md](effects.md)                 | `HGRP/Effect/*`: VFX cards and decals, waterfalls, mist       |
-| [sky-and-fog.md](sky-and-fog.md)         | atmosphere, clouds, sun disc, celestial layers, fogs          |
-| [post-processing.md](post-processing.md) | auto exposure, light shafts, lens flare, bloom, GTAO, grading |
-| [irradiance.md](irradiance.md)           | the baked irradiance volume's files, cells and probes         |
-| [water.md](water.md)                     | water surfaces                                                |
+is in [environment.md](environment.md), the baked GI in [irradiance.md](irradiance.md), and the
+passes after lighting in [post-processing.md](post-processing.md).
 
 ## units
 
@@ -20,6 +12,10 @@ pre-exposed by a fixed exposure from the profile. emission is authored in those 
 ([emission](materials.md#emission)); [auto exposure](post-processing.md#auto-exposure) adjusts on
 top. the game packs most profile fields into shader constants on the CPU, in native engine code; the
 packings not yet known are listed under [open](#open).
+
+rendering features read their settings per quality tier from INI TextAssets in the game's initial
+bundle (`[Feature@tier]` sections; the highest tier at or below the current one wins). PC's tiers
+run from very low (1000) to very high (5000); these pages describe PC high (4000).
 
 ## sun
 
@@ -30,9 +26,9 @@ packings not yet known are listed under [open](#open).
 | `light.directPitchYaw`                 | direction of the shading and shadow-casting sun |
 | `light.directSpecularIntensity`        | scales the sun's specular lobe                  |
 
-the game gives every sun-drawn effect its own direction (`<effect>PitchYawMode` 0 follows the light,
-1 uses `<effect>PitchYaw`; the `rotation*` quaternions are the resolved results, and match the
-pitch, yaw and mode in every shipped phase). art direction often moves these away from the light:
+every sun-drawn effect has its own direction (`<effect>PitchYawMode` 0 follows the light, 1 uses
+`<effect>PitchYaw`; the `rotation*` quaternions are the resolved results, and match the pitch, yaw
+and mode in every shipped phase). art direction often moves these away from the light:
 
 | effect (`<effect>PitchYaw`, `rotation<Effect>`) | used for                                                        |
 | ----------------------------------------------- | --------------------------------------------------------------- |
@@ -52,11 +48,11 @@ model ([foliage](materials.md#foliage)).
 
 ## shadows
 
-the game's PC high layout: three sharp cascades out to 12, 30 and 80 m, then a coarse layer the game
-keeps as a cached, tiled shadow map out to 800 m (its ASM, `HGASMManager`, which the `asm*` shadow
-fields configure). shadow-only renderers cast into the shadow maps without drawing, and interiors
-rely on them: the plane roofing Dijiang (177 × 348 m at y 46) keeps the sun off its corridors, since
-the walls such renderers stand in for cull their back faces. no Dijiang material changes
+PC high has three sharp cascades out to 12, 30 and 80 m, then a coarse layer the game keeps as a
+cached, tiled shadow map out to 800 m (its ASM, `HGASMManager`, which the `asm*` shadow fields
+configure). shadow-only renderers cast into the shadow maps without drawing, and interiors rely on
+them: the plane roofing Dijiang (177 × 348 m at y 46) keeps the sun off its corridors, since the
+walls such renderers stand in for cull their back faces. no Dijiang material changes
 `_ShadowCullMode`.
 
 - the sharp cascades filter with 16 gathers (64 depths) on a Poisson disk rotated per 4×4 pixel
@@ -67,8 +63,11 @@ the walls such renderers stand in for cull their back faces. no Dijiang material
   outer tenth of its bounding sphere's radius, and the sharp cascades fade into the far layer before
   their 80 m reach.
 - the cached far map is tent-filtered.
-- against acne, the game pushes receivers towards the sun by its contact-shadow pass's clear ray
-  length, and biases casters in hardware.
+- the game's contact shadows are Bend Studio's screen-space shadows, on from PC low up. they
+  multiply the sun's direct light by `mix(1, contact, contactShadowIntensity)` (0.5 in most of
+  map02's open world, 0.9–1 in caves and interiors).
+- against acne, the game pushes receivers towards the sun by the contact-shadow pass's clear ray
+  length where that pass finds no blocker, and biases casters in hardware.
 - the environment's `shadow` section (the phase's `shadowConfig`) sets the rest, blended across
   volumes like any other section. map02 has softness 0.01 and strength 1 everywhere:
 
@@ -80,9 +79,7 @@ the walls such renderers stand in for cull their back faces. no Dijiang material
   | `csmRampTexture`                                   | penumbra tint: the sun times `1 − (1 − ramp(v)) · (1 − v)`, black if none |
 
   without a ramp the sun is multiplied by the visibility `v`. on map02, Yinglung Pass's phases tint
-  penumbrae purple, and ten cave and interior volumes keep the sun out entirely. the game's contact
-  shadows are Bend Studio's screen-space shadows, on from PC low quality up, at intensity 0.5 in the
-  open world.
+  penumbrae purple, and ten cave and interior volumes keep the sun out entirely.
 
 ### cloud shadows
 
@@ -111,39 +108,48 @@ the alpha to 1, as Marker Stone's cave volumes do, fog under a dark patch gets n
 ## ambient
 
 diffuse ambient comes from the [irradiance volume](irradiance.md) where it reaches, and the
-**ambient probe** elsewhere.
+**ambient probe** elsewhere. one CPU-set scalar then scales all diffuse ambient (and the volumetric
+fog's sky term); its source is [open](#open).
 
 - the ambient probe comes from `sky.skyAmbientSH` (Unity `SphericalHarmonicsL2`, 27 floats
   channel-major). the profile also carries `light.indirectDiffuseFactor` and the irradiance volume's
   default SH (`customIVDefaultSH`); how the CPU combines them is [open](#open).
-- the irradiance volume's L1 probes are sampled from camera-centred clipmaps filled from its cells
-  ([cells and probes](irradiance.md#cells-and-probes)). the probes' validity decides how much of the
-  ambient probe fills in, with a vertical correction term at the volume's boundary. the game jitters
-  the lookup and shifts the clipmaps along the view.
+- the irradiance volume's L1 probes are sampled from three camera-centred clipmaps filled from its
+  cells ([cells and probes](irradiance.md#cells-and-probes)). the levels reach ±29, ±116 and ±464 m
+  horizontally and ±13, ±52 and ±208 m vertically from their centres, each fading over its last 2, 8
+  and 32 m into the next coarser one. the probes' validity decides how much of the ambient probe
+  fills in, with a vertical correction term at the volume's boundary. the game jitters the lookup
+  and shifts the clipmap centres along the view.
 - diffuse ambient is darkened by the lower of
   [ambient occlusion](post-processing.md#ambient-occlusion) and material occlusion, through
   Jimenez's multi-bounce fit per channel, so bright surfaces darken less. with AO off, material
   occlusion applies alone and linearly.
-- specular ambient gets Lagarde's specular occlusion from material occlusion and GTAO.
+- specular ambient gets Lagarde's specular occlusion from the lower of material occlusion and GTAO.
 
 specular ambient samples `sky.reflectionMap` (a BC6H cubemap, prefiltered by roughness across its
-mips) along the roughness-bent reflection vector, weighted by a split-sum environment BRDF and
-`light.indirectSpecularFactor`. a profile's cubemap can be black: Dijiang's
-(`T_reflectionprobe_envdefault0`) is, so its metal reflects nothing without local reflection probes.
+mips) along the roughness-bent reflection vector, weighted by a split-sum environment BRDF and a
+CPU-set scale presumed to be `light.indirectSpecularFactor`. a profile's cubemap can be black:
+Dijiang's (`T_reflectionprobe_envdefault0`) is, so its metal reflects only what local reflection
+probes give it.
 
 the reflection is scaled by how the surface's diffuse light compares with the sky probe's: with `d`
 the luminance of the diffuse irradiance (above) and `p` the ambient probe's luminance L1 along the
 normal, the factor is `(2 · min(d / p, 1) + d) / (2 + p)`. that's about `d / p` under cover, so
-interiors don't mirror the bright sky, and about 1 in the open. the game's clustered local
-reflection probes are normalised the same way.
+interiors don't mirror the bright sky, and about 1 in the open.
+
+the game's local reflection probes are octahedral, box-projected and blended by priority over the
+profile's cubemap, binned into screen tiles and depth slices like the [local lights](#local-lights),
+and normalised the same way against their own probe. their textures ship as
+`releasedata/reflectionprobedata/reflectionprobe-*.exr` (Dijiang has at least seven); where their
+placements are stored isn't found.
 
 ### screen-space reflections
 
 at PC high quality, every lit surface, at any roughness, gets screen-space reflections on top. where
 a hit is found, its colour replaces the sky reflection by a fade:
 `specular = (hit · fade + sky · (1 − fade)) · environment BRDF · specular occlusion`, where only the
-sky term carries the normalisation above and the indirect specular factor. where no hit is found,
-the sky reflection stays.
+sky term carries the normalisation above and the indirect specular scale. where no hit is found, the
+sky reflection stays.
 
 - **march.** the mirror ray is projected to the screen and stretched to its edge, then stepped in
   equal steps of uv and device depth, 4 taps per loop: 32 steps (PC high quality's
@@ -172,7 +178,9 @@ the sky reflection stays.
 
 the game runs these as compute kernels and reprojects through motion vectors. under rain it runs a
 variant that re-derives the wet roughness the deferred wetness computes
-([wetness](environment.md#wetness)) and adds rain ripple normals.
+([wetness](environment.md#wetness)) and adds rain ripple normals. forward-drawn reflectors (water,
+[reflection-only effects](effects.md#reflection-only-effects)) write the normal, roughness and depth
+the march reads.
 
 ## local lights
 
@@ -188,8 +196,9 @@ the colour precomputed: the sRGB colour made linear, times intensity and, when t
 the colour temperature's tint from HDRP's published curve fit (pivot 6570 K), which reproduces every
 stored chunk colour. a prefab light's culling box is authored in the prefab's axes (unverified: that
 it turns with the placement, for turned cabins). the scenes also hold directional lights,
-shadow-only lights (12 on map02) and character-only lights (none on map02). both bake types on the
-maps, realtime and mixed, light directly.
+shadow-only lights (12 on map02), which emit nothing but darken the other local lights through their
+shadow maps, and character-only lights (none on map02); how the volumetric fog treats both is under
+[fog](sky-and-fog.md#fog). both bake types on the maps, realtime and mixed, light directly.
 
 | input                                                         | effect                                                                                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -209,12 +218,13 @@ without (1 − F) on diffuse, so a light adds
 `colour · attenuation · n·l · (diffuse colour + π · specular BRDF)`; the specular term is clamped to
 1000 and the sum of all lights to 255, and a multiple-scattering term goes on top.
 
-each frame the game's light list takes the lights within their culling distance and in the view,
-sorts them by camera distance then priority, and keeps the nearest, up to a quality setting's cap
-(at most 256). compute shaders bin them into 32 px screen tiles and 1 m view-depth slices from the
-near plane (2048 of them), each a 256-bit mask; a pixel walks the lights set in both its tile's and
-its slice's mask. the volumetric fog lights each froxel with the same lists, through the fog's
-Henyey-Greenstein phase times each light's volumetric scattering intensity.
+each frame the game's light list takes the spot and point lights within their culling distance and
+in the view, sorts them by camera distance then priority, and keeps the nearest, up to a quality
+setting's cap (at most 256). compute shaders bin them into 32 px screen tiles and 1 m view-depth
+slices from the near plane (2048 of them), each a 256-bit mask; a pixel walks the lights set in both
+its tile's and its slice's mask. the volumetric fog lights each froxel with the same lists, through
+the fog's Henyey-Greenstein phase times each light's volumetric scattering intensity
+([fog](sky-and-fog.md#fog)).
 
 972 map02 lights cast shadows. lights can also carry cookies (no map02 light has one), a flicker
 component and [light beams](#light-beams).
@@ -253,9 +263,11 @@ value and a global tint and saturation whose sources aren't recovered.
 
 ## open
 
-- the CPU packing of the diffuse-ambient scale and the irradiance volume's default SH
-  (`skyAmbientSH` vs `customIVDefaultSH`, and where `indirectDiffuseFactor` applies). these live in
-  native engine code.
+- the CPU packing of the ambient scales: the scalar on all diffuse ambient, the specular ambient's
+  scale (presumed `indirectSpecularFactor`), and the irradiance volume's default SH (`skyAmbientSH`
+  vs `customIVDefaultSH`, and where `indirectDiffuseFactor` applies). these live in native engine
+  code.
 - the sun's units: the sun shades with the local lights' lobe (no 1/π on diffuse); whether the CPU
-  folds a 1/π into the sun's colour is unknown.
+  folds a 1/π into the sun's colour is unknown. phases also carry a `directIntensityDividePi`.
 - the quality setting that caps the local lights per frame isn't recovered.
+- where local reflection probes are placed.

@@ -1,9 +1,10 @@
 # open-world water
 
 open-world water uses surface placements, per-surface `WaterConfig` assets and a scene-wide
-`Global_Water_Config`. for scene-state conditions see [scene-states.md](scene-states.md); the
-lighting the water shares with surfaces is in [lighting.md](lighting.md), and waterfall sheets are
-effects ([effects.md](effects.md)).
+`Global_Water_Config`; gameplay [water volumes](#water-volumes) and [WaterDecal](#waterdecal) foam
+boxes draw through the same pipeline. for scene-state conditions see
+[scene-states.md](scene-states.md); the lighting the water shares with surfaces is in
+[lighting.md](lighting.md), and waterfall sheets are [effects](effects.md#waterfalls).
 
 three sources join per surface: an InitChunkData row places it, the StreamingChunkData record with
 the same entity id binds its mesh and config, and a per-level object binds the scene's global
@@ -25,15 +26,24 @@ scene), so water is resident. the groups holding them have the bounds columns 0�
 
 in every shipped row the mask is nonzero, every value is finite and both bindings are present.
 
-every surface draws its own mesh; a **LOD** surface is also drawn top-down into the height layer
-`param1.y` names and redrawn as a camera-centred grid displaced by the waves. map02's 872 LOD
-surfaces are its open water; the 431 proxy-only ones are mostly paddy-field pools. the wetness
-offset raises the surface when the game darkens the ground it touches. the 24-byte column 7 is the
-generic render-object info every renderable entity carries: layer mask, flags, scene mask, an art
-tag and a squared sorting distance.
+map02's 872 LOD surfaces are its open water; the 431 proxy-only ones are mostly paddy-field pools.
+the wetness offset raises the surface when the game darkens the ground it touches. the 24-byte
+column 7 is the generic render-object info every renderable entity carries: layer mask, flags, scene
+mask, an art tag and a squared sorting distance.
 
 surfaces have no materials of their own: the render pipeline draws them all with its own
 `HGRP/WaterProxy` and `HGRP/WaterRendering` shaders, indexing the configs by material index.
+
+### how surfaces are drawn
+
+every camera-visible surface is drawn into the water G-buffer as its own mesh, shaded around the
+mesh's normals. a **LOD** surface is also drawn top-down into the height layer `param1.y` names, and
+what that view sees near the camera is redrawn as a camera-centred grid displaced by the waves,
+whose normals point up. the grid draws first and writes 3 into the stencil; the mesh pass draws only
+where the stencil isn't 3. so near the camera an LOD surface shows the grid, and beyond the grid's
+reach (its exact extent isn't recovered, see [`Global_Water_Config`](#global_water_config)) its own
+mesh. both passes cull back faces, test depth LessEqual and write it, so only the nearest front face
+at a pixel is shaded. this is read off the passes' render states, not checked in game.
 
 the level tag is `id >>> 27` as for every entity; tag 0 is shared content shown with every level.
 
@@ -94,44 +104,47 @@ a MonoBehaviour per look (`…/WaterData/WaterConfigs/Config_water_<Map>_<n>.ass
 
 a surface's config is the asset its StreamingChunkData record binds. the config's `materialIndex`
 doesn't identify it: it is meant to index the global config's `hgWaterConfigs`, but the paddy config
-isn't in that list and its index collides with another config's.
+isn't in that list and its index collides with another config's. the game uploads each config into
+the shading's slot `materialIndex` (32 static slots) when its asset loads, listed or not, and
+surfaces find their config through that slot. so configs sharing an index overwrite each other, and
+wherever both are loaded every surface of either shades with the one loaded last.
 
 ## `Global_Water_Config`
 
 one per scene with water, at `…/<Map>/ReleaseData/WaterData/Global_Water_Config.asset`; every
 level's binding names the same asset.
 
-| field                                                                           | meaning                                                                                                                                                                         |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sceneCenterOffset` {x, y}                                                      | world x, z the grid is centred on                                                                                                                                               |
-| `mapSize`                                                                       | edge of the square the global flow map and the sector grid cover, metres                                                                                                        |
-| `sectorSize`                                                                    | edge of one sector, metres                                                                                                                                                      |
-| `flowmapPrecision`                                                              | metres per texel of a sector flow tile                                                                                                                                          |
-| `useSectorData`, `sectorDataPaths`, `sectorDataAssetHashes`, `sectorDataExists` | the sector grid, parallel arrays over every grid cell                                                                                                                           |
-| `hgWaterConfigs`                                                                | PPtrs to surface configs (incomplete, see above)                                                                                                                                |
-| `flowMap`                                                                       | 2D flow map over the whole grid, linear BC7, one mip                                                                                                                            |
-| `causticMap`                                                                    | caustic pattern, sRGB BC7                                                                                                                                                       |
-| `rainMap`                                                                       | rain ripple map, linear BC7                                                                                                                                                     |
-| `normalMapArray`                                                                | Texture2DArray of wave normals (two layers), linear BC7                                                                                                                         |
-| `lodNum`, `meshNumPerLOD`, `meshSize`, `heightMap*`                             | the game's camera-centred grid that LOD surfaces are redrawn on, displaced by the waves by `waveVertexDisplacementScaler` (mostly 0 on map02; map02: 4 rings of 16² cells, 2 m) |
+| field                                                                           | meaning                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sceneCenterOffset` {x, y}                                                      | world x, z the grid is centred on                                                                                                                                                                                                     |
+| `mapSize`                                                                       | edge of the square the global flow map and the sector grid cover, metres                                                                                                                                                              |
+| `sectorSize`                                                                    | edge of one sector, metres                                                                                                                                                                                                            |
+| `flowmapPrecision`                                                              | metres per texel of a sector flow tile                                                                                                                                                                                                |
+| `useSectorData`, `sectorDataPaths`, `sectorDataAssetHashes`, `sectorDataExists` | the sector grid, parallel arrays over every grid cell                                                                                                                                                                                 |
+| `hgWaterConfigs`                                                                | PPtrs to surface configs (incomplete, see above)                                                                                                                                                                                      |
+| `flowMap`                                                                       | 2D flow map over the whole grid, linear BC7, one mip                                                                                                                                                                                  |
+| `causticMap`                                                                    | caustic pattern, sRGB BC7                                                                                                                                                                                                             |
+| `rainMap`                                                                       | rain ripple map, linear BC7                                                                                                                                                                                                           |
+| `normalMapArray`                                                                | Texture2DArray of wave normals (two layers), linear BC7                                                                                                                                                                               |
+| `lodNum`, `meshNumPerLOD`, `meshSize`, `heightMap*`                             | the game's camera-centred grid that LOD surfaces are redrawn on, displaced by the waves by `waveVertexDisplacementScaler` (mostly 0 on map02; map02: 4 rings of 16² cells, 2 m); the top-down view bounding its reach isn't recovered |
 
 a sector has data only where `sectorDataExists` is set. its `(x, z)` is in its path
 (`…/Sector/T_<x>_<z>.asset`), and its `sectorDataAssetHashes` entry is the StringPathHash key stored
 as a signed 64-bit integer. sector `(x, z)` covers world
-`[center.x + x·sectorSize, +sectorSize) × [center.z + z·sectorSize, +sectorSize)`; this mapping
-places more surface centres in sectors with data than swapped or flipped axes do. each sector
-MonoBehaviour's `waterSectorTexture0` is a flow tile (256², linear BC7, one mip) holding the global
-flow map's content at `flowmapPrecision`. the data flag doesn't promise a tile: some sector assets
-leave `waterSectorTexture0` empty (8 of map01's 154 sectors with data, 24 of map02's 284). near the
-camera the game reads the flow (and most authored foam) from the sector tiles, blending to the
-global map at the edge of a 3 × 3 window of sectors.
+`[center.x + x·sectorSize, +sectorSize) × [center.z + z·sectorSize, +sectorSize)`, the game's own
+sector lookup. each sector MonoBehaviour's `waterSectorTexture0` is a flow tile (256², linear BC7,
+one mip) holding the global flow map's content at `flowmapPrecision`. the data flag doesn't promise
+a tile: some sector assets leave `waterSectorTexture0` empty (8 of map01's 154 sectors with data, 24
+of map02's 284). near the camera the game reads the flow (and most authored foam) from the sector
+tiles, blending to the global map at the edge of a 3 × 3 window of sectors; that lookup assumes 128
+m sectors, map02's size.
 
 ## shading
 
 the game writes water's normal, roughness and foam into its own G-buffer before the screen-space
 reflections run, then lights it in one full-screen pass after the opaque scene, with the sun through
-its shadow maps, the [irradiance volume](irradiance.md) and the sky reflection. LOD surfaces are
-shaded through the grid, whose normals point up, so their mesh normals never show.
+its shadow maps, the [irradiance volume](irradiance.md) and the sky reflection. the normal the waves
+bend is the grid's or the mesh's ([how surfaces are drawn](#how-surfaces-are-drawn)).
 
 - **flow**: the global map at `uv = (world.xz − center) / mapSize + 0.5` holds the direction in rg
   (`· 2 − 1`, green negated so it points along −z), foam in b and the wave amplitude in a. without
@@ -210,7 +223,11 @@ a volume holds:
 
 the surface is a mesh the game builds from the outline, moved vertically as the fill changes; it's
 drawn by the water pipeline with the bound `WaterConfig` like any surface. a volume with id 0 is
-static and builds no mesh.
+static and builds no mesh. most volumes bind no `WaterConfig` (54 of map02's 61, sewage, acid and
+xiranite among them); they take a surface prefab per water type
+(`WaterVolumeManagerConfig.waterSurfaceSettingDict`, `…/GameMech/WaterVolumeSurface_<type>.prefab`).
+per-volume `…/Gameplay/Water/<item type>#<volume id>_WaterSurface.asset` files also exist; what they
+hold isn't known.
 
 level scripts move volumes:
 
@@ -241,6 +258,11 @@ the lily-pad pool beside it (46300010001) recedes from 107 to 91 over the first 
 server event drains the pit to 0.08 when the round is solved, and another resets every volume. that
 one minute is one `timer` step is inferred from the speeds, which cover each stage's drop in exactly
 a minute per step; the server sets `timer`.
+
+the only waterfall code in the game is gameplay: interactives with component 168
+(`InteractiveWaterFallComponent`) spawn named waterfall and splash effects bound to a volume. the
+water pipeline has nothing waterfall-specific; scenery falls are [effects](effects.md#waterfalls)
+over river surfaces.
 
 ### floaters
 
@@ -303,11 +325,11 @@ binds just before), reconstructs the world position there and moves it into the 
 - **blending.** fixed by the pass, not the material: premultiplied (One, OneMinusSrcAlpha) into rgb
   alone, alpha `(1 + a') · (1 − _BlendMode)`; every map02 material is `_BlendMode` 1, adding its
   foam. the pass also draws only where stencil bit 0 is set (compare Equal, reference 1), which the
-  water presumably sets on its pixels. the box is culled by `_CullMode` and depth-tested by `_ZTest`
-  (4, LessEqual, for most; 5, Greater, with front faces culled, for
-  `M_fx_map02_lv001_waterfall_2105_05`), and writes no depth. which depth it's tested against isn't
-  confirmed: the camera's depth buffer holds the scene without water, since the water writes its
-  depth into a copy (`depthWithWater`).
+  water's passes set on its pixels ([how surfaces are drawn](#how-surfaces-are-drawn)). the box is
+  culled by `_CullMode` and depth-tested by `_ZTest` (4, LessEqual, for most; 5, Greater, with front
+  faces culled, for `M_fx_map02_lv001_waterfall_2105_05`), and writes no depth. which depth it's
+  tested against isn't confirmed: the camera's depth buffer holds the scene without water, since the
+  water writes its depth into a copy (`depthWithWater`).
 
 the placement's `HGWaterDecalRenderer` holds `tilling`, `speed`, `opacity`, `brightness`,
 `tintColor` (the values above), `displacement` (the WaterDecalDisplacement pass, for the water's

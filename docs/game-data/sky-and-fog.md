@@ -14,7 +14,9 @@ coefficients, scale × colour per term, ozone as a tent. the sky-view LUT holds 
 illuminance; the game's C# scales it by `atmosphere.outerSunIrradianceColor` (raw) ×
 `light.directIntensity` (the exposed sun, `directLux · preExposure`) × `sky.proceduralSkyLuxFactor`
 when it renders the LUT, and the sky pass samples it unscaled. the LUT fades out just below the
-horizon.
+horizon, where it also takes a ground bounce from `atmosphere.groundAlbedo`. the procedural sky then
+applies a global colour adjustment (`_VFXParams1`, desaturation and tint) set by native code, not
+recovered.
 
 the cloud panorama (`cloud.cloudTexture`) is blended over the sky by its alpha above the horizon. it
 covers only the upper hemisphere: u is the azimuth (`atan2(x, z)`) turned back by `rotation`
@@ -59,8 +61,8 @@ and fed from the phase's `celestial` and `star` sections. in the game's order:
 - **stars** (`star.enableStars`): one candidate per cell of a grid over the direction
   (`starsTilling` × 200 cells per radian), kept where a hash clears `1 − starsDensity`, sized
   between `minMaxRange`, tinted between `starsTint` and `starsTint1`, twinkling at
-  `starsFlickerSpeed`, scaled by `starsExposure` and thinned by `skyBoxStarRangeMap` and the
-  nebula's brightness (`nebulaStarConverage`).
+  `starsFlickerSpeed`, scaled by `starsExposure` and thinned by `skyBoxStarRangeMap`, the nebula's
+  brightness (`nebulaStarConverage`) and a sky planet's ring in front of them.
 - **the ray-traced planet** (`advancedPlanetConfig`, Dijiang's view of Talos-II): its material
   (`HGRP/Planet/PlanetBillboard`) is only a parameter source, whose colours reach the shader
   linearised. a sphere of `_RealPlanetRadius` at
@@ -78,14 +80,23 @@ and fed from the phase's `celestial` and `star` sections. in the game's order:
   frame's right vector to the shader as "forward" and its forward as "right". the disc samples
   `_MainTex` and `_EmissiveTex` of the draw material, with a ring (`_RingTex`, inner to outer radius
   over v) shadowed by the planet, and a single-scattering rim placed 2000 units out. they're faded
-  below the horizon when `drawPlanetBelowHorizon` is set.
+  below the horizon when `drawPlanetBelowHorizon` is set. each goes onto the sky by its draw
+  material's `_BlendMode`: 0 alpha-blended, 1 additive, 2 premultiplied. the first slot's colour
+  also takes the global colour adjustment; the second's doesn't.
+- **the moon's ring** (`HG_RING`, from `moonConfig` when `enableRing` is set with a nonzero
+  `ring.width` and a non-black `ringColor`): an arc across the whole sky, the ring of the body the
+  map stands on, seen from the map's latitude and longitude on it (`worldLatitude`,
+  `worldLongitude`, turned by `rotationAroundUp`). `planetRingMap` times the raw `ringColor` is
+  added where the view crosses the ring's plane on the far side from the pole, faded below the
+  horizon with `drawPlanetBelowHorizon`. Dijiang's moon sets `enableRing` with width 0, so it draws
+  none; which phases draw one, and where it falls in this order, aren't recorded.
 
 the cloud panorama sits between these: the sky planets go onto the sky first, then the clouds cover
 them (with `drawCloudAfterPlanet`, as Wuling City's phases set; without it the discs show in front
 and only their glow off the disc is covered), then the nebula and stars are added, the stars thinned
 behind the clouds by `cloudRingStarCoverage`, and the ray-traced planet goes over everything.
 
-the game's sky also has the moon's sky-wide ring (`HG_RING`) and aurora.
+the game's sky also has an aurora, not looked at.
 
 ## fog
 
@@ -114,8 +125,13 @@ water in this order: the atmosphere fog first, then the height fog over it, then
   `volumetricFogScatteringDistribution` towards the atmosphere's sun direction) and the ambient
   probe's linear part (times `volumetricFogSkyLightingScatteringIntensity` / π and a native
   diffuse-ambient scale that isn't recovered), and adds `volumetricFogEmissive` / 1000 per metre. a
-  column is integrated front to back, fading in over `volumetricFogNearFadeInDistance`. the grid
-  size, depth distribution and history weight come from quality presets that aren't recovered.
+  column is integrated front to back, fading in over `volumetricFogNearFadeInDistance`.
+  - the grid's cells are at least a preset number of pixels across, and the grid at most a preset
+    size, so large views get a near-constant grid. slices are spaced logarithmically: slice
+    `s = log2(z · B + O) · S` at view depth z, the first starting 0.095 m past the near plane or the
+    start distance (whichever is farther) and the last at `volumetricFogDistance`, S slices per
+    doubling of depth. the pixel size, grid cap, S, jitter scales and history weight come from
+    quality presets that aren't recovered.
   - while it's on, the height fog integrates only the part of each ray past `volumetricFogDistance`
     of view depth, though its start and cutoff ramps and opacity cap still measure the whole ray.
     nothing nearer than the start distance is fogged.
@@ -124,10 +140,12 @@ water in this order: the atmosphere fog first, then the height fog over it, then
   - each froxel is lit at a point that moves through its cell from frame to frame (a Halton sequence
     shared by every froxel), and is blended with the last frame's lit medium (scattered light and
     extinction) reprojected to the froxel's centre. where the last frame's grid didn't cover the
-    froxel, several jittered samples are averaged instead.
+    froxel, a preset number (up to 16) of jittered samples are averaged instead.
 
-the volumetric fog scatters the [local lights](lighting.md#local-lights) too. it also has local fog
-volumes and a volumetric light flow noise.
+the volumetric fog scatters the [local lights](lighting.md#local-lights) too, except character-only
+lights; a shadow-only light adds nothing and multiplies the local lights' sum by its shadow. it also
+has local fog volumes (voxelized into the grid) and a volumetric light flow noise
+(`enableVLFlowNoise`, a scrolling, perturbed noise on the scattering), neither described here.
 
 ## flow noise
 
@@ -152,7 +170,11 @@ its outskirts' phase sets.
 
 ## open
 
-- the sky's absolute brightness: the CPU factors live in native engine code.
-- the volumetric fog's quality presets (grid size, depth distribution, history weight) and the
-  native diffuse-ambient scale on its sky term.
-- the blend modes of the sky planets, unchecked against a shot.
+- the procedural sky's global colour adjustment (`_VFXParams1`).
+- the volumetric fog's quality presets (cell size, grid cap, depth distribution, history weight) and
+  the native diffuse-ambient scale on its sky term; its local fog volumes' shader.
+- the [flow noise](#flow-noise)'s blend in the volumetric section's height-fog set: read for the
+  height-fog section's and assumed the same.
+- whether the height fog's flow noise also reaches the sky, water and forward-shaded surfaces (only
+  the deferred lighting is checked).
+- the aurora.
