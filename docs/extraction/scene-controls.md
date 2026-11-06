@@ -117,14 +117,14 @@ gate on the same variable share one control. a map variable the MapConfig doesn'
 none) keeps the key its source gives it. global variables have no name table, so MapConfig's named
 ones and gates' numbered ones stay apart.
 
-a blight's variable ([blight and its cores](../game-data/scene-states.md#dynamic-load-gates)), map01's
-erosion and map02's sludge alike, gets a control described for it instead, from
+a blight's variable ([blight and its cores](../game-data/scene-states.md#dynamic-load-gates)),
+map01's erosion and map02's sludge alike, gets a control described for it instead, from
 [dynamic-structures.ts](../../packages/extractor/src/game/dynamic-structures.ts): still
 `mapVar:<map>:#<id>`, named `Blight (x, z)` after the erosion root's core position or the sludge
 patch's position, with two values, present (the core alive: an erosion variable other than 2, a
 sludge variable of 0) and cleansed (destroyed, the default, as in a finished world). its patches and
-its core both require present. `GameState.claimVariable` hands the variable over only when no other condition
-reads it; otherwise the patches keep the generic control and the core stays unconditional.
+its core both require present. `GameState.claimVariable` hands the variable over only when no other
+condition reads it; otherwise the patches keep the generic control and the core stays unconditional.
 
 ## dynamic load gates
 

@@ -278,17 +278,16 @@ destruction.
 map02's sludge, cleared by spraying it, is 68 DynamicStreaming entities of type 25 with a
 `SludgeComp` and a map variable gate but no resource group. each names one of 65 cores, LevelData
 placements of the `int_erosion_sludge_core` family (some `empty` variants, presumably with no
-visible core), and loads while its core's variable is 0; patches of one core share it. every
-drawn core (40, all with the `int_erosion_sludge_core_official` model) is named by a patch. the
-core template's component (`ErosionSludgeCoreComponent`) has the blight core's states, 0 inactive,
-1 active and 2 destroyed, so the variable isn't the core's state as on map01, and which value it
-takes once the core is cleared isn't stored. that the core goes with its sludge is inferred from the
-pairing, like map01's. the surface
-isn't a mesh: each patch has a baked height map (`Slu__<level>__<local id>[__n]`, a 128² BC4 `.png`
-and a `.json` repeating the component's fields, under
-`Assets/Beyond/DynamicAssets/Gameplay/Sludge/`) that the game builds into a voxel heightfield over a
-`sludgeSize`² grid and draws with `M_sludgeV2` or `M_sludgeV2_high`. sprayed sludge grows back
-(`rebornTime`) unless its core is cleared; the variable is the persistent part.
+visible core), and loads while its core's variable is 0; patches of one core share it. every drawn
+core (40, all with the `int_erosion_sludge_core_official` model) is named by a patch. the core
+template's component (`ErosionSludgeCoreComponent`) has the blight core's states, 0 inactive, 1
+active and 2 destroyed, so the variable isn't the core's state as on map01, and which value it takes
+once the core is cleared isn't stored. that the core goes with its sludge is inferred from the
+pairing, like map01's. the surface isn't a mesh: each patch has a baked height map
+(`Slu__<level>__<local id>[__n]`, a 128² BC4 `.png` and a `.json` repeating the component's fields,
+under `Assets/Beyond/DynamicAssets/Gameplay/Sludge/`) that the game builds into a voxel heightfield
+over a `sludgeSize`² grid and draws with `M_sludgeV2` or `M_sludgeV2_high`. sprayed sludge grows
+back (`rebornTime`) unless its core is cleared; the variable is the persistent part.
 
 North Wuling Exclusion Zone's blight miasma (map02_lv008) is five type-51 entities whose resource
 groups hold effects (smoke, dust, fog walls, small fires), each loading while its map variable
