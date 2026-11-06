@@ -9,6 +9,10 @@ export interface LevelInteractive {
 	rotation: [number, number, number];
 	scale: [number, number, number];
 	modelScale: number;
+	/** whether the placement starts locked */
+	isLocked: boolean;
+	/** the placement's own values for its entity's properties, overriding its template's */
+	properties: InteractiveParam[];
 	/** the placement's parameters for its template's components, by the game's interactive component type */
 	componentProperties: Map<number, InteractiveParam[]>;
 }
@@ -148,7 +152,10 @@ export const readLevelDataPrefix = (
 	const ints = (): void => {
 		r.skip(count() * 4);
 	};
-	const entity = (): Omit<LevelInteractive, 'modelScale' | 'componentProperties'> => {
+	const entity = (): Omit<
+		LevelInteractive,
+		'modelScale' | 'isLocked' | 'properties' | 'componentProperties'
+	> => {
 		r.i32();
 		r.u64();
 		const createState = r.i32();
@@ -748,17 +755,23 @@ export const readLevelDataPrefix = (
 			list(() => params.push(param()));
 			componentProperties.set(component, params);
 		});
+		// the rest in member name order: globalIntKeyList, globalProperties, hideInDialog, isClientOnly,
+		// isLocked, mapIntKeyList, mapProperties, modelScale, progressLockCondition, properties
 		ints();
 		list(param);
 		bool();
 		bool();
-		bool();
+		const locked = r.u8();
+		if (locked > 1) {
+			throw new FormatError(`invalid LevelData ${field} boolean`);
+		}
 		ints();
 		list(param);
 		const modelScale = r.f32();
 		condition(0);
-		list(param);
-		result.push({ ...row, modelScale, componentProperties });
+		const properties: InteractiveParam[] = [];
+		list(() => properties.push(param()));
+		result.push({ ...row, modelScale, isLocked: locked === 1, properties, componentProperties });
 	});
 	return { interactives: result, hideByTypeAreas };
 };

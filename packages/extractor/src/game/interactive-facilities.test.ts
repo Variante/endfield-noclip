@@ -37,20 +37,24 @@ test('a template without a state property starts at 0', () => {
 	assert.deepEqual(startState({ componentList: [commonPerform] }), { state: 0, variants: new Map() });
 });
 
-test("a placement's state parameter on any component overrides", () => {
-	const row = (params: [number, string, bigint][]): LevelInteractive => ({
-		id: 1n,
-		template: 'int_jumpmachine',
-		createState: 0,
-		position: [0, 0, 0],
-		rotation: [0, 0, 0],
-		scale: [1, 1, 1],
-		modelScale: 0,
-		componentProperties: new Map(
-			params.map(([type, key, bits]) => [type, [{ key, type: 3, values: [{ bits, text: null }] }]]),
-		),
-	});
-	assert.equal(stateOf(row([[173, 'state', 1n]])), 1);
-	assert.equal(stateOf(row([[50, 'guide_trigger_by_state', 1n]])), null);
-	assert.equal(stateOf(row([[169, 'state', 0xffffffffn]])), -1);
+const row = (own: bigint | null, params: [number, string, bigint][]): LevelInteractive => ({
+	id: 1n,
+	template: 'int_jumpmachine',
+	createState: 0,
+	position: [0, 0, 0],
+	rotation: [0, 0, 0],
+	scale: [1, 1, 1],
+	modelScale: 0,
+	isLocked: false,
+	properties: own === null ? [] : [{ key: 'state', type: 3, values: [{ bits: own, text: null }] }],
+	componentProperties: new Map(
+		params.map(([type, key, bits]) => [type, [{ key, type: 3, values: [{ bits, text: null }] }]]),
+	),
+});
+
+test("a placement's own state property overrides, then a state parameter on any component", () => {
+	assert.equal(stateOf(row(0n, [[173, 'state', 1n]])), 0);
+	assert.equal(stateOf(row(null, [[173, 'state', 1n]])), 1);
+	assert.equal(stateOf(row(null, [[50, 'guide_trigger_by_state', 1n]])), null);
+	assert.equal(stateOf(row(null, [[169, 'state', 0xffffffffn]])), -1);
 });

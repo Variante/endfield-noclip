@@ -372,9 +372,13 @@ export const startState = (template: MemoryPackValue): StartState | null => {
 
 /**
  * @param row a placed interactive
- * @returns its `state` parameter on any component, or null
+ * @returns its own `state` property, else its `state` parameter on any component, else null
  */
 export const stateOf = (row: LevelInteractive): number | null => {
+	const own = row.properties.find((param) => param.key === STATE_KEY)?.values[0]?.bits;
+	if (own !== undefined) {
+		return Number(BigInt.asIntN(32, own));
+	}
 	for (const params of row.componentProperties.values()) {
 		const bits = params.find((param) => param.key === STATE_KEY)?.values[0]?.bits;
 		if (bits !== undefined) {

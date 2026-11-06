@@ -11,8 +11,9 @@ an interactive's model comes from four sources:
 
 1. LevelData files (from LevelConfig `levelDataPathHashes`) place them. the sequential prefix up to
    the interactive list holds, per interactive: interactive id, `createState`, position, rotation,
-   scale, `modelScale` (0 = no override), and the per-component parameters (keyed by the game's
-   interactive component type). `createState` 0 means created with the level.
+   scale, `modelScale` (0 = no override), `isLocked`, the placement's own values for its entity's
+   properties (`properties`, overriding the template's) and the per-component parameters (keyed by
+   the game's interactive component type). `createState` 0 means created with the level.
 2. `Data/Json/Interactive/InteractiveTable.json` maps each interactive id to a template and each
    template to its data file. many ids share one template: the Wuling switch variants all
    instantiate `int_switch_wuling`.
@@ -89,21 +90,22 @@ material values is in [animation clips](animation.md#animation-clips).
 an interactive whose template has a common-perform component (`InteractiveCommonPerformComponent`)
 always passes its entity's int `state` property to its view states under the same key: once when the
 view controller starts, and again whenever the property changes. the property starts at the
-template's saved property (`saveProperties`), which a variant's `diffProperties` or the placement's
-own `state` parameter can override; the server's saved value and level scripts can change it later.
-that a placement's `state` parameter, which LevelData files under a component's parameters, sets the
-entity property is assumed; how placement parameters reach the entity isn't read.
+template's saved property (`saveProperties`), which a variant's `diffProperties` and then the
+placement's own `properties` override (3582 placements in the install set `state` there); the
+server's saved value and level scripts can change it later. some placements set `state` among a
+component's parameters instead; that those reach the entity property too is assumed, since how
+component parameters reach the entity isn't read.
 
 the jump pads are the commonest case. `int_jumpmachine` saves `state` 1, so it starts on: its
 `BaseLayer` plays the ring's opening turn (`A_anm_zmdspring+1_001_open_01`, 3.3 s) into a looping
 idle turn, and its `EffectLayer` rests in `On`, which plays `P_common_bouncingplatform_01`. at 0 it
 rests in a one-frame closed idle with no effect. `int_jumpmachine_vertical` and
-`int_jumpmachine_electric` save 0, and every placement of them in the install sets 1; two
-`int_jumpmachine` placements in map02_lv010 (418.7, 235.3, 1182.3 and 457.1, 246.7, 1226.1) set 0.
-apart from its view states, an unlocked jump pad that isn't a free jump also places a stationary
-effect named by its `effect` property (`P_common_bouncingplatform_arrow_01`) at itself, turned
-towards its target position. lifters, fans, attack switches, hydrants and ball receivers start at a
-nonzero `state` too.
+`int_jumpmachine_electric` save 0. every jump pad placement in the install sets its own `state`: all
+31 vertical pads and 216 of the 223 plain, free, rock and Xirang pads start at 1, and 12 of the 14
+electric pads at 0. apart from its view states, an unlocked jump pad that isn't a free jump also
+places a stationary effect named by its `effect` property (`P_common_bouncingplatform_arrow_01`) at
+itself, turned towards its target position. lifters, fans, attack switches, hydrants and ball
+receivers start at a nonzero `state` too.
 
 ### keys the player sets
 
