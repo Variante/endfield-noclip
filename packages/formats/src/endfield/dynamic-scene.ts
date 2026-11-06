@@ -27,6 +27,8 @@ import { FlatBuffer } from '../binary/flatbuffer.ts';
 //   46 [ExtraSceneComp 40 B] = Vector3 minPos @0, maxPos @12, currentPos @24, u32 direction @36
 //   36 [ErosionRootComp 48 B] = u64 erosionCoreId @0 (the core's level-data logic id), PosList DataGroup @8,
 //     Vector3 erosionCorePos @32 (IL2CPP `FBDynamicSceneErosionRootComp`; the stride was measured on map01)
+//   44 [SludgeComp 264 B] = Vector3 pos @96, u64 coreId @248 (the core's level-data logic id); offsets follow
+//     IL2CPP `FBDynamicSceneSludgeComp`'s field order, whose natural alignment gives the measured stride
 //   16 [MissionCondition 16 B] = i32 id (root string), i32 isQuest, i32 state, i32 isSame
 //   27 [MissionControlComp 32 B] = Conditions DataGroup @0 (MissionCondition rows), i32 compareType @24,
 //     i32 toBeTrue @28
@@ -53,6 +55,7 @@ export const DynamicData = {
 	FactoryRegionControlComp: 28,
 	ResourceComp: 30,
 	ErosionRootComp: 34,
+	SludgeComp: 42,
 	ExtraSceneComp: 44,
 	MapVarControlComp: 51,
 	PoiControlComp: 55,
@@ -136,12 +139,22 @@ export interface DynamicEntity {
 	extraScene: ExtraSceneSlot | null;
 	/** the blight core whose blight this entity is, `null` for other entities */
 	erosionCore: ErosionCoreLink | null;
+	/** the erosion sludge core whose sludge this entity is, `null` for other entities */
+	sludgeCore: SludgeCoreLink | null;
 }
 
 /** the blight core an erosion root belongs to */
 export interface ErosionCoreLink {
 	/** the core's logic id in level data */
 	id: bigint;
+	position: [number, number, number];
+}
+
+/** the erosion sludge core a sludge patch belongs to */
+export interface SludgeCoreLink {
+	/** the core's logic id in level data */
+	id: bigint;
+	/** the patch's position */
 	position: [number, number, number];
 }
 
@@ -173,6 +186,7 @@ const Slot = {
 	ResourceComp: 32,
 	RootComp: 33,
 	ErosionRootComp: 36,
+	SludgeComp: 44,
 	ExtraSceneComp: 46,
 	MapVarControlComp: 52,
 	PoiControlComp: 55,
@@ -193,6 +207,7 @@ const Width = {
 	PoiControlComp: 8,
 	ExtraSceneComp: 40,
 	ErosionRootComp: 48,
+	SludgeComp: 264,
 } as const;
 
 /**
@@ -294,6 +309,7 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 				resourceGroups: [],
 				extraScene: null,
 				erosionCore: null,
+				sludgeCore: null,
 			};
 			for (let c = 0; c < comps.count; c++) {
 				const di = row(vectors.dataIndex, comps.index + c, Width.DataIndex, 'DataIndex');
@@ -410,6 +426,14 @@ export const readDynamicEntities = (bytes: Uint8Array): DynamicEntity[] => {
 						entity.erosionCore = {
 							id: fb.u64(s),
 							position: [fb.f32(s + 32), fb.f32(s + 36), fb.f32(s + 40)],
+						};
+						break;
+					}
+					case DynamicData.SludgeComp: {
+						const s = rowIn(fb.u32(di + 8), Slot.SludgeComp, index, Width.SludgeComp, 'SludgeComp');
+						entity.sludgeCore = {
+							id: fb.u64(s + 248),
+							position: [fb.f32(s + 96), fb.f32(s + 100), fb.f32(s + 104)],
 						};
 						break;
 					}

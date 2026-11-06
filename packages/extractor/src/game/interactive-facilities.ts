@@ -1663,7 +1663,7 @@ export const loadInteractiveFacilities = async (
 				derived: null,
 			}));
 		}
-		// a blight core shows while its erosion root loads, so both go when the core is destroyed
+		// a blight core shows while its erosion root or sludge loads, so both go when the core is destroyed
 		const erosion = erosionCores.get(logicId);
 		const switchRequirements = switches.map((control) => ({ control, mask: 2 }));
 		const gate = (visibility: ConditionalSetInfo): ConditionalSetInfo => {

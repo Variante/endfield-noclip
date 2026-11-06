@@ -440,8 +440,9 @@ packs or renders correctly.
   one at a time again
 - global variables gates number and MapConfig names stay separate controls (no name table is known);
   map variables map01's MapConfig doesn't name show as numbers, except each blight's, named after
-  its core ([blight and its cores](game-data/scene-states.md#blight-and-its-cores); that the
-  variable holds the core's state is inferred, and map02's sludge cores aren't linked to anything);
+  its core or its sludge ([blight and its cores](game-data/scene-states.md#blight-and-its-cores);
+  that map01's variable holds the core's state, and that a sludge core goes when its variable
+  leaves 0, are inferred);
   Yinglung Pass's server-set outpost tier variables are separate controls, so all four tiers show by
   default ([outpost tiers](game-data/scene-states.md#outpost-tiers)). variable-driven view states on
   DynamicStreaming entities
@@ -454,7 +455,8 @@ packs or renders correctly.
   raise is unverified; the viewer treats them as one, reading the mission as complete exactly above
   the level that names it ([upgrade missions](game-data/scene-states.md#outpost-upgrade-missions))
 - scene states that scripts set by name (`SetOverrideSceneState`) and map02's sprayable sludge
-  ([sludge and miasma](game-data/scene-states.md#sludge-and-miasma)) aren't represented;
+  surface ([sludge and miasma](game-data/scene-states.md#sludge-and-miasma)) aren't represented
+  (only its cores are drawn, under their blight control);
   script-driven water levels are picked by hand: their controls list what sets each fill but don't
   follow it; scripted environment volumes (blend mode 3) default off and preview at full strength
   rather than following their script's factor; fills a script computes at runtime aren't offered

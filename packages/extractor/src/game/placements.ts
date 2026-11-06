@@ -153,7 +153,7 @@ export const loadDynamicPlacements = async (
 	const fail = (kind: PlacementKind, error: unknown): void => {
 		result.failures.push({ kind, message: error instanceof Error ? error.message : String(error) });
 	};
-	// facilities need them too: blight cores follow their erosion roots' gates
+	// facilities need them too: blight cores follow their erosion roots' and sludge patches' gates
 	const needsStructures =
 		kinds.has('dynamic') ||
 		kinds.has('model') ||

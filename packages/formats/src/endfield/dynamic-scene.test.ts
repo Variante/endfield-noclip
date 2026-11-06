@@ -81,6 +81,8 @@ const build = (
 		slot?: boolean;
 		/** adds a last entity, an erosion root of core 3400020938 */
 		erosion?: boolean;
+		/** adds a last entity, a sludge patch of core 22800030023 */
+		sludge?: boolean;
 	} = {},
 ): Uint8Array => {
 	const w = new Writer();
@@ -95,7 +97,7 @@ const build = (
 	w.view.setUint32(strings, 2, true);
 	w.link(rootFields.get(4)!, strings);
 
-	const slots = [0, 3, 5, 7, 8, 9, 12, 16, 17, 27, 28, 29, 31, 32, 33, 36, 46, 52, 55];
+	const slots = [0, 3, 5, 7, 8, 9, 12, 16, 17, 27, 28, 29, 31, 32, 33, 36, 44, 46, 52, 55];
 	const grid = w.table(56, slots);
 	w.link(gridVector + 4, grid.get(0)! - 4);
 	w.view.setUint32(grid.get(0)!, GRID, true);
@@ -112,6 +114,7 @@ const build = (
 		ref(DynamicData.MapVarControlComp, 0),
 		ref(DynamicData.ExtraSceneComp, 0),
 		ref(DynamicData.ErosionRootComp, 1),
+		ref(DynamicData.SludgeComp, 1),
 	].map((words) => words.slice(0, 4));
 	w.link(grid.get(5)!, w.structs(16, dataIndex));
 	// min and max corners (stored swapped), origin, direction
@@ -126,6 +129,15 @@ const build = (
 		0,
 	];
 	w.link(grid.get(36)!, w.structs(48, [erosionRoot(1, 0), erosionRoot(3400020938, 550.75)]));
+	// two sludge patches: position at word 24, core id at word 62
+	const sludge = (id: number, x: number) => {
+		const words = Array.from({ length: 66 }, () => 0);
+		words.splice(24, 3, ...[x, 247.2, 94.2].map(float));
+		words[62] = id % 2 ** 32;
+		words[63] = Math.floor(id / 2 ** 32);
+		return words;
+	};
+	w.link(grid.get(44)!, w.structs(264, [sludge(1, 0), sludge(22800030023, -930.25)]));
 	// any of (quest `stm_hongs_3` = completed, mission `INN_TABLE` ≠ processing), loaded while false; global
 	// variable 79 ≠ 3 gating the load; a map variable that only drives the level
 	w.link(grid.get(27)!, w.structs(32, [[...ref(DynamicData.MissionCondition, 0, 2), 1, 0]]));
@@ -195,6 +207,7 @@ const build = (
 			[39, 0, ...ref(1, 3, options.gates ? 6 : 3), 0, ...visibility(1, 1)],
 			...(options.slot ? [[29, 0, ...ref(1, 9, 1), 0, ...visibility(0, 0)]] : []),
 			...(options.erosion ? [[36, 0, ...ref(1, 10, 1), 0, ...visibility(0, 0)]] : []),
+			...(options.sludge ? [[25, 0, ...ref(1, 11, 1), 0, ...visibility(0, 0)]] : []),
 		]),
 	);
 	w.link(grid.get(55)!, w.structs(8, [[1, 161]]));
@@ -319,4 +332,13 @@ test('reads the blight core an erosion root belongs to', () => {
 	const position = [550.75, 96.4, -189.7].map(Math.fround);
 	assert.deepEqual(entities[2].erosionCore, { id: 3400020938n, position });
 	assert.equal(entities[0].erosionCore, null);
+});
+
+test('reads the sludge core a sludge patch belongs to', () => {
+	const entities = readDynamicEntities(build({ sludge: true }));
+	assert.equal(entities.length, 3);
+	const position = [-930.25, 247.2, 94.2].map(Math.fround);
+	assert.deepEqual(entities[2].sludgeCore, { id: 22800030023n, position });
+	assert.equal(entities[2].erosionCore, null);
+	assert.equal(entities[0].sludgeCore, null);
 });
