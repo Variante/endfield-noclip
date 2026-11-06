@@ -43,10 +43,13 @@
   once; group 1 is per family; meshes add group 2 (per-draw parameters) and group 3 (material
   textures). shadow passes bind a placeholder in place of the shadow map they render into.
 - **pipeline cache** ([`gfx/pipeline-cache.ts`](../../packages/viewer/src/gfx/pipeline-cache.ts)):
-  modules by label, pipelines by a state key such as `mesh/opaque/x4`, compiled with
+  modules by label, pipelines by a state key such as `mesh/opaque/back/unorm16x2`, compiled with
   `createRenderPipelineAsync`. renderers `prepare` the pipelines they use at construction, so
-  streaming compiles nothing; only the stencil variants of effect pipelines compile on first use. a
-  draw whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is.
+  streaming compiles nothing; only the stencil variants of effect pipelines compile on first use
+  ([`render/meshes/mesh-pipelines.ts`](../../packages/viewer/src/render/meshes/mesh-pipelines.ts)
+  for the meshes, whose phases and passes are listed in
+  [`draw-ranges.ts`](../../packages/viewer/src/render/meshes/draw-ranges.ts)). a draw whose pipeline
+  isn't ready yet is skipped, and the frame loop renders again once it is.
 - **texture store**
   ([`render/textures/texture-store.ts`](../../packages/viewer/src/render/textures/texture-store.ts)):
   textures arrive as pieces, the mip tail first and then one blob per larger level. the GPU texture

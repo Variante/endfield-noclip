@@ -1,30 +1,14 @@
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
-import { OFFSET_SLOT } from '../../looks/effects/stack.ts';
-import {
-	GeometryFlags,
-	LOOK_FLOATS,
-	LookFlags,
-	type LookStencil,
-	type MaterialLook,
-	SLOTS,
-	SLOT_FLAGS,
-} from '../../looks/look.ts';
+import { GeometryFlags, LOOK_FLOATS, type LookStencil } from '../../looks/look.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
 import type { MeshBucket } from '../../streaming/mesh-buckets.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
-import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
-import {
-	DEPTH_COMPARE,
-	HDR_FORMAT,
-	type MainPassFormat,
-	TRANSPARENT_TARGETS,
-	WATER_FOAM_FORMAT,
-} from '../frame/render-targets.ts';
+import type { MainPassFormat } from '../frame/render-targets.ts';
 import { LIST_CAPACITY } from '../instances/instance-renderer.ts';
-import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
-import { placeholderView, type TextureBinding, type TextureStore } from '../textures/texture-store.ts';
+import type { TextureStore } from '../textures/texture-store.ts';
 
+import { COMPARATORS, drawRangeOf } from './draw-order.ts';
 import {
 	DRAW_RANGES,
 	type DrawPhase,
@@ -34,192 +18,28 @@ import {
 	type MeshPass,
 	PAIRED_PASSES,
 	PASS_PHASES,
-	PHASES,
-	type RangeOrder,
 	type SurfacePass,
-	type VertexStreams,
 } from './draw-ranges.ts';
-import effectWgsl from './effect.wgsl?raw';
-import meshWgsl from './mesh.wgsl?raw';
+import { releaseGeometry, uploadGeometry } from './geometry-residency.ts';
+import { type EffectInputs, type EffectMaterial, MaterialBindings } from './material-bindings.ts';
+import { type PhaseDescriber, prepareMeshPipelines } from './mesh-pipelines.ts';
+import {
+	FACE_CULLS,
+	type FaceCull,
+	UV_FORMATS,
+	type UvFormat,
+	faceCullOf,
+	pipelineKey,
+	stencilPipelineKey,
+	withStencil,
+} from './pipeline-variants.ts';
 import { type ResidentSkin, SkinAnimator } from './skin-animation.ts';
+import { VertexBindings } from './vertex-bindings.ts';
 
 /** floats of `Draw` in mesh.wgsl: the position and UV dequantizations, then the material look */
 const DRAW_FLOATS = 16 + LOOK_FLOATS;
 /** draws per frame at most; buckets past it aren't drawn */
 const MAX_DRAWS = 16_384;
-/** bytes per vertex of the zero buffer bound in place of missing streams (the widest are float UVs) */
-const ZERO_STRIDE = 8;
-
-/** the face culling a draw's pipeline uses; each phase has a pipeline per value */
-const FACE_CULLS = ['none', 'back', 'front'] as const satisfies readonly GPUCullMode[];
-type FaceCull = (typeof FACE_CULLS)[number];
-
-/**
- * the winding of front faces of unmirrored instances, as the game's meshes reach the rasterizer through
- * `view_proj` (Unity's left-handed, clockwise-front convention, like the terrain's)
- */
-const FRONT_FACE: GPUFrontFace = 'cw';
-
-/** the vertex formats of UV sets 0 and 1: as the package stores 16-bit UVs, else dequantized floats */
-const UV_FORMATS = ['unorm16x2', 'float32x2'] as const;
-type UvFormat = (typeof UV_FORMATS)[number];
-
-/** @returns the cache key of a phase's pipeline for a face culling and UV format */
-const pipelineKey = (phase: string, cull: FaceCull, uvFormat: UvFormat): string =>
-	`${phase}/${cull}/${uvFormat}`;
-
-/** @returns the faces a bucket's draws cull: the material's, swapped for mirrored instances */
-const faceCullOf = (bucket: MeshBucket): FaceCull => {
-	switch (bucket.look.cull) {
-		case 'none': {
-			return 'none';
-		}
-		case 'back': {
-			return bucket.mirrored ? 'front' : 'back';
-		}
-		case 'front': {
-			return bucket.mirrored ? 'back' : 'front';
-		}
-	}
-};
-
-/** @returns the cache key of a phase's pipeline variant for a stencil state */
-const stencilPipelineKey = (base: string, stencil: LookStencil): string =>
-	`${base}/stencil:${stencil.compare}:${stencil.replace ? 'replace' : 'keep'}:${stencil.readMask}:${stencil.writeMask}:${stencil.depthCompare}`;
-
-/** @returns a pipeline descriptor with a stencil state's stencil and depth tests in place of its own */
-const withStencil = (
-	descriptor: GPURenderPipelineDescriptor,
-	stencil: LookStencil,
-): GPURenderPipelineDescriptor => {
-	const depthStencil = descriptor.depthStencil;
-	if (depthStencil === undefined) {
-		throw new Error(`a stencil variant of ${descriptor.label} needs a depth-stencil state`);
-	}
-	const face: GPUStencilFaceState = {
-		compare: stencil.compare,
-		passOp: stencil.replace ? 'replace' : 'keep',
-		failOp: 'keep',
-		depthFailOp: 'keep',
-	};
-	return {
-		...descriptor,
-		depthStencil: {
-			...depthStencil,
-			depthCompare: stencil.depthCompare,
-			stencilFront: face,
-			stencilBack: face,
-			stencilReadMask: stencil.readMask,
-			stencilWriteMask: stencil.writeMask,
-		},
-	};
-};
-
-/**
- * @param look a bucket's look
- * @param context whether the bucket only casts shadows, whether the depth buffer has a stencil, and its
- *   material's state
- * @returns the range the bucket's draws join this frame, or `null` if they don't draw
- */
-const drawRangeOf = (
-	look: MaterialLook,
-	{
-		castOnly,
-		stencil,
-		state,
-	}: { castOnly: boolean; stencil: boolean; state: Pick<MaterialState, 'slots' | 'alphaReady' | 'complete'> },
-): DrawRange | null => {
-	const queue = look.queue;
-	if (castOnly && (!look.castsShadows || (queue !== 'opaque' && queue !== 'cutout'))) {
-		return null;
-	}
-	// a portal's effects would show unmasked, and its mask would draw as a solid surface
-	if (look.stencil !== null && !stencil) {
-		return null;
-	}
-	if (queue === 'stencilMask') {
-		return queue;
-	}
-	// unlit looks are their texture, so they wait for it rather than draw as solid cards. the unsupported
-	// checker has none to wait for
-	if ((look.flags & LookFlags.Unlit) !== 0 && look.textures[0] >= 0 && state.slots[0] === null) {
-		return null;
-	}
-	switch (queue) {
-		case 'opaque':
-		case 'transparent': {
-			return queue;
-		}
-		// without the texture holding its alpha there's nothing to test yet, so it draws opaque
-		case 'cutout': {
-			return state.alphaReady ? queue : 'opaque';
-		}
-		// effects are made of their textures, so they wait for all of them
-		case 'effect':
-		case 'effectDecal':
-		case 'mist':
-		case 'mistVolume':
-		case 'decalRelight':
-		case 'screenMultiply':
-		case 'refract':
-		case 'waterFoam':
-		case 'waterFoamBehind': {
-			return state.complete ? queue : null;
-		}
-	}
-};
-
-/** the shader stages that read an effect texture slot */
-const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
-	slot === OFFSET_SLOT ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : GPUShaderStage.FRAGMENT;
-
-/** the main pass's outputs that scene effects read, as `SceneTextures` holds them */
-export interface EffectInputs {
-	depth: GPUTextureView;
-	reflectionSurface: GPUTextureView;
-	/** the diffuse ambient and material occlusion, from which relit decals recover the surface's colour */
-	ambient: GPUTextureView;
-	/** a copy of the composited scene, which refraction samples; only the pass after compositing has one */
-	background?: GPUTextureView;
-	version: number;
-}
-
-/** the vertex buffers bound in a pass, so binding the same buffer at the same offset again is skipped */
-class VertexBindings {
-	// one per vertex buffer slot of the widest layout
-	#buffers: (GPUBuffer | null)[] = [null, null, null, null, null, null];
-	#offsets: number[] = [0, 0, 0, 0, 0, 0];
-
-	/** forgets what's bound (at the start of each encode, since other families bind in between) */
-	reset(): void {
-		this.#buffers.fill(null);
-	}
-
-	set(pass: GPURenderPassEncoder, slot: number, buffer: GPUBuffer, offset: number, size?: number): void {
-		if (this.#buffers[slot] === buffer && this.#offsets[slot] === offset && size === undefined) {
-			return;
-		}
-		pass.setVertexBuffer(slot, buffer, offset, size);
-		// a sized binding isn't remembered: the next geometry's positions always rebind
-		this.#buffers[slot] = size === undefined ? buffer : null;
-		this.#offsets[slot] = offset;
-	}
-
-	/** binds a stream of `vertices` at `offset`, or `zeros` where the geometry lacks it (`null`) */
-	stream(
-		pass: GPURenderPassEncoder,
-		slot: number,
-		vertices: GPUBuffer,
-		offset: number | null,
-		zeros: GPUBuffer,
-	): void {
-		if (offset === null) {
-			this.set(pass, slot, zeros, 0);
-		} else {
-			this.set(pass, slot, vertices, offset);
-		}
-	}
-}
 
 interface PreparedDraw {
 	geometry: ResidentGeometry;
@@ -230,93 +50,15 @@ interface PreparedDraw {
 	count: number;
 	/** per shadow layer, how many of the rows from `first` it draws */
 	layerCounts: readonly number[];
-	/** the material group; `null` for an effect until the transparent pass builds it */
+	/** the material group; `null` for an effect until its pass builds it */
 	material: GPUBindGroup | null;
 	cull: FaceCull;
 	uvFormat: UvFormat;
 	/** for scene effects: the material id and slot bindings their group is built from at encode */
-	effect: { material: number; slots: (TextureBinding | null)[]; volume: TextureBinding | null } | null;
+	effect: EffectMaterial | null;
 	/** the stencil state its pipeline variant uses, or `null` for the phase's own pipeline */
 	stencil: LookStencil | null;
 }
-
-/** what a material's draws take from its textures' current bindings */
-interface MaterialState {
-	/** the texture store's version this was derived at */
-	version: number;
-	/** each slot's binding, `null` where it has no texture or it hasn't streamed in */
-	slots: (TextureBinding | null)[];
-	/** the look's 3D texture's binding, `null` where it has none or it hasn't streamed in */
-	volume: TextureBinding | null;
-	/** the look's flags without the flags of slots that aren't bound */
-	flags: number;
-	/** the material group; `null` for effects, whose group also binds the main pass's outputs */
-	group: GPUBindGroup | null;
-	/** whether the texture holding the alpha is bound, so alpha testing can run */
-	alphaReady: boolean;
-	/** whether every texture is bound, which effects wait for */
-	complete: boolean;
-}
-
-interface MaterialBinding {
-	/** the slot bindings' versions the group was built from (-1 for the fallback) */
-	versions: number[];
-	group: GPUBindGroup;
-}
-
-/** @returns the UV format of a bucket's geometry */
-const uvFormatOf = (bucket: MeshBucket): UvFormat => {
-	const resident = bucket.geometry.resident;
-	return resident?.kind === 'geometry' ? resident.uvFormat : 'float32x2';
-};
-
-/**
- * @returns the bucket's place in the draw order within the opaque, alpha-tested and alpha-blended draws:
- *   cast-only draws, then the other shadow casters, so shadow passes draw a prefix and the main pass skips
- *   one; then face culling and UV format (one pipeline each), geometry, material and submesh. all of it is
- *   fixed for a bucket, so it's computed once and packed into one number (50 bits) to keep the sort cheap
- */
-const sortKeyOf = (bucket: MeshBucket): number => {
-	if (bucket.sortKey < 0) {
-		let key = bucket.castOnly ? 0 : 1;
-		key = key * 2 + (bucket.look.castsShadows ? 0 : 1);
-		key = key * 4 + FACE_CULLS.indexOf(faceCullOf(bucket));
-		key = key * 2 + UV_FORMATS.indexOf(uvFormatOf(bucket));
-		key = key * 2 ** 21 + Math.min(bucket.geometry.blob, 2 ** 21 - 1);
-		key = key * 2 ** 16 + Math.min(bucket.material, 2 ** 16 - 1);
-		bucket.sortKey = key * 2 ** 8 + Math.min(bucket.submesh, 2 ** 8 - 1);
-	}
-	return bucket.sortKey;
-};
-
-const byBindings = (a: MeshBucket, b: MeshBucket): number => sortKeyOf(a) - sortKeyOf(b);
-
-/** 0 for a bucket whose draws write the stencil, else 1 */
-const stencilWriteRank = (bucket: MeshBucket): number => (bucket.look.stencil?.replace === true ? 0 : 1);
-
-/**
- * draw order for effects: as {@link byBindings}, but those that write the stencil first, so the effects
- * testing it see the whole mask
- */
-const byStencilWritesThenBindings = (a: MeshBucket, b: MeshBucket): number =>
-	stencilWriteRank(a) - stencilWriteRank(b) || byBindings(a, b);
-
-/** the part of {@link sortKeyOf} above the geometry: the shadow role and the pipeline */
-const PIPELINE_KEY = 2 ** 45;
-
-/**
- * draw order for depth-writing draws: as {@link byBindings} up to the pipeline, then nearest first, so early
- * depth testing skips more of the shading behind
- */
-const byPipelineThenNearest = (a: MeshBucket, b: MeshBucket): number =>
-	Math.floor(sortKeyOf(a) / PIPELINE_KEY) - Math.floor(sortKeyOf(b) / PIPELINE_KEY) || a.nearest - b.nearest;
-
-/** the comparator of each {@link RangeOrder} */
-const COMPARATORS: Record<RangeOrder, (a: MeshBucket, b: MeshBucket) => number> = {
-	pipelineThenNearest: byPipelineThenNearest,
-	bindings: byBindings,
-	stencilWritesThenBindings: byStencilWritesThenBindings,
-};
 
 /** a range's buckets and where its draws landed this frame */
 interface PreparedRange {
@@ -332,7 +74,10 @@ interface PreparedRange {
 	castersEnd: number;
 }
 
-/** owns geometry buffers, material bind groups and the mesh pipelines */
+/**
+ * draws the mesh buckets: owns geometry buffers, material bind groups and the mesh pipelines, prepares each
+ * frame's draws into the ranges of draw-ranges.ts and encodes the passes over them
+ */
 export class MeshRenderer {
 	/** mesh instances last frame */
 	instanceCount = 0;
@@ -342,7 +87,6 @@ export class MeshRenderer {
 	texturedDraws = 0;
 
 	#device: GPUDevice;
-	#layouts: BindLayouts;
 	#pipelines: PipelineCache;
 	#instances: { readonly bindGroup: GPUBindGroup };
 	#params: GPUBuffer;
@@ -351,21 +95,8 @@ export class MeshRenderer {
 	#drawIds: GPUBuffer;
 	#drawIdData = new Uint32Array(LIST_CAPACITY);
 	#drawGroup: GPUBindGroup;
-	#vertexBindings = new VertexBindings();
-	/** zeros bound as the streams meshes lack */
-	#zeros: GPUBuffer;
-	#zerosSize = 0;
-	#white: GPUTextureView;
-	/** bound where an effect has no 3D texture */
-	#noVolume: GPUTextureView;
-	#defaultSampler: GPUSampler;
-	/** samples the composited scene's copy for refraction */
-	#clampSampler: GPUSampler;
-	/** material bind groups by material id */
-	#bindings = new Map<number, MaterialBinding>();
-	/** by material id */
-	#materialStates = new Map<number, MaterialState>();
-	#versions: number[] = SLOTS.map(() => -1);
+	#vertexBindings: VertexBindings;
+	#materials: MaterialBindings;
 	/** every range, in {@link DRAW_RANGES} order */
 	#ranges: PreparedRange[] = DRAW_RANGES.map((info) => ({
 		info,
@@ -376,20 +107,13 @@ export class MeshRenderer {
 		castersEnd: 0,
 	}));
 	#rangeOf = new Map(this.#ranges.map((range) => [range.info.range, range]));
-	/**
-	 * group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth, surfaces and
-	 * diffuse ambient, a 3D texture, and the composited scene's copy
-	 */
-	#effectLayout: GPUBindGroupLayout;
-	/** effect bind groups by material id */
-	#effectBindings = new Map<number, MaterialBinding & { inputs: number }>();
 	/** prepared draws in {@link DRAW_RANGES} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
 	/** whether the depth buffer has a stencil; without one, draws that use it are skipped */
 	#stencil: boolean;
 	/** each phase's pipeline descriptor by face culling and UV format, for its stencil variants */
-	#describers = new Map<string, (cull: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor>();
+	#describers: Map<string, PhaseDescriber>;
 	#skins: SkinAnimator;
 	/** the resident geometries' animations */
 	#animated = new Set<ResidentSkin>();
@@ -412,12 +136,11 @@ export class MeshRenderer {
 		format: MainPassFormat,
 	) {
 		this.#device = device;
-		this.#layouts = layouts;
 		this.#pipelines = pipelines;
 		this.#instances = instances;
 		this.#stencil = format.stencil;
 		this.#skins = new SkinAnimator(device);
-		this.#zeros = this.#zeroBuffer(ZERO_STRIDE * 65_536);
+		this.#vertexBindings = new VertexBindings(device);
 		this.#params = device.createBuffer({
 			label: 'mesh draws',
 			size: this.#paramData.byteLength,
@@ -436,310 +159,12 @@ export class MeshRenderer {
 				{ binding: 1, resource: { buffer: this.#drawIds } },
 			],
 		});
-		const white = device.createTexture({
-			label: 'white',
-			size: [1, 1],
-			format: 'rgba8unorm',
-			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-		});
-		device.queue.writeTexture({ texture: white }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1]);
-		this.#white = white.createView();
-		this.#noVolume = placeholderView(device, {
-			label: 'no effect volume',
-			dimension: '3d',
-			format: 'r8unorm',
-		});
-		this.#defaultSampler = device.createSampler({
-			label: 'material default',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			mipmapFilter: 'linear',
-		});
-		this.#clampSampler = device.createSampler({
-			label: 'effect background',
-			magFilter: 'linear',
-			minFilter: 'linear',
-		});
-		const module = pipelines.module('mesh', FRAME_WGSL + meshWgsl);
-		const vertex = (uvFormat: UvFormat, streams: VertexStreams = 'all'): GPUVertexState => {
-			const uvStride = uvFormat === 'unorm16x2' ? 4 : 8;
-			const position: GPUVertexBufferLayout = {
-				arrayStride: 8,
-				attributes: [{ shaderLocation: 0, offset: 0, format: 'unorm16x4' }],
-			};
-			const uvs: GPUVertexBufferLayout[] = [
-				{ arrayStride: uvStride, attributes: [{ shaderLocation: 2, offset: 0, format: uvFormat }] },
-				{ arrayStride: uvStride, attributes: [{ shaderLocation: 4, offset: 0, format: uvFormat }] },
-			];
-			switch (streams) {
-				case 'position': {
-					return { module, entryPoint: 'vs_depth', buffers: [position] };
-				}
-				case 'uv': {
-					return { module, entryPoint: 'vs_cutout_depth', buffers: [position, ...uvs] };
-				}
-				case 'all': {
-					return {
-						module,
-						entryPoint: 'vs_main',
-						buffers: [
-							position,
-							{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: 'snorm16x2' }] },
-							...uvs,
-							{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: 'snorm8x4' }] },
-							{ arrayStride: 4, attributes: [{ shaderLocation: 5, offset: 0, format: 'unorm8x4' }] },
-						],
-					};
-				}
-			}
-		};
-		/** registers a phase's descriptor and compiles its pipeline for every face culling and UV format */
-		const describe = (
-			key: string,
-			describer: (cullMode: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor,
-		): void => {
-			this.#describers.set(key, describer);
-			for (const cullMode of FACE_CULLS) {
-				for (const uvFormat of UV_FORMATS) {
-					void pipelines.prepare(pipelineKey(key, cullMode, uvFormat), () => describer(cullMode, uvFormat));
-				}
-			}
-		};
-		const prepare = (
-			{ key, streams }: DrawPhase,
-			stages: Pick<GPURenderPipelineDescriptor, 'fragment' | 'depthStencil'>,
-		): void => {
-			describe(key, (cullMode, uvFormat) => ({
-				layout: layouts.meshPipeline,
-				vertex: vertex(uvFormat, streams),
-				primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
-				...stages,
-			}));
-		};
-		const depthWrite: GPUDepthStencilState = {
-			format: format.depth,
-			depthWriteEnabled: true,
-			depthCompare: DEPTH_COMPARE,
-		};
-		const shade: GPUFragmentState = { module, entryPoint: 'fs_opaque', targets: format.targets };
-		const { opaque, cutoutDepth, cutoutShade, stencilMask } = PHASES;
-		const depthEqual: GPUDepthStencilState = {
-			format: format.depth,
-			depthWriteEnabled: false,
-			depthCompare: 'equal',
-		};
-		const depthOnly: GPUFragmentState = {
-			module,
-			entryPoint: 'fs_depth',
-			targets: format.targets.map((target) => ({ ...target, writeMask: 0 })),
-		};
-		prepare(PHASES.prepass, { fragment: depthOnly, depthStencil: depthWrite });
-		// each mask draws through a stencil variant; this one only completes the phase
-		prepare(stencilMask, {
-			fragment: depthOnly,
-			depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
-		});
-		prepare(opaque, { fragment: shade, depthStencil: depthEqual });
-		prepare(cutoutDepth, {
-			fragment: {
-				module,
-				entryPoint: 'fs_cutout_depth',
-				targets: format.targets.map((target) => ({ ...target, writeMask: 0 })),
-			},
-			depthStencil: depthWrite,
-		});
-		prepare(cutoutShade, {
-			fragment: shade,
-			depthStencil: depthEqual,
-		});
-		prepare(PHASES.transparent, {
-			fragment: { module, entryPoint: 'fs_transparent', targets: TRANSPARENT_TARGETS },
-			depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
-		});
-		const { shadowOpaque, shadowCutout } = PHASES;
-		prepare(shadowOpaque, { depthStencil: SHADOW_DEPTH_STATE });
-		prepare(shadowCutout, {
-			fragment: { module, entryPoint: 'fs_cutout_depth', targets: [] },
-			depthStencil: SHADOW_DEPTH_STATE,
-		});
-
-		// #region scene effects
-		{
-			this.#effectLayout = device.createBindGroupLayout({
-				label: 'effect materials',
-				entries: [
-					// the vertex stage samples the VFXBaseV2 vertex offset's texture
-					...SLOTS.map((_, binding) => ({
-						binding,
-						visibility: stagesOfSlot(binding),
-						texture: { sampleType: 'float' as const },
-					})),
-					...SLOTS.map((_, i) => ({
-						binding: SLOTS.length + i,
-						visibility: stagesOfSlot(i),
-						sampler: { type: 'filtering' as const },
-					})),
-					{ binding: 14, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
-					{ binding: 15, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'uint' } },
-					{
-						binding: 16,
-						visibility: GPUShaderStage.FRAGMENT,
-						texture: { sampleType: 'unfilterable-float' },
-					},
-					{ binding: 17, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '3d' } },
-					{ binding: 18, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-					{ binding: 19, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-					{ binding: 20, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-				],
-			});
-			const layout = device.createPipelineLayout({
-				label: 'effect',
-				bindGroupLayouts: [layouts.frame, layouts.instances, layouts.draw, this.#effectLayout],
-			});
-			const effectModule = pipelines.module('mesh-effect', FRAME_WGSL + effectWgsl);
-			const { effect, effectDecal: decal, mist, mistVolume } = PHASES;
-			for (const [phase, entryPoint, depthCompare] of [
-				[effect, 'fs_effect', DEPTH_COMPARE],
-				// decals find their surface through the depth buffer, so their back faces draw wherever they are
-				[decal, 'fs_effect_decal', 'always'],
-				[mist, 'fs_mist_card', DEPTH_COMPARE],
-				// fog boxes measure their thickness up to the depth buffer the same way
-				[mistVolume, 'fs_mist_volume', 'always'],
-			] as const) {
-				describe(phase.key, (cullMode, uvFormat) => ({
-					layout,
-					vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
-					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
-					fragment: { module: effectModule, entryPoint, targets: TRANSPARENT_TARGETS },
-					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare },
-				}));
-			}
-			// effects over the composited scene: multiplying it, then blending a refracted copy of it over
-			for (const [phase, entryPoint, blend] of [
-				[
-					PHASES.screenMultiply,
-					'fs_effect_multiply',
-					{
-						color: { srcFactor: 'dst', dstFactor: 'zero', operation: 'add' },
-						alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
-					},
-				],
-				[
-					PHASES.refract,
-					'fs_refract',
-					{
-						color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-						alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
-					},
-				],
-			] as const) {
-				describe(phase.key, (cullMode, uvFormat) => ({
-					layout,
-					vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
-					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
-					fragment: { module: effectModule, entryPoint, targets: [{ format: HDR_FORMAT, blend }] },
-					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
-				}));
-			}
-			// WaterDecal boxes write the foam colour over the water's own: rgb adds the box's premultiplied colour
-			// to what's there times one minus its alpha, and alpha keeps the product of those factors, so the water
-			// pass can apply them over its own foam. the main pass's depth, attached read-only, tests them as the
-			// game's `_ZTest` does under reversed-Z
-			for (const [phase, depthCompare] of [
-				[PHASES.waterFoam, 'greater-equal'],
-				[PHASES.waterFoamBehind, 'less'],
-			] as const) {
-				describe(phase.key, (cullMode, uvFormat) => ({
-					layout,
-					vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
-					primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
-					fragment: {
-						module: effectModule,
-						entryPoint: 'fs_water_foam',
-						targets: [
-							{
-								format: WATER_FOAM_FORMAT,
-								blend: {
-									color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-									alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-								},
-							},
-						],
-					},
-					depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare },
-				}));
-			}
-			// relit decals add the change in the surface's light to the radiance, leaving its alpha (the albedo's
-			// luminance) alone. they read the depth as a texture, so the pass has no depth attachment
-			describe(PHASES.decalRelight.key, (cullMode, uvFormat) => ({
-				layout,
-				vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
-				primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
-				fragment: {
-					module: effectModule,
-					entryPoint: 'fs_decal_relight',
-					targets: [
-						{
-							format: HDR_FORMAT,
-							blend: {
-								color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-								alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
-							},
-							writeMask: GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE,
-						},
-					],
-				},
-			}));
-		}
-		// #endregion
+		const { describers, effectLayout } = prepareMeshPipelines(device, layouts, pipelines, format);
+		this.#describers = describers;
+		this.#materials = new MaterialBindings(device, layouts.materials, effectLayout);
 	}
 
-	/** an effect material's bind group over its slots' current bindings and this frame's main pass outputs */
-	#effectGroup(
-		{
-			material,
-			slots,
-			volume,
-		}: { material: number; slots: readonly (TextureBinding | null)[]; volume: TextureBinding | null },
-		inputs: EffectInputs,
-	): GPUBindGroup {
-		const versions = [...slots, volume].map((slot) => slot?.version ?? -1);
-		const cached = this.#effectBindings.get(material);
-		if (
-			cached !== undefined &&
-			cached.inputs === inputs.version &&
-			cached.versions.every((version, i) => version === versions[i])
-		) {
-			return cached.group;
-		}
-		const group = this.#device.createBindGroup({
-			label: `effect material ${material}`,
-			layout: this.#effectLayout,
-			entries: [
-				...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
-				...slots.map((slot, i) => ({
-					binding: SLOTS.length + i,
-					resource: slot?.sampler ?? this.#defaultSampler,
-				})),
-				{ binding: 14, resource: inputs.depth },
-				{ binding: 15, resource: inputs.reflectionSurface },
-				{ binding: 16, resource: inputs.ambient },
-				{ binding: 17, resource: volume?.view ?? this.#noVolume },
-				{ binding: 18, resource: volume?.sampler ?? this.#defaultSampler },
-				{ binding: 19, resource: inputs.background ?? this.#white },
-				{ binding: 20, resource: this.#clampSampler },
-			],
-		});
-		this.#effectBindings.set(material, { versions, inputs: inputs.version, group });
-		return group;
-	}
-
-	#zeroBuffer(size: number): GPUBuffer {
-		this.#zerosSize = size;
-		return this.#device.createBuffer({ label: 'zero streams', size, usage: GPUBufferUsage.VERTEX });
-	}
+	// #region residency
 
 	/**
 	 * uploads a decoded geometry.
@@ -749,86 +174,34 @@ export class MeshRenderer {
 	 * @returns the residency (geometry buffers aren't pooled; the memory budget bounds them)
 	 */
 	upload(blob: number, decoded: DecodedGeometry): ResidentGeometry {
-		const streams = [decoded.positions, decoded.normals, ...decoded.uvs, decoded.tangents, decoded.colors];
-		const offsets: (number | null)[] = [];
-		let size = 0;
-		for (const stream of streams) {
-			offsets.push(stream === null ? null : size);
-			size += stream?.byteLength ?? 0;
-		}
-		const vertices = this.#device.createBuffer({
-			label: `geometry ${blob}`,
-			size: Math.max(4, size),
-			// an animation skins its frames into the buffer
-			usage:
-				GPUBufferUsage.VERTEX |
-				GPUBufferUsage.COPY_DST |
-				(decoded.skin === null ? 0 : GPUBufferUsage.STORAGE),
-		});
-		streams.forEach((stream, i) => {
-			const offset = offsets[i];
-			if (stream !== null && offset !== null) {
-				this.#device.queue.writeBuffer(vertices, offset, stream);
-			}
-		});
-		if (streams.includes(null) && decoded.vertexCount * ZERO_STRIDE > this.#zerosSize) {
-			this.#zeros.destroy();
-			this.#zeros = this.#zeroBuffer(decoded.vertexCount * ZERO_STRIDE);
-		}
-		const indices = this.#device.createBuffer({
-			label: `geometry ${blob} indices`,
-			size: Math.max(4, decoded.indices.byteLength),
-			usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-		});
-		this.#device.queue.writeBuffer(indices, 0, decoded.indices);
-		const skin =
-			decoded.skin === null
-				? null
-				: this.#skins.create(`geometry ${blob}`, decoded.skin, {
-						vertices,
-						vertexCount: decoded.vertexCount,
-						normalOffset: offsets[1],
-						tangentOffset: offsets[4],
-						positionOffset: decoded.positionOffset,
-						positionScale: decoded.positionScale,
-					});
-		const resident: ResidentGeometry = {
-			kind: 'geometry',
-			bytes: vertices.size + indices.size + (skin?.bytes ?? 0),
-			vertices,
-			positionBytes: decoded.positions.byteLength,
-			normalOffset: offsets[1],
-			uv0Offset: offsets[2],
-			// the game reads a UV set a mesh lacks as set 0
-			uv1Offset: offsets[3] ?? offsets[2],
-			uvFormat: decoded.uvFormat,
-			uvTransforms: decoded.uvTransforms,
-			tangentOffset: offsets[4],
-			colorOffset: offsets[5],
-			indices,
-			indexFormat: decoded.indexSize === 4 ? 'uint32' : 'uint16',
-			positionOffset: decoded.positionOffset,
-			positionScale: decoded.positionScale,
-			submeshes: decoded.submeshes,
-			skin,
-		};
-		if (skin !== null) {
-			this.#animated.add(skin);
+		const resident = uploadGeometry(
+			this.#device,
+			{ skins: this.#skins, bindings: this.#vertexBindings },
+			blob,
+			decoded,
+		);
+		if (resident.skin !== null) {
+			this.#animated.add(resident.skin);
 		}
 		return resident;
 	}
 
 	/** @param resident a geometry from {@link upload}; its buffers are destroyed */
 	release(resident: ResidentGeometry): void {
-		resident.vertices.destroy();
-		resident.indices.destroy();
 		if (resident.skin !== null) {
 			this.#animated.delete(resident.skin);
-			for (const buffer of resident.skin.buffers) {
-				buffer.destroy();
-			}
 		}
+		releaseGeometry(resident);
 	}
+
+	/** forgets material bind groups (when a package is unloaded) */
+	releaseMaterials(): void {
+		this.#materials.release();
+	}
+
+	// #endregion
+
+	// #region animation
 
 	/** whether this frame draws an animated geometry, so the shadows it casts must be drawn again */
 	get animating(): boolean {
@@ -845,70 +218,9 @@ export class MeshRenderer {
 		this.#skins.encode(encoder, this.#animated, time);
 	}
 
-	/** forgets material bind groups (when a package is unloaded) */
-	releaseMaterials(): void {
-		this.#bindings.clear();
-		this.#materialStates.clear();
-		this.#effectBindings.clear();
-	}
+	// #endregion
 
-	/** the material's bind group over its slots' current bindings (`null` slots get the white texture) */
-	#materialGroup(material: number, slots: readonly (TextureBinding | null)[]): GPUBindGroup {
-		const versions = this.#versions;
-		for (let i = 0; i < slots.length; i++) {
-			versions[i] = slots[i]?.version ?? -1;
-		}
-		const cached = this.#bindings.get(material);
-		if (cached !== undefined && cached.versions.every((version, i) => version === versions[i])) {
-			return cached.group;
-		}
-		const detail = slots[1] ?? slots[2] ?? slots[0];
-		const group = this.#device.createBindGroup({
-			label: `material ${material}`,
-			layout: this.#layouts.materials,
-			entries: [
-				...slots.map((slot, i) => ({ binding: i, resource: slot?.view ?? this.#white })),
-				{ binding: SLOTS.length, resource: slots[0]?.sampler ?? this.#defaultSampler },
-				{ binding: SLOTS.length + 1, resource: detail?.sampler ?? this.#defaultSampler },
-				{ binding: SLOTS.length + 2, resource: slots[5]?.sampler ?? this.#defaultSampler },
-			],
-		});
-		this.#bindings.set(material, { versions: [...versions], group });
-		return group;
-	}
-
-	/** a material's state, derived again only after the texture store changed */
-	#materialState(material: number, look: MaterialLook, textures: TextureStore): MaterialState {
-		const cached = this.#materialStates.get(material);
-		if (cached !== undefined && cached.version === textures.version) {
-			return cached;
-		}
-		const slots: (TextureBinding | null)[] = [];
-		let flags = look.flags;
-		let complete = true;
-		for (let i = 0; i < SLOTS.length; i++) {
-			const texture = look.textures[i];
-			const binding = texture < 0 ? null : textures.binding(texture);
-			slots.push(binding);
-			if (binding === null) {
-				flags &= ~SLOT_FLAGS[i];
-				complete &&= texture < 0;
-			}
-		}
-		const volume = look.volumeTexture < 0 ? null : textures.binding(look.volumeTexture);
-		complete &&= look.volumeTexture < 0 || volume !== null;
-		const state: MaterialState = {
-			version: textures.version,
-			slots,
-			volume,
-			flags,
-			group: (look.flags & LookFlags.Effect) !== 0 ? null : this.#materialGroup(material, slots),
-			alphaReady: slots[(look.flags & LookFlags.AlphaNormal) !== 0 ? 1 : 0] !== null,
-			complete,
-		};
-		this.#materialStates.set(material, state);
-		return state;
-	}
+	// #region prepare
 
 	/** draws nothing this frame */
 	clear(): void {
@@ -935,7 +247,7 @@ export class MeshRenderer {
 				continue;
 			}
 			const look = bucket.look;
-			const state = this.#materialState(bucket.material, look, textures);
+			const state = this.#materials.state(bucket.material, look, textures);
 			const range = drawRangeOf(look, { castOnly: bucket.castOnly, stencil: this.#stencil, state });
 			if (range !== null) {
 				this.#range(range).buckets.push(bucket);
@@ -995,7 +307,7 @@ export class MeshRenderer {
 			return false;
 		}
 		const look = bucket.look;
-		const state = this.#materialState(bucket.material, look, textures);
+		const state = this.#materials.state(bucket.material, look, textures);
 		this.#drawsAnimated ||= resident.skin !== null;
 		const params = this.#paramData;
 		const words = this.#paramWords;
@@ -1072,6 +384,10 @@ export class MeshRenderer {
 		return true;
 	}
 
+	// #endregion
+
+	// #region encode
+
 	/**
 	 * @param which the pass
 	 * @returns whether this frame has draws in the pass, so it needs to be run
@@ -1121,7 +437,7 @@ export class MeshRenderer {
 			for (let i = range.start; i < range.end; i++) {
 				const draw = this.#draws[i];
 				if (draw.effect !== null) {
-					draw.material = this.#effectGroup(draw.effect, inputs);
+					draw.material = this.#materials.effectGroup(draw.effect, inputs);
 				}
 			}
 		}
@@ -1190,7 +506,7 @@ export class MeshRenderer {
 			for (let i = from; i < to; i++) {
 				const draw = this.#draws[i];
 				const count = layer < 0 ? draw.count : draw.layerCounts[layer];
-				// only an effect drawn outside the transparent pass would lack its group
+				// only an effect drawn outside its pass would lack its group
 				if (draw.material === null || count === 0) {
 					continue;
 				}
@@ -1224,7 +540,7 @@ export class MeshRenderer {
 				}
 				if (draw.geometry !== geometry) {
 					geometry = draw.geometry;
-					this.#bindStreams(pass, bindings, geometry, phase.streams);
+					bindings.bindStreams(pass, geometry, phase.streams);
 					pass.setIndexBuffer(geometry.indices, geometry.indexFormat);
 				}
 				pass.drawIndexed(draw.indexCount, count, draw.firstIndex, draw.baseVertex, draw.first);
@@ -1261,33 +577,5 @@ export class MeshRenderer {
 		return undefined;
 	}
 
-	/** binds a geometry's vertex streams in the slots a phase's pipelines read, zeros where it lacks one */
-	#bindStreams(
-		pass: GPURenderPassEncoder,
-		bindings: VertexBindings,
-		geometry: ResidentGeometry,
-		streams: VertexStreams,
-	): void {
-		bindings.set(pass, 0, geometry.vertices, 0, geometry.positionBytes);
-		const vertices = geometry.vertices;
-		const zeros = this.#zeros;
-		switch (streams) {
-			case 'position': {
-				break;
-			}
-			case 'uv': {
-				bindings.stream(pass, 1, vertices, geometry.uv0Offset, zeros);
-				bindings.stream(pass, 2, vertices, geometry.uv1Offset, zeros);
-				break;
-			}
-			case 'all': {
-				bindings.stream(pass, 1, vertices, geometry.normalOffset, zeros);
-				bindings.stream(pass, 2, vertices, geometry.uv0Offset, zeros);
-				bindings.stream(pass, 3, vertices, geometry.uv1Offset, zeros);
-				bindings.stream(pass, 4, vertices, geometry.tangentOffset, zeros);
-				bindings.stream(pass, 5, vertices, geometry.colorOffset, zeros);
-				break;
-			}
-		}
-	}
+	// #endregion
 }
