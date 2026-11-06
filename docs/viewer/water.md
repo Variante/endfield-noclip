@@ -10,8 +10,9 @@ describes: [water-renderer.ts](../../packages/viewer/src/render/water/water-rend
 surfaces are resident in the game, so the whole water table is in the core archive and every surface
 is always available. each frame the viewer selects the surfaces whose visibility group shows (the
 shown level's or tag 0's, with its scene states active) and whose geometry entry is ready. each
-wants its geometry blob at a priority falling with horizontal distance from the camera; resident
-ones inside the frustum are drawn, up to 4096.
+wants its geometry blob at a priority falling with horizontal distance from the camera, in view or
+not, so like the game's the shown surfaces stay resident (map02's 1310 share 392 meshes of 0.6 MiB
+packed); resident ones inside the frustum are drawn, up to 4096.
 
 ## surface meshes
 
