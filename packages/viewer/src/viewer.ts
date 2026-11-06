@@ -550,66 +550,59 @@ export class Viewer {
 		const irradiance = new IrradianceVolume(this.#gfx.device, pkg.irradiance, pkg.manifest.irradianceRegions);
 		this.#setIrradiance(irradiance);
 		const particles = new ParticleField(pkg.particles, this.#instances);
+		const rowKinds = instanceRowKinds(tree, pkg.manifest.global);
+		const terrain = this.#terrain;
 		const stream = new StreamManager(
 			pkg,
 			this.#pool,
 			{
-				uploadHeights: (decoded, options) => this.#terrain.upload(decoded, options),
-				uploadSurface: (decoded) => this.#terrain.uploadSurface(decoded),
-				uploadDetail: (decoded) => this.#terrain.uploadDetail(decoded),
-				uploadLayer: (blob, decoded) => this.#terrain.uploadLayer(blob, decoded),
-				uploadInstances: (blob, decoded) => {
-					// the decode worker doesn't hold the chains
-					markBillboardRows(decoded, pkg.chains);
-					const resident = this.#instances.upload(decoded);
-					if (resident !== null) {
-						this.#waterLevels.track(resident, blob);
-					}
-					return resident;
+				heights: {
+					upload: (_blob, decoded, { pinned }) => terrain.upload(decoded, { keepSamples: pinned }),
+					release: (_blob, resident) => terrain.release(resident),
 				},
-				uploadGeometry: (blob, decoded) => this.#meshes.upload(blob, decoded),
-				uploadTexture: (blob, decoded) => textures.upload(blob, decoded),
-				uploadIrradiance: (_blob, decoded) => irradiance.upload(decoded),
-				release: (blob, resident) => {
-					switch (resident.kind) {
-						case 'heights': {
-							this.#terrain.release(resident);
-							break;
+				surface: {
+					upload: (_blob, decoded) => terrain.uploadSurface(decoded),
+					release: (_blob, resident) => terrain.releaseSurface(resident),
+				},
+				splat: {
+					upload: (_blob, decoded) => terrain.uploadSplat(decoded),
+					release: (_blob, resident) => terrain.releaseSplat(resident),
+				},
+				layer: {
+					upload: (blob, decoded) => terrain.uploadLayer(blob, decoded),
+					// pinned for the package's lifetime; its array goes with the next `setSplat`
+					release: () => {},
+				},
+				instances: {
+					job: (blob, stored) => ({ kind: 'instances', ...stored, rowKinds: rowKinds.get(blob) ?? [] }),
+					upload: (blob, decoded) => {
+						// the decode worker doesn't hold the chains
+						markBillboardRows(decoded, pkg.chains);
+						const resident = this.#instances.upload(decoded);
+						if (resident !== null) {
+							this.#waterLevels.track(resident, blob);
 						}
-						case 'surface': {
-							this.#terrain.releaseSurface(resident);
-							break;
-						}
-						case 'splat': {
-							this.#terrain.releaseSplat(resident);
-							break;
-						}
-						case 'layer': {
-							// pinned for the package's lifetime; its array goes with the next `setSplat`
-							break;
-						}
-						case 'instances': {
-							particles.release(resident);
-							this.#waterLevels.untrack(resident);
-							this.#instances.release(resident);
-							break;
-						}
-						case 'geometry': {
-							this.#meshes.release(resident);
-							break;
-						}
-						case 'texture': {
-							textures.release(blob);
-							break;
-						}
-						case 'irradiance': {
-							irradiance.release(resident);
-							break;
-						}
-					}
+						return resident;
+					},
+					release: (_blob, resident) => {
+						particles.release(resident);
+						this.#waterLevels.untrack(resident);
+						this.#instances.release(resident);
+					},
+				},
+				geometry: {
+					upload: (blob, decoded) => this.#meshes.upload(blob, decoded),
+					release: (_blob, resident) => this.#meshes.release(resident),
+				},
+				texture: {
+					upload: (blob, decoded) => textures.upload(blob, decoded),
+					release: (blob) => textures.release(blob),
+				},
+				irradiance: {
+					upload: (_blob, decoded) => irradiance.upload(decoded),
+					release: (_blob, resident) => irradiance.release(resident),
 				},
 			},
-			instanceRowKinds(tree, pkg.manifest.global),
 			{ budgetBytes: this.options.budgetMiB * 2 ** 20, maxRequests: 32, uploadBytesPerFrame: 24 * 2 ** 20 },
 		);
 		// the coarse layer: everything in the core (coarse terrain pages, every HLOD block, global scenery)

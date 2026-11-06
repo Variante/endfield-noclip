@@ -24,7 +24,7 @@ export interface ResidentSurface {
 }
 
 /** GPU residency of a terrain splat page */
-export interface ResidentDetail {
+export interface ResidentSplat {
 	kind: 'splat';
 	/** GPU bytes */
 	bytes: number;
@@ -109,7 +109,7 @@ export interface ResidentIrradiance {
 export type Resident =
 	| ResidentHeights
 	| ResidentSurface
-	| ResidentDetail
+	| ResidentSplat
 	| ResidentLayer
 	| ResidentInstances
 	| ResidentGeometry

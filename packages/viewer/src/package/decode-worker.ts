@@ -373,12 +373,15 @@ const handle = (request: DecodeRequest): { response: DecodeResponse; transfer: T
 				transfer: [control, tint, index],
 			};
 		}
-		case 'layer': {
+		case 'layer':
+		case 'texture':
+		case 'irradiance': {
+			// stored as the GPU reads them
 			const data = ownBuffer(raw);
-			return { response: { id: request.id, kind: 'layer', data }, transfer: [data] };
+			return { response: { id: request.id, kind: request.kind, data }, transfer: [data] };
 		}
 		case 'instances': {
-			const built = buildInstanceRows(decodeInstanceBlock(raw), request.rowKinds);
+			const built = buildInstanceRows(decodeInstanceBlock(raw), request.rowKinds ?? []);
 			return {
 				response: { id: request.id, kind: 'instances', ...built },
 				transfer: [
@@ -394,14 +397,6 @@ const handle = (request: DecodeRequest): { response: DecodeResponse; transfer: T
 		}
 		case 'geometry': {
 			return decodeGeometry(request.id, raw);
-		}
-		case 'texture': {
-			const data = ownBuffer(raw);
-			return { response: { id: request.id, kind: 'texture', data }, transfer: [data] };
-		}
-		case 'irradiance': {
-			const data = ownBuffer(raw);
-			return { response: { id: request.id, kind: 'irradiance', data }, transfer: [data] };
 		}
 	}
 };

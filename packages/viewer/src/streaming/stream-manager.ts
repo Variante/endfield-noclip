@@ -1,58 +1,20 @@
-import { BlobKind } from '@endfield-noclip/package-format/blobs';
-
-import type { RowKinds } from '../content/instance-rows.ts';
 import type { DecodePool } from '../package/decode-pool.ts';
-import type {
-	Decoded,
-	DecodedGeometry,
-	DecodedDetail,
-	DecodedHeights,
-	DecodedInstances,
-	DecodedLayer,
-	DecodedIrradiance,
-	DecodedSurface,
-	DecodedTexture,
-} from '../package/decode-protocol.ts';
+import type { Decoded } from '../package/decode-protocol.ts';
 import { PackageChangedError } from '../package/package-source.ts';
 import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
 
 import { coalesceRanges } from './coalesce.ts';
 import type { ContentItem } from './content-item.ts';
-import type {
-	Resident,
-	ResidentDetail,
-	ResidentGeometry,
-	ResidentHeights,
-	ResidentInstances,
-	ResidentIrradiance,
-	ResidentLayer,
-	ResidentSurface,
-	ResidentTexture,
-} from './resident.ts';
+import {
+	RESIDENT_KINDS,
+	type ResidencyHandlers,
+	decodeJob,
+	releaseResident,
+	uploadResident,
+} from './residency.ts';
+import type { Resident } from './resident.ts';
 
 // #region types
-
-/** GPU-side owners of uploaded content (the renderers) */
-export interface ContentStores {
-	/** @returns the residency, or `null` if there was no room */
-	uploadHeights(decoded: DecodedHeights, options: { keepSamples: boolean }): ResidentHeights | null;
-	/** @returns the residency, or `null` if there was no room */
-	uploadSurface(decoded: DecodedSurface): ResidentSurface | null;
-	/** @returns the residency, or `null` if there was no room */
-	uploadDetail(decoded: DecodedDetail): ResidentDetail | null;
-	/** @returns the residency */
-	uploadLayer(blob: number, decoded: DecodedLayer): ResidentLayer;
-	/** @returns the residency, or `null` if there was no room */
-	uploadInstances(blob: number, decoded: DecodedInstances): ResidentInstances | null;
-	/** @returns the residency */
-	uploadGeometry(blob: number, decoded: DecodedGeometry): ResidentGeometry;
-	/** @returns the residency */
-	uploadTexture(blob: number, decoded: DecodedTexture): ResidentTexture;
-	/** @returns the residency, or `null` if there was no room */
-	uploadIrradiance(blob: number, decoded: DecodedIrradiance): ResidentIrradiance | null;
-	/** frees a blob's GPU resources */
-	release(blob: number, resident: Resident): void;
-}
 
 /** counters for the UI */
 export interface StreamStats {
@@ -61,8 +23,6 @@ export interface StreamStats {
 	decoding: number;
 	uploading: number;
 	residentBytes: number;
-	/** {@link residentBytes} split by residency kind */
-	residentByKind: Record<Resident['kind'], number>;
 	pinnedBytes: number;
 	downloadedBytes: number;
 	requests: number;
@@ -100,16 +60,6 @@ export class StreamManager {
 		decoding: 0,
 		uploading: 0,
 		residentBytes: 0,
-		residentByKind: {
-			heights: 0,
-			surface: 0,
-			splat: 0,
-			layer: 0,
-			instances: 0,
-			geometry: 0,
-			texture: 0,
-			irradiance: 0,
-		},
 		pinnedBytes: 0,
 		downloadedBytes: 0,
 		requests: 0,
@@ -122,8 +72,7 @@ export class StreamManager {
 
 	#package: ViewerPackage;
 	#pool: DecodePool;
-	#stores: ContentStores;
-	#rowKinds: ReadonlyMap<number, RowKinds>;
+	#handlers: ResidencyHandlers;
 	/** by blob index */
 	#items: (ContentItem | undefined)[];
 	/** every item in {@link #items}, for sweeps */
@@ -147,21 +96,13 @@ export class StreamManager {
 	/**
 	 * @param pkg the package
 	 * @param pool decode workers
-	 * @param stores GPU owners
-	 * @param rowKinds what the rows of each instance blob are; blobs without an entry are tier 0 HLOD rows
+	 * @param handlers how each kind of blob is decoded, made resident and freed
 	 * @param options tunables; read every frame, so callers may change them
 	 */
-	constructor(
-		pkg: ViewerPackage,
-		pool: DecodePool,
-		stores: ContentStores,
-		rowKinds: ReadonlyMap<number, RowKinds>,
-		options: StreamOptions,
-	) {
+	constructor(pkg: ViewerPackage, pool: DecodePool, handlers: ResidencyHandlers, options: StreamOptions) {
 		this.#package = pkg;
 		this.#pool = pool;
-		this.#stores = stores;
-		this.#rowKinds = rowKinds;
+		this.#handlers = handlers;
 		this.options = options;
 		this.#items = Array.from({ length: pkg.blobs.length });
 	}
@@ -303,7 +244,7 @@ export class StreamManager {
 		}
 		for (const item of this.#known) {
 			if (item.resident !== null) {
-				this.#stores.release(item.blob, item.resident);
+				releaseResident(this.#handlers, item.resident.kind, item.blob, item.resident);
 				item.resident = null;
 			}
 		}
@@ -477,46 +418,13 @@ export class StreamManager {
 			return;
 		}
 		const record = this.#package.blobs[item.blob];
-		const base = { data, codec: record.codec, rawLength: record.rawLength };
-		let job: Promise<Decoded>;
-		switch (record.kind) {
-			case BlobKind.TerrainHeights: {
-				job = this.#pool.run({ kind: 'heights', ...base });
-				break;
-			}
-			case BlobKind.TerrainSurface: {
-				job = this.#pool.run({ kind: 'surface', ...base });
-				break;
-			}
-			case BlobKind.TerrainSplat: {
-				job = this.#pool.run({ kind: 'splat', ...base });
-				break;
-			}
-			case BlobKind.TerrainLayer: {
-				job = this.#pool.run({ kind: 'layer', ...base });
-				break;
-			}
-			case BlobKind.Instances: {
-				job = this.#pool.run({ kind: 'instances', ...base, rowKinds: this.#rowKinds.get(item.blob) ?? [] });
-				break;
-			}
-			case BlobKind.Geometry: {
-				job = this.#pool.run({ kind: 'geometry', ...base });
-				break;
-			}
-			case BlobKind.Texture: {
-				job = this.#pool.run({ kind: 'texture', ...base });
-				break;
-			}
-			case BlobKind.Irradiance: {
-				job = this.#pool.run({ kind: 'irradiance', ...base });
-				break;
-			}
-			default: {
-				this.#fail(item, new Error(`blob kind ${record.kind} isn't supported yet`));
-				return;
-			}
+		const kind = RESIDENT_KINDS[record.kind];
+		if (kind === null) {
+			this.#fail(item, new Error(`blob kind ${record.kind} isn't supported yet`));
+			return;
 		}
+		const stored = { data, codec: record.codec, rawLength: record.rawLength };
+		const job = this.#pool.run(decodeJob(this.#handlers, kind, item.blob, stored));
 		item.state = 'decoding';
 		this.#working++;
 		this.stats.decoding++;
@@ -578,7 +486,7 @@ export class StreamManager {
 			item.state = 'ready';
 			// fresh content counts as used, so the budget pass can't evict it before its first draw
 			item.usedFrame = this.#frame;
-			this.#count(item, resident, resident.bytes);
+			this.#count(item, resident.bytes);
 			uploaded += resident.bytes;
 			this.version++;
 		}
@@ -586,38 +494,12 @@ export class StreamManager {
 	}
 
 	#tryUpload(item: ContentItem, decoded: Decoded): Resident | null {
-		switch (decoded.kind) {
-			case 'heights': {
-				return this.#stores.uploadHeights(decoded, { keepSamples: item.pinned });
-			}
-			case 'surface': {
-				return this.#stores.uploadSurface(decoded);
-			}
-			case 'splat': {
-				return this.#stores.uploadDetail(decoded);
-			}
-			case 'layer': {
-				return this.#stores.uploadLayer(item.blob, decoded);
-			}
-			case 'instances': {
-				return this.#stores.uploadInstances(item.blob, decoded);
-			}
-			case 'geometry': {
-				return this.#stores.uploadGeometry(item.blob, decoded);
-			}
-			case 'texture': {
-				return this.#stores.uploadTexture(item.blob, decoded);
-			}
-			case 'irradiance': {
-				return this.#stores.uploadIrradiance(item.blob, decoded);
-			}
-		}
+		return uploadResident(this.#handlers, decoded.kind, item.blob, decoded, { pinned: item.pinned });
 	}
 
 	/** adds `bytes` to the resident counters */
-	#count(item: ContentItem, resident: Resident, bytes: number): void {
+	#count(item: ContentItem, bytes: number): void {
 		this.stats.residentBytes += bytes;
-		this.stats.residentByKind[resident.kind] += bytes;
 		if (item.pinned) {
 			this.stats.pinnedBytes += bytes;
 		}
@@ -664,8 +546,8 @@ export class StreamManager {
 		if (resident === null) {
 			return;
 		}
-		this.#stores.release(item.blob, resident);
-		this.#count(item, resident, -resident.bytes);
+		releaseResident(this.#handlers, resident.kind, item.blob, resident);
+		this.#count(item, -resident.bytes);
 		item.resident = null;
 		item.state = 'idle';
 		this.stats.evictions++;

@@ -118,7 +118,12 @@ plus the piece's index, so coarse levels come first. irradiance cells and whole-
 
 [`streaming/stream-manager.ts`](../../packages/viewer/src/streaming/stream-manager.ts) owns each
 blob's lifecycle (`idle → queued → fetching → decoding → uploading → ready`, or `failed`, which
-isn't retried).
+isn't retried). it doesn't know the kinds of content: each kind (`heights`, `surface`, `splat`,
+`layer`, `instances`, `geometry`, `texture`, `irradiance`) has a handler
+([`streaming/residency.ts`](../../packages/viewer/src/streaming/residency.ts)) that uploads its
+decoded blobs and frees them, and may build its decode job (instance blocks add their row kinds).
+the viewer wires the handlers to the renderers and stores that own the GPU side; their residency
+shapes are in [`streaming/resident.ts`](../../packages/viewer/src/streaming/resident.ts).
 
 - **wanting.** the traversal calls `want(blob, priority)` every frame. a resident blob that's wanted
   counts as used, even when a coarser stand-in is drawn, so a refinement in progress isn't evicted

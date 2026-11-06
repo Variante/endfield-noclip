@@ -11,14 +11,14 @@ import {
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type {
-	DecodedDetail,
+	DecodedSplat,
 	DecodedHeights,
 	DecodedLayer,
 	DecodedSurface,
 } from '../../package/decode-protocol.ts';
 import type { Vec3 } from '../../scene/camera.ts';
 import type {
-	ResidentDetail,
+	ResidentSplat,
 	ResidentHeights,
 	ResidentLayer,
 	ResidentSurface,
@@ -454,7 +454,7 @@ export class TerrainRenderer {
 	 * @returns the residency, or `null` if no slot was free (always, without BC textures)
 	 * @throws {Error} if the page doesn't have the sizes the shader is written for
 	 */
-	uploadDetail(decoded: DecodedDetail): ResidentDetail | null {
+	uploadSplat(decoded: DecodedSplat): ResidentSplat | null {
 		if (decoded.side !== SURFACE_SIDE || decoded.cells !== DETAIL_CELLS) {
 			throw new Error(`splat page of ${decoded.side}² with ${decoded.cells}² cells isn't supported`);
 		}
@@ -484,8 +484,8 @@ export class TerrainRenderer {
 		};
 	}
 
-	/** @param resident a page from {@link uploadDetail}; its slot returns to the pool */
-	releaseSplat(resident: ResidentDetail): void {
+	/** @param resident a page from {@link uploadSplat}; its slot returns to the pool */
+	releaseSplat(resident: ResidentSplat): void {
 		this.#freeDetailSlots.push(resident.slot);
 	}
 
