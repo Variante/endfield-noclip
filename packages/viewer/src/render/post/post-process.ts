@@ -79,8 +79,11 @@ export interface PostSettings {
 	debugView: DebugView;
 }
 
-/** @returns the settings in effect: debug views turn the look off */
-const effectiveSettings = (settings: PostSettings): PostSettings => {
+/**
+ * @param settings the settings asked for
+ * @returns the settings in effect: debug views turn the look off
+ */
+export const effectiveSettings = (settings: PostSettings): PostSettings => {
 	if (settings.debugView === 'lit') {
 		return settings;
 	}

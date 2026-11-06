@@ -56,7 +56,13 @@ import { IrradianceVolume } from './render/lighting/irradiance-volume.ts';
 import { LocalLights } from './render/lighting/local-lights.ts';
 import { MeshRenderer } from './render/meshes/mesh-renderer.ts';
 import { lensFlareLook } from './render/post/lens-flare-layout.ts';
-import { type PostSettings, PostProcess, type Tonemapper, postExposure } from './render/post/post-process.ts';
+import {
+	type PostSettings,
+	PostProcess,
+	type Tonemapper,
+	effectiveSettings,
+	postExposure,
+} from './render/post/post-process.ts';
 import { SETTLE_FRAMES } from './render/post/temporal-aa.ts';
 import { SHADOW_FORMAT, SHADOW_LAYERS, ShadowMap, offscreenCasters } from './render/shadows/shadow-map.ts';
 import {
@@ -1835,7 +1841,9 @@ export class Viewer {
 			f32.set(environment.sh, FrameOffsets.sh);
 			f32[FrameOffsets.ambient] = environment.indirectSpecular;
 			// emitters marked `_IgnorePostExposure` divide out the post exposure (the game's adapted exposure)
-			f32[FrameOffsets.ambient + 1] = 1 / postExposure(this.#postSettings(), this.#post.autoExposure);
+			// the post chain applies, which debug views turn off
+			f32[FrameOffsets.ambient + 1] =
+				1 / postExposure(effectiveSettings(this.#postSettings()), this.#post.autoExposure);
 			f32[FrameOffsets.ambient + 2] = this.#reflection === this.#noReflection ? 0 : 1;
 			f32[FrameOffsets.ambient + 3] = this.#reflectionMips;
 		}
