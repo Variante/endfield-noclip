@@ -566,6 +566,13 @@ export interface EffectTexture {
 	scroll: [u: number, v: number];
 	/** the UV rotation's cosine and sine */
 	rotation: [cos: number, sin: number];
+	/**
+	 * its UVs' shift per unit of a particle's custom data (`*UVSpeed.zw`), before the rotation: the effect
+	 * shaders on particles shift their main texture (VFXRefract's refraction texture, six-way smoke's
+	 * lightmaps) by the custom data's x and the others by its y (`ParticleSystemInfo.customData`); [0, 0] for
+	 * textures it doesn't shift
+	 */
+	customScroll: [u: number, v: number];
 }
 
 /** what a texture-stack layer's texture does (`docs/game-data/effects.md`) */
@@ -690,6 +697,11 @@ export interface EffectStackSurface {
 	disturbBias: number;
 	/** `_USE_DISTURB`/`_UseDisturb`: the distortion is on */
 	distorted: boolean;
+	/**
+	 * VFXBaseV2's `_UseParticleDisturb` (off the ink-wash path): a particle's custom data's w scales the whole
+	 * distortion, so a mesh, whose w is 0, isn't distorted
+	 */
+	particleDisturb: boolean;
 	/** the weight texture's strength on the distortion and on the dissolve, and whether it's used */
 	weight: { disturb: number; dissolve: number; used: boolean };
 	dissolve: EffectDissolve;

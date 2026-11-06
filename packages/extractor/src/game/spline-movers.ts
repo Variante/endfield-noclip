@@ -350,6 +350,7 @@ export const readSplineMover = (data: TypeTreeObject): SplineMoverRead => {
 			mesh: 0,
 			ringBuffer: null,
 			textureSheet: null,
+			customData: null,
 		},
 		groups,
 	};

@@ -211,7 +211,10 @@ const stencilOf = (reader: MaterialReader): EffectStencil | UnsupportedSurface |
 /** an unset slot, where the shader's white default stands in */
 const UNSET_WHITE: TextureSlot = { texture: -1, uv: 0, scale: [1, 1], offset: [0, 0] };
 
-/** a slot as an effect texture, with its scroll and rotation */
+/**
+ * a slot as an effect texture, with its scroll and rotation. a `*UVSpeed` vector's zw is its shift per unit
+ * of a particle's custom data
+ */
 const effectTexture = (
 	slot: Pick<TextureSlot, 'texture' | 'scale' | 'offset'>,
 	scroll: readonly number[] = [0, 0],
@@ -222,6 +225,7 @@ const effectTexture = (
 	offset: [slot.offset[0], slot.offset[1]],
 	scroll: [scroll[0], scroll[1]],
 	rotation,
+	customScroll: [scroll[2] ?? 0, scroll[3] ?? 0],
 });
 
 const UV_SOURCES: readonly EffectUvSource[] = ['uv0', 'uv1', 'polar', 'screen'];
@@ -305,7 +309,8 @@ const vertexOffsetOf = (reader: MaterialReader): EffectVertexOffset | null => {
 	const dir = color('_OffsetDir') ?? [0, 0, 0, 0];
 	return {
 		// the vertex stage reads the scroll after the `_ST`, unscaled and unrotated
-		texture: effectTexture(slot, color('_OffsetSpeed') ?? [0, 0, 0, 0]),
+		// its speed's zw scroll by custom data only on particles, where the offset is off
+		texture: effectTexture(slot, (color('_OffsetSpeed') ?? [0, 0]).slice(0, 2)),
 		uv1: float('_OffsetUVSet', 0) !== 0,
 		direction: [dir[0], dir[1], dir[2]],
 		space: float('_OffsetSwitchDir', 0),
@@ -595,6 +600,10 @@ export const describeVfxBase = (
 		disturb: shared.disturb,
 		disturbBias: float('_Bi_Disturb', 0),
 		distorted: float('_UseDisturb', 0) !== 0,
+		// the ink-wash path puts UV0's v where the custom data's w would be
+		particleDisturb:
+			float('_UseParticleDisturb', 0) !== 0 &&
+			!(float('_SyncDisturbWithInkWash', 0) !== 0 && float('_RenderTransparentAfterDOF', 0) !== 0),
 		weight: {
 			disturb: float('_WeightTexIntensity', 1) * float('_DisturbUseWeight', 0),
 			dissolve: float('_WeightTexIntensity', 1) * float('_DissolveUseWeight', 0),
@@ -786,6 +795,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		disturb: shared.disturb,
 		disturbBias: float('_Bi_Disturb', 0),
 		distorted: has('_USE_DISTURB'),
+		particleDisturb: false,
 		weight: { disturb: 0, dissolve: 0, used: false },
 		dissolve: { ...shared.dissolve, on: has('_USE_DISSOLVE') },
 		masked: has('_USE_MASK'),
@@ -817,9 +827,9 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 
 /**
  * slots of a VFXDecal: each texture's role, the keyword that enables it, and the properties of its UV scroll,
- * rotation (degrees), distortion switch and UV source switch (0 the box, 1 the screen, 2 polar). the shader
- * runs through the slots in order, so the disturb textures come before the weight and the textures they
- * distort
+ * rotation (degrees), distortion switch, UV source switch (0 the box, 1 the screen, 2 polar) and the constant
+ * its speed's zw shifts by (`*CustomData`, in place of a particle's custom data). the shader runs through the
+ * slots in order, so the disturb textures come before the weight and the textures they distort
  */
 const DECAL_SLOTS = [
 	{
@@ -830,6 +840,7 @@ const DECAL_SLOTS = [
 		rotate: '_MainTexUVRotate',
 		disturbed: '_MainTexUseDisturb',
 		source: '_MainSwitchUV',
+		custom: '_MainCustomData',
 	},
 	{
 		name: '_DisturbTex1',
@@ -839,6 +850,7 @@ const DECAL_SLOTS = [
 		rotate: null,
 		disturbed: null,
 		source: '_DisturbSwitchUV',
+		custom: '_DisturbCustomData',
 	},
 	{
 		name: '_DisturbTex2',
@@ -848,6 +860,7 @@ const DECAL_SLOTS = [
 		rotate: null,
 		disturbed: null,
 		source: '_DisturbSwitchUV',
+		custom: '_DisturbCustomData',
 	},
 	{
 		name: '_WeightTex',
@@ -857,6 +870,7 @@ const DECAL_SLOTS = [
 		rotate: null,
 		disturbed: null,
 		source: '_WeightSwitchUV',
+		custom: null,
 	},
 	{
 		name: '_MaskTex',
@@ -866,6 +880,7 @@ const DECAL_SLOTS = [
 		rotate: '_MaskTexUVRotate',
 		disturbed: '_MaskTexUseDisturb',
 		source: '_MaskSwitchUV',
+		custom: '_MaskCustomData',
 	},
 	{
 		name: '_BlendTex',
@@ -875,6 +890,7 @@ const DECAL_SLOTS = [
 		rotate: '_BlendTexUVRotate',
 		disturbed: '_BlendTexUseDisturb',
 		source: '_BlendSwitchUV',
+		custom: '_BlendCustomData',
 	},
 	{
 		name: '_DissolveTex',
@@ -884,6 +900,7 @@ const DECAL_SLOTS = [
 		rotate: '_DissolveUVRotate',
 		disturbed: '_DissolveTexUseDisturb',
 		source: '_DissolveSwitchUV',
+		custom: '_DissolveCustomData',
 	},
 ] as const;
 
@@ -926,7 +943,10 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		sources.set(2, 'polar');
 	}
 	const layers: (StackLayer | null)[] = Array.from({ length: 7 }, () => null);
-	for (const [i, { name, role, keyword, speed, rotate, disturbed, source }] of DECAL_SLOTS.entries()) {
+	for (const [
+		i,
+		{ name, role, keyword, speed, rotate, disturbed, source, custom },
+	] of DECAL_SLOTS.entries()) {
 		const slot = reader.slot(name);
 		if (slot === undefined || (keyword !== null && !has(keyword))) {
 			continue;
@@ -946,11 +966,22 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 						offset: [slot.offset[0] * (slot.scale[0] + 1), slot.offset[1] * (slot.scale[1] + 1)],
 					}
 				: slot;
+		const texture = effectTexture(transform, (speed !== null && color(speed)) || [0, 0, 0, 0], [
+			Math.cos(angle),
+			-Math.sin(angle),
+		]);
+		// off particles the shader shifts the UVs by the speed's zw times a constant of the material instead of
+		// custom data, before the rotation: the same as moving the offset by the turned, scaled shift
+		const k = custom === null ? 0 : float(custom, 0);
+		const [c, s] = texture.rotation;
+		const [u, v] = [texture.customScroll[0] * k, texture.customScroll[1] * k];
 		layers[i] = {
-			...effectTexture(transform, (speed !== null && color(speed)) || [0, 0, 0, 0], [
-				Math.cos(angle),
-				-Math.sin(angle),
-			]),
+			...texture,
+			offset: [
+				texture.offset[0] + (c * u - s * v) * texture.scale[0],
+				texture.offset[1] + (s * u + c * v) * texture.scale[1],
+			],
+			customScroll: [0, 0],
 			role,
 			redAlpha:
 				(role === 'main' && float('_UseMainTexAsAlpha', 0) !== 0) ||
@@ -975,6 +1006,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		disturb: shared.disturb,
 		disturbBias: float('_Bi_Disturb', 0),
 		distorted: has('_USE_DISTURB'),
+		particleDisturb: false,
 		// the distortion and dissolve then scale by `1 − intensity + red · intensity`
 		weight: weighted
 			? {
@@ -1105,7 +1137,11 @@ export const describeWaterSheet = (reader: MaterialReader): WaterSheetSurface | 
 			normals = {
 				texture: flipbook
 					? effectTexture({ texture: slot.texture, scale: [1, 1], offset: [0, 0] })
-					: effectTexture(slot, color('_NormalMapUVSpeed') ?? [0, 0, 0, 0], [rotation[0], rotation[1]]),
+					: // the normal map takes no custom data
+						effectTexture(slot, (color('_NormalMapUVSpeed') ?? [0, 0]).slice(0, 2), [
+							rotation[0],
+							rotation[1],
+						]),
 				flipbook,
 				scale: flipbook ? float('_FrameNormalScale', 1) : float('_NormalScale', 1),
 			};
@@ -1359,7 +1395,8 @@ export const describeRefract = (reader: MaterialReader): RefractSurface | Unsupp
 		}
 		const angle = (float('_DissolveUVRotate', 0) * Math.PI) / 180;
 		dissolve = {
-			texture: effectTexture(bound, color('_DissolveUVSpeed') ?? [0, 0, 0, 0], [
+			// VFXRefract's dissolve UVs take no custom data
+			texture: effectTexture(bound, (color('_DissolveUVSpeed') ?? [0, 0]).slice(0, 2), [
 				Math.cos(angle),
 				-Math.sin(angle),
 			]),
@@ -1587,9 +1624,10 @@ export const describeSixWaySmoke = (reader: MaterialReader): SixWaySmokeSurface 
 	if (float('_BlendMode', 0) !== 0) {
 		return unsupported(`_BlendMode ${float('_BlendMode', 0)}`);
 	}
-	// the particle UV sets these pick carry custom data, which the viewer's particles don't
-	if (float('_MaskUVSet', 0) !== 0 || float('_DissolveUVSet', 0) !== 0) {
-		return unsupported('a mask or dissolve on the particles’ custom UVs');
+	// these pick UV set 1: on particles the UV2 stream, the particle's own UVs without a texture sheet (the next
+	// frame's with one), which the viewer takes as UV0; on meshes their UV1, which this look doesn't read
+	if ((float('_MaskUVSet', 0) !== 0 || float('_DissolveUVSet', 0) !== 0) && float('_InParticle', 0) === 0) {
+		return unsupported('a mask or dissolve on UV set 1');
 	}
 	/** a used slot; the shader samples every texture on UV set 0, or the default when none is bound */
 	const used = (name: string): TextureSlot | null | 'uv' => {

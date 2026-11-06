@@ -4,16 +4,6 @@
 // the geometry blob; instances from this frame's visible list; draw parameters by the list entry's draw id
 // (`LookRow` in materials.ts lays them out).
 
-struct Row {
-	t0: vec4f,
-	t1: vec4f,
-	t2: vec4f,
-	center: vec3f,
-	block: u32,
-	extent: vec3f,
-	info: u32,
-}
-
 struct Draw {
 	// dequantization: position = offset.xyz + value · scale.xyz; offset.w = look flags (u32 bits)
 	offset: vec4f,
@@ -75,10 +65,10 @@ struct Draw {
 	canopy: vec4f,
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
-	// the HDR colours the emissive map's G, B and A add (rgb); effect looks use these rows and the next for
+	// the HDR colours the emissive map's G, B and A add (rgb); effect looks use these rows and the rest for
 	// their own (`EffectRow` in effect-looks.ts)
 	emissive_channels: array<vec4f, 3>,
-	effect_only: vec4f,
+	effect_only: array<vec4f, 9>,
 }
 
 const BASE_MAP = 1u;
@@ -126,7 +116,7 @@ const NOISE_SLOT = 6u;
 // the layer's `_Layer1BaseMap`; `_Layer1BumpMap` is in the noise slot, with the same coordinates
 const LAYER_SLOT = 5u;
 
-@group(1) @binding(0) var<storage, read> rows: array<Row>;
+@group(1) @binding(0) var<storage, read> rows: array<InstanceRow>;
 @group(1) @binding(1) var<storage, read> blocks: array<vec4f>;
 @group(1) @binding(2) var<storage, read> list: array<u32>;
 @group(2) @binding(0) var<storage, read> draws: array<Draw>;
@@ -202,11 +192,11 @@ fn vs_main(v: VertexIn, @builtin(instance_index) ii: u32) -> VertexOut {
 	out.rel = rel;
 	out.normal = n;
 	out.tangent = t;
-	out.uv = sheet_uv(row.info, vec4f(v.uv0 * draw.uv0.xy + draw.uv0.zw, v.uv1 * draw.uv1.xy + draw.uv1.zw));
+	out.uv = sheet_uv(row.sheet,vec4f(v.uv0 * draw.uv0.xy + draw.uv0.zw, v.uv1 * draw.uv1.xy + draw.uv1.zw));
 	out.draw = draw_id;
 	out.phase = world.x + world.y + world.z;
 	out.object_y = p.y;
-	out.color = select(vec4f(1.0), v.color, (flags & HAS_COLORS) != 0u) * instance_color(row.info, row.extent.z);
+	out.color = select(vec4f(1.0), v.color, (flags & HAS_COLORS) != 0u) * unpack4x8unorm(row.color);
 	out.origin = origin;
 	return out;
 }
@@ -301,7 +291,7 @@ fn vs_cutout_depth(v: CutoutDepthIn, @builtin(instance_index) ii: u32) -> Cutout
 	var out: CutoutDepthOut;
 	out.position = frame.view_proj * vec4f(instance_rel(v.position, ii, draw), 1.0);
 	let row = rows[list[ii]];
-	out.uv = sheet_uv(row.info, vec4f(v.uv0 * draw.uv0.xy + draw.uv0.zw, v.uv1 * draw.uv1.xy + draw.uv1.zw));
+	out.uv = sheet_uv(row.sheet,vec4f(v.uv0 * draw.uv0.xy + draw.uv0.zw, v.uv1 * draw.uv1.xy + draw.uv1.zw));
 	out.draw = draw_id;
 	return out;
 }

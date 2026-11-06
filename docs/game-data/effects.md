@@ -46,10 +46,28 @@ source that isn't computed is zero, so a texture weighted to it only scrolls. th
 texture's UVs come from UV0 or UV1 alone and scroll by the first's `_SampleTex0UVSpeed`. a sample
 texture its keyword switches on samples the property's default (white for every `_SampleTexN`) when
 the material binds none: the white talosite's shards switch on a mask that way, so it masks nothing.
-with `_USE_LIGHTING` the colour is an albedo lit by the irradiance volume, the shadowed sun and
-local lights, at the vertex normal turned towards the camera or at the world's up
-(`_RotateNormalToWorldUp`), and divided by the post exposure under `_IgnorePostExposure`. the mist
-cards rising at the foot of falls are lit so. the colour starts from
+on particles (`_InParticle`) UV1 is the first texture coordinate set's zw (the UV2 stream), and the
+second set is the particle's custom data c ([custom data](assets.md#particle-systems)). the effect
+shaders on particles share one rule: the main texture's UVs shift by its `*UVSpeed.zw · c.x` and
+every other texture's by its own `*UVSpeed.zw · c.y`, before the rotation, and c.z adds to
+`_DissolveScheduleOffset`. VFXBaseV2, VFXDitherAlpha, VFXWater and six-way smoke (whose lightmaps
+are its main texture) follow it under `_InParticle`; VFXRefract reads the second set without that
+gate, shifting its refraction texture by c.x and its mask by c.y, its dissolve UVs unshifted.
+VFXDitherAlpha's vertex offset, whose speed's zw c.y also scrolls, is off on particles anyway. only
+VFXBaseV2 reads c.w: with `_UseParticleDisturb` (off the ink-wash path, where that component holds
+UV0's v) it scales the whole distortion, so a mesh with it set isn't distorted. VFXDecal reads
+custom data only under `_USE_IN_PARTICLE`, from its own stream layout (centre, 3D size,
+Custom1.xyz); off particles its textures shift by their speed's zw times constants of the material
+instead (`_MainCustomData`, `_DisturbCustomData`, `_MaskCustomData`, `_BlendCustomData`,
+`_DissolveCustomData`), and its schedule takes nothing. no effect shader reads the second custom
+stream or a colour-mode custom value. the black smoke over the anchors in dung02_rdg011
+(`blackfire01` in `p_fxmap_map_lv006_angel_anchor_smoke_active_1p8`, `M_fx_angel_anchorlight_834`)
+gives each particle a random shift of its smoke texture and a dissolve that climbs from about 0.35
+to 0.95 over its life, so its 30–40 m streaks are mostly eaten away by the time they rise high and
+long enough to turn visibly with the camera. with `_USE_LIGHTING` the colour is an albedo lit by the
+irradiance volume, the shadowed sun and local lights, at the vertex normal turned towards the camera
+or at the world's up (`_RotateNormalToWorldUp`), and divided by the post exposure under
+`_IgnorePostExposure`. the mist cards rising at the foot of falls are lit so. the colour starts from
 `_TintColor · _TintColorIntensity` times the vertex colour, alpha from
 `_TintColor.a · _TintColorAlpha`; it's brightened by `_ExpIntensity` above `_ExpThreshold`.
 `_USE_ANIM_BREATHING` pulses that alpha between `_BreathingMinAlpha` and 1, by
@@ -210,10 +228,11 @@ metres of view depth in front of the opaque scene.
 of `_DissolveTex` (UV0 scrolled by `_DissolveUVSpeed`, rotated by `_DissolveUVRotate` degrees about
 the centre), scales the refraction offset, so the mask's UVs take the dissolved offset too, but not
 the colour split's further shift. `_DissolveAffectBlend` blends the alpha from 1 to `d`. a
-particle's custom data adds to the schedule offset; mesh renderers have none. the balloons
-(`int_balloon_postmodel`) glitch the scene behind their "connecting" sign this way (`distortion01`
-in `P_interactive_ballonconnecting`, `M_fx_robotemoji_821`), whose split tints the main sample
-magenta (`_RBMainColorMask`) against a cyan further one.
+particle's custom data's z adds to the schedule offset; a mesh's second UV set would stand in for
+it, unconfirmed ([custom data](#vfxbasev2-and-vfxdecal)). the balloons (`int_balloon_postmodel`)
+glitch the scene behind their "connecting" sign this way (`distortion01` in
+`P_interactive_ballonconnecting`, `M_fx_robotemoji_821`), whose split tints the main sample magenta
+(`_RBMainColorMask`) against a cyan further one.
 
 Deep Dale Street (dung02_rdg008) uses a split for the heat haze of its fog walls
 (`p_fxmap_map02_lv008_fogwall_01`, child `refract`): particle sheets whose red and blue are pushed
@@ -286,8 +305,10 @@ per pixel:
   −`_LightMapUVRotate` degrees about 0.5, then `_LightMapControls` as their scale and offset (their
   own `_ST` is unused). the mask, blend and dissolve textures take their `_…UVSpeed`, `_…UVRotate`
   (degrees) and `_ST` the same way; the blend texture's `_ST` is applied a second time after the
-  distortion. every texture reads UV set 0; `_MaskUVSet` and `_DissolveUVSet` switch to the
-  particles' custom data.
+  distortion. every texture reads UV set 0; `_MaskUVSet` and `_DissolveUVSet` switch the mask and
+  dissolve to UV set 1: on particles the UV2 stream, which holds the particle's own UVs without a
+  texture sheet, on meshes their UV1. custom data shifts and dissolves as in
+  [VFXBaseV2](#vfxbasev2-and-vfxdecal).
 - **distortion.** `_USE_DISTURB` (and `_USE_DISTURB_TEX2` for the second texture): each texture's
   red, remapped by `_Bi_Disturb`, times `_DisturbU/VIntensityN` (or its normal with
   `_DisturbTexNNormal`), summed, shifts the lightmap, mask, blend and dissolve UVs by their

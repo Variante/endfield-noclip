@@ -39,7 +39,7 @@ import {
 	WaterSheetFlags,
 	WaterSheetRow,
 } from './effect-looks.ts';
-import { LookFlags, materialLooks } from './materials.ts';
+import { LOOK_FLOATS, LookFlags, materialLooks } from './materials.ts';
 
 /** a ready material drawing `surface` */
 const described = (
@@ -54,6 +54,7 @@ const texture = (id: number, overrides: Partial<EffectTexture> = {}): EffectText
 	offset: [0, 0],
 	scroll: [0, 0],
 	rotation: [1, 0],
+	customScroll: [0, 0],
 	...overrides,
 });
 
@@ -76,6 +77,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	disturb: [0, 0, 0, 0],
 	disturbBias: 0,
 	distorted: false,
+	particleDisturb: false,
 	weight: { disturb: 0, dissolve: 0, used: false },
 	dissolve: { on: false, threshold: -1.01, sharpness: 1, edgeWidth: 0, edgeColor: [0, 0, 0] },
 	masked: false,
@@ -153,6 +155,32 @@ test('a texture stack packs each layer’s role, red alpha, source and distortio
 	);
 });
 
+test('a texture stack keeps each layer’s custom data shift per slot', () => {
+	// the anchors' black smoke: the main texture shifts by (1, 1) per unit of custom x, the distortion by (1, 0)
+	const [look] = materialLooks({
+		entries: [
+			described(
+				0,
+				stack({
+					layers: [
+						layer(1, 'main', { customScroll: [1, 1] }),
+						layer(2, 'disturb1', { customScroll: [1, 0] }),
+						null,
+						null,
+						null,
+						null,
+						null,
+					],
+				}),
+			),
+		],
+	});
+	assert.deepEqual(
+		[...look.params.subarray(EffectRow.customScroll, EffectRow.customScroll + 6)],
+		[1, 1, 1, 0, 0, 0],
+	);
+});
+
 test('a stack decal is a box drawn by its back faces with its fades; a multiplying stack draws over the scene', () => {
 	const [decal, multiply] = materialLooks({
 		entries: [
@@ -205,7 +233,7 @@ test('a stack’s edge colour fills the rows past the mesh looks’ 32, marked o
 			described(1, stack()),
 		],
 	});
-	assert.equal(edged.params.length, 144);
+	assert.equal(edged.params.length, LOOK_FLOATS);
 	assert.deepEqual(
 		[...edged.params.subarray(EffectRow.edgeColor, EffectRow.edgeColor + 4)],
 		[1.5, 1.5, 1.5, 1],

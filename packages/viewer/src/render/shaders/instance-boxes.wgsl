@@ -1,19 +1,7 @@
 // instance stand-ins: each row's world AABB as a box, coloured by its kind (HLOD tier, detail or global).
-// rows mirror `instance-rows.ts`.
+// rows are frame.wgsl's `InstanceRow`.
 
-struct Row {
-	// object-to-world rows, translation relative to the block origin (unused by boxes)
-	t0: vec4f,
-	t1: vec4f,
-	t2: vec4f,
-	center: vec3f,
-	block: u32,
-	extent: vec3f,
-	// `rowInfo` in instance-rows.ts: the row's kind in bits 0–3
-	info: u32,
-}
-
-@group(1) @binding(0) var<storage, read> rows: array<Row>;
+@group(1) @binding(0) var<storage, read> rows: array<InstanceRow>;
 // block origins relative to the eye, rewritten every frame
 @group(1) @binding(1) var<storage, read> blocks: array<vec4f>;
 // this frame's visible-instance list (row indices), read when USE_LIST is set
@@ -80,9 +68,7 @@ fn load_box(ii: u32) -> Box {
 	let row = rows[index];
 	var box: Box;
 	box.center = blocks[row_block(row.block)].xyz + row.center;
-	// a coloured particle row keeps its colour in extent.z; its extents are all equal
-	let extent = select(row.extent, row.extent.xxx, (row.info & (1u << 3u)) != 0u);
-	box.extent = max(extent, vec3f(0.05));
+	box.extent = max(row.extent, vec3f(0.05));
 	box.color = kind_color(row.info & 7u);
 	// small-feature culling: drop boxes below the projected size threshold
 	let pixels = length(box.extent) * frame.viewport.z / max(length(box.center), 1.0);

@@ -268,13 +268,15 @@ packs or renders correctly.
   Spread modes and the arc's spread are ignored; about 20 map02 systems set one), sphere and
   hemisphere arcs aren't applied, Unity's `Facing` alignment turns to the camera's plane like `View`
   rather than towards its position, an emitter keeps at most 1024 live particles (two map01 systems
-  can hold up to 1201; the rest aren't drawn), stretched billboards ignore the camera's velocity and
-  the freeform mode, and colours above 1 and custom data never reach the shaders. all copies of one
-  flipbook step in phase. Marker Stone's low mist banks over the valley are still missing; their
-  source is unknown. [spline movers](game-data/assets.md#spline-movers) (Dijiang's shaft cargo) take
-  their lifetime span as the spline's length over the speed, which isn't verified, and draw each LOD
-  group's renderers at the group's origin; those with noise, rotation over lifetime or an alpha fade
-  stand in
+  can hold up to 1201; the rest aren't drawn), stretched billboards ignore the camera's velocity (no
+  map02 system scales by it) and the freeform mode, and colours above 1 never reach the shaders.
+  custom data in colour mode isn't packed (no map02 system uses it), and VFXDecal's
+  `_USE_IN_PARTICLE` variant stays unsupported. all copies of one flipbook step in phase. Marker
+  Stone's low mist banks over the valley are still missing; their source is unknown.
+  [spline movers](game-data/assets.md#spline-movers) (Dijiang's shaft cargo) take their lifetime
+  span as the spline's length over the speed, which isn't verified, and draw each LOD group's
+  renderers at the group's origin; those with noise, rotation over lifetime or an alpha fade stand
+  in
 - decals ([decals](game-data/materials.md#decals)): `HGRP/DecalLit` shows its wetness, sludge,
   footprint, UV-noise and arc variants, and placements without their colour and UV, as
   [unsupported](viewer/materials.md#unsupported-materials), and draws overlaps without the game's

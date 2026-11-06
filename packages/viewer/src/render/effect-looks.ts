@@ -120,13 +120,20 @@ export const EffectRow = {
 	edge: 132,
 	/** the alpha the edge adds in mode 1 (`_TintColorAlpha`) */
 	edgeAlpha: 136,
+	/** 1 when the particle's custom data's w scales the distortion ({@link EffectStackSurface.particleDisturb}) */
+	particleDisturb: 137,
+	/**
+	 * the texture stack, per slot: its UVs' shift (u, v) per unit of the particle's custom data ({@link
+	 * StackLayer.customScroll}), 14 floats over rows 36–39
+	 */
+	customScroll: 144,
 } as const;
 
 /**
- * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: the mesh looks' 32 rows, then 4 that
- * effect looks use for their own (mesh looks keep the emissive map's channel colours in the first 3)
+ * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: 44 rows, the last free past
+ * {@link EffectRow.customScroll}, as are floats 138–143
  */
-const EFFECT_FLOATS = 144;
+const EFFECT_FLOATS = 176;
 
 /**
  * how the vertex stage moves an effect's vertices ({@link EffectRow.offsetMode} x). with the soft body, the
@@ -203,6 +210,7 @@ const setSlot = (look: EffectLook, i: number, texture: EffectTexture, bits: numb
 	look.uvScales[i] = Math.max(Math.abs(texture.scale[0]), Math.abs(texture.scale[1]), 1e-3);
 	look.params.set([...texture.scale, ...texture.offset], EffectRow.uv + i * 4);
 	look.params.set([...texture.scroll, ...texture.rotation], EffectRow.anim + i * 4);
+	look.params.set(texture.customScroll, EffectRow.customScroll + i * 2);
 	look.params[EffectRow.slotBits + i] = bits;
 };
 
@@ -213,6 +221,7 @@ const still = (texture: number): EffectTexture => ({
 	offset: [0, 0],
 	scroll: [0, 0],
 	rotation: [1, 0],
+	customScroll: [0, 0],
 });
 
 /** an effect look with no textures */
@@ -272,6 +281,7 @@ const setSoftBody = (look: EffectLook, body: EffectSoftBody): void => {
 			offset: [0, 0],
 			scroll: [rate, phase],
 			rotation: [1, 0],
+			customScroll: [0, 0],
 		},
 		ROLE_NONE,
 	);
@@ -334,6 +344,7 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 		params.set([edge.distance, edge.offset, edge.mode, 1], EffectRow.edge);
 		params[EffectRow.edgeAlpha] = edge.alpha;
 	}
+	params[EffectRow.particleDisturb] = stack.particleDisturb ? 1 : 0;
 	params[EffectRow.decal + 2] = stack.waterBlendBelow ?? NO_WATER_BLEND;
 	params[EffectRow.decal + 3] = stack.alphaPower;
 	if (stack.offset !== null) {

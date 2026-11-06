@@ -124,7 +124,66 @@ const renderer = (overrides: Record<string, unknown> = {}): TypeTreeObject => ({
 	m_Pivot: vector(0, 0, 0),
 	m_MinParticleSize: 0,
 	m_MaxParticleSize: 0.5,
+	m_UseCustomVertexStreams: false,
+	m_VertexStreams: new Uint8Array([0, 1, 3, 4]),
 	...overrides,
+});
+
+test('custom data reaches the particles where the vertex streams put it in the second texture coordinates', () => {
+	// the anchors' black smoke (`blackfire01`): random x and y, a z between two curves rising over the life
+	const smoke = system({
+		CustomDataModule: {
+			enabled: true,
+			mode0: 1,
+			vectorComponentCount0: 4,
+			vector0_0: between(0, 1),
+			vector0_1: between(0, 1),
+			vector0_2: curve([
+				[0, 0.3],
+				[1, 1],
+			]),
+			vector0_3: constant(0),
+		},
+	});
+	const custom = (streams: number[], count = 4) =>
+		readParticleSystem(
+			{
+				...smoke,
+				CustomDataModule: { ...(smoke['CustomDataModule'] as object), vectorComponentCount0: count },
+			},
+			renderer({ m_UseCustomVertexStreams: true, m_VertexStreams: new Uint8Array(streams) }),
+		);
+	const modes = (read: ReturnType<typeof custom>) => {
+		assert.ok(read !== null && 'info' in read);
+		return read.info.customData?.map((component) => component?.mode ?? null) ?? null;
+	};
+	// position, normal, colour, UV, UV2, Custom1XYZW: the custom data is the whole second set
+	assert.deepEqual(modes(custom([0, 1, 3, 4, 5, 34])), [
+		CurveMode.TwoConstants,
+		CurveMode.TwoConstants,
+		CurveMode.Curve,
+		CurveMode.Constant,
+	]);
+	// without UV2 it starts in the first set's zw, so the second set holds its z and w
+	assert.deepEqual(modes(custom([0, 1, 3, 4, 34])), [CurveMode.Curve, CurveMode.Constant, null, null]);
+	// components past the module's count are 0
+	assert.deepEqual(modes(custom([0, 1, 3, 4, 5, 34], 2)), [
+		CurveMode.TwoConstants,
+		CurveMode.TwoConstants,
+		null,
+		null,
+	]);
+	// nothing without custom streams, or with the module off
+	assert.equal(modes(readParticleSystem(smoke, renderer())), null);
+	assert.equal(
+		modes(
+			readParticleSystem(
+				system({ CustomDataModule: { enabled: false } }),
+				renderer({ m_UseCustomVertexStreams: true, m_VertexStreams: new Uint8Array([0, 1, 3, 4, 5, 34]) }),
+			),
+		),
+		null,
+	);
 });
 
 test('a looping mesh particle system keeps its emission, shape, gravity, orbit and size over lifetime', () => {

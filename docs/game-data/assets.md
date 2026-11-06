@@ -235,6 +235,15 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   with no minimum a particle behind the camera keeps its whole size. a stretched quad's length is
   worked out from its size before the limit, so the limit only narrows it. a dead particle (age at
   or past 100% of its lifetime) gets no size.
+- **custom data.** `CustomDataModule` in vector mode (`mode0` 1) gives each particle up to four
+  values (`vectorComponentCount0`, the rest 0), each a MinMaxCurve read every step at the particle's
+  age over its lifetime (clamped below 1). a random between two constants or curves is fixed per
+  particle: it comes from the particle's random seed, salted per component, with no time input. with
+  `m_UseCustomVertexStreams` the renderer packs its `m_VertexStreams` past position, normal, tangent
+  and colour into 4-wide texture coordinate sets in list order (UV and UV2 two components each,
+  Custom1XYZW four), the same on all four corners of a quad: with streams [0, 1, 3, 4, 5, 34] the
+  first set is UV and UV2 (equal without a texture sheet) and the second is the custom data, which
+  effect materials read ([VFXBaseV2](effects.md)).
 - **rotation over lifetime.** `RotationModule`'s rates (`curve` about z, and `x`, `y` with
   `separateAxes`) are angular velocities read at the particle's age over its lifetime, so curves
   speed up or slow the spin. the mushroom's wind sheets (`wind01`/`wind02`) start spinning at up to

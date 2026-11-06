@@ -258,7 +258,17 @@ export interface ParticleSystemInfo {
 	ringBuffer: ParticleRingBufferInfo | null;
 	/** a flipbook the particles step through (Unity's `TextureSheetAnimationModule`); `null` without */
 	textureSheet: ParticleTextureSheetInfo | null;
+	/**
+	 * what each particle's second texture coordinate set holds, x to w, which effect materials read as its
+	 * custom data (Unity's `CustomDataModule`): each component a curve read every frame at the particle's age
+	 * over its lifetime, its random value fixed for the particle's life, or `null` for 0. `null` when the
+	 * renderer passes none
+	 */
+	customData: [ParticleCustom, ParticleCustom, ParticleCustom, ParticleCustom] | null;
 }
+
+/** one component of {@link ParticleSystemInfo.customData} */
+export type ParticleCustom = MinMaxCurveInfo | null;
 
 /** how a {@link ParticleSystemInfo}'s particles move: freely, or along a path */
 export type ParticleMotionInfo = ParticleFreeMotionInfo | ParticleSplineInfo;

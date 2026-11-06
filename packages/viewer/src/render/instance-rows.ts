@@ -12,8 +12,33 @@ import {
 	SPIN_FLOATS,
 } from '@endfield-noclip/package-format/instances';
 
-/** 32-bit words per row: transform (12), bounds centre + block word (4), half extents + info (4) */
-export const ROW_WORDS = 20;
+/**
+ * 32-bit words per row: transform (12), bounds centre + block word (4), half extents + info (4), then the
+ * words {@link RowWord} names from the texture sheet on (4). frame.wgsl's `Row` mirrors it
+ */
+export const ROW_WORDS = 24;
+
+/** where a row's words past its transform and bounds centre start */
+export const RowWord = {
+	/** the block slot and decal placement ({@link BLOCK_SLOT_BITS}) */
+	block: 15,
+	/** half extents, f32×3 */
+	extent: 16,
+	/** see {@link rowInfo} */
+	info: 19,
+	/** the texture sheet tile its mesh's UVs are remapped into ({@link rowSheet}) */
+	sheet: 20,
+	/** RGBA8 that multiplies the mesh's vertex colours (`instance_color` in frame.wgsl); white for most rows */
+	color: 21,
+	/**
+	 * two words of f16 pairs (xy, zw): a particle's custom data (`ParticleSystemInfo.customData`), which effect
+	 * looks read ({@link packRowCustom}); zero for every other row
+	 */
+	custom: 22,
+} as const;
+
+/** the {@link RowWord.color} of a row that leaves its mesh's colours as they are */
+export const ROW_WHITE = 0xffff_ffff;
 
 /**
  * bits of a row's block word that hold its block slot (`row_block` in frame.wgsl); the bits above hold its
@@ -42,36 +67,36 @@ export const RowKind = {
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
 /**
- * a row's info word: its {@link RowKind} in bits 0–2, {@link ROW_COLORED} in bit 3, then the texture sheet
- * tile its mesh's UVs are remapped into (`sheet_uv` in frame.wgsl): tiles across − 1 in bits 4–9, down − 1 in
- * bits 10–15, the tile in bits 16–27, and which UV sets take it (bit 28 UV0, bit 29 UV1). a 1×1 sheet leaves
- * the UVs as they are. bits 30–31 hold the row's {@link RowBillboard}
+ * a row's info word ({@link RowWord.info}) holds its {@link RowKind} in bits 0–2 and its {@link RowBillboard}
+ * in bits 30–31; the bits between are free
+ */
+export const ROW_INFO_KIND_BITS = 3;
+
+/**
+ * a row's texture sheet word ({@link RowWord.sheet}): the tile its mesh's UVs are remapped into (`sheet_uv`
+ * in frame.wgsl), tiles across − 1 in bits 0–5, down − 1 in bits 6–11, the tile in bits 12–23, and which UV
+ * sets take it (bit 24 UV0, bit 25 UV1). 0, a 1×1 sheet, leaves the UVs as they are
  *
- * @param kind the row's kind
  * @param tiles tiles across and down, 1–64 each
  * @param tile the tile, counted from the sheet's top-left along its rows
  * @param uvChannels bit 0 for UV0, bit 1 for UV1
- * @returns the info word
+ * @returns the sheet word
  */
-export const rowInfo = (
-	kind: RowKind,
-	tiles: readonly [number, number],
-	tile: number,
-	uvChannels: number,
-): number =>
-	(kind |
-		((tiles[0] - 1) << 4) |
-		((tiles[1] - 1) << 10) |
-		((tile & 0xfff) << 16) |
-		((uvChannels & 3) << 28)) >>>
-	0;
+export const rowSheet = (tiles: readonly [number, number], tile: number, uvChannels: number): number =>
+	((tiles[0] - 1) | ((tiles[1] - 1) << 6) | ((tile & 0xfff) << 12) | ((uvChannels & 3) << 24)) >>> 0;
+
+const customHalves = new Float16Array(4);
+const customWords = new Uint32Array(customHalves.buffer);
 
 /**
- * info bit of a row whose last half-extent word holds a colour instead (RGBA8, `instance_color` in
- * frame.wgsl) that multiplies the mesh's vertex colours. only particle rows set it: their extents are equal,
- * so the other two keep the size
+ * @param custom a particle's four custom data values
+ * @returns them as a row's two {@link RowWord.custom} words, each an f16 pair low half first, as WGSL's
+ *   `unpack2x16float` reads them
  */
-export const ROW_COLORED = 1 << 3;
+export const packRowCustom = (custom: ArrayLike<number>): [xy: number, zw: number] => {
+	customHalves.set(custom);
+	return [customWords[0], customWords[1]];
+};
 
 /**
  * how a row turns towards the camera (`row_basis` in frame.wgsl), in bits 30–31 of its info word: its
@@ -106,7 +131,7 @@ export const markBillboardRows = (built: InstanceRows, chains: readonly Chain[])
 			continue;
 		}
 		for (let i = runs[r + 1], end = i + runs[r + 2]; i < end; i++) {
-			const at = i * ROW_WORDS + 19;
+			const at = i * ROW_WORDS + RowWord.info;
 			rows[at] = ((rows[at] & ~(3 << 30)) | (billboard << 30)) >>> 0;
 		}
 	}
@@ -114,7 +139,7 @@ export const markBillboardRows = (built: InstanceRows, chains: readonly Chain[])
 
 /**
  * @param rgba linear colour and alpha, 0–1
- * @returns them as the RGBA8 word of a {@link ROW_COLORED} row
+ * @returns them as a row's RGBA8 {@link RowWord.color}
  */
 export const packRowColor = (rgba: ArrayLike<number>): number => {
 	let word = 0;
@@ -164,9 +189,8 @@ export interface InstanceRows {
 }
 
 /**
- * row: f32×12 transform rows (relative to the block origin), f32×3 bounds centre (relative), u32 block word
- * ({@link BLOCK_SLOT_BITS}), f32×3 half extents, u32 info (the row's {@link RowKind}; see {@link rowInfo} for
- * the rest of the word).
+ * rows as {@link ROW_WORDS} lays them out: transforms relative to the block origin, the bounds, the rows'
+ * kinds, a 1×1 texture sheet, white and no custom data.
  *
  * the block slot is left 0; {@link assignBlockSlot} sets it once the block gets a slot.
  *
@@ -200,7 +224,8 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		f32[at + 16] = ex;
 		f32[at + 17] = ey;
 		f32[at + 18] = ez;
-		rows[at + 19] = rowKinds[i];
+		rows[at + RowWord.info] = rowKinds[i];
+		rows[at + RowWord.color] = ROW_WHITE;
 		// from the f32-rounded extents, as the GPU sees them
 		const fx = f32[at + 16];
 		const fy = f32[at + 17];
@@ -215,7 +240,7 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
 		);
 	}
 	for (let p = 0; p < decalRows.length; p++) {
-		rows[decalRows[p] * ROW_WORDS + 15] = ((p + 1) << BLOCK_SLOT_BITS) >>> 0;
+		rows[decalRows[p] * ROW_WORDS + RowWord.block] = ((p + 1) << BLOCK_SLOT_BITS) >>> 0;
 	}
 
 	const runs: number[] = [];
@@ -257,7 +282,7 @@ export const buildInstanceRows = (block: InstanceBlock, kinds: RowKinds): Instan
  */
 export const assignBlockSlot = (rows: Uint32Array, slot: number): void => {
 	const keep = ~(BLOCK_SLOTS - 1);
-	for (let at = 15; at < rows.length; at += ROW_WORDS) {
+	for (let at = RowWord.block; at < rows.length; at += ROW_WORDS) {
 		rows[at] = ((rows[at] & keep) | slot) >>> 0;
 	}
 };

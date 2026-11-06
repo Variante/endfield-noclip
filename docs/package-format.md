@@ -650,6 +650,12 @@ unless the mode is Shape. the entry keeps:
 - the texture sheet: `UVModule` in grid mode, up to 64×64 tiles, the whole sheet or one row (fixed,
   random or by mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
   `startFrame`, both read as fractions of the frames, on the UV sets of `uvChannelMask`
+- the custom data the second texture coordinate set holds: with `m_UseCustomVertexStreams`, the
+  streams past position, normal, tangent and colour fill 4-wide sets in the renderer's order, and
+  the components of `CustomDataModule`'s first stream (vector mode, up to `vectorComponentCount0`)
+  that land in the second set are kept per component, the rest 0. colour mode and the second stream
+  aren't packed. effect textures keep their `*UVSpeed.zw` as `customScroll` (0 where the shader
+  doesn't shift by custom data); VFXDecal folds its `*CustomData` constants' shift into the offset
 
 a renderer with several meshes (`m_Mesh` … `m_Mesh3`) becomes one emitter per mesh, its entry naming
 which.

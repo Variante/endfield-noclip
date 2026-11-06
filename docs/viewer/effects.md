@@ -106,9 +106,9 @@ than mesh tangents.
 slot 0 and the negative one slot 6, sampled at slot 0's UVs; the distortion, mask, blend and
 dissolve take slots 1–5. the particle's frame is its normal turned towards the camera and its object
 x axis made square to it. the sun takes the viewer's light colour over π, as Lit's diffuse does, and
-the shadow is sampled per pixel without the game's ramp texture. the particles' custom data never
-reaches the shader (as for every effect), so the dissolve schedule and custom UV scrolls stay at
-their material values, and materials whose mask or dissolve read custom UVs stay unsupported.
+the shadow is sampled per pixel without the game's ramp texture. a mask or dissolve switched to UV
+set 1 reads UV0 on particles (`_InParticle`), as the UV2 stream holds the same UVs without a texture
+sheet, and stays unsupported on meshes.
 
 ## mist
 

@@ -824,22 +824,38 @@ fn oct_decode(e: vec2f) -> vec3f {
 	return normalize(n);
 }
 
-// a mesh's UV sets (xy: UV0, zw: UV1) remapped into the texture sheet tile of an instance row's info word
-// (`rowInfo` in instance-rows.ts). tiles count from the sheet's top-left; UV (0, 0) is its bottom-left
-fn sheet_uv(info: u32, uv: vec4f) -> vec4f {
-	let tiles = vec2u(((info >> 4u) & 63u) + 1u, ((info >> 10u) & 63u) + 1u);
-	let tile = (info >> 16u) & 4095u;
+// an instance row (`ROW_WORDS` and `RowWord` in instance-rows.ts): its transform's rows (w: translation from
+// the block origin), its bounds' centre and half extents, its block word, info word (`RowKind`, `RowBillboard`),
+// texture sheet word (`rowSheet`), colour (RGBA8, multiplying the mesh's vertex colours) and a particle's custom
+// data (two f16 pairs)
+struct InstanceRow {
+	t0: vec4f,
+	t1: vec4f,
+	t2: vec4f,
+	center: vec3f,
+	block: u32,
+	extent: vec3f,
+	info: u32,
+	sheet: u32,
+	color: u32,
+	custom: vec2u,
+}
+
+// a mesh's UV sets (xy: UV0, zw: UV1) remapped into the tile of an instance row's texture sheet word
+// (`rowSheet` in instance-rows.ts). tiles count from the sheet's top-left; UV (0, 0) is its bottom-left
+fn sheet_uv(sheet: u32, uv: vec4f) -> vec4f {
+	let tiles = vec2u((sheet & 63u) + 1u, ((sheet >> 6u) & 63u) + 1u);
+	let tile = (sheet >> 12u) & 4095u;
 	let size = 1.0 / vec2f(tiles);
 	let corner = vec2f(f32(tile % tiles.x), f32(tiles.y - 1u - min(tile / tiles.x, tiles.y - 1u))) * size;
-	let uv0 = select(uv.xy, uv.xy * size + corner, (info & (1u << 28u)) != 0u);
-	let uv1 = select(uv.zw, uv.zw * size + corner, (info & (1u << 29u)) != 0u);
+	let uv0 = select(uv.xy, uv.xy * size + corner, (sheet & (1u << 24u)) != 0u);
+	let uv1 = select(uv.zw, uv.zw * size + corner, (sheet & (1u << 25u)) != 0u);
 	return vec4f(uv0, uv1);
 }
 
-// an instance row's colour (`ROW_COLORED` in instance-rows.ts), which multiplies the mesh's vertex colours;
-// `extent_z` is the row's last half-extent word, which holds it
-fn instance_color(info: u32, extent_z: f32) -> vec4f {
-	return select(vec4f(1.0), unpack4x8unorm(bitcast<u32>(extent_z)), (info & (1u << 3u)) != 0u);
+// a particle row's custom data (`ParticleSystemInfo.customData`), zero for other rows
+fn row_custom(row: InstanceRow) -> vec4f {
+	return vec4f(unpack2x16float(row.custom.x), unpack2x16float(row.custom.y));
 }
 
 // an instance row's block slot, from its block word (`BLOCK_SLOT_BITS` in instance-rows.ts)

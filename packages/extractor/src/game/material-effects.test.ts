@@ -261,6 +261,25 @@ describe('VFXDecal', () => {
 		assert.equal(stack.layers[3]?.source, 'uv0');
 		assert.deepEqual(stack.weight, { disturb: 0.5, dissolve: 0.5, used: true });
 	});
+
+	it('moves a texture by its speed’s zw times its constant custom data, turned and scaled, before its offset', () => {
+		const stack = ofKind(
+			describeMaterial(
+				material({
+					slots: { _MainTex: slot(1, [2, 1]) },
+					// a quarter turn: the shift (0.5, 0) turns to (0, 0.5)
+					floats: { _MainCustomData: 2, _MainTexUVRotate: -90 },
+					colors: { _MainTexUVSpeed: [0, 0, 0.25, 0] },
+				}),
+				decal,
+			),
+			'effectStack',
+		);
+		const main = stack.layers[0];
+		assert.ok(main !== null);
+		assert.deepEqual(main.customScroll, [0, 0]);
+		assert.ok(Math.abs(main.offset[0]) < 1e-9 && Math.abs(main.offset[1] - 0.5) < 1e-9, String(main.offset));
+	});
 });
 
 describe('lit decals', () => {
@@ -369,6 +388,27 @@ describe('VFXBaseV2', () => {
 	const base = shader('HGRP/Effect/VFXBaseV2', 'vfxBase');
 	const stackOf = (overrides: Partial<MaterialValues>, entry = base) =>
 		describeMaterial(material({ slots: { _MainTex: slot(1) }, ...overrides }), entry);
+
+	it('keeps each texture’s custom data shift, and lets the custom data’s w scale the distortion', () => {
+		// the anchors' black smoke (`M_fx_angel_anchorlight_834`) shifts its main texture by (1, 1) per unit of x
+		const stack = ofKind(
+			stackOf({
+				floats: { _UseParticleDisturb: 1 },
+				vectors: { _MainTexUVSpeed: [0.1, 0, 1, 1] },
+			}),
+			'effectStack',
+		);
+		assert.deepEqual(stack.layers[0]?.customScroll, [1, 1]);
+		assert.equal(stack.particleDisturb, true);
+		// the ink-wash path has no w to scale by
+		const inked = ofKind(
+			stackOf({
+				floats: { _UseParticleDisturb: 1, _SyncDisturbWithInkWash: 1, _RenderTransparentAfterDOF: 1 },
+			}),
+			'effectStack',
+		);
+		assert.equal(inked.particleDisturb, false);
+	});
 
 	it("takes a sample texture's role from its weights and the _ST of that role's texture", () => {
 		const stack = ofKind(
@@ -608,7 +648,14 @@ describe('VFXBaseV2', () => {
 			'effectStack',
 		);
 		assert.deepEqual(moved.offset, {
-			texture: { texture: 2, scale: [1, 0.5], offset: [0, 0], scroll: [0, 0.2], rotation: [1, 0] },
+			texture: {
+				texture: 2,
+				scale: [1, 0.5],
+				offset: [0, 0],
+				scroll: [0, 0.2],
+				rotation: [1, 0],
+				customScroll: [0, 0],
+			},
 			uv1: true,
 			direction: [0, 1, 0],
 			space: 1,

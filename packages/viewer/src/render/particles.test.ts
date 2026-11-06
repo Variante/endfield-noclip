@@ -19,7 +19,7 @@ import {
 import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
-import { ROW_WORDS, RowBillboard, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
+import { ROW_WORDS, RowBillboard, RowWord, packRowColor, packRowCustom, rowSheet } from './instance-rows.ts';
 import {
 	PARTICLE_FLOATS,
 	ParticleField,
@@ -139,6 +139,7 @@ const fields = (
 	mesh: 0,
 	ringBuffer: null,
 	textureSheet: null,
+	customData: null,
 	...overrides,
 });
 
@@ -365,14 +366,16 @@ describe('sheetTile', () => {
 		assert.equal(sheetTile(sheet({ row: SheetRow.Random }), 0, 0, 0, r, 0), 4 * 8);
 	});
 
-	it('packs into the row info word next to the row kind', () => {
-		const info = rowInfo(RowKind.Detail, [8, 4], 63, 1);
-		assert.equal(info & 7, RowKind.Detail);
-		assert.equal(((info >>> 4) & 63) + 1, 8);
-		assert.equal(((info >>> 10) & 63) + 1, 4);
-		assert.equal((info >>> 16) & 0xfff, 63);
-		assert.equal(info >>> 28, 1);
+	it('packs into the row sheet word, and colours and custom data into theirs', () => {
+		const sheetWord = rowSheet([8, 4], 63, 1);
+		assert.equal((sheetWord & 63) + 1, 8);
+		assert.equal(((sheetWord >>> 6) & 63) + 1, 4);
+		assert.equal((sheetWord >>> 12) & 0xfff, 63);
+		assert.equal(sheetWord >>> 24, 1);
+		assert.equal(rowSheet([1, 1], 0, 0), 0);
 		assert.equal(packRowColor([1, 0, 0.5, 0.25]), (64 << 24) | (128 << 16) | 255);
+		// f16 pairs, low half first: 1.0 is 0x3c00, 0.5 is 0x3800, 2.0 is 0x4000
+		assert.deepEqual(packRowCustom([1, 0.5, 2, 0]), [0x3800_3c00, 0x4000]);
 	});
 });
 
@@ -645,6 +648,10 @@ describe('ParticleField', () => {
 		assert.equal(field.rows(instances, 0, 0, 0, { time: 0, ...view }).length, 1);
 		return rows;
 	};
+	/** @returns a written row's custom data, from its f16 words */
+	const customOf = (row: Float32Array): number[] => [
+		...new Float16Array(row.buffer, row.byteOffset + RowWord.custom * 4, 4),
+	];
 	const center = (info: ParticleSystemInfo, view: Omit<ParticleView, 'time'>): number[] => {
 		const row = written(info, view);
 		return [row[3], row[7], row[11]];
@@ -714,6 +721,31 @@ describe('ParticleField', () => {
 		// its pivot moves the head along the velocity by its size, and the streak across by half its width
 		const pivoted = written(moving([0, 1, 0], [1, 0.5, 0]), view);
 		assert.ok(near(pivoted, [1, 0, 0, 0, 2, 0, 0, 0, 1, 0.5, -0.5, 0]), [...pivoted.subarray(0, 12)].join());
+	});
+
+	it('writes custom data read at the age over the lifetime, and none for systems without it', () => {
+		// the anchors' black smoke: a random texture shift, and a dissolve rising over the particle's life
+		const smoke = system({
+			looping: false,
+			startLifetime: constant(5),
+			rate: constant(0),
+			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+			shape: null,
+			customData: [between(0, 1), null, line(0.3, 1), constant(2)],
+		});
+		const view = {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 1, 0],
+			forward: [0, 0, 1],
+		} satisfies Omit<ParticleView, 'time'>;
+		const [x, y, z, w] = customOf(written(smoke, view));
+		assert.ok(x >= 0 && x <= 1);
+		assert.deepEqual([y, w], [0, 2]);
+		// just born, to f16's precision
+		assert.ok(Math.abs(z - 0.3) < 1e-3, String(z));
+		assert.deepEqual(customOf(written({ ...smoke, customData: null }, view)), [0, 0, 0, 0]);
 	});
 
 	it('offsets a view-aligned mesh by its pivot in the camera-turned frame it is drawn in', () => {

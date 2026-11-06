@@ -26,13 +26,13 @@ bucket takes the rows of its live particles instead of its own
 ([`render/particles.ts`](../../packages/viewer/src/render/particles.ts)). `ParticleField` keeps
 `min(maxParticles, 1024)` rows per emitter in the instance buffer, using the emitter's block origin,
 and rewrites them once per frame the emitter is selected. so every mesh shader draws particles
-unchanged, and shadow and effect passes need nothing of their own. a system whose start colour isn't
-white writes it into its rows (`ROW_COLORED` in
-[`render/instance-rows.ts`](../../packages/viewer/src/render/instance-rows.ts)), where it multiplies
-the mesh's vertex colours in the mesh and effect shaders. emitters take as many rows as the
-package's emission bound, up to the cap. systems the packer froze into a single particle
-([particle systems](../game-data/assets.md#particle-systems)) aren't emitters: they arrive as plain
-mesh instances.
+unchanged, and shadow and effect passes need nothing of their own. each particle's colour goes into
+its row's colour word (`RowWord.color` in
+[`render/instance-rows.ts`](../../packages/viewer/src/render/instance-rows.ts), white for other
+rows), where it multiplies the mesh's vertex colours in the mesh and effect shaders. emitters take
+as many rows as the package's emission bound, up to the cap. systems the packer froze into a single
+particle ([particle systems](../game-data/assets.md#particle-systems)) aren't emitters: they arrive
+as plain mesh instances.
 
 each particle follows from its emission time and random values hashed from the emitter's place, the
 system and its index, so any moment can be evaluated on its own:
@@ -54,9 +54,9 @@ system and its index, so any moment can be evaluated on its own:
   0.1 s) thus spread for their 6 s instead of restarting every loop.
 - a texture sheet picks each particle's frame from its start frame plus its age (over its lifetime,
   or by frames per second), and its row at random, by mesh index or fixed, or plays the whole grid.
-  the tile goes into the row's info word next to its kind (`rowInfo`), and `sheet_uv` in
-  `frame.wgsl` remaps the mesh's UVs into it in the mesh and effect vertex stages; other rows carry
-  a 1×1 sheet, which leaves UVs alone.
+  the tile goes into the row's sheet word (`rowSheet`), and `sheet_uv` in `frame.wgsl` remaps the
+  mesh's UVs into it in the mesh and effect vertex stages; other rows carry a 1×1 sheet, which
+  leaves UVs alone.
 - start values read their curves at the emission's place in its loop. the shape gives the start
   position and direction (cones towards the matching point of their far end, volumes anywhere up to
   their length, donuts outwards from the tube's centre line), placed by the shape's own transform.
@@ -122,9 +122,18 @@ system and its index, so any moment can be evaluated on its own:
   rotation and set the [billboard](#billboards) bits, so `row_basis` turns them on the GPU as it
   does billboard chains; the others are turned on the CPU.
 
-modules not listed above (noise, collision, sub-emitters, trails, lights, custom data and the
-by-speed modules) are ignored, so systems that enable them play without their effect rather than not
-at all. systems the packer can't make playable at all arrive as stand-ins
+custom data (`customData` in the [package](../package-format.md#particles)) is read with the rest of
+the particle, each component's curve at its age over its lifetime with its own random value, into
+its row's two custom words as f16 pairs (`RowWord.custom`, `packRowCustom`), zero for every other
+row. only `effect.wgsl` reads them, by the effect shaders' shared
+[rule](../game-data/effects.md#vfxbasev2-and-vfxdecal): the texture stack, refraction, water sheets
+and six-way smoke add z to their dissolve schedule and shift each slot's UVs by the slot's custom
+scroll (`EffectRow.customScroll`, `fx_custom_shift`) times x for slot 0 or y for the others, and a
+`particleDisturb` stack scales its distortion by w.
+
+modules not listed above (noise, collision, sub-emitters, trails, lights and the by-speed modules)
+are ignored, so systems that enable them play without their effect rather than not at all. systems
+the packer can't make playable at all arrive as stand-ins
 ([package format](../package-format.md#stand-ins)): one mesh or camera-facing quad at the emitter in
 the [unsupported](materials.md#unsupported-materials) checker, shown with "missing content".
 

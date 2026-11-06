@@ -26,14 +26,22 @@ import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/stream-manager.ts';
 
 import { linearRgb } from './color.ts';
-import { ROW_COLORED, ROW_WORDS, RowBillboard, RowKind, packRowColor, rowInfo } from './instance-rows.ts';
+import {
+	ROW_WORDS,
+	RowBillboard,
+	RowKind,
+	RowWord,
+	packRowColor,
+	packRowCustom,
+	rowSheet,
+} from './instance-rows.ts';
 
 /**
  * floats per particle in {@link ParticleSimulation.evaluate}'s output: position, rotation (xyzw), size, the
- * texture sheet's tile (0 without a sheet), colour (linear rgb, alpha), then velocity (m/s), all in the
- * emitter's frame
+ * texture sheet's tile (0 without a sheet), colour (linear rgb, alpha), velocity (m/s), all in the emitter's
+ * frame, then its custom data (`ParticleSystemInfo.customData`, zero without)
  */
-export const PARTICLE_FLOATS = 18;
+export const PARTICLE_FLOATS = 22;
 
 /** where each value starts in a particle's {@link PARTICLE_FLOATS} */
 const At = {
@@ -43,6 +51,7 @@ const At = {
 	tile: 10,
 	color: 11,
 	velocity: 15,
+	custom: 18,
 } as const;
 
 /** the most particles one emitter shows */
@@ -112,6 +121,10 @@ const Channel = {
 	ForceSpin: 45,
 	ForceAttraction: 46,
 	ForceDrag: 47,
+	CustomX: 48,
+	CustomY: 49,
+	CustomZ: 50,
+	CustomW: 51,
 } as const;
 
 /**
@@ -1478,6 +1491,13 @@ export class ParticleSimulation {
 		out.set(linearRgb(color), at + At.color);
 		out[at + At.color + 3] = color[3];
 		out.set(moving, at + At.velocity);
+		// read every frame at the age over the lifetime, each component's random fixed for the particle's life
+		const custom = info.customData;
+		for (let c = 0; c < 4; c++) {
+			const curve = custom?.[c] ?? null;
+			out[at + At.custom + c] =
+				curve === null ? 0 : evaluateMinMax(curve, Math.min(lived, 1), random(seed, id, Channel.CustomX + c));
+		}
 	}
 }
 
@@ -1888,20 +1908,15 @@ export class ParticleField {
 			}
 			const extent = Math.max(...axes.map((axis, k) => Math.hypot(...axis) * sizes[k]));
 			out.set(center, o + 12);
-			words[o + 15] = block;
-			out[o + 16] = extent;
-			out[o + 17] = extent;
-			out[o + 18] = extent;
-			let rowWord =
-				sheet === null
-					? RowKind.Detail
-					: rowInfo(RowKind.Detail, sheet.tiles, scratch[base + At.tile], sheet.uvChannels);
-			const color = scratch.subarray(base + At.color, base + At.color + 4);
-			if (color.some((channel) => channel !== 1)) {
-				words[o + 18] = packRowColor(color);
-				rowWord = (rowWord | ROW_COLORED) >>> 0;
-			}
-			words[o + 19] = (rowWord | (billboard << 30)) >>> 0;
+			words[o + RowWord.block] = block;
+			out.fill(extent, o + RowWord.extent, o + RowWord.extent + 3);
+			words[o + RowWord.info] = (RowKind.Detail | (billboard << 30)) >>> 0;
+			words[o + RowWord.sheet] =
+				sheet === null ? 0 : rowSheet(sheet.tiles, scratch[base + At.tile], sheet.uvChannels);
+			words[o + RowWord.color] = packRowColor(scratch.subarray(base + At.color, base + At.color + 4));
+			const [xy, zw] = packRowCustom(scratch.subarray(base + At.custom, base + At.custom + 4));
+			words[o + RowWord.custom] = xy;
+			words[o + RowWord.custom + 1] = zw;
 			emitter.live.push(emitter.rows.start + i);
 		}
 		if (count > 0) {

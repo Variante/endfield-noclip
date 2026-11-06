@@ -4,25 +4,15 @@
 // decals that only change the surface add to the main pass's radiance instead (`fs_decal_relight`).
 // instances, draws and vertex streams are laid out as in mesh.wgsl; group 3 is this family's own.
 
-struct EffectRow {
-	t0: vec4f,
-	t1: vec4f,
-	t2: vec4f,
-	center: vec3f,
-	block: u32,
-	extent: vec3f,
-	info: u32,
-}
-
-@group(1) @binding(0) var<storage, read> effect_rows: array<EffectRow>;
+@group(1) @binding(0) var<storage, read> effect_rows: array<InstanceRow>;
 // each block's origin (xyz) and where its decal placements start, less 1 (w)
 @group(1) @binding(1) var<storage, read> effect_blocks: array<vec4f>;
 @group(1) @binding(2) var<storage, read> effect_list: array<u32>;
 // rect decal placements (`DecalPlacements` in package-format): colour, then UV scale and offset
 @group(1) @binding(3) var<storage, read> effect_placements: array<array<vec4f, 2>>;
-// mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 36 rows (`EffectRow`, `WaterSheetRow` or
+// mesh.wgsl's `Draw`: dequantization (4 vec4s), then the look's 44 rows (`EffectRow`, `WaterSheetRow` or
 // `MistRow` in effect-looks.ts)
-@group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 40>>;
+@group(2) @binding(0) var<storage, read> effect_draws: array<array<vec4f, 48>>;
 @group(2) @binding(1) var<storage, read> effect_draw_ids: array<u32>;
 @group(3) @binding(0) var fx_tex0: texture_2d<f32>;
 @group(3) @binding(1) var fx_tex1: texture_2d<f32>;
@@ -73,6 +63,9 @@ const FX_UNFOGGED = 31u;
 const FX_EDGE_COLOR = 32u;
 const FX_EDGE = 33u;
 const FX_EDGE_ALPHA = 34u;
+// the texture stack's per-slot custom data shifts (u, v), from row 36 on (`EffectRow.customScroll` in
+// effect-looks.ts)
+const FX_CUSTOM_SCROLL = 36u;
 // the slot of the vertex offset's texture (`OFFSET_SLOT` in effect-looks.ts)
 const FX_OFFSET_SLOT = 6u;
 // how the vertex stage moves vertices (`VertexMotion` in effect-looks.ts)
@@ -127,6 +120,8 @@ struct EffectOut {
 	// a rect decal row's placement: its colour, and its UV scale and offset; white and the identity elsewhere
 	@location(10) @interpolate(flat) placement_color: vec4f,
 	@location(11) @interpolate(flat) placement_uv: vec4f,
+	// the row's extras: a particle's custom data
+	@location(12) @interpolate(flat) custom: vec4f,
 }
 
 // the transparent pass's outputs (`TRANSPARENT_TARGETS` in render-targets.ts), as in mesh.wgsl
@@ -211,8 +206,8 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	let m = row_basis(row.t0, row.t1, row.t2, row.info);
 	let inverse = transpose(inverse3(m));
 	let flags = bitcast<u32>(offset.w);
-	let uv = sheet_uv(row.info, vec4f(v.uv0 * uv0.xy + uv0.zw, v.uv1 * uv1.xy + uv1.zw));
-	let color = select(vec4f(1.0), v.color, (flags & FX_HAS_COLORS) != 0u) * instance_color(row.info, row.extent.z);
+	let uv = sheet_uv(row.sheet, vec4f(v.uv0 * uv0.xy + uv0.zw, v.uv1 * uv1.xy + uv1.zw));
+	let color = select(vec4f(1.0), v.color, (flags & FX_HAS_COLORS) != 0u) * unpack4x8unorm(row.color);
 	let normal = oct_decode(v.normal);
 	let motion = fx_row(draw_id, FX_OFFSET_MODE).x;
 	if (motion == FX_MOTION_SOFT_BODY) {
@@ -238,6 +233,7 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 	out.origin_depth = dot(origin, frame.view_forward.xyz);
 	out.placement_color = vec4f(1.0);
 	out.placement_uv = vec4f(1.0, 1.0, 0.0, 0.0);
+	out.custom = row_custom(row);
 	let placement = row_placement(row.block);
 	if (placement != 0u) {
 		let at = u32(i32(effect_blocks[row_block(row.block)].w) + i32(placement));
@@ -327,15 +323,26 @@ fn fx_sample(slot: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
 	}
 }
 
+// a texture stack slot's UV shift by the particle's custom data (VFXBaseV2's `*UVSpeed.zw`): the main texture's
+// by its x, the sample textures' by its y
+fn fx_custom_shift(id: u32, slot: u32, custom: vec4f) -> vec2f {
+	let row = fx_row(id, FX_CUSTOM_SCROLL + slot / 2u);
+	let scroll = select(row.xy, row.zw, slot % 2u == 1u);
+	return scroll * select(custom.y, custom.x, slot == 0u);
+}
+
 // the texture stack: the distortion and weight run through the slots in order, then the main texture, its mask,
-// the blend layer and the dissolve. returns the colour (before exposure) and alpha
-fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
+// the blend layer and the dissolve, whose threshold the particle's custom data's z adds to as the schedule.
+// returns the colour (before exposure) and alpha
+fn fx_combine(id: u32, bases: FxBases, tint: vec4f, custom: vec4f) -> vec4f {
 	let weight_row = fx_row(id, FX_WEIGHT);
 	let disturb = fx_row(id, FX_DISTURB);
 	let distorting = fx_row(id, FX_MISC).w != 0.0;
 	let dissolve = fx_row(id, FX_DISSOLVE);
 	let dissolve_color = fx_row(id, FX_DISSOLVE_COLOR);
 	let bias = exp2(frame.params.y);
+	// `_UseParticleDisturb`: the custom data's w scales the distortion (`EffectRow.particleDisturb`)
+	let disturb_scale = select(1.0, custom.w, fx_row(id, FX_EDGE_ALPHA).y != 0.0);
 	var offset = vec2f(0.0);
 	var weight = vec4f(1.0 - weight_row.w);
 	var mask = vec4f(1.0 - dissolve_color.w);
@@ -348,7 +355,7 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 			continue;
 		}
 		let base = fx_slot_base(bases, bits);
-		let uv = fx_slot_coords(id, slot, base[0]) + offset * slot_disturb(bits);
+		let uv = fx_slot_coords(id, slot, base[0] + fx_custom_shift(id, slot, custom)) + offset * slot_disturb(bits);
 		var t = fx_sample(
 			slot,
 			uv,
@@ -361,10 +368,10 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 		let centred = t.r * (weight_row.x + 1.0) - weight_row.x;
 		switch role {
 			case ROLE_DISTURB1: {
-				offset += select(vec2f(0.0), centred * disturb.xy, distorting);
+				offset += select(vec2f(0.0), centred * disturb.xy * disturb_scale, distorting);
 			}
 			case ROLE_DISTURB2: {
-				offset += select(vec2f(0.0), centred * disturb.zw, distorting);
+				offset += select(vec2f(0.0), centred * disturb.zw * disturb_scale, distorting);
 			}
 			case ROLE_WEIGHT: {
 				weight += t;
@@ -384,7 +391,7 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 	}
 	let bits = fx_slot_bits(id, 0u);
 	let base = fx_slot_base(bases, bits);
-	let uv = fx_slot_coords(id, 0u, base[0]) + offset * slot_disturb(bits);
+	let uv = fx_slot_coords(id, 0u, base[0] + fx_custom_shift(id, 0u, custom)) + offset * slot_disturb(bits);
 	var main_sample = fx_sample(
 		0u,
 		uv,
@@ -399,7 +406,7 @@ fn fx_combine(id: u32, bases: FxBases, tint: vec4f) -> vec4f {
 	var color = blend.rgb * saturate((c.a + blend.a) * blend_tint.w) * blend_tint.rgb + c.rgb;
 	var alpha = c.a;
 	if (dissolve.w != 0.0) {
-		let threshold = mix(-1.0, dissolve.x, (1.0 - weight_row.z) + weight.x * weight_row.z);
+		let threshold = mix(-1.0, dissolve.x + custom.z * 2.02, (1.0 - weight_row.z) + weight.x * weight_row.z);
 		let v = dissolved - threshold;
 		let edge = saturate((dissolve.z - v) * dissolve.y);
 		alpha *= saturate(v * dissolve.y);
@@ -517,7 +524,7 @@ fn fx_stack_layer(in: EffectOut, bases: FxBases) -> vec4f {
 		let wave = saturate(pow(cos(frame.eye.w * breathing.y) * 0.5 + 0.5, breathing.z));
 		tint.a *= mix(breathing.x, 1.0, wave);
 	}
-	var combined = fx_combine(id, bases, tint);
+	var combined = fx_combine(id, bases, tint, in.custom);
 	let depth = dot(in.rel, frame.view_forward.xyz);
 	// `_USE_EDGECOLOR` marks where the surface nears what lies behind it: mode 1 adds the edge colour and the tint
 	// alpha by its strength, 0 multiplies the colour by the edge colour and the alpha by the strength
@@ -599,7 +606,7 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 		let base = fx_slot_base(bases, bits);
 		let t = fx_sample(
 			0u,
-			fx_slot_coords(id, 0u, base[0]),
+			fx_slot_coords(id, 0u, base[0] + fx_custom_shift(id, 0u, in.custom)),
 			fx_slot_gradient(id, 0u, base[1]) * bias,
 			fx_slot_gradient(id, 0u, base[2]) * bias,
 		);
@@ -621,7 +628,8 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 			fx_slot_gradient(id, 2u, base[1]) * bias,
 			fx_slot_gradient(id, 2u, base[2]) * bias,
 		);
-		dissolved = saturate((t.r - dissolve_row.x) * dissolve_row.y);
+		// a particle's custom data's z adds to the schedule
+		dissolved = saturate((t.r - dissolve_row.x - in.custom.z * 2.02) * dissolve_row.y);
 		offset *= dissolved;
 	}
 	var mask = vec4f(1.0);
@@ -630,7 +638,7 @@ fn fs_refract(in: EffectOut) -> @location(0) vec4f {
 		let base = fx_slot_base(bases, bits);
 		mask = fx_sample(
 			1u,
-			fx_slot_coords(id, 1u, base[0]) + offset * row2.y,
+			fx_slot_coords(id, 1u, base[0] + fx_custom_shift(id, 1u, in.custom)) + offset * row2.y,
 			fx_slot_gradient(id, 1u, base[1]) * bias,
 			fx_slot_gradient(id, 1u, base[2]) * bias,
 		);
@@ -703,11 +711,14 @@ const WS_VERTEX_OPACITY = 1024u;
 const WS_FRESNEL_OPACITY = 2048u;
 const WS_VERTEX_COLOR = 4096u;
 
-// a slot sampled at its scrolled, rotated, scaled UVs plus `offset`
+// the particle's custom data, for `ws_sample`; the water sheet and six-way smoke set it from their input
+var<private> ws_custom: vec4f;
+
+// a slot sampled at its scrolled, rotated, scaled UVs, shifted by the particle's custom data, plus `offset`
 fn ws_sample(id: u32, slot: u32, uv: vec2f, offset: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
 	let bias = exp2(frame.params.y);
-	return fx_sample(slot, fx_slot_coords(id, slot, uv) + offset, fx_slot_gradient(id, slot, dx) * bias,
-		fx_slot_gradient(id, slot, dy) * bias);
+	let at = fx_slot_coords(id, slot, uv + fx_custom_shift(id, slot, ws_custom)) + offset;
+	return fx_sample(slot, at, fx_slot_gradient(id, slot, dx) * bias, fx_slot_gradient(id, slot, dy) * bias);
 }
 
 // where a flipbook frame's tile starts: frames run along rows from the top, which the UVs reach by wrapping
@@ -724,6 +735,7 @@ fn ws_frame_offset(frame: f32, size: vec2f) -> vec2f {
 // illuminance convention; the game's CPU scaling remains unknown (docs/viewer/lighting.md#sun)
 fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, rel_dy: vec3f) -> EffectAccumulated {
 	let id = in.draw;
+	ws_custom = in.custom;
 	let ws = fx_row(id, WS_FLAGS);
 	let flags = u32(ws.x);
 	let uv = in.uv.xy;
@@ -743,7 +755,7 @@ fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, 
 		}
 	}
 	let use_disturb = fx_row(id, WS_DISTURB_USE);
-	var main_uv = fx_slot_coords(id, 0u, uv);
+	var main_uv = fx_slot_coords(id, 0u, uv + fx_custom_shift(id, 0u, in.custom));
 	main_uv.y *= 1.0 + min(stretch, 0.5);
 	main_uv += vec2f(stretch) + offset * use_disturb.x;
 	let bias = exp2(frame.params.y);
@@ -764,7 +776,8 @@ fn water_sheet(in: EffectOut, front: bool, dx: vec2f, dy: vec2f, rel_dx: vec3f, 
 	var dissolved = 1.0;
 	if ((flags & WS_DISSOLVE_ON) != 0u) {
 		let row = fx_row(id, WS_DISSOLVE);
-		let v = ws_sample(id, 3u, uv, offset * use_disturb.w, dx, dy).r - row.x;
+		// a particle's custom data's z adds to the schedule
+		let v = ws_sample(id, 3u, uv, offset * use_disturb.w, dx, dy).r - row.x - in.custom.z * 2.02;
 		dissolved = saturate(v * row.y);
 		let edge = saturate((row.z - v) * row.y);
 		color = mix(color, fx_row(id, WS_DISSOLVE_COLOR).rgb * edge, edge);
@@ -945,6 +958,7 @@ fn sw_absorb(t: f32, exponent: vec3f, range: f32) -> vec3f {
 // follow the viewer's convention for the game's light colour (docs/viewer/lighting.md#sun)
 fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 	let id = in.draw;
+	ws_custom = in.custom;
 	let row = fx_row(id, SW_FLAGS);
 	let flags = u32(row.x);
 	let uv = in.uv.xy;
@@ -961,7 +975,7 @@ fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 	let use_disturb = fx_row(id, SW_DISTURB_USE);
 
 	// the lightmaps share slot 0's UVs
-	let lightmap_uv = fx_slot_coords(id, 0u, uv) + offset * use_disturb.x;
+	let lightmap_uv = fx_slot_coords(id, 0u, uv + fx_custom_shift(id, 0u, in.custom)) + offset * use_disturb.x;
 	let gx = fx_slot_gradient(id, 0u, dx) * bias;
 	let gy = fx_slot_gradient(id, 0u, dy) * bias;
 	let positive = fx_sample(0u, lightmap_uv, gx, gy);
@@ -981,7 +995,8 @@ fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 		// the game applies the blend texture's `_ST` again after the distortion; its tint takes the vertex colour
 		// whatever `_DisableVertColor` says
 		let st = fx_row(id, FX_UV + 4u);
-		let blend_uv = (fx_slot_coords(id, 4u, uv) + offset * use_disturb.z) * st.xy + st.zw;
+		let blend_uv =
+			(fx_slot_coords(id, 4u, uv + fx_custom_shift(id, 4u, in.custom)) + offset * use_disturb.z) * st.xy + st.zw;
 		let blend = fx_sample(4u, blend_uv, fx_slot_gradient(id, 4u, dx) * st.xy * bias,
 			fx_slot_gradient(id, 4u, dy) * st.xy * bias);
 		let blend_tint = fx_row(id, SW_BLEND_TINT) * in.color;
@@ -990,7 +1005,8 @@ fn six_way_smoke(in: EffectOut, dx: vec2f, dy: vec2f) -> EffectAccumulated {
 	var alpha = c.a;
 	if ((flags & SW_DISSOLVE_ON) != 0u) {
 		let dissolve = fx_row(id, SW_DISSOLVE);
-		let v = ws_sample(id, 5u, uv, offset * use_disturb.w, dx, dy).r - dissolve.x;
+		// a particle's custom data's z adds to the schedule
+		let v = ws_sample(id, 5u, uv, offset * use_disturb.w, dx, dy).r - dissolve.x - in.custom.z * 2.02;
 		let edge = saturate((dissolve.z - v) * dissolve.y);
 		alpha *= saturate(v * dissolve.y);
 		color = mix(color, fx_row(id, SW_DISSOLVE_COLOR).rgb * edge, edge);
@@ -1211,7 +1227,7 @@ fn fs_effect_decal(in: EffectOut) -> EffectAccumulated {
 		}
 		return fx_lit_decal(in, px, rel, rel_dx, rel_dy, uv, bases.dx[0], bases.dy[0]);
 	}
-	let combined = fx_combine(id, bases, fx_row(id, FX_TINT));
+	let combined = fx_combine(id, bases, fx_row(id, FX_TINT), in.custom);
 	let soft = fx_row(id, FX_SOFT);
 	let color = clamp(combined.rgb, vec3f(0.0), vec3f(1000.0)) * mix(1.0, frame.ambient.y, soft.z);
 

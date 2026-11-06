@@ -24,6 +24,7 @@ import {
 	ParticleAlignment,
 	type ParticleBurstInfo,
 	type ParticleClampInfo,
+	type ParticleCustom,
 	type ParticleDragInfo,
 	type ParticleForceFieldInfo,
 	type ParticleSpeedLimitInfo,
@@ -423,6 +424,115 @@ const readRingBuffer = (system: TypeTreeObject): ParticleRingBufferInfo | null |
 	}
 };
 
+// #region custom data
+
+/** `CustomDataModule` modes */
+const CustomDataMode = { Disabled: 0, Vector: 1, Color: 2 } as const;
+
+/** `ParticleSystemVertexStream` values of the first custom stream, Custom1X to Custom1XYZW */
+const CUSTOM1_STREAMS = [31, 32, 33, 34];
+
+/**
+ * components each `ParticleSystemVertexStream` past the fixed position, normal, tangent and colour (0–3)
+ * takes in the texture coordinate sets: UV to UV4, anim blend and frame, center, vertex ID, size, rotation
+ * and its speed, velocity, speed, age, inverse lifetime, stable and varying randoms, Custom1 and Custom2,
+ * noise sum and impulse, mesh index
+ */
+const STREAM_COMPONENTS: Record<number, number> = {
+	4: 2,
+	5: 2,
+	6: 2,
+	7: 2,
+	8: 1,
+	9: 1,
+	10: 3,
+	11: 1,
+	12: 1,
+	13: 2,
+	14: 3,
+	15: 1,
+	16: 3,
+	17: 1,
+	18: 3,
+	19: 3,
+	20: 1,
+	21: 1,
+	22: 1,
+	23: 1,
+	24: 2,
+	25: 3,
+	26: 4,
+	27: 1,
+	28: 2,
+	29: 3,
+	30: 4,
+	31: 1,
+	32: 2,
+	33: 3,
+	34: 4,
+	35: 1,
+	36: 2,
+	37: 3,
+	38: 4,
+	39: 1,
+	40: 2,
+	41: 3,
+	42: 1,
+	43: 2,
+	44: 3,
+	45: 1,
+};
+
+/**
+ * reads what a renderer's second texture coordinate set holds of the particles' first custom data. the engine
+ * packs the vertex streams past the fixed ones into 4-wide texture coordinate sets in the renderer's order,
+ * and evaluates a vector mode's curves every frame at each particle's age over its lifetime, its randoms
+ * fixed per particle
+ *
+ * @param system the emitter's `ParticleSystem`
+ * @param renderer its `ParticleSystemRenderer`
+ * @returns the second set's components, or `null` when it holds none of the custom data (no custom streams,
+ *   the module off or in colour mode, or a stream the layout doesn't know before it)
+ */
+export const readCustomData = (
+	system: TypeTreeObject,
+	renderer: TypeTreeObject,
+): ParticleSystemInfo['customData'] => {
+	if (!booleanField(renderer, 'm_UseCustomVertexStreams') || !enabled(system, 'CustomDataModule')) {
+		return null;
+	}
+	const module = objectField(system, 'CustomDataModule');
+	if (numberField(module, 'mode0') !== CustomDataMode.Vector) {
+		return null;
+	}
+	const count = numberField(module, 'vectorComponentCount0');
+	const out: [ParticleCustom, ParticleCustom, ParticleCustom, ParticleCustom] = [null, null, null, null];
+	let at = 0;
+	for (const value of arrayField(renderer, 'm_VertexStreams')) {
+		const stream = Number(value);
+		if (stream <= 3) {
+			continue;
+		}
+		const components = STREAM_COMPONENTS[stream];
+		if (components === undefined) {
+			return null;
+		}
+		const custom = CUSTOM1_STREAMS.indexOf(stream);
+		for (let c = 0; c < components; c++, at++) {
+			// the second set is components 4–7; components past the module's count are 0
+			if (custom >= 0 && at >= 4 && at < 8 && c < count) {
+				out[at - 4] = readMinMaxCurve(objectField(module, `vector0_${c}`));
+			}
+		}
+		if (at >= 8) {
+			break;
+		}
+	}
+	return out.some((component) => component !== null) ? out : null;
+};
+
+// #endregion
+
 /**
  * reads a particle system that plays on its own once loaded. modules the viewer doesn't evaluate (forces,
  * noise, collision, sub-emitters, trails, the by-speed modules, …) are ignored, so such systems play without
@@ -668,6 +778,7 @@ export const readParticleSystem = (
 			mesh: 0,
 			ringBuffer,
 			textureSheet,
+			customData: readCustomData(system, renderer),
 		},
 		meshes,
 		forces,
