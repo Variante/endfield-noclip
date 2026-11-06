@@ -121,18 +121,20 @@ blob's lifecycle (`idle → queued → fetching → decoding → uploading → r
 isn't retried). it doesn't know the kinds of content: each kind (`heights`, `surface`, `splat`,
 `layer`, `instances`, `geometry`, `texture`, `irradiance`) has a handler
 ([`streaming/residency.ts`](../../packages/viewer/src/streaming/residency.ts)) that uploads its
-decoded blobs and frees them, and may build its decode job (instance blocks add their row kinds).
-the viewer wires the handlers to the renderers and stores that own the GPU side; their residency
-shapes are in [`streaming/resident.ts`](../../packages/viewer/src/streaming/resident.ts).
+decoded blobs and frees them, and may build its decode job (instance blocks add their row kinds,
+from [`content/row-kinds.ts`](../../packages/viewer/src/content/row-kinds.ts)). the viewer wires the
+handlers to the renderers and stores that own the GPU side; their residency shapes are in
+[`streaming/resident.ts`](../../packages/viewer/src/streaming/resident.ts).
 
 - **wanting.** the traversal calls `want(blob, priority)` every frame. a resident blob that's wanted
   counts as used, even when a coarser stand-in is drawn, so a refinement in progress isn't evicted
   and refetched.
 - **pinning.** the core archive's height pages and instance blocks (coarse terrain, every HLOD
-  block, global scenery) are pinned at load, plus, where BC textures are supported, its surface
-  pages and the terrain layer textures. pinned blobs come first (core ones are read from memory at
-  once), upload first and are never evicted. pinned height pages keep their samples on the CPU for
-  ground-height queries (the first pose).
+  block, global scenery) are pinned at load
+  ([`streaming/core-blobs.ts`](../../packages/viewer/src/streaming/core-blobs.ts)), plus, where BC
+  textures are supported, its surface pages and the terrain layer textures. pinned blobs come first
+  (core ones are read from memory at once), upload first and are never evicted. pinned height pages
+  keep their samples on the CPU for ground-height queries (the first pose).
 - **fetching.** at most 32 range reads in flight (`maxRequests`): a dense view wants thousands of
   blobs averaging ~60 KiB, so latency, not bandwidth, bounds loading. measured from the dev server
   on Wuling's first views: 32 takes 3–4 s where 8 took 9–12 s; 64, dispatching freed slots between

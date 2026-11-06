@@ -1,4 +1,3 @@
-import { BlobKind } from '@endfield-noclip/package-format/blobs';
 import {
 	conditionResults,
 	groupsShown,
@@ -19,19 +18,11 @@ import {
 	terrainHeight,
 } from '@endfield-noclip/package-format/terrain';
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
-import type { ContentRef } from '@endfield-noclip/package-format/tree';
 
 import { mapDefined } from '@mary-ext/array-fns';
 
-import {
-	markBillboardRows,
-	ROW_BYTES,
-	ROW_WORDS,
-	RowKind,
-	type RowKinds,
-	type TierSpan,
-	turnRows,
-} from './content/instance-rows.ts';
+import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from './content/instance-rows.ts';
+import { instanceRowKinds } from './content/row-kinds.ts';
 import {
 	type AppliedVolume,
 	applyBlend,
@@ -50,7 +41,7 @@ import { UniformRing } from './gfx/uniform-ring.ts';
 import { materialLooks } from './looks/material-looks.ts';
 import { DecodePool } from './package/decode-pool.ts';
 import type { PackageSource } from './package/package-source.ts';
-import { CORE_ARCHIVE_INDEX, type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
+import { type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
 import { ParticleField } from './particles/particle-rows.ts';
 import { type BindLayouts, createBindLayouts } from './render/frame/bind-layouts.ts';
 import {
@@ -82,6 +73,7 @@ import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.
 import { Camera, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
+import { coreBlobs } from './streaming/core-blobs.ts';
 import { type MeshSelection, MeshSelector, streamWholeTexture } from './streaming/mesh-selection.ts';
 import type { ResidentInstances } from './streaming/resident.ts';
 import { type InstanceRange, Selector } from './streaming/selection.ts';
@@ -293,34 +285,6 @@ interface LoadedScene {
 	textures: TextureStore;
 	levels: LevelEntry[];
 }
-
-/**
- * @param tree the linked tree
- * @param global manifest.global refs
- * @returns what the rows of each instance blob are: rows of HLOD blocks take their tier from the refs that
- *   slice them
- */
-const instanceRowKinds = (tree: TileTree, global: readonly ContentRef[]): Map<number, RowKinds> => {
-	const kinds = new Map<number, RowKinds>();
-	const spans = new Map<number, TierSpan[]>();
-	for (const node of tree.nodes) {
-		for (const ref of node.hlod) {
-			const list = spans.getOrInsertComputed(ref.blob, () => {
-				const created: TierSpan[] = [];
-				kinds.set(ref.blob, created);
-				return created;
-			});
-			list.push({ first: ref.first, count: ref.count, tier: ref.tier });
-		}
-		for (const ref of [...node.detail, ...node.conditional]) {
-			kinds.set(ref.blob, RowKind.Detail);
-		}
-	}
-	for (const ref of global) {
-		kinds.set(ref.blob, RowKind.Global);
-	}
-	return kinds;
-};
 
 /** the running viewer */
 export class Viewer {
@@ -605,34 +569,8 @@ export class Viewer {
 			},
 			{ budgetBytes: this.options.budgetMiB * 2 ** 20, maxRequests: 32, uploadBytesPerFrame: 24 * 2 ** 20 },
 		);
-		// the coarse layer: everything in the core (coarse terrain pages, every HLOD block, global scenery)
-		const coreBlobs: number[] = [];
-		for (let i = 0; i < pkg.blobs.length; i++) {
-			const blob = pkg.blobs[i];
-			if (blob.archive !== CORE_ARCHIVE_INDEX) {
-				continue;
-			}
-			switch (blob.kind) {
-				case BlobKind.TerrainHeights:
-				case BlobKind.Instances: {
-					coreBlobs.push(i);
-					break;
-				}
-				case BlobKind.TerrainSurface: {
-					if (this.#terrain.surfaces) {
-						coreBlobs.push(i);
-					}
-					break;
-				}
-			}
-		}
-		// every splat page draws from all layer textures, so they stay resident
-		const splat = pkg.manifest.terrain?.splat ?? null;
-		this.#terrain.setSplat(splat);
-		if (splat !== null && this.#terrain.surfaces) {
-			coreBlobs.push(...new Set([...splat.diffuse, ...splat.normal]));
-		}
-		stream.pin(coreBlobs);
+		this.#terrain.setSplat(pkg.manifest.terrain?.splat ?? null);
+		stream.pin(coreBlobs(pkg, { surfaces: this.#terrain.surfaces }));
 
 		const manifest = pkg.manifest;
 		const selector = new Selector(tree, stream, manifest.global, manifest.tree.rootSize);
