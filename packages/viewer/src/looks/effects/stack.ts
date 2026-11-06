@@ -17,7 +17,6 @@ import {
 	setSlot,
 	SLOT_NO_BASE,
 	SlotSource,
-	slotDisturb,
 } from './effect-look.ts';
 
 /** each {@link StackLayer} role's {@link EffectRole} */
@@ -60,6 +59,12 @@ export const OFFSET_SLOT = 6;
 
 /** the water-blend height of a texture stack without one: below every world */
 export const NO_WATER_BLEND = -1e30;
+
+/**
+ * the {@link EffectRow.slotBits} term for the share of the distortion a slot's UVs take (`*UseDisturb`), in
+ * 1/1024ths above the low byte, which f32 holds exactly
+ */
+const slotDisturb = (share: number): number => Math.round(Math.max(share, 0) * 1024) * 256;
 
 /** a stack layer's {@link EffectRow.slotBits} */
 const layerBits = (layer: StackLayer): number =>
@@ -181,8 +186,8 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 };
 
 /**
- * @param look a look from {@link stackLook}
+ * @param stack a texture stack
  * @returns whether it multiplies what lies behind (`_BlendMode` 2), which the transparent pass's targets
  *   can't hold, so it draws over the composited scene instead
  */
-export const multipliesScene = (look: EffectLook): boolean => look.params[EffectRow.unfogged + 2] === 2;
+export const multipliesScene = (stack: EffectStackSurface): boolean => stack.blendMode === 2;

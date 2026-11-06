@@ -55,7 +55,7 @@ export const EffectRow = {
 	anim: 32,
 	/**
 	 * per slot: role, plus 16 when its red channel is its alpha, plus 32 times its {@link SlotSource}, or
-	 * {@link SLOT_NO_BASE}, plus {@link slotDisturb} of the share of the distortion its UVs take
+	 * {@link SLOT_NO_BASE}, plus the share of the distortion its UVs take (`slotDisturb` in stack.ts)
 	 */
 	slotBits: 60,
 	/** the blend layer's tint rgb (HDR), w = how strongly it covers */
@@ -149,15 +149,6 @@ export type SlotSource = (typeof SlotSource)[keyof typeof SlotSource];
  * weights pick isn't computed (polar or screen UVs without their keyword and switch)
  */
 export const SLOT_NO_BASE = 128;
-
-/**
- * the {@link EffectRow.slotBits} term for the share of the distortion a slot's UVs take (`*UseDisturb`), in
- * 1/1024ths above the low byte, which f32 holds exactly
- *
- * @param share the material's `*UseDisturb`, 0 for none and 1 for all of it
- * @returns the term to add to the slot's bits
- */
-export const slotDisturb = (share: number): number => Math.round(Math.max(share, 0) * 1024) * 256;
 
 /** what an effect's builder fills of its `MaterialLook`; `material-looks.ts` adds the flags and draw state */
 export type EffectLook = LookSlots;

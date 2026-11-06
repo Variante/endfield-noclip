@@ -145,13 +145,12 @@ export const materialLooks = (materials: MaterialTable): MaterialLook[] => {
 				break;
 			}
 			case 'effectStack': {
-				const effect = stackLook(surface);
-				looks[entry.id] = effectMaterialLook(effect, {
+				looks[entry.id] = effectMaterialLook(stackLook(surface), {
 					flags: LookFlags.Effect | (surface.variant === 'decal' ? LookFlags.EffectDecal : 0),
 					cull: entry.cull,
 					stencil: surface.stencil === null ? null : lookStencilOf(surface.stencil, false),
 					// drawn over the composited scene
-					screen: multipliesScene(effect) ? 'multiply' : null,
+					screen: multipliesScene(surface) ? 'multiply' : null,
 				});
 				break;
 			}

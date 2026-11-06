@@ -86,7 +86,7 @@ const SLOT_SOURCE_SHIFT = 5u;
 const SLOT_NO_BASE = 128u;
 
 // the share of the distortion a slot's UVs take, in 1/1024ths above the low byte (`slotDisturb` in
-// effect-look.ts)
+// stack.ts)
 fn slot_disturb(bits: u32) -> f32 {
 	return f32(bits >> 8u) / 1024.0;
 }

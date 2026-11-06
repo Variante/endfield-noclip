@@ -43,7 +43,7 @@ export const MistRow = {
 } as const;
 
 /** the slot index of a card's noise texture; its main texture is slot 0 */
-export const MIST_NOISE_SLOT = 1;
+const MIST_NOISE_SLOT = 1;
 
 /**
  * a mist card ({@link MistCardSurface}): its main texture in slot 0, its noise in {@link MIST_NOISE_SLOT}

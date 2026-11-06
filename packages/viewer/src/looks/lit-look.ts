@@ -145,16 +145,28 @@ export const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook =
 		params.set([...detail.overlay, detail.overlayCover], LookRow.detailOverlay);
 	}
 
+	// the glow and the layer take the parallax rows, which the pulse has otherwise
+	let parallaxRowsFree = true;
 	const { overlay } = surface;
-	const layerSource =
-		overlay?.kind === 'layer' && !(overlay.coverage.kind === 'maskMap' && textures.emissive !== null)
-			? LAYER_SOURCES[overlay.coverage.kind]
-			: null;
-	if (overlay?.kind === 'parallax') {
-		parallaxParams(look, overlay);
-	} else if (overlay?.kind === 'layer' && layerSource !== null) {
-		layerBlendParams(look, overlay, layerSource);
-	} else if (emission?.pulse != null) {
+	switch (overlay?.kind) {
+		case 'parallax': {
+			parallaxParams(look, overlay);
+			parallaxRowsFree = false;
+			break;
+		}
+		case 'layer': {
+			// a mask layer's mask map would take the emissive map's slot
+			if (overlay.coverage.kind !== 'maskMap' || textures.emissive === null) {
+				layerBlendParams(look, overlay, LAYER_SOURCES[overlay.coverage.kind]);
+				parallaxRowsFree = false;
+			}
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+	if (parallaxRowsFree && emission?.pulse != null) {
 		emissivePulseParams(look, emission.pulse);
 	}
 	if (surface.keepsLitDecalsOff) {

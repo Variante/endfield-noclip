@@ -62,7 +62,7 @@ export const DecalLitRow = {
  * water normal map (`_WaterNormalTex`: normal RG, roughness B, at world positions); its base colour is slot
  * 0
  */
-export const DECAL_PBR_SLOT = 1;
+const DECAL_PBR_SLOT = 1;
 
 /**
  * a lit decal ({@link LitDecalSurface}): its base colour map tinted by the placement's colour, with the PBR
@@ -82,11 +82,12 @@ export const litDecalLook = (decal: LitDecalSurface): EffectLook => {
 			setSlot(look, DECAL_PBR_SLOT, still(decal.pbr.texture), ROLE_NONE);
 			params[DecalLitRow.pbrPlaced] = 1;
 		} else {
-			const transform = {
-				scale: [own[0], own[1]] as [number, number],
-				offset: [own[2], own[3]] as [number, number],
-			};
-			setSlot(look, DECAL_PBR_SLOT, { ...still(decal.pbr.texture), ...transform }, ROLE_NONE);
+			setSlot(
+				look,
+				DECAL_PBR_SLOT,
+				{ ...still(decal.pbr.texture), scale: [own[0], own[1]], offset: [own[2], own[3]] },
+				ROLE_NONE,
+			);
 		}
 	}
 	params.set([1, 1, 1, decal.opacity], EffectRow.tint);
