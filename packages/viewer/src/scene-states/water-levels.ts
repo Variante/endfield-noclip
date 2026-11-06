@@ -6,9 +6,14 @@
  * @module
  */
 
-import type { WaterVolumeEntry } from '@endfield-noclip/package-format/water';
+import type {
+	WaterSurfaceEntry,
+	WaterVolumeEntry,
+	WaterVolumeSurface,
+} from '@endfield-noclip/package-format/water';
 
 import { ROW_WORDS } from '../content/instance-rows.ts';
+import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/resident.ts';
 
 /** a floating row of a resident block */
@@ -30,6 +35,42 @@ export interface WaterVolumeState {
 	current: number;
 	target: number;
 }
+
+/**
+ * @param entry a gameplay water volume
+ * @param fraction a fill, 0–1 of its `heightMax`
+ * @returns the volume's surface height at that fill, world y
+ */
+export const waterHeight = (entry: WaterVolumeEntry, fraction: number): number =>
+	entry.base + entry.heightMax * fraction;
+
+/**
+ * @param surfaces the package's water surfaces
+ * @param volume index into the package's water volumes
+ * @returns the volume's surface, or `undefined` if none was packed
+ */
+export const volumeSurface = (
+	surfaces: readonly WaterSurfaceEntry[],
+	volume: number,
+): WaterVolumeSurface | undefined =>
+	surfaces.find((entry): entry is WaterVolumeSurface => entry.kind === 'volume' && entry.volume === volume);
+
+/**
+ * @param state a volume's fill
+ * @param surface its surface
+ * @returns where the surface is now: its bounds' centre at the current height, and its wider horizontal
+ *   extent
+ */
+export const surfaceView = (
+	{ entry, current }: WaterVolumeState,
+	surface: WaterVolumeSurface,
+): { center: Vec3; size: number } => {
+	const { min, max } = surface.bounds;
+	return {
+		center: [(min[0] + max[0]) / 2, waterHeight(entry, current), (min[2] + max[2]) / 2],
+		size: Math.max(max[0] - min[0], max[2] - min[2]),
+	};
+};
 
 /** water volume fills and the rows floating on them */
 export class WaterLevels {

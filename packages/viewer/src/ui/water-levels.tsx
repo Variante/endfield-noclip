@@ -1,4 +1,5 @@
 import { controlListedFor } from '../scene-states/listing.ts';
+import { surfaceView, volumeSurface, waterHeight } from '../scene-states/water-levels.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { Drivers } from './drivers.tsx';
@@ -35,7 +36,7 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 	const controls = new Map(manifest.states.controls.map((control) => [control.id, control]));
 	// a volume is listed with its `waterLevel` control, for the levels that control is listed for
 	const rows = viewer.waterVolumes.flatMap((state, index) => {
-		const surface = surfaces.find((entry) => entry.kind === 'volume' && entry.volume === index);
+		const surface = volumeSurface(surfaces, index);
 		const control = state.entry.control === null ? undefined : controls.get(state.entry.control);
 		if (surface === undefined || control === undefined) {
 			return [];
@@ -63,24 +64,17 @@ export const WaterLevels = ({ viewer, matches }: { viewer: Viewer; matches: (tex
 					))}
 				</select>
 			</label>
-			{rows.map(({ state: { entry, current, target }, surface, control }) => {
-				const height = (fraction: number): number => entry.base + entry.heightMax * fraction;
-				const { min, max } = surface.bounds;
-				const center: [number, number, number] = [
-					(min[0] + max[0]) / 2,
-					height(current),
-					(min[2] + max[2]) / 2,
-				];
-				const size = Math.max(max[0] - min[0], max[2] - min[2]);
+			{rows.map(({ state, surface, control }) => {
+				const { entry, current, target } = state;
+				const height = metres(waterHeight(entry, current));
+				const { center, size } = surfaceView(state, surface);
 				return (
 					<div key={control.id}>
 						<label className="scene-choice">
 							<span>
 								{control.name}
 								<small className="muted">
-									{current === target
-										? `at ${metres(height(current))}`
-										: `moving, ${metres(height(current))}`}
+									{current === target ? `at ${height}` : `moving, ${height}`}
 									{entry.floaters.length > 0 && ` · ${entry.floaters.length} floating parts`}
 								</small>
 							</span>
