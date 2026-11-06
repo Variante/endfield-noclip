@@ -5,6 +5,7 @@ import {
 	encodeFullscreen,
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 
 import bloomWgsl from './bloom.wgsl?raw';
@@ -27,9 +28,6 @@ const bloomLevelCount = (width: number, height: number, half: boolean): number =
 };
 
 interface Sized {
-	width: number;
-	height: number;
-	textures: GPUTexture[];
 	buffers: GPUBuffer[];
 	/** the last upsample, or the only level, or `null` on a canvas too small for bloom */
 	result: GPUTexture | null;
@@ -47,6 +45,7 @@ export class Bloom {
 	#postUniforms: GPUBuffer;
 	#sampler: GPUSampler;
 	#pipelines: Record<'prefilter' | 'blurH' | 'blurV' | 'up', GPURenderPipeline>;
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 
 	/**
@@ -56,6 +55,7 @@ export class Bloom {
 	 */
 	constructor(device: GPUDevice, postUniforms: GPUBuffer, sampler: GPUSampler) {
 		this.#device = device;
+		this.#targets = new TextureSet(device);
 		this.#postUniforms = postUniforms;
 		this.#sampler = sampler;
 		const module = postShaderModule(device, 'bloom', [bloomWgsl]);
@@ -83,9 +83,7 @@ export class Bloom {
 
 	/** @returns bytes of the levels */
 	get bytes(): number {
-		const sized = this.#sized;
-		// the down and up levels each sum to about a third of the output
-		return sized === null ? 0 : sized.width * sized.height * 8 * (2 / 3);
+		return this.#targets.bytes;
 	}
 
 	/**
@@ -100,9 +98,8 @@ export class Bloom {
 		const { histories, outputWidth, outputHeight } = input;
 		const device = this.#device;
 		const p = this.#pipelines;
-		const textures: GPUTexture[] = [];
-		const texture = (label: string, w: number, h: number): GPUTexture => {
-			const created = device.createTexture({
+		const texture = (label: string, w: number, h: number): GPUTexture =>
+			this.#targets.create({
 				label,
 				size: [w, h],
 				format: HDR_FORMAT,
@@ -112,9 +109,6 @@ export class Bloom {
 					GPUTextureUsage.COPY_SRC |
 					GPUTextureUsage.COPY_DST,
 			});
-			textures.push(created);
-			return created;
-		};
 		const down: GPUTexture[] = [];
 		const blurred: GPUTexture[] = [];
 		const up: GPUTexture[] = [];
@@ -197,9 +191,6 @@ export class Bloom {
 			result = down[0];
 		}
 		this.#sized = {
-			width: outputWidth,
-			height: outputHeight,
-			textures,
 			buffers,
 			result,
 			prefilter,
@@ -230,9 +221,7 @@ export class Bloom {
 	}
 
 	#release(): void {
-		for (const texture of this.#sized?.textures ?? []) {
-			texture.destroy();
-		}
+		this.#targets.destroy();
 		for (const buffer of this.#sized?.buffers ?? []) {
 			buffer.destroy();
 		}

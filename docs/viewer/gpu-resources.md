@@ -60,6 +60,10 @@
   with data (index buffers, configs, fixed per-pass uniforms) are filled mapped at creation rather
   than through a queue write; a pass's own uniform block is a `UNIFORM | COPY_DST` buffer it
   rewrites with `writeBuffer`.
+- **texture sets** ([`gfx/texture-set.ts`](../../packages/viewer/src/gfx/texture-set.ts)): each post
+  pass (and the water's foam) keeps its targets for the current render size in one set, which it
+  destroys and refills on resize; the set counts its bytes from the formats and mip levels, which
+  the passes report to the stats.
 - **samplers** ([`gfx/samplers.ts`](../../packages/viewer/src/gfx/samplers.ts)): one sampler per
   distinct state for the whole device, keyed with WebGPU's defaults filled in, so passes and package
   textures that sample alike share it. named presets cover the common states (bilinear clamp for

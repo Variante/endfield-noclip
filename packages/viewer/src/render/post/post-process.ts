@@ -4,6 +4,7 @@ import type { LensFlareLook } from '../../environment/lens-flare-look.ts';
 import { createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { LINEAR_CLAMP, sampler as sharedSampler } from '../../gfx/samplers.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import type { Camera } from '../../scene/camera.ts';
 import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
@@ -27,9 +28,6 @@ import { Tonemap } from './tonemap.ts';
 
 /** the targets sized with the scene textures */
 interface Sized {
-	/** the render size */
-	width: number;
-	height: number;
 	/** the scene textures' version the targets were made for */
 	version: number;
 	/** the composited scene at the render size, which the temporal resolve reads */
@@ -62,6 +60,8 @@ export class PostProcess {
 	#autoExposure: AutoExposure;
 	#bloom: Bloom;
 	#tonemap: Tonemap;
+	/** the composited scene */
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 	#environment: Environment;
 	/** the volumetric fog the composite and water passes add in front */
@@ -85,6 +85,7 @@ export class PostProcess {
 	) {
 		this.#device = device;
 		this.#fog = fog;
+		this.#targets = new TextureSet(device);
 		this.#uniforms = createUniformBuffer(device, 'post uniforms', POST_BYTES);
 		const sampler = sharedSampler(device, LINEAR_CLAMP);
 		const postUniforms = this.#uniforms;
@@ -146,10 +147,9 @@ export class PostProcess {
 
 	/** @returns bytes of the targets the chain holds */
 	get bytes(): number {
-		const sized = this.#sized;
 		// the composited scene, and each pass's own targets
 		return (
-			(sized === null ? 0 : sized.width * sized.height * 8) +
+			this.#targets.bytes +
 			this.#ao.bytes +
 			this.#bloom.bytes +
 			this.#taa.bytes +
@@ -285,8 +285,8 @@ export class PostProcess {
 		if (current !== null && current.version === scene.version) {
 			return current;
 		}
-		current?.scene.destroy();
-		const sceneTexture = this.#device.createTexture({
+		this.#targets.destroy();
+		const sceneTexture = this.#targets.create({
 			label: 'hdr scene',
 			size: [width, height],
 			format: HDR_FORMAT,
@@ -314,8 +314,6 @@ export class PostProcess {
 		this.#bloom.resize({ histories, outputWidth, outputHeight });
 		this.#tonemap.resize({ histories, bloom: this.#bloom.result });
 		const sized: Sized = {
-			width,
-			height,
 			version: scene.version,
 			scene: sceneTexture,
 			sceneView,
@@ -447,7 +445,7 @@ export class PostProcess {
 
 	/** frees the chain's GPU resources */
 	destroy(): void {
-		this.#sized?.scene.destroy();
+		this.#targets.destroy();
 		this.#luts.destroy();
 		this.#ao.destroy();
 		this.#bloom.destroy();

@@ -7,6 +7,7 @@ import {
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
 import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';
@@ -37,7 +38,6 @@ const mip = (source: GPUTexture, level: number): GPUTextureView =>
 interface Sized {
 	width: number;
 	height: number;
-	textures: GPUTexture[];
 	/** what the reflections change in the radiance */
 	output: GPUTexture;
 	march: FullscreenPass;
@@ -54,6 +54,7 @@ export class ScreenSpaceReflections {
 	#data = new Float32Array(UNIFORM_BYTES / 4);
 	#sampler: GPUSampler;
 	#pipelines: Record<'march' | 'temporal' | 'downsample' | 'resolve', GPURenderPipeline>;
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 	/** the camera of last frame's reflections, which held only if they ran over the current targets */
 	#camera = new CameraHistory();
@@ -67,6 +68,7 @@ export class ScreenSpaceReflections {
 		this.#postUniforms = postUniforms;
 		this.#uniforms = createUniformBuffer(device, 'ssr uniforms', UNIFORM_BYTES);
 		this.#sampler = sampler(device, LINEAR_CLAMP);
+		this.#targets = new TextureSet(device);
 		const module = postShaderModule(device, 'ssr', [
 			colorWgsl,
 			screenSpaceWgsl,
@@ -103,13 +105,7 @@ export class ScreenSpaceReflections {
 
 	/** @returns bytes of the targets */
 	get bytes(): number {
-		const sized = this.#sized;
-		if (sized === null) {
-			return 0;
-		}
-		// march colour (and output), weight and fade, two colour pyramids and a depth pyramid (a third more for
-		// their mips)
-		return sized.width * sized.height * (8 + 4 + 1 + (8 * 2 + 2) * (4 / 3));
+		return this.#targets.bytes;
 	}
 
 	/** drops the history, so the next frame doesn't read the last (a cut) */
@@ -137,18 +133,8 @@ export class ScreenSpaceReflections {
 			2,
 			Math.min(MAX_MIPS, Math.floor(Math.log2(Math.max(1, Math.min(width, height)))) + 1),
 		);
-		const textures: GPUTexture[] = [];
-		const texture = (label: string, format: GPUTextureFormat, mipLevelCount = 1): GPUTexture => {
-			const created = device.createTexture({
-				label,
-				size: [width, height],
-				format,
-				mipLevelCount,
-				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-			});
-			textures.push(created);
-			return created;
-		};
+		const texture = (label: string, format: GPUTextureFormat, mipLevelCount = 1): GPUTexture =>
+			this.#targets.create({ label, size: [width, height], format, mipLevelCount });
 		const marchColor = texture('ssr march colour', COLOR_FORMAT);
 		const marchWeight = texture('ssr march weight', WEIGHT_FORMAT);
 		const marchFade = texture('ssr march fade', FADE_FORMAT);
@@ -242,7 +228,6 @@ export class ScreenSpaceReflections {
 		this.#sized = {
 			width,
 			height,
-			textures,
 			output,
 			march,
 			chains: [chain(0), chain(1)],
@@ -289,9 +274,7 @@ export class ScreenSpaceReflections {
 	}
 
 	#release(): void {
-		for (const texture of this.#sized?.textures ?? []) {
-			texture.destroy();
-		}
+		this.#targets.destroy();
 		this.#sized = null;
 	}
 

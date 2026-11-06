@@ -8,6 +8,7 @@ import {
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
 import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
@@ -25,9 +26,6 @@ const SAMPLES = 12;
 const BLUR_PASSES = 3;
 
 interface Sized {
-	width: number;
-	height: number;
-	textures: GPUTexture[];
 	/** the downsample, then the blur passes, ping-ponging */
 	passes: FullscreenPass[];
 	/** adds the last blur onto the scene */
@@ -44,6 +42,7 @@ export class LightShafts {
 	#data = new Float32Array(UNIFORM_BYTES / 4);
 	#sampler: GPUSampler;
 	#pipelines: Record<'downsample' | 'blur' | 'apply', GPURenderPipeline>;
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 
 	/**
@@ -52,6 +51,7 @@ export class LightShafts {
 	 */
 	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
+		this.#targets = new TextureSet(device);
 		this.#postUniforms = postUniforms;
 		this.#uniforms = createUniformBuffer(device, 'light shaft uniforms', UNIFORM_BYTES);
 		this.#passUniforms = Array.from({ length: BLUR_PASSES }, (_, i) =>
@@ -79,8 +79,7 @@ export class LightShafts {
 
 	/** @returns bytes of the targets */
 	get bytes(): number {
-		const sized = this.#sized;
-		return sized === null ? 0 : sized.width * sized.height * 8 * sized.textures.length;
+		return this.#targets.bytes;
 	}
 
 	/**
@@ -94,15 +93,11 @@ export class LightShafts {
 		const p = this.#pipelines;
 		const width = Math.max(1, Math.ceil(input.width / DOWNSAMPLE));
 		const height = Math.max(1, Math.ceil(input.height / DOWNSAMPLE));
-		const textures = [0, 1].map((i) =>
-			device.createTexture({
-				label: `light shafts ${i}`,
-				size: [width, height],
-				format: HDR_FORMAT,
-				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-			}),
+		const views = [0, 1].map((i) =>
+			this.#targets
+				.create({ label: `light shafts ${i}`, size: [width, height], format: HDR_FORMAT })
+				.createView(),
 		);
-		const views = textures.map((texture) => texture.createView());
 		const shafts = { buffer: this.#uniforms };
 		const passes: FullscreenPass[] = [
 			{
@@ -141,7 +136,7 @@ export class LightShafts {
 			],
 			targets: [input.composited],
 		};
-		this.#sized = { width, height, textures, passes, apply };
+		this.#sized = { passes, apply };
 	}
 
 	/**
@@ -180,9 +175,7 @@ export class LightShafts {
 	}
 
 	#release(): void {
-		for (const texture of this.#sized?.textures ?? []) {
-			texture.destroy();
-		}
+		this.#targets.destroy();
 		this.#sized = null;
 	}
 

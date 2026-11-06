@@ -1,6 +1,7 @@
 import { createUniformBuffer } from '../../gfx/buffers.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
 import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import { halton } from '../../math/sequence.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
@@ -23,8 +24,6 @@ const UNIFORM_BYTES = 112;
 interface Sized {
 	width: number;
 	height: number;
-	outputWidth: number;
-	outputHeight: number;
 	/** the history pair at the output size; each frame writes one and reads the other */
 	history: [GPUTexture, GPUTexture];
 	/** views of {@link history} */
@@ -43,6 +42,7 @@ export class TemporalAA {
 	#uniforms: GPUBuffer;
 	#data = new Float32Array(UNIFORM_BYTES / 4);
 	#sampler: GPUSampler;
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 	#camera = new CameraHistory();
 	#phase = 0;
@@ -63,6 +63,7 @@ export class TemporalAA {
 		this.#postGroup = autoBindGroup(device, this.#pipeline, 0, { 0: { buffer: postUniforms } });
 		this.#uniforms = createUniformBuffer(device, 'taa uniforms', UNIFORM_BYTES);
 		this.#sampler = sampler(device, LINEAR_CLAMP);
+		this.#targets = new TextureSet(device);
 	}
 
 	/**
@@ -100,8 +101,7 @@ export class TemporalAA {
 
 	/** @returns bytes of the history pair */
 	get bytes(): number {
-		const sized = this.#sized;
-		return sized === null ? 0 : sized.outputWidth * sized.outputHeight * 8 * 2;
+		return this.#targets.bytes;
 	}
 
 	/**
@@ -120,11 +120,10 @@ export class TemporalAA {
 		this.#release();
 		const { scene, depth, width, height, outputWidth, outputHeight } = input;
 		const history = (i: number): GPUTexture =>
-			this.#device.createTexture({
+			this.#targets.create({
 				label: `taa history ${i}`,
 				size: [outputWidth, outputHeight],
 				format: HDR_FORMAT,
-				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
 			});
 		const pair: [GPUTexture, GPUTexture] = [history(0), history(1)];
 		const views: [GPUTextureView, GPUTextureView] = [pair[0].createView(), pair[1].createView()];
@@ -139,8 +138,6 @@ export class TemporalAA {
 		this.#sized = {
 			width,
 			height,
-			outputWidth,
-			outputHeight,
 			history: pair,
 			views,
 			groups: [group(views[1]), group(views[0])],
@@ -186,9 +183,7 @@ export class TemporalAA {
 	}
 
 	#release(): void {
-		for (const texture of this.#sized?.history ?? []) {
-			texture.destroy();
-		}
+		this.#targets.destroy();
 		this.#sized = null;
 	}
 

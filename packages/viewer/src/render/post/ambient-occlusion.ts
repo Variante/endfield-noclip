@@ -4,6 +4,7 @@ import {
 	encodeFullscreen,
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 
 import gtaoWgsl from './gtao.wgsl?raw';
 import { postShaderModule } from './shader-source.ts';
@@ -15,11 +16,7 @@ const AO_DEPTH_FORMAT: GPUTextureFormat = 'r32float';
 const AO_SCALE = 2;
 
 interface Sized {
-	width: number;
-	height: number;
-	/** half resolution: view depth, and the AO marched over it */
-	textures: GPUTexture[];
-	/** full resolution */
+	/** the blurred AO, at full resolution */
 	blurred: GPUTextureView;
 	/** the reduced depth, the march and the depth-aware blur that upsamples it */
 	passes: FullscreenPass[];
@@ -30,6 +27,8 @@ export class AmbientOcclusion {
 	#device: GPUDevice;
 	#postUniforms: GPUBuffer;
 	#pipelines: Record<'depth' | 'gtao' | 'blur', GPURenderPipeline>;
+	/** half resolution: view depth, and the AO marched over it; full resolution: the blurred AO */
+	#targets: TextureSet;
 	#sized: Sized | null = null;
 
 	/**
@@ -38,6 +37,7 @@ export class AmbientOcclusion {
 	 */
 	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
+		this.#targets = new TextureSet(device);
 		this.#postUniforms = postUniforms;
 		const module = postShaderModule(device, 'gtao', [gtaoWgsl]);
 		const pipeline = (label: string, entryPoint: string, format: GPUTextureFormat): GPURenderPipeline =>
@@ -63,9 +63,7 @@ export class AmbientOcclusion {
 
 	/** @returns bytes of the targets */
 	get bytes(): number {
-		const sized = this.#sized;
-		// the reduced depth and AO, and the blurred AO
-		return sized === null ? 0 : sized.width * sized.height * ((4 + 1) / AO_SCALE ** 2 + 1);
+		return this.#targets.bytes;
 	}
 
 	/**
@@ -79,7 +77,7 @@ export class AmbientOcclusion {
 		const device = this.#device;
 		const p = this.#pipelines;
 		const texture = (label: string, w: number, h: number, format: GPUTextureFormat): GPUTexture =>
-			device.createTexture({
+			this.#targets.create({
 				label,
 				size: [w, h],
 				format,
@@ -98,9 +96,6 @@ export class AmbientOcclusion {
 			autoBindGroup(device, pipeline, 0, { 0: { buffer: this.#postUniforms } });
 		const blurredView = blurred.createView();
 		this.#sized = {
-			width,
-			height,
-			textures: [aoDepth, ao, blurred],
 			blurred: blurredView,
 			passes: [
 				{
@@ -136,9 +131,7 @@ export class AmbientOcclusion {
 	}
 
 	#release(): void {
-		for (const texture of this.#sized?.textures ?? []) {
-			texture.destroy();
-		}
+		this.#targets.destroy();
 		this.#sized = null;
 	}
 

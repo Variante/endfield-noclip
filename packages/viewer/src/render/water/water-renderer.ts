@@ -6,6 +6,7 @@ import { createBufferWithData, createUniformBuffer } from '../../gfx/buffers.ts'
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
+import { TextureSet } from '../../gfx/texture-set.ts';
 import { type Plane, boxInFrustum } from '../../scene/camera.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { StreamManager } from '../../streaming/stream-manager.ts';
@@ -90,7 +91,6 @@ const waterShaderSource = (): string =>
 interface FoamTargets {
 	/** the scene textures' version they were made at */
 	version: number;
-	foam: GPUTexture;
 	foamView: GPUTextureView;
 }
 
@@ -129,6 +129,8 @@ export class WaterRenderer {
 	#pipelines: PipelineCache;
 	/** the foam the boxes leave on the surface, at the main pass's size */
 	#foamTargets: FoamTargets | null = null;
+	/** the texture behind {@link #foamTargets} */
+	#foam: TextureSet;
 	/** bound in place of the water's depth while the depth pass draws into it */
 	#noWaterDepth: GPUTexture;
 	#noWaterDepthView: GPUTextureView;
@@ -159,6 +161,7 @@ export class WaterRenderer {
 	constructor(device: GPUDevice, pipelines: PipelineCache, layouts: WaterLayouts) {
 		this.#device = device;
 		this.#pipelines = pipelines;
+		this.#foam = new TextureSet(device);
 		const module = pipelines.module('water', waterShaderSource());
 		const fragment = GPUShaderStage.FRAGMENT;
 		const texture = (
@@ -476,15 +479,13 @@ export class WaterRenderer {
 		if (current !== null && current.version === context.version) {
 			return current;
 		}
-		current?.foam.destroy();
-		const size = [context.width, context.height];
-		const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
-		const foam = this.#device.createTexture({ label: 'water foam', size, format: WATER_FOAM_FORMAT, usage });
-		this.#foamTargets = {
-			version: context.version,
-			foam,
-			foamView: foam.createView(),
-		};
+		this.#foam.destroy();
+		const foam = this.#foam.create({
+			label: 'water foam',
+			size: [context.width, context.height],
+			format: WATER_FOAM_FORMAT,
+		});
+		this.#foamTargets = { version: context.version, foamView: foam.createView() };
 		return this.#foamTargets;
 	}
 
@@ -514,7 +515,7 @@ export class WaterRenderer {
 		this.#surfaces.destroy();
 		this.#configs?.destroy();
 		this.#params.destroy();
-		this.#foamTargets?.foam.destroy();
+		this.#foam.destroy();
 		this.#noWaterDepth.destroy();
 	}
 }
