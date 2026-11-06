@@ -214,21 +214,27 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
 - **stretched quads.** with `m_FreeformStretching` off, a stretched particle is a streak from the
   particle back along its velocity, `size.y · m_LengthScale` (times the emitter's x scale) plus
   `speed · m_VelocityScale` long, with the camera's velocity times `m_CameraVelocityScale` taken off
-  the velocity first. its width, `size.x`, runs across the velocity as seen from the camera's
-  position (the cross product of the velocity and the camera-to-particle direction), flattened onto
-  the view plane; the particle's rotation and `m_RotateWithStretchDirection` don't enter. turning
-  the camera in place thus barely moves it. each corner's normal leans from the face's own normal
-  (perpendicular to the width and the 3D streak, towards the camera) out along its edge by
-  `cos(m_NormalDirection · 90°)`; at `m_NormalDirection` 1 every corner takes the face's normal.
-  Suiming's drifting fog (`smoke` in `p_fxmap_map02_lv007_windice01`, 10–13 m streaks twice their
-  size long, blown sideways at 5–15 m/s) is such a streak, faded by a steep Fresnel term on that
-  normal. the freeform path isn't traced.
+  the velocity first (the camera's world velocity, not turned into the camera's frame). its width,
+  `size.x`, runs across the velocity as seen from the camera's position (the cross product of the
+  velocity and the camera-to-particle direction), flattened onto the view plane; the particle's
+  rotation and `m_RotateWithStretchDirection` don't enter. turning the camera in place thus barely
+  moves it, while a streak tilted off the line of sight turns about itself as the camera moves. a
+  still particle, or one moving along the line of sight, has no width and isn't drawn. the pivot
+  moves the head forward along the velocity by `pivot.y · size.y` (no length scale) and the whole
+  streak across by `pivot.x` times half the width; `pivot.z` is unused. each corner's normal leans
+  from the face's own normal (perpendicular to the width and the 3D streak, towards the camera) out
+  along its edge by `cos(m_NormalDirection · 90°)`; at `m_NormalDirection` 1 every corner takes the
+  face's normal. Suiming's drifting fog (`smoke` in `p_fxmap_map02_lv007_windice01`, 10–13 m streaks
+  twice their size long, blown sideways at 5–15 m/s) is such a streak, faded by a steep Fresnel term
+  on that normal. the freeform path isn't traced.
 - **on-screen size.** for every quad mode the renderer holds a particle's larger side between
   `m_MinParticleSize` and `m_MaxParticleSize` times the viewport's width at the particle's view
   depth (`2·tan(fov/2)·aspect·depth`; twice the orthographic size times the aspect for orthographic
-  cameras), scaling x and y together; a particle behind the camera gets no size. a stretched quad's
-  length is worked out from its size before the limit, so the limit only narrows it. some value per
-  particle at or above 100 also hides it; what it is isn't traced.
+  cameras), scaling x and y together. behind the camera the minimum's bound is negative, which hides
+  the particle only when `m_MinParticleSize` is above 0; the maximum's negative bound is ignored, so
+  with no minimum a particle behind the camera keeps its whole size. a stretched quad's length is
+  worked out from its size before the limit, so the limit only narrows it. a dead particle (age at
+  or past 100% of its lifetime) gets no size.
 - **rotation over lifetime.** `RotationModule`'s rates (`curve` about z, and `x`, `y` with
   `separateAxes`) are angular velocities read at the particle's age over its lifetime, so curves
   speed up or slow the spin. the mushroom's wind sheets (`wind01`/`wind02`) start spinning at up to

@@ -653,27 +653,30 @@ describe('ParticleField', () => {
 
 	it('lays a stretched particle back from its head, its width set by where the camera is, not how it turns', () => {
 		// Suiming's drifting fog (`smoke` in p_fxmap_map02_lv007_windice01): legacy stretched quads
-		const fog = system({
-			renderMode: ParticleRenderMode.Stretched,
-			stretch: { lengthScale: 2, velocityScale: 0 },
-			screenSize: { min: 0, max: 2 },
-			looping: false,
-			startLifetime: constant(5),
-			rate: constant(0),
-			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
-			shape: null,
-			startSize: [constant(1), constant(1), constant(1)],
-			startRotation: [constant(0), constant(0), constant(0)],
-			gravityModifier: constant(0),
-			velocity: {
-				linear: [constant(0), constant(1), constant(0)],
-				linearInWorld: false,
-				orbital: [constant(0), constant(0), constant(0)],
-				orbitalOffset: [0, 0, 0],
-				radial: constant(0),
-				speedModifier: constant(1),
-			},
-		});
+		const moving = (linear: Vec3, pivot: Vec3 = [0, 0, 0]) =>
+			system({
+				renderMode: ParticleRenderMode.Stretched,
+				stretch: { lengthScale: 2, velocityScale: 0 },
+				screenSize: { min: 0, max: 2 },
+				looping: false,
+				startLifetime: constant(5),
+				rate: constant(0),
+				bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+				shape: null,
+				startSize: [constant(1), constant(1), constant(1)],
+				startRotation: [constant(0), constant(0), constant(0)],
+				gravityModifier: constant(0),
+				pivot,
+				velocity: {
+					linear: [constant(linear[0]), constant(linear[1]), constant(linear[2])],
+					linearInWorld: false,
+					orbital: [constant(0), constant(0), constant(0)],
+					orbitalOffset: [0, 0, 0],
+					radial: constant(0),
+					speedModifier: constant(1),
+				},
+			});
+		const fog = moving([0, 1, 0]);
 		const level = written(fog, {
 			eye,
 			widthPerDepth: 2,
@@ -695,6 +698,22 @@ describe('ParticleField', () => {
 		const expected = [1, 0, 0, 0, 2, 0, 0, 0, 1, 0, -1, 0];
 		assert.ok(near(level, expected), [...level.subarray(0, 12)].join());
 		assert.ok(near(pitched, expected), [...pitched.subarray(0, 12)].join());
+		// moving along the line of sight it has no width, and the game draws nothing
+		const view = {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 1, 0],
+			forward: [0, 0, 1],
+		} satisfies Omit<ParticleView, 'time'>;
+		const along = written(moving([0, 0, 1]), view);
+		assert.ok(
+			[0, 1, 2, 4, 5, 6, 8, 9, 10].every((i) => along[i] === 0),
+			[...along.subarray(0, 12)].join(),
+		);
+		// its pivot moves the head along the velocity by its size, and the streak across by half its width
+		const pivoted = written(moving([0, 1, 0], [1, 0.5, 0]), view);
+		assert.ok(near(pivoted, [1, 0, 0, 0, 2, 0, 0, 0, 1, 0.5, -0.5, 0]), [...pivoted.subarray(0, 12)].join());
 	});
 
 	it('offsets a view-aligned mesh by its pivot in the camera-turned frame it is drawn in', () => {
@@ -778,8 +797,9 @@ describe('screenLimited', () => {
 		// small ones grow to the minimum, those within the limits stay
 		assert.deepEqual(screenLimited([0.5, 1, 1], { min: 0.25, max: 0.5 }, view, [0, 0, 4]), [1, 2, 1]);
 		assert.deepEqual(screenLimited([3, 1, 1], { min: 0, max: 0.5 }, view, [0, 0, 4]), [3, 1, 1]);
-		// behind the camera, nothing
-		assert.deepEqual(screenLimited([3, 1, 1], { min: 0, max: 0.5 }, view, [0, 0, -4]), [0, 0, 0]);
+		// behind the camera the game drops it only with a minimum; without one it keeps its whole size
+		assert.deepEqual(screenLimited([3, 1, 1], { min: 0.1, max: 0.5 }, view, [0, 0, -4]), [0, 0, 1]);
+		assert.deepEqual(screenLimited([3, 1, 1], { min: 0, max: 0.5 }, view, [0, 0, -4]), [3, 1, 1]);
 	});
 });
 

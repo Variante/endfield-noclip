@@ -113,12 +113,14 @@ system and its index, so any moment can be evaluated on its own:
   from the particle along its velocity, as the game's legacy
   [stretching](../game-data/assets.md#particle-systems) does, their width across it as seen from the
   camera's position (`ParticleView.eye`), flattened onto the view plane, and their normal the face's
-  own (the game's at `m_NormalDirection` 1; other values' lean towards the edges isn't drawn). the
-  transform's scale sizes the particles only when the system is `sizedByScale`, and quads then keep
-  to their [on-screen limits](../game-data/assets.md#particle-systems) (`screenLimited`). rows that
-  turn with the camera (view-aligned meshes and billboards) or its heading (vertical quads) keep
-  their own rotation and set the [billboard](#billboards) bits, so `row_basis` turns them on the GPU
-  as it does billboard chains; the others are turned on the CPU.
+  own (the game's at `m_NormalDirection` 1; other values' lean towards the edges isn't drawn). like
+  the game's, still streaks and those along the line of sight get no size, and the pivot moves the
+  head and the streak as the game's does. the camera's velocity isn't taken off. the transform's
+  scale sizes the particles only when the system is `sizedByScale`, and quads then keep to their
+  [on-screen limits](../game-data/assets.md#particle-systems) (`screenLimited`). rows that turn with
+  the camera (view-aligned meshes and billboards) or its heading (vertical quads) keep their own
+  rotation and set the [billboard](#billboards) bits, so `row_basis` turns them on the GPU as it
+  does billboard chains; the others are turned on the CPU.
 
 modules not listed above (noise, collision, sub-emitters, trails, lights, custom data and the
 by-speed modules) are ignored, so systems that enable them play without their effect rather than not

@@ -1539,7 +1539,8 @@ export const turnedByBillboard = (
  * @param limits the smallest and largest it may be, as fractions of the viewport's width at its depth
  * @param view the camera
  * @param at the particle's world position
- * @returns the sizes scaled together to fit, or zero behind the camera
+ * @returns the sizes scaled together to fit. behind the camera (or on its plane) they're zero when the
+ *   minimum is above 0 and unchanged when it's 0
  */
 export const screenLimited = (
 	sizes: readonly number[],
@@ -1549,12 +1550,17 @@ export const screenLimited = (
 ): number[] => {
 	const f = view.forward;
 	const depth = (at[0] - view.eye[0]) * f[0] + (at[1] - view.eye[1]) * f[1] + (at[2] - view.eye[2]) * f[2];
-	const half = 0.5 * Math.max(sizes[0], sizes[1]);
-	if (depth <= 0 || half <= 0) {
-		return [0, 0, 0];
-	}
+	const half = 0.5 * Math.max(sizes[0], sizes[1], 1e-6);
+	// the game's tests, signs included: behind the camera the minimum's bound turns negative, which hides the
+	// quad only when the minimum is above 0, and the maximum's negative bound is ignored, so with no minimum the
+	// quad keeps its whole size there
 	const width = view.widthPerDepth * depth;
-	const held = Math.min(Math.max(half, 0.5 * limits.min * width), 0.5 * limits.max * width);
+	const low = limits.min * width;
+	const high = limits.max * width;
+	let held = low >= 0 ? Math.max(half, 0.5 * low) : 0;
+	if (high >= 0) {
+		held = Math.min(held, 0.5 * high);
+	}
 	const ratio = held / half;
 	return [sizes[0] * ratio, sizes[1] * ratio, sizes[2]];
 };
@@ -1786,8 +1792,9 @@ export class ParticleField {
 				// plane, so turning the camera in place leaves it be
 				const velocity = toWorld(scratch.subarray(base + At.velocity, base + At.velocity + 3));
 				const speed = Math.hypot(...velocity);
+				// a still particle has no streak, and the game draws nothing for it
 				const streak: Vec3 =
-					speed > 1e-6 ? [velocity[0] / speed, velocity[1] / speed, velocity[2] / speed] : view.up;
+					speed > 1e-15 ? [velocity[0] / speed, velocity[1] / speed, velocity[2] / speed] : view.up;
 				const f = view.forward;
 				const sight: Vec3 = [
 					instances.origin[0] + center[0] - view.eye[0],
@@ -1801,7 +1808,9 @@ export class ParticleField {
 				];
 				const ahead = across[0] * f[0] + across[1] * f[1] + across[2] * f[2];
 				const flat: Vec3 = [across[0] - f[0] * ahead, across[1] - f[1] * ahead, across[2] - f[2] * ahead];
-				const right: Vec3 = Math.hypot(...flat) > 1e-9 ? normalize(flat) : view.right;
+				// one moving along the line of sight has no width, so the game draws nothing for it either
+				const flatLength = Math.hypot(...flat);
+				const right: Vec3 = flatLength > 1e-15 ? normalize(flat) : view.right;
 				// the face's own normal, which the effect shaders' Fresnel fades by, turned so the quad's -z normal
 				// faces the camera
 				let face = normalize([
@@ -1814,11 +1823,16 @@ export class ParticleField {
 				}
 				axes = [right, streak, face];
 				const stretch = info.stretch ?? { lengthScale: 1, velocityScale: 0 };
-				const length = lengthSize * stretch.lengthScale + speed * stretch.velocityScale;
-				sizes = [sizes[0], length, sizes[2]];
-				// the unit quad is centred, and the particle sits at the streak's head
+				const drawn = speed > 1e-15 && flatLength > 1e-15;
+				const length = drawn ? lengthSize * stretch.lengthScale + speed * stretch.velocityScale : 0;
+				sizes = drawn ? [sizes[0], length, sizes[2]] : [0, 0, 0];
+				// the unit quad is centred, and the particle sits at the streak's head. the game's pivot moves the
+				// head along the velocity by its y times the size before the limits, and the whole streak across by
+				// its x times half the width
 				for (let r = 0; r < 3; r++) {
-					center[r] -= streak[r] * length * 0.5;
+					center[r] +=
+						streak[r] * (info.pivot[1] * lengthSize - length * 0.5) +
+						right[r] * info.pivot[0] * sizes[0] * 0.5;
 				}
 			} else if (info.renderMode !== ParticleRenderMode.Mesh) {
 				if (frame !== null) {
@@ -1854,7 +1868,7 @@ export class ParticleField {
 					}
 				}
 			}
-			if (info.pivot.some((value) => value !== 0)) {
+			if (info.renderMode !== ParticleRenderMode.Stretched && info.pivot.some((value) => value !== 0)) {
 				// the pivot moves the mesh in its turned and sized frame, the one it's drawn in: for camera-facing
 				// rows that frame is turned on the GPU, so turn the offset with it here
 				const inFrame = [0, 1, 2].map((r) =>
