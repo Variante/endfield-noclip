@@ -7,6 +7,7 @@
  */
 
 import type { Environment } from '../../environment/environment.ts';
+import { rowWriter } from '../../gfx/buffers.ts';
 import type { Camera } from '../../scene/camera.ts';
 
 import { type PostSettings, TONEMAPPERS } from './settings.ts';
@@ -79,13 +80,6 @@ const PostSlot = {
 /** byte size of `Post` */
 export const POST_BYTES = 63 * 16;
 
-/** @returns a setter of the `Post` field at a slot, from its first lane */
-const slotWriter =
-	(out: Float32Array) =>
-	(slot: number, values: readonly number[]): void => {
-		out.set(values, slot * 4);
-	};
-
 /**
  * writes the lanes that change only with the environment: the sun, atmosphere, fogs, bloom, AO shape,
  * vignette, cloud layer and grading. the frame's lanes ({@link writeFrameUniforms}) are left as they are,
@@ -95,7 +89,7 @@ const slotWriter =
  * @param environment the shown environment
  */
 export const writeEnvironmentUniforms = (out: Float32Array, environment: Environment): void => {
-	const set = slotWriter(out);
+	const set = rowWriter(out);
 	const S = PostSlot;
 	set(S.sun, [...environment.sunDirection, 1]);
 	set(S.sunIlluminance, [...environment.sunIlluminance, 0]);
@@ -202,7 +196,7 @@ export interface FrameUniformsInput {
  */
 export const writeFrameUniforms = (out: Float32Array, input: FrameUniformsInput): void => {
 	const { camera, width, height, time, settings, environment, flowNoise } = input;
-	const set = slotWriter(out);
+	const set = rowWriter(out);
 	const S = PostSlot;
 	const { forward, right, up } = camera.viewBasis(width / height);
 	set(S.forward, [...forward, camera.near]);

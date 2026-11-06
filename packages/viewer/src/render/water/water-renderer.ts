@@ -2,6 +2,7 @@ import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
+import { createBufferWithData, createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
@@ -217,11 +218,7 @@ export class WaterRenderer {
 			size: this.#surfaceData.byteLength,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		});
-		this.#params = device.createBuffer({
-			label: 'water params',
-			size: this.#paramData.byteLength,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#params = createUniformBuffer(device, 'water params', this.#paramData.byteLength);
 		this.#repeat = sampler(device, { ...LINEAR_REPEAT_MIPMAPPED, maxAnisotropy: 4 });
 		this.#noFlow = placeholder(device, 'black', '2d');
 		this.#noNormals = placeholder(device, 'black', '2d-array');
@@ -247,12 +244,11 @@ export class WaterRenderer {
 		}
 		const data = new Float32Array(table.configs.length * CONFIG_FLOATS);
 		table.configs.forEach((config, i) => packConfig(config.values, data, i * CONFIG_FLOATS));
-		this.#configs = this.#device.createBuffer({
+		this.#configs = createBufferWithData(this.#device, {
 			label: 'water configs',
-			size: data.byteLength,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			usage: GPUBufferUsage.STORAGE,
+			data,
 		});
-		this.#device.queue.writeBuffer(this.#configs, 0, data);
 	}
 
 	#groupsShown: readonly boolean[] = [];

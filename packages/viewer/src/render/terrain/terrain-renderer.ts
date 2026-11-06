@@ -9,6 +9,7 @@ import {
 } from '@endfield-noclip/package-format/terrain';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
+import { createBufferWithData } from '../../gfx/buffers.ts';
 import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
@@ -239,8 +240,9 @@ export class TerrainRenderer {
 		const { fill, wire } = gridIndices();
 		this.#fillCount = fill.length;
 		this.#wireCount = wire.length;
-		this.#fillIndices = this.#indexBuffer('terrain fill indices', fill);
-		this.#wireIndices = this.#indexBuffer('terrain wire indices', wire);
+		const usage = GPUBufferUsage.INDEX;
+		this.#fillIndices = createBufferWithData(device, { label: 'terrain fill indices', usage, data: fill });
+		this.#wireIndices = createBufferWithData(device, { label: 'terrain wire indices', usage, data: wire });
 		this.#layout = layouts.terrain;
 		this.#bindGroup = this.#createBindGroup();
 
@@ -363,12 +365,11 @@ export class TerrainRenderer {
 					i * LAYER_FLOATS,
 				);
 			}
-			const params = this.#device.createBuffer({
+			const params = createBufferWithData(this.#device, {
 				label: 'terrain layers',
-				size: data.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+				usage: GPUBufferUsage.STORAGE,
+				data,
 			});
-			this.#device.queue.writeBuffer(params, 0, data);
 			const targets = new Map<number, { texture: GPUTexture; layer: number }[]>();
 			const target = (blob: number, into: GPUTexture, layer: number): void => {
 				targets.getOrInsertComputed(blob, () => []).push({ texture: into, layer });
@@ -466,18 +467,6 @@ export class TerrainRenderer {
 	/** @param resident a page from {@link uploadSplat}; its slot returns to the pool */
 	releaseSplat(resident: ResidentSplat): void {
 		this.#freeDetailSlots.push(resident.slot);
-	}
-
-	#indexBuffer(label: string, data: Uint16Array): GPUBuffer {
-		const buffer = this.#device.createBuffer({
-			label,
-			size: Math.ceil(data.byteLength / 4) * 4,
-			usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-			mappedAtCreation: true,
-		});
-		new Uint16Array(buffer.getMappedRange()).set(data);
-		buffer.unmap();
-		return buffer;
 	}
 
 	/** @returns bytes of the fixed GPU allocations */

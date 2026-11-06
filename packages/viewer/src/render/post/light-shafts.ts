@@ -1,4 +1,5 @@
 import type { LightShaftLook } from '../../environment/environment.ts';
+import { createBufferWithData, createUniformBuffer } from '../../gfx/buffers.ts';
 import {
 	type FullscreenPass,
 	autoBindGroup,
@@ -51,20 +52,14 @@ export class LightShafts {
 	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
 		this.#postUniforms = postUniforms;
-		this.#uniforms = device.createBuffer({
-			label: 'light shaft uniforms',
-			size: UNIFORM_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
-		this.#passUniforms = Array.from({ length: BLUR_PASSES }, (_, i) => {
-			const buffer = device.createBuffer({
+		this.#uniforms = createUniformBuffer(device, 'light shaft uniforms', UNIFORM_BYTES);
+		this.#passUniforms = Array.from({ length: BLUR_PASSES }, (_, i) =>
+			createBufferWithData(device, {
 				label: `light shaft blur ${i}`,
-				size: 16,
-				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-			});
-			device.queue.writeBuffer(buffer, 0, new Float32Array([i, 0, 0, 0]));
-			return buffer;
-		});
+				usage: GPUBufferUsage.UNIFORM,
+				data: new Float32Array([i, 0, 0, 0]),
+			}),
+		);
 		this.#sampler = sampler(device, LINEAR_CLAMP);
 		const module = postShaderModule(device, 'light shafts', [luminanceWgsl, lightShaftsWgsl]);
 		const pipeline = (label: string, entryPoint: string, target: GPUColorTargetState): GPURenderPipeline =>

@@ -1,4 +1,5 @@
 import type { PostLook } from '../../environment/environment.ts';
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import {
 	type FullscreenPass,
 	autoBindGroup,
@@ -64,11 +65,7 @@ export class ScreenSpaceReflections {
 	constructor(device: GPUDevice, postUniforms: GPUBuffer) {
 		this.#device = device;
 		this.#postUniforms = postUniforms;
-		this.#uniforms = device.createBuffer({
-			label: 'ssr uniforms',
-			size: UNIFORM_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'ssr uniforms', UNIFORM_BYTES);
 		this.#sampler = sampler(device, LINEAR_CLAMP);
 		const module = postShaderModule(device, 'ssr', [
 			colorWgsl,

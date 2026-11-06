@@ -1,3 +1,4 @@
+import { createBufferWithData } from '../../gfx/buffers.ts';
 import type { DecodedSkin } from '../../package/decode-protocol.ts';
 
 import { skinFrame } from './skin-frame.ts';
@@ -65,22 +66,15 @@ export class SkinAnimator {
 		},
 	): ResidentSkin {
 		const device = this.#device;
-		const storage = (name: string, data: ArrayBuffer): GPUBuffer => {
-			const buffer = device.createBuffer({
+		const storage = (name: string, data: ArrayBuffer): GPUBuffer =>
+			createBufferWithData(device, {
 				label: `${label} ${name}`,
-				size: Math.max(16, Math.ceil(data.byteLength / 4) * 4),
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+				usage: GPUBufferUsage.STORAGE,
+				data,
+				minSize: 16,
 			});
-			device.queue.writeBuffer(buffer, 0, data);
-			return buffer;
-		};
 		const source = storage('bind pose', skin.source);
 		const frames = storage('frames', skin.matrices);
-		const params = device.createBuffer({
-			label: `${label} skin`,
-			size: PARAMS_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
 		const paramData = new ArrayBuffer(PARAMS_BYTES);
 		const words = new Uint32Array(paramData);
 		const floats = new Float32Array(paramData);
@@ -104,7 +98,12 @@ export class SkinAnimator {
 				24,
 			);
 		}
-		device.queue.writeBuffer(params, 0, paramData);
+		// the frame fields are written again as the animation plays
+		const params = createBufferWithData(device, {
+			label: `${label} skin`,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+			data: paramData,
+		});
 		const group = device.createBindGroup({
 			label: `${label} skin`,
 			layout: this.#pipeline.getBindGroupLayout(0),

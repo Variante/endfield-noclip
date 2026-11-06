@@ -1,3 +1,4 @@
+import { createBufferWithData } from '../../gfx/buffers.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 
@@ -43,12 +44,11 @@ export const uploadGeometry = (
 	if (streams.includes(null)) {
 		bindings.fitZeros(decoded.vertexCount);
 	}
-	const indices = device.createBuffer({
+	const indices = createBufferWithData(device, {
 		label: `geometry ${blob} indices`,
-		size: Math.max(4, decoded.indices.byteLength),
-		usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+		usage: GPUBufferUsage.INDEX,
+		data: decoded.indices,
 	});
-	device.queue.writeBuffer(indices, 0, decoded.indices);
 	const skin =
 		decoded.skin === null
 			? null

@@ -5,6 +5,7 @@ import {
 	meteredExposure,
 	targetExposure,
 } from '../../environment/exposure.ts';
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
 
@@ -54,11 +55,7 @@ export class AutoExposure {
 				entryPoint: 'cs_histogram',
 			},
 		}));
-		this.#uniforms = device.createBuffer({
-			label: 'auto exposure params',
-			size: 32,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'auto exposure params', 32);
 		this.#bins = device.createBuffer({
 			label: 'auto exposure bins',
 			size: BINS * 4,

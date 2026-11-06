@@ -1,6 +1,7 @@
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { type LensFlareLook, lensFlareTextures } from '../../environment/lens-flare-look.ts';
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_CLAMP_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
@@ -99,11 +100,7 @@ export class LensFlares {
 				}),
 			);
 		this.#pipelines = { image: pipelines('image'), circle: pipelines('circle') };
-		this.#frame = device.createBuffer({
-			label: 'lens flare frame',
-			size: FRAME_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#frame = createUniformBuffer(device, 'lens flare frame', FRAME_BYTES);
 		this.#quads = device.createBuffer({
 			label: 'lens flare quads',
 			size: this.#data.byteLength,

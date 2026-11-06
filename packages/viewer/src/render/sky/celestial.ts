@@ -14,6 +14,7 @@ import {
 	type CelestialTextureSlot,
 	NO_CELESTIAL,
 } from '../../environment/celestial-look.ts';
+import { createUniformBuffer, rowWriter } from '../../gfx/buffers.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
 import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT_MIPMAPPED, NEAREST_REPEAT, sampler } from '../../gfx/samplers.ts';
@@ -77,11 +78,7 @@ export class CelestialLayer {
 			version: -1,
 		};
 		this.#cloud = this.#noCloud;
-		this.#uniforms = device.createBuffer({
-			label: 'celestial uniforms',
-			size: UNIFORM_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'celestial uniforms', UNIFORM_BYTES);
 		this.#sampler = sampler(device, LINEAR_REPEAT_MIPMAPPED);
 		this.#pointSampler = sampler(device, NEAREST_REPEAT);
 		this.#black = placeholder(device, 'black', '2d');
@@ -204,9 +201,7 @@ export class CelestialLayer {
 		const look = this.#look;
 		const has = (slot: CelestialTextureSlot): boolean =>
 			(this.#views.get(slot) ?? this.#black) !== this.#black;
-		const set = (index: number, values: readonly number[]): void => {
-			f.set(values, index * 4);
-		};
+		const set = rowWriter(f);
 
 		const disc = look.sun;
 		if (disc !== null) {

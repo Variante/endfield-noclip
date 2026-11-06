@@ -1,6 +1,7 @@
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { LINEAR_CLAMP, LINEAR_REPEAT, sampler } from '../../gfx/samplers.ts';
@@ -173,11 +174,7 @@ export class IrradianceVolume {
 				slots: new Uint32Array(windowWords[level]),
 				windowBase,
 				dirty: true,
-				uniforms: device.createBuffer({
-					label: `irradiance update ${level}`,
-					size: UPDATE_WORDS * 4,
-					usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-				}),
+				uniforms: createUniformBuffer(device, `irradiance update ${level}`, UPDATE_WORDS * 4),
 				group: null,
 			};
 			windowBase += windowWords[level];

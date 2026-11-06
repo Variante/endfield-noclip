@@ -1,6 +1,7 @@
 import type { CelestialLook, CelestialTextureSlot } from '../../environment/celestial-look.ts';
 import type { Environment } from '../../environment/environment.ts';
 import type { LensFlareLook } from '../../environment/lens-flare-look.ts';
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { LINEAR_CLAMP, sampler as sharedSampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
@@ -84,11 +85,7 @@ export class PostProcess {
 	) {
 		this.#device = device;
 		this.#fog = fog;
-		this.#uniforms = device.createBuffer({
-			label: 'post uniforms',
-			size: POST_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'post uniforms', POST_BYTES);
 		const sampler = sharedSampler(device, LINEAR_CLAMP);
 		const postUniforms = this.#uniforms;
 		this.#autoExposure = new AutoExposure(device, pipelines);

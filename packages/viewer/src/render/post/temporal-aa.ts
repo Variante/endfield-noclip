@@ -1,3 +1,4 @@
+import { createUniformBuffer } from '../../gfx/buffers.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
 import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import { halton } from '../../math/sequence.ts';
@@ -60,11 +61,7 @@ export class TemporalAA {
 			targets: [{ format: HDR_FORMAT }],
 		});
 		this.#postGroup = autoBindGroup(device, this.#pipeline, 0, { 0: { buffer: postUniforms } });
-		this.#uniforms = device.createBuffer({
-			label: 'taa uniforms',
-			size: UNIFORM_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'taa uniforms', UNIFORM_BYTES);
 		this.#sampler = sampler(device, LINEAR_CLAMP);
 	}
 

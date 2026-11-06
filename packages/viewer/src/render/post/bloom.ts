@@ -1,3 +1,4 @@
+import { createBufferWithData } from '../../gfx/buffers.ts';
 import {
 	type FullscreenPass,
 	autoBindGroup,
@@ -140,16 +141,11 @@ export class Bloom {
 			target: GPUTexture;
 		}): FullscreenPass => {
 			const { label, pipeline, source, high, target } = descriptor;
-			const buffer = device.createBuffer({
+			const buffer = createBufferWithData(device, {
 				label: 'bloom pass',
-				size: 16,
-				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+				usage: GPUBufferUsage.UNIFORM,
+				data: new Float32Array([1 / source.width, 1 / source.height, source.width, source.height]),
 			});
-			device.queue.writeBuffer(
-				buffer,
-				0,
-				new Float32Array([1 / source.width, 1 / source.height, source.width, source.height]),
-			);
 			buffers.push(buffer);
 			const entries: Record<number, GPUBindingResource> = {
 				0: source.createView(),

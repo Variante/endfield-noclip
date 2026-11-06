@@ -1,6 +1,7 @@
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
+import { createUniformBuffer, rowWriter } from '../../gfx/buffers.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import { halton } from '../../math/sequence.ts';
@@ -111,11 +112,7 @@ export class VolumetricFog {
 		this.#texture = grid('volumetric fog');
 		this.view = this.#texture.createView();
 		this.#history = [grid('volumetric fog history 0'), grid('volumetric fog history 1')];
-		this.#uniforms = device.createBuffer({
-			label: 'volumetric fog uniforms',
-			size: UNIFORM_BYTES,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
+		this.#uniforms = createUniformBuffer(device, 'volumetric fog uniforms', UNIFORM_BYTES);
 		const layout = device.createBindGroupLayout({
 			label: 'volumetric fog',
 			entries: [
@@ -180,9 +177,7 @@ export class VolumetricFog {
 			return;
 		}
 		const f = this.#data;
-		const set = (at: number, values: readonly number[]): void => {
-			f.set(values, at * 4);
-		};
+		const set = rowWriter(f);
 		set(4, [slices.scale, slices.offset, DEPTH_DISTRIBUTION_SCALE, GRID[2]]);
 		set(5, [slices.near, look.nearFadeIn > 0 ? 1 / look.nearFadeIn : 1e6, look.anisotropy, 0]);
 		set(6, [...look.albedo, look.extinctionScale]);

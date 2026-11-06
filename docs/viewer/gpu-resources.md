@@ -52,6 +52,10 @@
   for the meshes, whose phases and passes are listed in
   [`draw-ranges.ts`](../../packages/viewer/src/render/meshes/draw-ranges.ts)). a draw or dispatch
   whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is.
+- **buffers** ([`gfx/buffers.ts`](../../packages/viewer/src/gfx/buffers.ts)): buffers that start
+  with data (index buffers, configs, fixed per-pass uniforms) are filled mapped at creation rather
+  than through a queue write; a pass's own uniform block is a `UNIFORM | COPY_DST` buffer it
+  rewrites with `writeBuffer`.
 - **samplers** ([`gfx/samplers.ts`](../../packages/viewer/src/gfx/samplers.ts)): one sampler per
   distinct state for the whole device, keyed with WebGPU's defaults filled in, so passes and package
   textures that sample alike share it. named presets cover the common states (bilinear clamp for
