@@ -5,6 +5,7 @@ import {
 	textureLevelLayout,
 } from '@endfield-noclip/package-format/textures';
 
+import { sampler } from '../../gfx/samplers.ts';
 import type { DecodedTexture } from '../../package/decode-protocol.ts';
 import type { ResidentTexture } from '../../streaming/resident.ts';
 
@@ -95,7 +96,6 @@ export class TextureStore {
 	 */
 	#pieces = new Map<number, PieceRef[]>();
 	#states = new Map<number, TextureState>();
-	#samplers = new Map<string, GPUSampler>();
 	/** textures that lost pieces since the last {@link commit} */
 	#released = new Set<TextureState>();
 	/**
@@ -259,15 +259,9 @@ export class TextureStore {
 				integrated: 0,
 				waiting: new Map(),
 				version: 0,
-				sampler: this.#sampler(entry),
+				sampler: sampler(this.#device, entry.sampler),
 			};
 		});
-	}
-
-	#sampler(entry: ReadyTexture): GPUSampler {
-		const { mipBias: _, ...descriptor } = entry.sampler;
-		const key = JSON.stringify(descriptor);
-		return this.#samplers.getOrInsertComputed(key, () => this.#device.createSampler(descriptor));
 	}
 
 	#create(entry: ReadyTexture, top: number): GPUTexture {

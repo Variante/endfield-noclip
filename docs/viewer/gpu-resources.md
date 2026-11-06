@@ -52,6 +52,11 @@
   for the meshes, whose phases and passes are listed in
   [`draw-ranges.ts`](../../packages/viewer/src/render/meshes/draw-ranges.ts)). a draw or dispatch
   whose pipeline isn't ready yet is skipped, and the frame loop renders again once it is.
+- **samplers** ([`gfx/samplers.ts`](../../packages/viewer/src/gfx/samplers.ts)): one sampler per
+  distinct state for the whole device, keyed with WebGPU's defaults filled in, so passes and package
+  textures that sample alike share it. named presets cover the common states (bilinear clamp for
+  render targets, trilinear repeat for materials, which water and terrain layers take with 4× and 8×
+  anisotropy).
 - **texture store**
   ([`render/textures/texture-store.ts`](../../packages/viewer/src/render/textures/texture-store.ts)):
   textures arrive as pieces, the mip tail first and then one blob per larger level. the GPU texture

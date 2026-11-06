@@ -1,3 +1,4 @@
+import { LINEAR_CLAMP, LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import { LookFlags, type MaterialLook, SLOTS, SLOT_FLAGS } from '../../looks/look.ts';
 import type { TextureBinding, TextureStore } from '../textures/texture-store.ts';
 
@@ -90,19 +91,8 @@ export class MaterialBindings {
 		});
 		this.#noVolume = noVolume.createView({ dimension: '3d' });
 		this.#textures = [white, noVolume];
-		this.#defaultSampler = device.createSampler({
-			label: 'material default',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			mipmapFilter: 'linear',
-		});
-		this.#clampSampler = device.createSampler({
-			label: 'effect background',
-			magFilter: 'linear',
-			minFilter: 'linear',
-		});
+		this.#defaultSampler = sampler(device, LINEAR_REPEAT_MIPMAPPED);
+		this.#clampSampler = sampler(device, LINEAR_CLAMP);
 	}
 
 	/** forgets every material's state and bind groups (when a package is unloaded) */

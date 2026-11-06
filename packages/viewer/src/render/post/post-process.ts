@@ -2,6 +2,7 @@ import type { CelestialLook, CelestialTextureSlot } from '../../environment/cele
 import type { Environment } from '../../environment/environment.ts';
 import type { LensFlareLook } from '../../environment/lens-flare-look.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { LINEAR_CLAMP, sampler as sharedSampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
 import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { type SceneTextures, HDR_FORMAT } from '../frame/render-targets.ts';
@@ -88,13 +89,7 @@ export class PostProcess {
 			size: POST_BYTES,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
-		const sampler = device.createSampler({
-			label: 'post bilinear',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-		});
+		const sampler = sharedSampler(device, LINEAR_CLAMP);
 		const postUniforms = this.#uniforms;
 		this.#autoExposure = new AutoExposure(device, pipelines);
 		this.#luts = new AtmosphereLuts(device, postUniforms, sampler);

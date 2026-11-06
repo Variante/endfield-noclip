@@ -2,6 +2,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import { halton } from '../../math/sequence.ts';
 import { scale } from '../../math/vec3.ts';
 import type { Camera } from '../../scene/camera.ts';
@@ -125,14 +126,7 @@ export class VolumetricFog {
 				{ binding: 4, visibility: GPUShaderStage.COMPUTE, sampler: {} },
 			],
 		});
-		const sampler = device.createSampler({
-			label: 'volumetric fog history',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-			addressModeW: 'clamp-to-edge',
-		});
+		const history = sampler(device, LINEAR_CLAMP);
 		const group = (write: GPUTexture, read: GPUTexture): GPUBindGroup =>
 			device.createBindGroup({
 				label: 'volumetric fog',
@@ -142,7 +136,7 @@ export class VolumetricFog {
 					{ binding: 1, resource: this.view },
 					{ binding: 2, resource: write.createView() },
 					{ binding: 3, resource: read.createView() },
-					{ binding: 4, resource: sampler },
+					{ binding: 4, resource: history },
 				],
 			});
 		const [a, b] = this.#history;

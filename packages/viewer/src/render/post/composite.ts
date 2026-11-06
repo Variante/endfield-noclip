@@ -1,4 +1,5 @@
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import { LINEAR_REPEAT, sampler } from '../../gfx/samplers.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import { SkyBinding } from '../sky/atmosphere-luts.ts';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
@@ -48,14 +49,7 @@ export class Composite {
 				[SkyBinding.froxels]: input.froxels,
 			}),
 		];
-		this.#repeatSampler = device.createSampler({
-			label: 'flow noise',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			addressModeW: 'repeat',
-		});
+		this.#repeatSampler = sampler(device, LINEAR_REPEAT);
 		this.#noFlowNoise = {
 			view: placeholderView(device, { label: 'no flow noise', dimension: '3d', format: 'r8unorm' }),
 			sampler: this.#repeatSampler,

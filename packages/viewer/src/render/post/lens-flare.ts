@@ -1,6 +1,7 @@
 import type { Vec2 } from '@endfield-noclip/package-format/values';
 
 import { type LensFlareLook, lensFlareTextures } from '../../environment/lens-flare-look.ts';
+import { LINEAR_CLAMP_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
 import type { StreamedTexture } from '../../streaming/texture-requests.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
@@ -108,14 +109,7 @@ export class LensFlares {
 			size: this.#data.byteLength,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		});
-		this.#sampler = device.createSampler({
-			label: 'lens flare',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			mipmapFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-		});
+		this.#sampler = sampler(device, LINEAR_CLAMP_MIPMAPPED);
 		this.#blankGroup = this.#textureGroup(
 			placeholderView(device, { label: 'no flare texture', dimension: '2d' }),
 		);

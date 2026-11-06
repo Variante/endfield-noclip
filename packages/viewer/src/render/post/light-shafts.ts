@@ -5,6 +5,7 @@ import {
 	encodeFullscreen,
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
+import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import luminanceWgsl from '../shaders/common/luminance.wgsl?raw';
@@ -64,13 +65,7 @@ export class LightShafts {
 			device.queue.writeBuffer(buffer, 0, new Float32Array([i, 0, 0, 0]));
 			return buffer;
 		});
-		this.#sampler = device.createSampler({
-			label: 'light shaft bilinear',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-		});
+		this.#sampler = sampler(device, LINEAR_CLAMP);
 		const module = postShaderModule(device, 'light shafts', [luminanceWgsl, lightShaftsWgsl]);
 		const pipeline = (label: string, entryPoint: string, target: GPUColorTargetState): GPURenderPipeline =>
 			fullscreenPipeline(device, { label, module, entryPoint, targets: [target] });

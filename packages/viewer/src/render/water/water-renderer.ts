@@ -3,6 +3,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import { type Plane, boxInFrustum } from '../../scene/camera.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { StreamManager } from '../../streaming/stream-manager.ts';
@@ -220,15 +221,7 @@ export class WaterRenderer {
 			size: this.#paramData.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
-		this.#repeat = device.createSampler({
-			label: 'water repeat',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			mipmapFilter: 'linear',
-			maxAnisotropy: 4,
-		});
+		this.#repeat = sampler(device, { ...LINEAR_REPEAT_MIPMAPPED, maxAnisotropy: 4 });
 		this.#noFlow = placeholderView(device, { label: 'no water flow map', dimension: '2d' });
 		this.#noNormals = placeholderView(device, { label: 'no water normals', dimension: '2d-array' });
 		this.#noFoam = placeholderView(device, { label: 'no water foam', dimension: '2d' });

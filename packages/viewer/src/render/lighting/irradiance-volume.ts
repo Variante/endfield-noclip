@@ -3,6 +3,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { LINEAR_CLAMP, LINEAR_REPEAT, sampler } from '../../gfx/samplers.ts';
 import { vec3From } from '../../math/vec3.ts';
 import type { DecodedIrradiance } from '../../package/decode-protocol.ts';
 import type { ResidentIrradiance } from '../../streaming/resident.ts';
@@ -108,19 +109,8 @@ export class IrradianceVolume {
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		});
 		this.#buffer = cellBuffer(device, true);
-		this.sampler = device.createSampler({
-			label: 'irradiance repeat',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			addressModeW: 'repeat',
-		});
-		this.clampSampler = device.createSampler({
-			label: 'irradiance clamp',
-			magFilter: 'linear',
-			minFilter: 'linear',
-		});
+		this.sampler = sampler(device, LINEAR_REPEAT);
+		this.clampSampler = sampler(device, LINEAR_CLAMP);
 		{
 			const compute = GPUShaderStage.COMPUTE;
 			const storage = (binding: number, format: GPUTextureFormat): GPUBindGroupLayoutEntry => ({

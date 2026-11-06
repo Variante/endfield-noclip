@@ -15,6 +15,7 @@ import {
 	NO_CELESTIAL,
 } from '../../environment/celestial-look.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import { LINEAR_REPEAT_MIPMAPPED, NEAREST_REPEAT, sampler } from '../../gfx/samplers.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 import { postShaderModule } from '../post/shader-source.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';
@@ -80,17 +81,8 @@ export class CelestialLayer {
 			size: UNIFORM_BYTES,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
-		const sampler = (label: string, filter: GPUFilterMode): GPUSampler =>
-			device.createSampler({
-				label,
-				magFilter: filter,
-				minFilter: filter,
-				mipmapFilter: filter,
-				addressModeU: 'repeat',
-				addressModeV: 'repeat',
-			});
-		this.#sampler = sampler('celestial', 'linear');
-		this.#pointSampler = sampler('celestial clouds', 'nearest');
+		this.#sampler = sampler(device, LINEAR_REPEAT_MIPMAPPED);
+		this.#pointSampler = sampler(device, NEAREST_REPEAT);
 		this.#black = placeholderView(device, { label: 'no celestial texture', dimension: '2d' });
 	}
 

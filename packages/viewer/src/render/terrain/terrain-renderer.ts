@@ -12,6 +12,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { LINEAR_CLAMP, LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import type {
 	DecodedSplat,
 	DecodedHeights,
@@ -203,20 +204,8 @@ export class TerrainRenderer {
 		this.#albedo = surfaceTexture('terrain albedo pages');
 		this.#normal = surfaceTexture('terrain normal pages');
 		this.#surfaceBytes = this.surfaces ? surfaceSlots * SURFACE_IMAGE_BYTES * 2 : 0;
-		this.#surfaceSampler = device.createSampler({
-			label: 'terrain surface',
-			magFilter: 'linear',
-			minFilter: 'linear',
-		});
-		this.#layerSampler = device.createSampler({
-			label: 'terrain layers',
-			addressModeU: 'repeat',
-			addressModeV: 'repeat',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			mipmapFilter: 'linear',
-			maxAnisotropy: 8,
-		});
+		this.#surfaceSampler = sampler(device, LINEAR_CLAMP);
+		this.#layerSampler = sampler(device, { ...LINEAR_REPEAT_MIPMAPPED, maxAnisotropy: 8 });
 
 		// splat pages need BC for the tint and the layer textures; without it the pool stays empty
 		const detailSlots = this.surfaces ? Math.min(DETAIL_SLOTS, device.limits.maxTextureArrayLayers) : 0;

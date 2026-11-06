@@ -5,6 +5,7 @@ import {
 	encodeFullscreen,
 	fullscreenPipeline,
 } from '../../gfx/fullscreen-pass.ts';
+import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';
@@ -68,13 +69,7 @@ export class ScreenSpaceReflections {
 			size: UNIFORM_BYTES,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
-		this.#sampler = device.createSampler({
-			label: 'ssr bilinear',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-		});
+		this.#sampler = sampler(device, LINEAR_CLAMP);
 		const module = postShaderModule(device, 'ssr', [
 			colorWgsl,
 			screenSpaceWgsl,

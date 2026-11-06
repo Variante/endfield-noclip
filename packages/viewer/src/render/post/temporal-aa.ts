@@ -1,4 +1,5 @@
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import { LINEAR_CLAMP, sampler } from '../../gfx/samplers.ts';
 import { halton } from '../../math/sequence.ts';
 import type { Camera } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
@@ -64,13 +65,7 @@ export class TemporalAA {
 			size: UNIFORM_BYTES,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
-		this.#sampler = device.createSampler({
-			label: 'taa bilinear',
-			magFilter: 'linear',
-			minFilter: 'linear',
-			addressModeU: 'clamp-to-edge',
-			addressModeV: 'clamp-to-edge',
-		});
+		this.#sampler = sampler(device, LINEAR_CLAMP);
 	}
 
 	/**
