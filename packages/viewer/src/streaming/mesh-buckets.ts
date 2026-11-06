@@ -132,6 +132,8 @@ export class MeshBuckets {
 	#buckets = new Map<number, MeshBucket>();
 	/** drawn draws per chain, built on first use */
 	#slots: (ChainSlot[] | null)[];
+	/** per chain, 1 when its instances draw their box while no LOD is resident, set with {@link #slots} */
+	#boxes: Uint8Array;
 
 	/** @param init tables and residency */
 	constructor(init: MeshBucketsInit) {
@@ -142,6 +144,18 @@ export class MeshBuckets {
 		this.#stream = init.stream;
 		// filled up front: an array written at scattered indices turns into a slow dictionary
 		this.#slots = Array.from({ length: init.chains.length }, () => null);
+		this.#boxes = new Uint8Array(init.chains.length);
+	}
+
+	/**
+	 * an emitter's box spans everywhere its particles reach, so it doesn't stand in for them; nor does a shadow
+	 * proxy's
+	 *
+	 * @param chain chain index, whose {@link slots} were built
+	 * @returns whether the chain's instances in view draw their box while none of their LODs is resident
+	 */
+	drawsBox(chain: number): boolean {
+		return this.#boxes[chain] === 1;
 	}
 
 	/**
@@ -178,6 +192,8 @@ export class MeshBuckets {
 				});
 			}
 			this.#slots[chain] = slots;
+			const box = slots.some((slot) => !slot.shadowOnly) && !slots.some((slot) => slot.particles !== null);
+			this.#boxes[chain] = box ? 1 : 0;
 		}
 		return slots;
 	}

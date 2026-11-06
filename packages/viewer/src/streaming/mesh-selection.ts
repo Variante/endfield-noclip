@@ -158,6 +158,7 @@ export class MeshSelector {
 					continue;
 				}
 				const slots = this.#buckets.slots(runs[r]);
+				const box = this.#buckets.drawsBox(runs[r]);
 				// effect distance bands measure from the effect's origin, in the instance's frame
 				const origin = this.#chains[runs[r]].distanceOrigin;
 				const last = Math.min(end, runEnd);
@@ -221,12 +222,7 @@ export class MeshSelector {
 					if (!ready) {
 						pendingCount = this.#residentLod(slots, lod, { castOnly, view });
 						if (pendingCount === 0) {
-							// an emitter's box spans everywhere its particles reach, so it doesn't stand in for them
-							if (
-								!castOnly &&
-								slots.some((slot) => !slot.shadowOnly) &&
-								!slots.some((slot) => slot.particles !== null)
-							) {
+							if (box && !castOnly) {
 								boxes.push(row);
 							}
 							continue;

@@ -46,8 +46,10 @@
   marches that (keeping its scattered reads in cache) and the blur upsamples with depth weights.
 - **cached work.** the transmittance and multiple-scattering LUTs render once per environment;
   irradiance clipmaps update only on re-centre or new cells.
-- **no per-frame allocation on hot paths.** selections, buckets and plane arrays are reused across
-  frames.
+- **no per-frame allocation on hot paths.** selections (their arrays and the instance range, terrain
+  patch and surface objects in them), buckets and plane arrays are reused across frames, and texture
+  requests per bucket allocate nothing. the stream manager evicts from a set of its ready, unpinned
+  blobs rather than sweeping every blob it has seen, and reads each shard blob's byte range once.
 
 ## optimization candidates
 

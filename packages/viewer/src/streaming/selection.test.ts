@@ -170,3 +170,86 @@ it('drops the HLOD of a nearby leaf with no detail instead of overlaying the sce
 	far.position = [32, 32, -1000];
 	assert.equal(selector.run({ ...view, camera: far }, options, null).instances.length, 1);
 });
+
+it('keeps drawing the HLOD in place of a refinement still loading, then the refinement', () => {
+	const ref = (kind: ContentRef['kind'], blob: number): ContentRef => ({
+		kind,
+		tier: 0,
+		group: 0,
+		blob,
+		first: blob * 10,
+		count: blob,
+		param: 0,
+	});
+	const node = (index: number, minX: number, size: number): TileNode => ({
+		index,
+		level: index === 0 ? 0 : 1,
+		x: 0,
+		z: 0,
+		minX,
+		minZ: 0,
+		size,
+		bounds: { min: [minX, 0, 0], max: [minX + size, 64, size] },
+		geometricError: size / 16,
+		quadrants: [null, null, null, null],
+		terrain: null,
+		surface: null,
+		terrainSplat: null,
+		detail: [],
+		hlod: [],
+		conditional: [],
+		cellId: null,
+	});
+	const root = node(0, 0, 128);
+	const left = node(1, 0, 64);
+	const right = node(2, 64, 64);
+	root.quadrants = [left, right, null, null];
+	root.hlod = [ref(ContentKind.Hlod, 1)];
+	left.detail = [ref(ContentKind.Detail, 2)];
+	right.detail = [ref(ContentKind.Detail, 3)];
+	const tree: TileTree = {
+		nodes: [root, left, right],
+		roots: [root],
+		byId: new Map(),
+		terrainLeafLevel: -1,
+		terrainRootLevel: Infinity,
+	};
+	const resident = new Set([1, 2]);
+	const items = new Map([1, 2, 3].map((blob) => [blob, { blob } as ContentItem]));
+	const selector = new Selector(
+		tree,
+		{
+			want: (blob) => (resident.has(blob) ? (items.get(blob) ?? null) : null),
+			get: (blob) => items.get(blob),
+			markUsed: (blob) => resident.has(blob),
+			isReady: (blob) => resident.has(blob),
+		},
+		[],
+		128,
+	);
+	selector.setGroupsShown([true]);
+	const options: SelectionOptions = {
+		terrain: false,
+		terrainSurface: false,
+		terrainSplat: false,
+		instances: true,
+		detail: true,
+		global: true,
+		maxSse: 12,
+		terrainPixels: 3,
+		hlodTiers: [true, true, true],
+	};
+	const camera = new Camera();
+	camera.position = [64, 32, -10];
+	const view = { camera, planes: [], pixelFactor: 1000, casters: null };
+	const ranges = (): [blob: number, first: number, count: number][] =>
+		selector.run(view, options, null).instances.map(({ item, first, count }) => [item.blob, first, count]);
+	assert.deepEqual(ranges(), [[1, 10, 1]]);
+	resident.add(3);
+	assert.deepEqual(ranges(), [
+		[2, 20, 2],
+		[3, 30, 3],
+	]);
+	resident.delete(3);
+	assert.deepEqual(ranges(), [[1, 10, 1]]);
+});

@@ -103,6 +103,12 @@ export class Selector {
 	#rootSize: number;
 	#focusCells: ReadonlySet<string> | null = null;
 	#groupsShown: readonly boolean[] = [];
+	/** the objects of {@link Selection.instances}, by position, reused across frames */
+	#rangePool: InstanceRange[] = [];
+	/** the objects of {@link Selection.patches}, by position, reused across frames */
+	#patchPool: TerrainPatch[] = [];
+	/** each node's surface source, reused across frames */
+	#surfaces = new Map<TileNode, SurfaceSource>();
 
 	/**
 	 * @param tree the linked tree
@@ -143,7 +149,7 @@ export class Selector {
 				}
 				const item = this.#stream.markUsed(ref.blob) ? this.#stream.get(ref.blob) : undefined;
 				if (item !== undefined) {
-					selection.instances.push({ item, first: ref.first, count: ref.count });
+					this.#emitRange(item, ref);
 				}
 			}
 		}
@@ -195,7 +201,7 @@ export class Selector {
 			}
 			const item = this.#stream.want(ref.blob, this.#priority(node, view.pixelFactor / distance, inView));
 			if (item !== null) {
-				this.selection.instances.push({ item, first: ref.first, count: ref.count });
+				this.#emitRange(item, ref);
 			}
 		}
 		for (const child of node.quadrants) {
@@ -234,9 +240,30 @@ export class Selector {
 		return priority;
 	}
 
-	/** @returns the node's HLOD refs if all are resident (marking them used), `[]` if it has none, else `null` */
-	#readyHlod(node: TileNode, options: SelectionOptions, priority: number): InstanceRange[] | null {
-		const ranges: InstanceRange[] = [];
+	/** appends a row range of a resident block to the selection, in a pooled object */
+	#emitRange(item: ContentItem, ref: ContentRef): void {
+		const out = this.selection.instances;
+		const pool = this.#rangePool;
+		let range = pool[out.length];
+		if (range === undefined) {
+			range = { item, first: ref.first, count: ref.count };
+			pool.push(range);
+		} else {
+			range.item = item;
+			range.first = ref.first;
+			range.count = ref.count;
+		}
+		out.push(range);
+	}
+
+	/**
+	 * wants the node's HLOD refs and, if all are resident (or it has none), appends them to the selection
+	 *
+	 * @returns whether they were appended
+	 */
+	#emitHlod(node: TileNode, options: SelectionOptions, priority: number): boolean {
+		const out = this.selection.instances;
+		const start = out.length;
 		let ready = true;
 		for (const ref of node.hlod) {
 			if (!options.hlodTiers[ref.tier] || !this.#shows(ref)) {
@@ -246,10 +273,13 @@ export class Selector {
 			if (item === null) {
 				ready = false;
 			} else {
-				ranges.push({ item, first: ref.first, count: ref.count });
+				this.#emitRange(item, ref);
 			}
 		}
-		return ready ? ranges : null;
+		if (!ready) {
+			out.length = start;
+		}
+		return ready;
 	}
 
 	#hasHlod(node: TileNode, options: SelectionOptions): boolean {
@@ -285,15 +315,7 @@ export class Selector {
 		const refine = canRefine && (sse > options.maxSse || !hasHlod);
 
 		if (!refine) {
-			if (!hasHlod) {
-				return true;
-			}
-			const hlod = this.#readyHlod(node, options, priority);
-			if (hlod !== null) {
-				out.push(...hlod);
-				return true;
-			}
-			return false;
+			return !hasHlod || this.#emitHlod(node, options, priority);
 		}
 
 		const mark = out.length;
@@ -307,7 +329,7 @@ export class Selector {
 				if (item === null) {
 					complete = false;
 				} else {
-					out.push({ item, first: ref.first, count: ref.count });
+					this.#emitRange(item, ref);
 				}
 			}
 		} else {
@@ -320,13 +342,18 @@ export class Selector {
 		if (complete || !hasHlod) {
 			return complete;
 		}
-		// the refinement isn't resident yet: keep showing this node's HLOD meanwhile
-		const hlod = this.#readyHlod(node, options, priority);
-		if (hlod === null) {
+		// the refinement isn't resident yet: keep showing this node's HLOD meanwhile, in its place
+		const end = out.length;
+		if (!this.#emitHlod(node, options, priority)) {
 			return false;
 		}
-		out.length = mark;
-		out.push(...hlod);
+		// the pooled objects stay at their positions, so the HLOD's values move down into them
+		for (let from = end, to = mark; from < out.length; from++, to++) {
+			out[to].item = out[from].item;
+			out[to].first = out[from].first;
+			out[to].count = out[from].count;
+		}
+		out.length = mark + (out.length - end);
 		return true;
 	}
 
@@ -378,7 +405,8 @@ export class Selector {
 		if (options.terrainSurface && node.surface !== null) {
 			const page = this.#stream.want(node.surface.blob, priority);
 			if (page !== null) {
-				surface = { item: page, node };
+				surface = this.#surfaces.getOrInsertComputed(node, () => ({ item: page, node }));
+				surface.item = page;
 			}
 		}
 		let detail: ContentItem | null = null;
@@ -397,7 +425,12 @@ export class Selector {
 		const finerRange = this.#range(level + 1, view, options);
 		const subdivide = level < this.#tree.terrainLeafLevel && distance < finerRange;
 		if (!subdivide) {
-			this.selection.patches.push({ item, node, quadrant: -1, morphStart, morphEnd, surface, detail });
+			const patch = this.#nextPatch(item, node);
+			patch.quadrant = -1;
+			patch.morphStart = morphStart;
+			patch.morphEnd = morphEnd;
+			patch.surface = surface;
+			patch.detail = detail;
 			return;
 		}
 		for (let quadrant = 0; quadrant < 4; quadrant++) {
@@ -409,8 +442,28 @@ export class Selector {
 			if (child?.terrain != null) {
 				this.#stream.want(child.terrain.blob, this.#priority(child, sse * 2, true));
 			}
-			this.selection.patches.push({ item, node, quadrant, morphStart, morphEnd, surface, detail: null });
+			const patch = this.#nextPatch(item, node);
+			patch.quadrant = quadrant;
+			patch.morphStart = morphStart;
+			patch.morphEnd = morphEnd;
+			patch.surface = surface;
+			patch.detail = null;
 		}
+	}
+
+	/** @returns a pooled patch of `item`'s page, appended to the selection; the caller sets the rest */
+	#nextPatch(item: ContentItem, node: TileNode): TerrainPatch {
+		const out = this.selection.patches;
+		const pool = this.#patchPool;
+		let patch = pool[out.length];
+		if (patch === undefined) {
+			patch = { item, node, quadrant: -1, morphStart: 0, morphEnd: 0, surface: null, detail: null };
+			pool.push(patch);
+		}
+		patch.item = item;
+		patch.node = node;
+		out.push(patch);
+		return patch;
 	}
 
 	// #endregion
