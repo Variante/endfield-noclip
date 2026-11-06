@@ -17,11 +17,15 @@ the horizon.
 the cloud panorama (`cloud.cloudTexture`) is blended over the sky by its alpha above the horizon. it
 covers only the upper hemisphere: u is the azimuth (`atan2(x, z)`) turned back by `rotation`
 degrees, and v runs from the horizon (0, Unity's bottom row) to the zenith (1), so the texture's
-height spans 90° of elevation. it's tinted by
-`cloudTint × cloudFadeAlpha × cloudAbsoluteBrightness`; the brightness reaches alpha only with
-`brightnessAffectCloudAlpha`. `cloudBrightness` matters only with `lightAffectCloud`, which no
-shipped base profile sets. texture mode 0 takes `cloudOpacityR`/`cloudOpacityG` per channel. the
-game's C# passes the tint raw, not decoded from sRGB.
+height spans 90° of elevation. it's tinted by `cloudTint × cloudFadeAlpha × brightness`, where the
+brightness is `cloudAbsoluteBrightness`, or with `lightAffectCloud`
+`(cloudBrightness + light.directIntensityDividePi) × sky.proceduralSkyLuxFactor`, so lit clouds
+follow the exposed sun as the sun disc does. the brightness reaches alpha only with
+`brightnessAffectCloudAlpha`. the base profiles leave `lightAffectCloud` off, but local phases set
+it with a small tint alpha that only the sun term makes visible: Power Plateau's overcast
+(`Env_map01_lv007_art_overcast_brightness`, ≈ 4.3×) and its boss phases. texture mode 0 takes
+`cloudOpacityR`/`cloudOpacityG` per channel. the game's C# passes the tint raw, not decoded from
+sRGB.
 
 the sky is fogged as if at `sky.skyDistance`.
 

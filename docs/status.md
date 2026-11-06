@@ -295,9 +295,10 @@ packs or renders correctly.
   random-number mapping is assumed
 - the sky's celestial layers are unchecked against in-game shots, and the moon's sky-wide ring
   (`HG_RING`) and the aurora aren't drawn
-  ([beyond the atmosphere](game-data/sky-and-fog.md#beyond-the-atmosphere)); `cloudBrightness`,
-  `lightAffectCloud` and `enableFarCloudShadowTexture` are ignored
-  ([sky](game-data/sky-and-fog.md#sky), [cloud shadows](game-data/lighting.md#cloud-shadows))
+  ([beyond the atmosphere](game-data/sky-and-fog.md#beyond-the-atmosphere));
+  `enableFarCloudShadowTexture` is ignored ([cloud shadows](game-data/lighting.md#cloud-shadows)).
+  sun-lit clouds ([sky](game-data/sky-and-fog.md#sky)) at Power Plateau still read lighter and
+  thinner than the in-game shot, unexplained
 - HLOD/detail, LOD and mip swaps pop without cross-fade; ground-blend and decal meshes z-fight
   without the game's depth offsets
 

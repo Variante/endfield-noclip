@@ -76,7 +76,7 @@ export type LightInput = Pick<
 /** the parts of the game's sky config the viewer reads */
 export type SkyInput = Pick<
 	SkyConfig,
-	'skyAmbientSH' | 'skyDirectIntensity' | 'reflectionMap' | 'skyDistance'
+	'skyAmbientSH' | 'skyDirectIntensity' | 'reflectionMap' | 'skyDistance' | 'proceduralSkyLuxFactor'
 >;
 
 /** the game's atmosphere config, Unreal's SkyAtmosphere parameters: kilometres and per-kilometre */
@@ -185,6 +185,8 @@ export type CloudInput = Pick<
 	| 'cloudTexture'
 	| 'cloudTint'
 	| 'cloudContrast'
+	| 'lightAffectCloud'
+	| 'cloudBrightness'
 	| 'cloudAbsoluteBrightness'
 	| 'brightnessAffectCloudAlpha'
 	| 'drawCloudAfterPlanet'
@@ -653,6 +655,7 @@ const DEFAULT_PROFILE: EnvironmentInput = {
 		skyDirectIntensity: 1,
 		reflectionMap: null,
 		skyDistance: 5000,
+		proceduralSkyLuxFactor: 1,
 	},
 	atmosphere: {
 		groundRadius: 6360,
@@ -829,17 +832,29 @@ const postLook = (post: PostInput | null): PostLook => {
 	};
 };
 
-const cloudLook = (cloud: CloudInput | null): Environment['cloud'] => {
+/**
+ * the cloud panorama as the game packs it (docs/game-data/sky-and-fog.md#sky)
+ *
+ * @param cloud the blended cloud section, or `null` for none
+ * @param light the blended light section, for clouds lit by the sun
+ * @param sky the blended sky section, for clouds lit by the sun
+ * @returns the panorama to draw, or `null` without one
+ */
+export const cloudLook = (
+	cloud: CloudInput | null,
+	light: Pick<LightInput, 'directLux' | 'directEV100'>,
+	sky: Pick<SkyInput, 'proceduralSkyLuxFactor'>,
+): Environment['cloud'] => {
 	if (cloud === null || !cloud.enable || cloud.cloudTexture === null) {
 		return null;
 	}
-	// as the game packs it: the raw tint (no sRGB decode) times the fade and the absolute brightness, which
-	// reaches alpha only when asked to. `cloudBrightness` only counts with `lightAffectCloud`, which no shipped
-	// base profile sets
+	// the raw tint (no sRGB decode) times the fade and a brightness, which reaches alpha only when asked to
 	const [r, g, b, a] = cloud.cloudTint;
-	const scale = cloud.cloudFadeAlpha * cloud.cloudAbsoluteBrightness;
-	const alphaScale =
-		cloud.cloudFadeAlpha * (cloud.brightnessAffectCloudAlpha ? cloud.cloudAbsoluteBrightness : 1);
+	const brightness = cloud.lightAffectCloud
+		? (cloud.cloudBrightness + exposedSunIntensity(light) / Math.PI) * sky.proceduralSkyLuxFactor
+		: cloud.cloudAbsoluteBrightness;
+	const scale = cloud.cloudFadeAlpha * brightness;
+	const alphaScale = cloud.cloudFadeAlpha * (cloud.brightnessAffectCloudAlpha ? brightness : 1);
 	const singleChannel = cloud.cloudTextureMode === 0;
 	return {
 		texture: cloud.cloudTexture,
@@ -1056,7 +1071,7 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 		skyDistance: sky.skyDistance,
 		post: postLook(source.post ?? DEFAULT_PROFILE.post),
 		grading: gradingLook(source.colorGrading),
-		cloud: cloudLook(source.cloud),
+		cloud: cloudLook(source.cloud, light, sky),
 		cloudShadow: cloudShadowLook(source.cloud, light),
 		autoExposure: autoExposureLook(source.autoExposure),
 		lightShaft: lightShaftLook(source.lightShaft, light),
