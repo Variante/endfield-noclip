@@ -16,9 +16,6 @@ import { OtherLevels } from './other-levels.tsx';
 import { StoryControls } from './story-controls.tsx';
 import { WaterLevels } from './water-levels.tsx';
 
-/** categories whose sections start open */
-const OPEN = new Set(['sceneStates', 'progression', 'dijiang']);
-
 /** categories listed by sections of their own, which show the content they move */
 const OWN_SECTIONS = new Set(['water', 'environment']);
 
@@ -153,7 +150,6 @@ export const SceneControls = ({ viewer }: { viewer: Viewer }) => {
 					return (
 						<LazyDetails
 							key={`${scope}/${id}`}
-							initiallyOpen={scope === 'level' ? OPEN.has(id) : here.length <= 12}
 							summary={
 								<summary>
 									{title} ({count})
