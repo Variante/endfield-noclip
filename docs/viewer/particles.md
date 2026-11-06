@@ -76,18 +76,20 @@ system and its index, so any moment can be evaluated on its own:
 
 - at age `a` a particle has moved `(start speed + linear velocity) · m · a`, where `m` is the
   velocity module's speed modifier and a world-space linear velocity is first turned into the
-  emitter's frame, plus `½ g a²` down the world's y (Unity's gravity, 9.81 m/s² times the gravity
+  emitter's frame, plus `½ g m a²` down the world's y (Unity's gravity, 9.81 m/s² times the gravity
   modifier) and the radial push times `m`, then turned about the orbit's centre by `ω · m · a`.
   linear, orbital and radial curves are integrated over the age (Simpson's rule), so Jingyu's
   drifting petals turn through their spin-up's integral. turning the whole path is exact when the
   rest of the motion runs along the orbit's axis.
 - a speed modifier curve (`modifierAt`) takes the place of `m · a` with its integral over the age,
   and the linear, orbital and radial curves are integrated times it, as the game
-  [scales every step](../game-data/effects.md#particle-systems); the fall isn't scaled. systems with
-  such a curve and drag stand in.
+  [scales every step](../game-data/effects.md#particle-systems); the fall, built up in the velocity
+  it scales, becomes `∫ g τ m(τ) dτ` (`½ g m a²` for a constant). systems with such a curve and drag
+  stand in.
 - drag slows the start velocity alone, by `k v` or `k v²` (k the amount, times the cross-section
   `π (size / 2)²` when it scales with size), and gravity falls towards the matching terminal speed;
-  the velocity module's own terms and orbits aren't slowed, and the size is the start size.
+  the velocity module's own terms and orbits aren't slowed, and the size is the start size. the
+  speed modifier then scales the slowed launch and fall alike.
 - under a speed limit or force fields (`steppedPath`) there is no closed form, so the particle is
   stepped to its age at 30 Hz (at most 600 steps, longer ones beyond), from its birth the first time
   it's drawn and from where the previous frame left it after that; a step back in time starts it

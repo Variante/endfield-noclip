@@ -290,6 +290,35 @@ describe('ParticleSimulation', () => {
 		const [steady] = rising(constant(2));
 		assert.ok(Math.abs(steady.position[2] - 1) < 1e-6, `${steady.position[2]}`);
 	});
+
+	it('scales the fall by the speed modifier, as gravity builds up in the velocity it scales', () => {
+		const falling = (speedModifier: MinMaxCurveInfo) =>
+			run(
+				system({
+					gravityModifier: constant(1),
+					looping: false,
+					rate: constant(0),
+					startLifetime: constant(1),
+					shape: null,
+					bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+					velocity: {
+						linear: [constant(0), constant(0), constant(0)],
+						linearInWorld: false,
+						orbital: [constant(0), constant(0), constant(0)],
+						orbitalOffset: [0, 0, 0],
+						radial: constant(0),
+						speedModifier,
+					},
+				}),
+				0.5,
+			);
+		// down is the emitter's −z here. ∫₀^½ g·a·2a da = g / 12 for a modifier from 0 to 2, and ½ g ¼ · 2 =
+		// g / 4 for a constant 2
+		const [ramped] = falling(line(0, 2));
+		assert.ok(Math.abs(ramped.position[2] + 9.81 / 12) < 1e-6, `${ramped.position[2]}`);
+		const [steady] = falling(constant(2));
+		assert.ok(Math.abs(steady.position[2] + 9.81 / 4) < 1e-6, `${steady.position[2]}`);
+	});
 });
 
 describe('ring buffers', () => {

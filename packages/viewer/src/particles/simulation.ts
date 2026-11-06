@@ -695,13 +695,23 @@ export class ParticleSimulation {
 		if (drag === null) {
 			launch = speed * modifier * scaledAge;
 			launchSpeed = speed * modifier * scaleNow;
-			fall = 0.5 * gravity * age * age;
-			fallSpeed = gravity * age;
+			// gravity builds up in the velocity the modifier scales, so the fall is ∫ g·τ·m(τ) dτ
+			if (modifierAt === null) {
+				fall = 0.5 * gravity * modifier * age * age;
+			} else {
+				fall = gravity * integrateAge((t) => t * modifierAt(t), age);
+			}
+			fallSpeed = gravity * age * modifier * scaleNow;
 		} else {
+			// drag slows the velocity itself and the constant modifier (curves don't come with drag) scales the move
 			const size = Math.max(startSize[0], startSize[1], startSize[2]);
 			const r = random(seed, id, Channel.Drag);
-			[launch, launchSpeed] = dragged(drag, speed * modifier, size, age, r);
+			[launch, launchSpeed] = dragged(drag, speed, size, age, r);
 			[fall, fallSpeed] = draggedFall(drag, gravity, size, age, r);
+			launch *= modifier;
+			launchSpeed *= modifier;
+			fall *= modifier;
+			fallSpeed *= modifier;
 		}
 		for (let axis = 0; axis < 3; axis++) {
 			position[axis] = start[axis] + direction[axis] * launch + down[axis] * fall;
