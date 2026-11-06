@@ -4,8 +4,16 @@ import type { Decoded } from '../package/decode-protocol.ts';
 
 import type { Resident } from './resident.ts';
 
-/** lifecycle of a blob */
-export type ItemState = 'idle' | 'queued' | 'fetching' | 'decoding' | 'uploading' | 'ready' | 'failed';
+/** lifecycle of a blob; `fetched` blobs wait for a decode slot */
+export type ItemState =
+	| 'idle'
+	| 'queued'
+	| 'fetching'
+	| 'fetched'
+	| 'decoding'
+	| 'uploading'
+	| 'ready'
+	| 'failed';
 
 /** a blob the viewer has asked for at some point */
 export interface ContentItem {

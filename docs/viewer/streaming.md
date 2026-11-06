@@ -137,9 +137,9 @@ scenery.
 ## residency and budgets
 
 [`streaming/stream-manager.ts`](../../packages/viewer/src/streaming/stream-manager.ts) owns each
-blob's lifecycle (`idle → queued → fetching → decoding → uploading → ready`, or `failed`, which
-isn't retried). it doesn't know the kinds of content: each kind (`heights`, `surface`, `splat`,
-`layer`, `instances`, `geometry`, `texture`, `irradiance`) has a handler
+blob's lifecycle (`idle → queued → fetching → fetched → decoding → uploading → ready`, or `failed`,
+which isn't retried). it doesn't know the kinds of content: each kind (`heights`, `surface`,
+`splat`, `layer`, `instances`, `geometry`, `texture`, `irradiance`) has a handler
 ([`streaming/residency.ts`](../../packages/viewer/src/streaming/residency.ts)) that uploads its
 decoded blobs and frees them, and may build its decode job (instance blocks add their row kinds,
 from [`content/row-kinds.ts`](../../packages/viewer/src/content/row-kinds.ts)). `openScene`
@@ -166,7 +166,13 @@ the renderers and stores that own the GPU side; their residency shapes are in
   span ≤ 2 MiB, ≤ 96 blobs) into one range read
   ([`streaming/coalesce.ts`](../../packages/viewer/src/streaming/coalesce.ts)). core blobs are read
   from memory without a request slot. requests whose blobs nobody wanted for more than 2 frames are
-  aborted; queued blobs not wanted this frame return to idle.
+  aborted; queued blobs not wanted this frame return to idle. no new reads start while 384 blobs
+  (`MAX_UNDECODED`) are fetched or being read and not yet decoding.
+- **decoding.** fetched blobs wait in the stream manager, not in the decode pool, and each slot that
+  frees on a worker (4 per worker, since a worker's answer waits for a busy main thread) takes the
+  most wanted one; blobs nobody has wanted for 30 frames are dropped first. the pool once queued
+  every fetched blob in arrival order: flying across map02 it held about 3,000 at once, so what came
+  into view waited behind what the camera had left, while the workers sat idle 99% of the time.
 - **uploading.** pinned first, then by priority, until the frame has uploaded 24 MiB. decoded
   content nobody has wanted for 30 frames is dropped instead. a full pool evicts up to 16 resident,
   unpinned blobs of the same kind that weren't used this frame and have no higher priority, oldest

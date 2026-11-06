@@ -5,8 +5,12 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 /** a {@link DecodeRequest} before the pool numbers it */
 export type DecodeJob = DistributiveOmit<DecodeRequest, 'id'>;
 
-/** jobs posted to a worker at most at once; the rest wait in the pool, where they can still be cancelled */
-const POSTED_PER_WORKER = 2;
+/**
+ * jobs posted to a worker at most at once; the rest wait in the pool, where they can still be cancelled. a
+ * worker's answer waits for the main thread, which is busy for most of a frame while streaming, so a worker
+ * with one job in hand would idle between them
+ */
+const POSTED_PER_WORKER = 4;
 
 interface Queued {
 	request: DecodeJob;
@@ -72,6 +76,14 @@ export class DecodePool {
 			});
 			this.#post();
 		});
+	}
+
+	/**
+	 * jobs {@link run} can take now without waiting in the pool, so a caller that orders its own work can hand
+	 * it over as late as possible
+	 */
+	get free(): number {
+		return this.#workers.length * POSTED_PER_WORKER - this.#jobs.size - this.#queue.length;
 	}
 
 	/** terminates the workers; pending jobs never settle */

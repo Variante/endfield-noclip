@@ -44,6 +44,15 @@ export interface StreamOptions {
 
 // #endregion
 
+/**
+ * fetched blobs, and blobs in range reads, kept waiting for a decode slot at most; past it no new reads
+ * start. fetching runs ahead of decoding, and blobs waiting in a long line would be decoded long after the
+ * camera moved on, while the ones it wants now wait behind them
+ */
+const MAX_UNDECODED = 384;
+/** fetched or decoded blobs nobody has wanted for this many frames are dropped instead of decoded or uploaded */
+const STALE_FRAMES = 30;
+
 /** a shard blob's byte range, with what reading its archive needs */
 interface ShardRange extends QueuedRange {
 	path: string;
@@ -86,6 +95,10 @@ export class StreamManager {
 	#queued = new Set<ContentItem>();
 	/** queued core blobs, read from memory without a request slot */
 	#queuedCore = new Set<ContentItem>();
+	/** fetched blobs' stored bytes, waiting for a decode slot; the most wanted is decoded first */
+	#fetched = new Map<ContentItem, ArrayBuffer>();
+	/** blobs in range reads under way */
+	#fetching = 0;
 	#uploads: ContentItem[] = [];
 	/** the uploads a frame deferred, reused */
 	#deferred: ContentItem[] = [];
@@ -129,6 +142,7 @@ export class StreamManager {
 			this.#queued.size === 0 &&
 			this.#queuedCore.size === 0 &&
 			this.#inFlight.size === 0 &&
+			this.#fetched.size === 0 &&
 			this.#working === 0 &&
 			this.#uploads.length === 0
 		);
@@ -219,6 +233,7 @@ export class StreamManager {
 	update(): void {
 		this.#cancelStale();
 		this.#dispatch();
+		this.#startDecodes();
 		this.#upload();
 		this.#evict(this.options.budgetBytes);
 		const stats = this.stats;
@@ -271,6 +286,7 @@ export class StreamManager {
 			request.abort.abort();
 		}
 		this.#decodes.abort();
+		this.#fetched.clear();
 		for (const item of this.#items) {
 			if (item !== undefined && item.resident !== null) {
 				releaseResident(this.#handlers, item.resident.kind, item.blob, item.resident);
@@ -356,7 +372,11 @@ export class StreamManager {
 			this.#decodeCore(item);
 		}
 		this.#queuedCore.clear();
-		if (this.#queued.size === 0 || this.#inFlight.size >= this.options.maxRequests) {
+		if (
+			this.#queued.size === 0 ||
+			this.#inFlight.size >= this.options.maxRequests ||
+			this.#fetched.size + this.#fetching >= MAX_UNDECODED
+		) {
 			return;
 		}
 
@@ -367,6 +387,9 @@ export class StreamManager {
 			return range;
 		});
 		for (const read of coalesceRanges(ranges, this.options.maxRequests - this.#inFlight.size)) {
+			if (this.#fetched.size + this.#fetching >= MAX_UNDECODED) {
+				break;
+			}
 			const members = read.members.map((i) => queued[i]);
 			for (const item of members) {
 				item.state = 'fetching';
@@ -395,6 +418,7 @@ export class StreamManager {
 	#fetch(shard: ShardRange, start: number, end: number, members: ContentItem[]): void {
 		const request = { items: members, abort: new AbortController() };
 		this.#inFlight.add(request);
+		this.#fetching += members.length;
 		this.stats.requests++;
 		this.#package.source
 			.readRange(
@@ -415,8 +439,9 @@ export class StreamManager {
 						whole && member.start === start && member.end === end
 							? bytes.buffer
 							: bytes.slice(member.start - start, member.end - start).buffer;
-					this.#decode(item, data);
+					this.#received(item, data);
 				}
+				this.#startDecodes();
 			})
 			.catch((err: unknown) => {
 				const aborted = request.abort.signal.aborted;
@@ -438,6 +463,7 @@ export class StreamManager {
 			})
 			.finally(() => {
 				this.#inFlight.delete(request);
+				this.#fetching -= members.length;
 			});
 	}
 
@@ -446,9 +472,52 @@ export class StreamManager {
 		this.#working++;
 		this.#package
 			.readCoreBlob(item.blob)
-			.then((data) => this.#decode(item, data))
+			.then((data) => {
+				this.#received(item, data);
+				this.#startDecodes();
+			})
 			.catch((err: unknown) => this.#fail(item, err))
 			.finally(() => this.#working--);
+	}
+
+	/** keeps a fetched blob's stored bytes until a decode slot frees */
+	#received(item: ContentItem, data: ArrayBuffer): void {
+		if (this.#destroyed) {
+			return;
+		}
+		item.state = 'fetched';
+		this.#fetched.set(item, data);
+		this.stats.decoding++;
+	}
+
+	/**
+	 * hands fetched blobs to the free decode slots, most wanted first, dropping the ones nobody wants any more.
+	 * the waiting line is short ({@link MAX_UNDECODED}), so a scan per slot is cheaper than keeping it sorted
+	 */
+	#startDecodes(): void {
+		const fetched = this.#fetched;
+		while (fetched.size > 0 && this.#pool.free > 0) {
+			let best: ContentItem | null = null;
+			for (const item of fetched.keys()) {
+				// while saturated, unpinned content would only be dropped once decoded
+				if (!item.pinned && (item.wantedFrame < this.#frame - STALE_FRAMES || this.#saturated)) {
+					fetched.delete(item);
+					item.state = 'idle';
+					this.stats.decoding--;
+				} else if (best === null || item.priority > best.priority) {
+					best = item;
+				}
+			}
+			if (best === null) {
+				return;
+			}
+			const data = fetched.get(best);
+			fetched.delete(best);
+			this.stats.decoding--;
+			if (data !== undefined) {
+				this.#decode(best, data);
+			}
+		}
 	}
 
 	#decode(item: ContentItem, data: ArrayBuffer): void {
@@ -484,6 +553,7 @@ export class StreamManager {
 			.finally(() => {
 				this.#working--;
 				this.stats.decoding--;
+				this.#startDecodes();
 			});
 	}
 
@@ -510,7 +580,7 @@ export class StreamManager {
 				continue;
 			}
 			// content nobody wants any more isn't worth the space, nor is anything unpinned while saturated
-			if (!item.pinned && (item.wantedFrame < this.#frame - 30 || this.#saturated)) {
+			if (!item.pinned && (item.wantedFrame < this.#frame - STALE_FRAMES || this.#saturated)) {
 				item.decoded = null;
 				item.state = 'idle';
 				continue;
