@@ -20,6 +20,11 @@
   environment re-blends only when the eye, its settings or a fade changed.
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
   panels don't re-render on a still view.
+- **capped particles replayed in steps of a lifetime.** an emitter whose cap turns emissions away
+  replays a few lifetimes of emissions when it first shows. a full system jumps to the moment its
+  first particle dies, and the live ones are counted with a heap of end times: some map02 effects
+  emit ten million a second capped at one particle, and walking them took 140–320 ms, the worst
+  hitches when flying.
 - **one traversal, many passes.** selection runs once per frame; shadow layers reuse its buckets.
   frames that reuse the last selection (settling the antialiasing, adapting the exposure) keep the
   shadow layers from the frame that drew them, unless a layer's fit moved or pipelines were still

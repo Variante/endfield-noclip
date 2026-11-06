@@ -84,6 +84,46 @@ interface AdmittedEmission extends Emission {
 
 const byTime = (a: Emission, b: Emission): number => a.time - b.time;
 
+/** adds a value to a binary min-heap */
+const pushMin = (heap: number[], value: number): void => {
+	let i = heap.length;
+	heap.push(value);
+	while (i > 0) {
+		const parent = (i - 1) >> 1;
+		if (heap[parent] <= value) {
+			break;
+		}
+		heap[i] = heap[parent];
+		i = parent;
+	}
+	heap[i] = value;
+};
+
+/** removes a binary min-heap's smallest value; the heap must not be empty */
+const popMin = (heap: number[]): void => {
+	const last = heap.pop() ?? 0;
+	const n = heap.length;
+	if (n === 0) {
+		return;
+	}
+	let i = 0;
+	for (;;) {
+		let child = 2 * i + 1;
+		if (child >= n) {
+			break;
+		}
+		if (child + 1 < n && heap[child + 1] < heap[child]) {
+			child++;
+		}
+		if (heap[child] >= last) {
+			break;
+		}
+		heap[i] = heap[child];
+		i = child;
+	}
+	heap[i] = last;
+};
+
 /** a burst firing's key within its loop */
 const burstKey = (burst: number, cycle: number): number => burst * 2 ** 20 + cycle;
 
@@ -239,6 +279,11 @@ export class ParticleSimulation {
 	readonly #capped: boolean;
 	/** the emissions the cap let in that may still be alive, oldest first */
 	readonly #admitted: AdmittedEmission[] = [];
+	/**
+	 * a min-heap of the end times of the {@link #admitted} emissions still alive at the last emission played:
+	 * its size is how many the cap counts
+	 */
+	readonly #admittedEnds: number[] = [];
 	/** the system time {@link #admitted} has been played to */
 	#admittedUntil = -Infinity;
 	/** the force fields, prepared; `null` without */
@@ -429,12 +474,14 @@ export class ParticleSimulation {
 		const { maxParticles } = this.info;
 		const startDelay = this.#startDelay;
 		const admitted = this.#admitted;
+		const ends = this.#admittedEnds;
 		// further back than a few lifetimes the history barely shows, so a long jump or a step back starts
 		// afresh from an empty system there
 		const horizon = 4 * this.#longest + this.info.duration;
 		let after = this.#admittedUntil;
 		if (time < after || time - after > horizon) {
 			admitted.length = 0;
+			ends.length = 0;
 			after = Math.max(startDelay, time - horizon) - 1e-9;
 		}
 		// the stream's emissions per window are capped, so play in steps that hold them all
@@ -443,19 +490,32 @@ export class ParticleSimulation {
 			1e-3,
 		);
 		while (after < time) {
+			// a full system turns every emission away until its first particle dies, so play on from there: a
+			// stream of millions a second capped at one particle would otherwise walk all of them
+			while (ends.length > 0 && ends[0] <= after) {
+				popMin(ends);
+			}
+			if (ends.length >= maxParticles) {
+				const freed = ends[0] - 1e-9;
+				if (freed >= time) {
+					after = time;
+					break;
+				}
+				after = Math.max(after, freed);
+			}
 			const to = Math.min(time, after + step);
 			for (const emission of this.#emitted(after, to)) {
 				if (emission.time <= after) {
 					continue;
 				}
-				let alive = 0;
-				for (const other of admitted) {
-					if (other.time + other.life > emission.time) {
-						alive++;
-					}
+				// emissions come in time order, so the ones gone by now are gone for every later one too
+				while (ends.length > 0 && ends[0] <= emission.time) {
+					popMin(ends);
 				}
-				if (alive < maxParticles) {
-					admitted.push({ time: emission.time, id: emission.id, life: this.#lifetime(emission) });
+				if (ends.length < maxParticles) {
+					const life = this.#lifetime(emission);
+					admitted.push({ time: emission.time, id: emission.id, life });
+					pushMin(ends, emission.time + life);
 				}
 			}
 			// drop those gone by the window's end, in order
@@ -467,6 +527,16 @@ export class ParticleSimulation {
 			}
 			admitted.length = kept;
 			after = to;
+		}
+		{
+			// a jump past the end skips the window's drop
+			let kept = 0;
+			for (const emission of admitted) {
+				if (emission.time + emission.life > time) {
+					admitted[kept++] = emission;
+				}
+			}
+			admitted.length = kept;
 		}
 		this.#admittedUntil = time;
 		return admitted;

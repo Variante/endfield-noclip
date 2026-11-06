@@ -126,6 +126,26 @@ describe('ParticleSimulation', () => {
 		assert.ok(drops >= 2 && drops <= 3, `${drops} restarts`);
 	});
 
+	it('plays a full system forward to its first free slot instead of through every emission it turns away', () => {
+		// a stream of ten million a second capped at one particle, as some of map02's effects are authored
+		const flood = system({
+			duration: 5,
+			maxParticles: 1,
+			rate: constant(1e7),
+			startLifetime: constant(5),
+			bursts: [],
+			shape: null,
+			gravityModifier: constant(0),
+		});
+		const simulation = new ParticleSimulation(flood, 3);
+		const out = new Float32Array(PARTICLE_FLOATS);
+		const started = performance.now();
+		for (let time = 10; time < 30; time += 0.5) {
+			assert.equal(simulation.evaluate(time, DOWN, same, out), 1);
+		}
+		assert.ok(performance.now() - started < 200, 'plays forward in steps of a lifetime');
+	});
+
 	it('orbits particles about the emitter axis without changing their distance from it', () => {
 		const still = run(system({ gravityModifier: constant(0) }), 1000);
 		const orbiting = run(
