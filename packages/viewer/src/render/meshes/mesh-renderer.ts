@@ -1,13 +1,14 @@
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { OFFSET_SLOT } from '../../looks/effect-looks.ts';
 import {
+	GeometryFlags,
 	LOOK_FLOATS,
 	LookFlags,
 	type LookStencil,
 	type MaterialLook,
 	SLOTS,
 	SLOT_FLAGS,
-} from '../../looks/materials.ts';
+} from '../../looks/look.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
 import type { MeshBucket } from '../../streaming/mesh-selection.ts';
 import type { ResidentGeometry } from '../../streaming/stream-manager.ts';
@@ -34,16 +35,6 @@ const DRAW_FLOATS = 16 + LOOK_FLOATS;
 const MAX_DRAWS = 16_384;
 /** bytes per vertex of the zero buffer bound in place of missing streams (the widest are float UVs) */
 const ZERO_STRIDE = 8;
-/**
- * draw flags of the geometry, next to the material's `LookFlags` (`HAS_*` in mesh.wgsl). the shader can't
- * tell a missing stream from its values: the zero buffer bound in its place reads as an octahedral (0, 0),
- * which is +z
- */
-const GeometryFlags = {
-	HasNormals: 1 << 9,
-	HasTangents: 1 << 10,
-	HasColors: 1 << 26,
-} as const;
 
 /** the face culling a draw's pipeline uses; each phase has a pipeline per value */
 const FACE_CULLS = ['none', 'back', 'front'] as const satisfies readonly GPUCullMode[];

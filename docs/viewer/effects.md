@@ -72,16 +72,16 @@ roughness either.
 ## portals
 
 [portals](../game-data/effects.md#portals) draw with a stencil buffer
-([`materials.ts`](../../packages/viewer/src/looks/materials.ts), `LookStencil`). an opaque mask
-writes only the stencil, at the end of the main pass, tested against the depth there, and isn't
-shaded or written to depth. in the transparent pass, effects that write the stencil draw before the
-rest, and each effect's stencil state and depth test pick a pipeline variant. stencil operations
-other than keep and replace are unsupported, and portals need the GPU's `depth32float-stencil8`.
+([`look.ts`](../../packages/viewer/src/looks/look.ts), `LookStencil`). an opaque mask writes only
+the stencil, at the end of the main pass, tested against the depth there, and isn't shaded or
+written to depth. in the transparent pass, effects that write the stencil draw before the rest, and
+each effect's stencil state and depth test pick a pipeline variant. stencil operations other than
+keep and replace are unsupported, and portals need the GPU's `depth32float-stencil8`.
 
 ## solid effects
 
 VFXDitherAlpha shades through the opaque mesh path
-([`materials.ts`](../../packages/viewer/src/looks/materials.ts), `ditheredLook`). its
+([`special-looks.ts`](../../packages/viewer/src/looks/special-looks.ts), `ditheredLook`). its
 [dither](../game-data/effects.md#solid-effects) is an alpha test in the cutout depth pass
 (`fs_cutout_depth` in `mesh.wgsl`), for materials without `_USE_MAIN2` in the default
 `_DitherAlphaMode`; with `_UseMainTexAsAlpha` only unlit ones, which test the texture through the

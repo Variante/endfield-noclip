@@ -6,7 +6,7 @@ export const DEPTH_FORMAT: GPUTextureFormat = 'depth32float';
 
 /**
  * {@link DEPTH_FORMAT} plus a stencil buffer, cleared to 0 and written only by the effects that mask each
- * other (`LookStencil` in render/materials.ts); needs the `depth32float-stencil8` feature
+ * other (`LookStencil` in looks/look.ts); needs the `depth32float-stencil8` feature
  */
 export const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth32float-stencil8';
 

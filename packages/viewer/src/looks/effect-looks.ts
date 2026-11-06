@@ -130,7 +130,7 @@ export const EffectRow = {
 } as const;
 
 /**
- * floats of an effect look's parameters, `LOOK_FLOATS` in materials.ts: 44 rows, the last free past
+ * floats of an effect look's parameters, `LOOK_FLOATS` in look.ts: 44 rows, the last free past
  * {@link EffectRow.customScroll}, as are floats 138–143
  */
 const EFFECT_FLOATS = 176;

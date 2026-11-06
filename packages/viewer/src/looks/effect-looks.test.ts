@@ -39,7 +39,8 @@ import {
 	WaterSheetFlags,
 	WaterSheetRow,
 } from './effect-looks.ts';
-import { LOOK_FLOATS, LookFlags, materialLooks } from './materials.ts';
+import { LOOK_FLOATS, LookFlags } from './look.ts';
+import { materialLooks } from './material-looks.ts';
 
 /** a ready material drawing `surface` */
 const described = (

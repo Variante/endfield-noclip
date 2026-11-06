@@ -485,7 +485,7 @@ fn fs_effect(in: EffectOut, @builtin(front_facing) front: bool) -> EffectAccumul
 	let alpha = layer.a;
 	// below its `_USE_WATER_BLEND` height the game absorbs and scatters the colour, which isn't drawn: show
 	// those fragments as unsupported, a world-space magenta and black checker (as `unsupportedLook` in
-	// materials.ts)
+	// material-looks.ts)
 	let world = in.rel + frame.eye.xyz;
 	if (world.y < fx_row(id, FX_DECAL).z) {
 		let cell = vec3i(floor(world / 0.5));

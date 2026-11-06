@@ -270,7 +270,7 @@ fn pack_reflection_surface(n: vec3f, roughness: f32, weight: vec3f) -> vec2u {
 }
 
 // set in the packed surface's y where the material keeps `HGRP/DecalLit` decals off, as the game's stencil does
-// (`keepsLitDecalsOff` in materials.ts)
+// (`keepsLitDecalsOff` in lit-look.ts)
 const SURFACE_NO_LIT_DECALS = 1u << 31u;
 
 // what a material family hands to the lighting

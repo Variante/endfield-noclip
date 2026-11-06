@@ -104,7 +104,7 @@ export const createBindLayouts = (device: GPUDevice): BindLayouts => {
 	});
 	const materials = device.createBindGroupLayout({
 		label: 'materials',
-		// the slots of `SLOTS` in render/materials.ts, then the base, detail and parallax samplers
+		// the slots of `SLOTS` in looks/look.ts, then the base, detail and parallax samplers
 		entries: [
 			...[0, 1, 2, 3, 4, 5, 6].map(texture),
 			{ binding: 7, visibility: FRAGMENT, sampler: { type: 'filtering' } },

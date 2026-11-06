@@ -1,8 +1,8 @@
-// instanced meshes with the HGRP surface shaders (materials.ts, docs/game-data/materials.md): Lit and its
+// instanced meshes with the HGRP surface shaders (looks/, docs/game-data/materials.md): Lit and its
 // layers, foliage, glass, matte paintings, erosion and VFXDitherAlpha, opaque, alpha-tested or
 // alpha-blended. quantized positions, octahedral normals and tangents, UV sets 0 and 1 and vertex colours from
 // the geometry blob; instances from this frame's visible list; draw parameters by the list entry's draw id
-// (`LookRow` in materials.ts lays them out).
+// (`LookRow` in look.ts lays them out).
 
 struct Draw {
 	// dequantization: position = offset.xyz + value · scale.xyz; offset.w = look flags (u32 bits)
@@ -50,7 +50,7 @@ struct Draw {
 	parallax_dark: vec4f,
 	// brightening near the player: outer radius, inner radius, strength
 	parallax_bright: vec4f,
-	// leaves (`leafParams` in materials.ts): how much the vertex AO shadows the sun, the fake directional
+	// leaves (`leafParams` in lit-look.ts): how much the vertex AO shadows the sun, the fake directional
 	// shadow's strength and power, 1 when the sun's N·L takes the vertex normal. Lit layers: the fuzzy shading's
 	// core darkness, edge brightness, edge shadow range and offset
 	foliage: vec4f,
@@ -61,7 +61,7 @@ struct Draw {
 	// the ramp starts at the top
 	foliage2: vec4f,
 	// leaves: canopy ramp range, transition range, colour brighter scale, colour cover. dithered VFXDitherAlpha
-	// (`DitherRow` in materials.ts): alpha scale, exponent, dither tiling, 1 when the alpha is the texture's red
+	// (`DitherRow` in special-looks.ts): alpha scale, exponent, dither tiling, 1 when the alpha is the texture's red
 	canopy: vec4f,
 	// leaves: canopy ramp colour (linear)
 	canopy_color: vec4f,
@@ -87,16 +87,16 @@ const TRI_CHANNEL_MASK = 16384u;
 const DETAIL_MAP = 32768u;
 const PARALLAX_MAP = 65536u;
 const PARALLAX_NOISE_MAP = 131072u;
-// `HGRP/Erosion` (`erosionLook` in materials.ts)
+// `HGRP/Erosion` (`erosionLook` in special-looks.ts)
 const EROSION = 33554432u;
-// `HGRP/Foliage/Leaf` (`leafParams` in materials.ts)
+// `HGRP/Foliage/Leaf` (`leafParams` in lit-look.ts)
 const FOLIAGE_LEAF = 134217728u;
 // a scene effect, drawn by effect.wgsl; its rows are laid out by effect-looks.ts
 const EFFECT = 268435456u;
-// `_LAYERBLEND_TOP` or `_LAYERBLEND_MASK` (`layerBlendParams` in materials.ts): the parallax slots and rows hold
+// `_LAYERBLEND_TOP` or `_LAYERBLEND_MASK` (`layerBlendParams` in lit-look.ts): the parallax slots and rows hold
 // the layer, and a mask map sits in the emissive slot
 const LAYER_BLEND = 2147483648u;
-// what decides the layer's coverage (`LayerSource` in materials.ts)
+// what decides the layer's coverage (`LayerSource` in lit-look.ts)
 const LAYER_SOURCE_TOP = 0.0;
 const LAYER_SOURCE_MASK_MAP = 1.0;
 // slot i samples UV set 1 when bit UV1_SHIFT + i is set
@@ -222,7 +222,7 @@ fn instance_rel(position: vec4f, ii: u32, draw: Draw) -> vec3f {
 	return rel + grass_lean(draw, p.y) + sway(draw, p, position.w, rel, origin);
 }
 
-// `_SIMPLE_VERTEXANIM_CLOTH` (`swayParams` in materials.ts, docs/game-data/materials.md#swaying-cloth): a
+// `_SIMPLE_VERTEXANIM_CLOTH` (`swayParams` in lit-look.ts, docs/game-data/materials.md#swaying-cloth): a
 // horizontal world-space offset by a sine of the wind clock, phased by the object's world X and weighted by
 // the vertex colour's alpha, which the geometry carries in position W. kites swing by their object-space
 // height; other cloth runs as a wave along world Z
@@ -251,7 +251,7 @@ fn sway(draw: Draw, p: vec3f, weight: f32, rel: vec3f, origin: vec3f) -> vec3f {
 	return vec3f(along.x, 0.0, along.y) * offset;
 }
 
-// `_USE_CAMERA_BASED_TILLING` (`grassParams` in materials.ts): grass leans away from the camera along its up
+// `_USE_CAMERA_BASED_TILLING` (`grassParams` in lit-look.ts): grass leans away from the camera along its up
 // vector flattened onto the ground, by the vertex's object-space height times the intensity in world metres,
 // so seen from above the blades cover more of the ground
 fn grass_lean(draw: Draw, height: f32) -> vec3f {
@@ -333,7 +333,7 @@ fn reorient_normal(base: vec3f, flipped: vec3f) -> vec3f {
 }
 
 // #region layer blend
-// `_LAYERBLEND_TOP` and `_LAYERBLEND_MASK` (`layerBlendParams` in materials.ts, parameters by `LayerBlendRow`,
+// `_LAYERBLEND_TOP` and `_LAYERBLEND_MASK` (`layerBlendParams` in lit-look.ts, parameters by `LayerBlendRow`,
 // which reuses the parallax rows: coverage in `parallax`, height and source in `parallax2`, colour in
 // `parallax_color`, blend in `parallax_dark`, normal in `parallax_bright`; and the leaf rows `foliage` and
 // `foliage_ao` for `_LAYERBLEND_MOSS`'s fuzzy shading)
@@ -344,7 +344,7 @@ fn top_coverage(draw: Draw, up: f32) -> f32 {
 	return saturate((up - coverage.y) / coverage.z);
 }
 
-// the mask layer's coverage before the height blend, by its source (`LayerSource` in materials.ts): the mask
+// the mask layer's coverage before the height blend, by its source (`LayerSource` in lit-look.ts): the mask
 // map's R, the layer bump map's alpha, the base colour's alpha, the normal map's alpha, or everywhere
 fn mask_coverage(source: f32, mask_r: f32, bump_a: f32, base_a: f32, normal_a: f32) -> f32 {
 	switch (u32(source + 0.5)) {
@@ -453,7 +453,7 @@ struct Accumulated {
 	@location(3) distance: vec4f,
 }
 
-// alpha-blended materials (`transparent` in materials.ts), shaded like opaque ones. the opacity is the alpha
+// alpha-blended materials (`transparent` in look.ts), shaded like opaque ones. the opacity is the alpha
 // the alpha test would read, times `_BaseColor.a`. the weight favours nearer layers a little, so the front
 // pane of overlapping glass shows more; it stays at most 1 so the half-float sum can't overflow
 @fragment
@@ -504,7 +504,7 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 	let parallax_dx = dpdx(parallax_uv) * gradient_scale;
 	let parallax_dy = dpdy(parallax_uv) * gradient_scale;
 	// the layer's coordinates: UV set 0, world XZ, or UV set 2, which the viewer reads as set 0
-	// (`layerBlendParams` in materials.ts)
+	// (`layerBlendParams` in lit-look.ts)
 	let layer_type = draw.parallax.w;
 	let layer_source = select(in.uv.xy, (in.rel + frame.eye.xyz).xz, layer_type > 0.5 && layer_type < 1.5);
 	let layer_t = draw.slot_uv[LAYER_SLOT];
@@ -513,13 +513,13 @@ fn shade(in: VertexOut, wet: bool) -> Shaded {
 	let layer_dy = dpdy(layer_uv) * gradient_scale;
 
 	if ((flags & UNLIT) != 0u) {
-		// matte paintings (`mattePaintingLook` in materials.ts): the tinted texture brightened above a threshold,
+		// matte paintings (`mattePaintingLook` in special-looks.ts): the tinted texture brightened above a threshold,
 		// in pre-exposed units unless it ignores the post exposure
 		var c = draw.tint.rgb;
 		if ((flags & BASE_MAP) != 0u) {
 			c *= base.rgb;
 		}
-		// materials the viewer can't draw (`unsupportedLook` in materials.ts): a world-space checker of the tint
+		// materials the viewer can't draw (`unsupportedLook` in material-looks.ts): a world-space checker of the tint
 		// and black
 		if (draw.surface.z > 0.0) {
 			let cell = vec3i(floor((in.rel + frame.eye.xyz) / draw.surface.z));
@@ -753,7 +753,7 @@ fn hermite(low: f32, high: f32, x: f32) -> f32 {
 	return t * t * (3.0 - 2.0 * t);
 }
 
-// `HGRP/Foliage/Leaf`'s inputs to the two-sided foliage lighting (`leafParams` in materials.ts). the vertex
+// `HGRP/Foliage/Leaf`'s inputs to the two-sided foliage lighting (`leafParams` in lit-look.ts). the vertex
 // colour's R is ambient occlusion and A the height in the canopy; the normal map's alpha (`normal_a`) masks
 // transmission and the canopy ramp
 fn leaf_surface(surface: Surface, draw: Draw, in: VertexOut, has_normal: bool, normal_a: f32) -> Surface {
@@ -791,7 +791,7 @@ fn leaf_surface(surface: Surface, draw: Draw, in: VertexOut, has_normal: bool, n
 	return s;
 }
 
-// `HGRP/Foliage/Grass` and its card LOD (`grassParams` in materials.ts): occlusion and a sun mask that rise
+// `HGRP/Foliage/Grass` and its card LOD (`grassParams` in lit-look.ts): occlusion and a sun mask that rise
 // from a floor at the root to 1 up the blade, the sun mask's diffuse and transmission parts masked by the normal
 // map's alpha (`mask`), and transmission where those agree. the game ramps by the distance from a point far
 // below the root, which over a blade's width is the object-space height
@@ -823,7 +823,7 @@ fn map_channel(flags: u32, channel: f32, base_a: f32, packed: vec4f, mask: vec4f
 	return mix(base_a, select(0.0, mask.a, mro), saturate(channel - 2.0));
 }
 
-// `_EMISSIVE_ANIM`'s pulse (`EmissivePulseRow` in materials.ts, docs/game-data/materials.md#emission): each cycle
+// `_EMISSIVE_ANIM`'s pulse (`EmissivePulseRow` in lit-look.ts, docs/game-data/materials.md#emission): each cycle
 // rises from the minimum brightness to 1 and back over the interval's share of it, then stays at the minimum
 fn emissive_pulse(draw: Draw) -> f32 {
 	let x = saturate(fract(frame.eye.w * draw.parallax.x + draw.parallax.y) * draw.parallax.z) * 2.0 - 1.0;
@@ -832,7 +832,7 @@ fn emissive_pulse(draw: Draw) -> f32 {
 	return (2.0 * abs(x2 * x) - 3.0 * x2 + 0.5 + 0.5 * (1.0 + low) / (1.0 - low)) * (1.0 - low);
 }
 
-// `_PARALLAX_MAP` (`parallaxParams` in materials.ts, docs/game-data/materials.md#lit-layers): march the view
+// `_PARALLAX_MAP` (`parallaxParams` in lit-look.ts, docs/game-data/materials.md#lit-layers): march the view
 // ray down through the noise map as a height field, refine the hit between the last two steps, and colour it
 // from the pattern's G; then the Fresnel power and the pulse, plus the brightening near the player. the result
 // is HDR emission before the mask
@@ -901,7 +901,7 @@ fn parallax_glow(
 	return clamp(color, vec3f(0.0), vec3f(1000.0)) * mix(1.0, frame.ambient.y, draw.parallax2.z);
 }
 
-// `HGRP/Erosion` (`erosionLook` in materials.ts, parameters by `ErosionRow`): base and metal colours mixed by the
+// `HGRP/Erosion` (`erosionLook` in special-looks.ts, parameters by `ErosionRow`): base and metal colours mixed by the
 // metal map, plus a parallax-offset noise layer and a flow band along the object's height. `packed` is the base
 // normal map, `mask` the metal map and `detail` the detail normal map; textures still streaming read as the
 // game's defaults (white, flat normals, the ramp's grey-blue)
@@ -1029,8 +1029,8 @@ fn erosion_surface(
 
 // the depth of alpha-tested materials, in the main pass and the shadow passes (opaque ones have no fragment
 // stage there). only drawn for materials with an alpha-test threshold whose alpha texture is bound (`cutout`
-// in materials.ts and MeshRenderer.prepare). a negative threshold marks VFXDitherAlpha's dithered test
-// (`DitherRow` in materials.ts), which keeps a fraction of the pixels equal to the scaled alpha
+// in look.ts and MeshRenderer.prepare). a negative threshold marks VFXDitherAlpha's dithered test
+// (`DitherRow` in special-looks.ts), which keeps a fraction of the pixels equal to the scaled alpha
 @fragment
 fn fs_cutout_depth(in: CutoutDepthVaryings) {
 	let draw = draws[in.draw];

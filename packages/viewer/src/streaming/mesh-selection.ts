@@ -3,7 +3,8 @@ import { type Chain, DrawRole } from '@endfield-noclip/package-format/instances'
 import type { ReadyTexture } from '@endfield-noclip/package-format/textures';
 
 import { CULL_FLOATS, ROW_WORDS } from '../content/instance-rows.ts';
-import { type MaterialLook, alphaTextureOf, unsupportedLook } from '../looks/materials.ts';
+import { type MaterialLook, alphaTextureOf } from '../looks/look.ts';
+import { unsupportedLook } from '../looks/material-looks.ts';
 import type { ParticleField, ParticleView } from '../particles/particles.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow-map.ts';
 import type { TextureBinding, TextureStore } from '../render/textures/texture-store.ts';

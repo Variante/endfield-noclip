@@ -47,7 +47,7 @@ import { type GfxDevice, createGfxDevice } from './gfx/device.ts';
 import { GpuProfiler } from './gfx/gpu-profiler.ts';
 import { PipelineCache } from './gfx/pipeline-cache.ts';
 import { UniformRing } from './gfx/uniform-ring.ts';
-import { materialLooks } from './looks/materials.ts';
+import { materialLooks } from './looks/material-looks.ts';
 import { DecodePool } from './package/decode-pool.ts';
 import type { PackageSource } from './package/package-source.ts';
 import { CORE_ARCHIVE_INDEX, type ViewerPackage, openViewerPackage } from './package/viewer-package.ts';
