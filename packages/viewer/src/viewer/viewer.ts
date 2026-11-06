@@ -12,14 +12,12 @@ import {
 	zonesAround,
 	zonesAt,
 } from '@endfield-noclip/package-format/stream-areas';
-import { isTerrainHole, TERRAIN_PAGE_SAMPLES, terrainHeight } from '@endfield-noclip/package-format/terrain';
-import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
 import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
 import { instanceRowKinds } from '../content/row-kinds.ts';
-import { type AppliedVolume, eyeInLevelVolume } from '../environment/blend.ts';
+import type { AppliedVolume } from '../environment/blend.ts';
 import { windClockRate } from '../environment/environment.ts';
 import { type GfxDevice, createGfxDevice } from '../gfx/device.ts';
 import { GpuProfiler } from '../gfx/gpu-profiler.ts';
@@ -53,6 +51,8 @@ import { WaterRenderer } from '../render/water/water-renderer.ts';
 import { volumesForLevel } from '../scene-states/listing.ts';
 import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
 import { Camera, type Plane } from '../scene/camera.ts';
+import type { GroundSource } from '../scene/ground.ts';
+import { levelCellIds, levelPose, overviewPose } from '../scene/level-pose.ts';
 import { type CameraPose, NoclipControls } from '../scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from '../scene/tile-tree.ts';
 import { coreBlobs } from '../streaming/core-blobs.ts';
@@ -79,15 +79,13 @@ const INSTANCE_ROWS = 1_500_000;
 const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array(), groups: new Uint32Array() };
 /** the frame uniforms' local lights while they're off */
 const NO_LOCAL_LIGHTS: LocalLightFrame = { count: 0, tilesX: 1, tilesY: 1 };
-/** how far over the terrain a level's first view stays (m) */
-const VIEW_CLEARANCE = 100;
-/** headings a level's first view tries, from the south round */
-const VIEW_HEADINGS = 8;
 
 interface LoadedScene {
 	pkg: ViewerPackage;
 	tree: TileTree;
 	stream: StreamManager;
+	/** ground height queries over the resident coarse terrain */
+	ground: GroundSource & { manifest: PackageManifest };
 	selector: Selector;
 	/** per-instance LOD selection, when the package has converted geometry */
 	meshes: MeshSelector | null;
@@ -358,10 +356,18 @@ export class Viewer {
 		const selector = new Selector(tree, stream, manifest.global, manifest.tree.rootSize);
 		const geometries = pkg.geometries.entries;
 		const geometriesReady = geometries.reduce((sum, entry) => sum + (entry.status === 'ready' ? 1 : 0), 0);
-		this.scene = {
+		const scene: LoadedScene = {
 			pkg,
 			tree,
 			stream,
+			ground: {
+				manifest,
+				tree,
+				heights: (blob) => {
+					const resident = stream.get(blob)?.resident;
+					return resident?.kind === 'heights' ? resident.samples : null;
+				},
+			},
 			selector,
 			meshes:
 				geometriesReady > 0
@@ -382,25 +388,22 @@ export class Viewer {
 				instances: level.instances,
 			})),
 		};
+		this.scene = scene;
 		this.#scenePicks = {};
 		const showable = manifest.levels.filter((level) => level.instances > 0);
-		this.#level = showable.find((level) => level.id === initialLevel) ?? showable[0] ?? null;
+		const level = showable.find((candidate) => candidate.id === initialLevel) ?? showable[0] ?? null;
+		this.#level = level;
 		this.#post.resetExposure();
 		this.#water.setTable(pkg.water);
 		this.#waterLevels.setVolumes(pkg.water.volumes);
 		this.#lights.setLights(pkg.lights.lights);
 		this.#updateVisibility();
 		this.#applyEnvironment();
-		if (this.#level !== null) {
-			this.#focusCells = this.#cellIds(this.#level);
-		}
-		if (this.#level === null) {
-			const pose = this.#overviewPose();
-			if (pose !== null) {
-				this.#setPose(pose);
-			}
+		if (level === null) {
+			this.#setPose(overviewPose(manifest));
 		} else {
-			const { pose, settled } = this.#levelPose(this.#level);
+			this.#focusCells = levelCellIds(manifest, level);
+			const { pose, settled } = this.#levelPose(scene, level);
 			this.#setPose(pose);
 			this.#unsettledPose = settled ? null : pose;
 		}
@@ -513,144 +516,16 @@ export class Viewer {
 
 	// #region camera and levels
 
-	/**
-	 * @param x world x
-	 * @param z world z
-	 * @returns the top of the scenery in the 128 m cell over the point, or -∞ where there's none
-	 */
-	#sceneryTop(x: number, z: number): number {
-		const scene = this.scene;
-		if (scene === null) {
-			return -Infinity;
-		}
-		const info = scene.pkg.manifest.tree;
-		const cell = scene.tree.byId.get(tileId(tileAt(info, info.cellLevel, x, z)));
-		return cell?.bounds.max[1] ?? -Infinity;
-	}
-
-	/**
-	 * @param x world x
-	 * @param z world z
-	 * @returns terrain height from the always-resident coarse pages, `null` off the terrain or over a hole, or
-	 *   `undefined` while no page covering the point is resident yet
-	 */
-	#groundHeight(x: number, z: number): number | null | undefined {
-		const scene = this.scene;
-		const terrain = scene?.pkg.manifest.terrain;
-		if (scene == null || terrain == null) {
-			return null;
-		}
-		const info = scene.pkg.manifest.tree;
-		let covered = false;
-		for (let level = scene.tree.terrainLeafLevel; level >= scene.tree.terrainRootLevel; level--) {
-			const node = scene.tree.byId.get(tileId(tileAt(info, level, x, z)));
-			const blob = node?.terrain?.blob;
-			covered ||= blob !== undefined;
-			const resident = blob === undefined ? null : scene.stream.get(blob)?.resident;
-			const samples = resident?.kind === 'heights' ? resident.samples : null;
-			if (node === undefined || samples === null) {
-				continue;
-			}
-			const side = TERRAIN_PAGE_SAMPLES;
-			const spacing = node.size / (side - 1);
-			const fx = Math.min(side - 1, Math.max(0, (x - node.minX) / spacing));
-			const fz = Math.min(side - 1, Math.max(0, (z - node.minZ) / spacing));
-			const sample = samples[Math.round(fz) * side + Math.round(fx)];
-			return isTerrainHole(sample) ? null : terrainHeight(terrain, sample);
-		}
-		return covered ? undefined : null;
-	}
-
-	/** @returns a pose looking over the whole region, or `null` without a package */
-	#overviewPose(): CameraPose | null {
-		const manifest = this.scene?.pkg.manifest;
-		if (manifest === undefined) {
-			return null;
-		}
-		const { origin, rootSize } = manifest.tree;
-		const terrain = manifest.terrain;
-		const baseY = terrain === null ? 0 : terrain.baseHeight + terrain.heightScale / 2;
-		return {
-			position: [
-				origin[0] + rootSize / 2,
-				baseY + rootSize * 0.45,
-				origin[1] + rootSize / 2 - rootSize * 0.85,
-			],
-			yaw: 0,
-			pitch: -0.5,
-		};
-	}
-
-	/** @returns {@link TileNode.cellId} s of the level's cells */
-	#cellIds(level: LevelInfo): Set<string> {
-		const cellLevel = this.scene?.pkg.manifest.tree.cellLevel ?? 0;
-		return new Set(level.cells.map(([x, z]) => tileId({ level: cellLevel, x, z })));
-	}
-
 	#levelInfo(id: string): LevelInfo | undefined {
 		return this.scene?.pkg.manifest.levels.find((candidate) => candidate.id === id);
 	}
 
-	/**
-	 * @returns a pose looking over the level's playable rectangle (over the terrain, or the spawn height off
-	 *   it) from the heading that keeps the widest view where the level's own environment applies, and whether
-	 *   it's settled: unsettled poses fell back to the spawn height while the coarse pages load
-	 */
-	#levelPose(level: LevelInfo): { pose: CameraPose; settled: boolean } {
-		const { rect, playerInitPos } = level;
-		const cx = (rect.minX + rect.maxX) / 2;
-		const cz = (rect.minZ + rect.maxZ) / 2;
-		const extent = Math.max(rect.maxX - rect.minX, rect.maxZ - rect.minZ);
-		const terrain = this.#groundHeight(cx, cz);
-		const ground = terrain ?? playerInitPos[1];
-		const back = extent * 0.75;
-		const up = extent * 0.55;
-		const pitch = -Math.atan2(up, back);
-		const settled = terrain !== undefined;
-		// looking north from the south, unless the level's volume can't hold that view
-		const fromHeading = (yaw: number): Vec3 => [
-			cx - Math.sin(yaw) * back,
-			ground + up,
-			cz - Math.cos(yaw) * back,
-		];
-		const fallback = { pose: { position: fromHeading(0), yaw: 0, pitch }, settled };
-		const manifest = this.scene?.pkg.manifest;
-		const base = level.environment ?? undefined;
-		if (manifest === undefined || base === undefined || !this.options.environmentVolumes) {
-			return fallback;
-		}
-		const target: Vec3 = [cx, ground, cz];
-		let best: { position: Vec3; yaw: number; distance: number } | null = null;
-		for (let i = 0; i < VIEW_HEADINGS; i++) {
-			const yaw = (i / VIEW_HEADINGS) * 2 * Math.PI;
-			const position = eyeInLevelVolume(manifest, level.tag, base, target, fromHeading(yaw), {
-				loaded: this.#conditionResults,
-				// over the treetops and the cell's tallest scenery (Yinglung's chasm walls are meshes). holes in
-				// the terrain aren't clear; terrain that isn't resident yet is
-				clear: ([x, y, z]) => {
-					const height = this.#groundHeight(x, z);
-					return (
-						height !== null && y >= (height ?? -Infinity) + VIEW_CLEARANCE && y >= this.#sceneryTop(x, z)
-					);
-				},
-			});
-			if (position === null) {
-				continue;
-			}
-			const distance = Math.hypot(position[0] - cx, position[1] - ground, position[2] - cz);
-			if (best === null || distance > best.distance + 1) {
-				best = { position, yaw, distance };
-			}
-			// the usual heading wins while it keeps half its reach: other headings can land inside scenery the
-			// terrain check doesn't see
-			if (i === 0 && distance >= Math.hypot(back, up) / 2) {
-				break;
-			}
-		}
-		if (best === null) {
-			return fallback;
-		}
-		return { pose: { position: best.position, yaw: best.yaw, pitch }, settled };
+	/** @returns {@link levelPose} under the current options and scene values */
+	#levelPose(scene: LoadedScene, level: LevelInfo): { pose: CameraPose; settled: boolean } {
+		return levelPose(scene.ground, level, {
+			environmentVolumes: this.options.environmentVolumes,
+			loaded: this.#conditionResults,
+		});
 	}
 
 	#setPose({ position, yaw, pitch }: CameraPose): void {
@@ -666,7 +541,8 @@ export class Viewer {
 	#settleFirstPose(): boolean {
 		const pending = this.#unsettledPose;
 		const level = this.#level;
-		if (pending === null || level === null) {
+		const scene = this.scene;
+		if (pending === null || level === null || scene === null) {
 			return false;
 		}
 		const camera = this.camera;
@@ -678,7 +554,7 @@ export class Viewer {
 			this.#unsettledPose = null;
 			return false;
 		}
-		const { pose, settled } = this.#levelPose(level);
+		const { pose, settled } = this.#levelPose(scene, level);
 		if (!settled) {
 			return false;
 		}
@@ -711,14 +587,14 @@ export class Viewer {
 	 */
 	flyToLevel(id: string): void {
 		const level = this.#levelInfo(id);
-		if (level !== undefined) {
-			this.#flyOver(level);
+		if (level !== undefined && this.scene !== null) {
+			this.#flyOver(this.scene, level);
 		}
 	}
 
-	#flyOver(level: LevelInfo): void {
-		this.controls.flyTo(this.#levelPose(level).pose);
-		this.#focusCells = this.#cellIds(level);
+	#flyOver(scene: LoadedScene, level: LevelInfo): void {
+		this.controls.flyTo(this.#levelPose(scene, level).pose);
+		this.#focusCells = levelCellIds(scene.pkg.manifest, level);
 		this.#dirty = true;
 	}
 
@@ -750,14 +626,15 @@ export class Viewer {
 	 */
 	showLevel(id: string): void {
 		const level = this.#levelInfo(id);
-		if (level === undefined || this.scene === null) {
+		const scene = this.scene;
+		if (level === undefined || scene === null) {
 			return;
 		}
 		this.#level = level;
 		this.#updateVisibility();
 		this.#post.resetExposure();
 		this.#applyEnvironment();
-		this.#flyOver(level);
+		this.#flyOver(scene, level);
 		this.#emitState();
 	}
 

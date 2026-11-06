@@ -138,7 +138,9 @@ handlers to the renderers and stores that own the GPU side; their residency shap
   ([`streaming/core-blobs.ts`](../../packages/viewer/src/streaming/core-blobs.ts)), plus, where BC
   textures are supported, its surface pages and the terrain layer textures. pinned blobs come first
   (core ones are read from memory at once), upload first and are never evicted. pinned height pages
-  keep their samples on the CPU for ground-height queries (the first pose).
+  keep their samples on the CPU for ground-height queries
+  ([`scene/ground.ts`](../../packages/viewer/src/scene/ground.ts)), which place a level's first view
+  ([`scene/level-pose.ts`](../../packages/viewer/src/scene/level-pose.ts)).
 - **fetching.** at most 32 range reads in flight (`maxRequests`): a dense view wants thousands of
   blobs averaging ~60 KiB, so latency, not bandwidth, bounds loading. measured from the dev server
   on Wuling's first views: 32 takes 3–4 s where 8 took 9–12 s; 64, dispatching freed slots between
