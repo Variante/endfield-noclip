@@ -15,11 +15,12 @@ import {
 	NO_CELESTIAL,
 } from '../../environment/celestial-look.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT_MIPMAPPED, NEAREST_REPEAT, sampler } from '../../gfx/samplers.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 import { postShaderModule } from '../post/shader-source.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';
-import { placeholderView, type TextureBinding } from '../textures/texture-store.ts';
+import type { TextureBinding } from '../textures/texture-store.ts';
 
 import celestialWgsl from './celestial.wgsl?raw';
 
@@ -71,7 +72,7 @@ export class CelestialLayer {
 		});
 		this.#postGroup = autoBindGroup(device, this.#pipeline, 0, { 0: { buffer: input.postUniforms } });
 		this.#noCloud = {
-			view: placeholderView(device, { label: 'no clouds', dimension: '2d' }),
+			view: placeholder(device, 'black', '2d'),
 			sampler: input.sampler,
 			version: -1,
 		};
@@ -83,7 +84,7 @@ export class CelestialLayer {
 		});
 		this.#sampler = sampler(device, LINEAR_REPEAT_MIPMAPPED);
 		this.#pointSampler = sampler(device, NEAREST_REPEAT);
-		this.#black = placeholderView(device, { label: 'no celestial texture', dimension: '2d' });
+		this.#black = placeholder(device, 'black', '2d');
 	}
 
 	/** @param look what to draw */

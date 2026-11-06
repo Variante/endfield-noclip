@@ -210,7 +210,7 @@ export class MeshRenderer {
 		this.#params.destroy();
 		this.#drawIds.destroy();
 		this.#vertexBindings.destroy();
-		this.#materials.destroy();
+		this.#materials.release();
 	}
 
 	// #endregion

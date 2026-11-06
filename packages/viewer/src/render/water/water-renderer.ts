@@ -3,6 +3,7 @@ import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
+import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT_MIPMAPPED, sampler } from '../../gfx/samplers.ts';
 import { type Plane, boxInFrustum } from '../../scene/camera.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
@@ -21,7 +22,7 @@ import { postCommonSource } from '../post/shader-source.ts';
 import screenSpaceWgsl from '../shaders/common/screen-space.wgsl?raw';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
 import skyWgsl from '../sky/sky.wgsl?raw';
-import { type TextureBinding, type TextureStore, placeholderView } from '../textures/texture-store.ts';
+import type { TextureBinding, TextureStore } from '../textures/texture-store.ts';
 
 import ssrTraceWgsl from './ssr-trace.wgsl?raw';
 import waterWgsl from './water.wgsl?raw';
@@ -222,9 +223,9 @@ export class WaterRenderer {
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
 		this.#repeat = sampler(device, { ...LINEAR_REPEAT_MIPMAPPED, maxAnisotropy: 4 });
-		this.#noFlow = placeholderView(device, { label: 'no water flow map', dimension: '2d' });
-		this.#noNormals = placeholderView(device, { label: 'no water normals', dimension: '2d-array' });
-		this.#noFoam = placeholderView(device, { label: 'no water foam', dimension: '2d' });
+		this.#noFlow = placeholder(device, 'black', '2d');
+		this.#noNormals = placeholder(device, 'black', '2d-array');
+		this.#noFoam = placeholder(device, 'black', '2d');
 		this.#noWaterDepth = device.createTexture({
 			label: 'no water depth',
 			size: [1, 1],

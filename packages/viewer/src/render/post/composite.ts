@@ -1,10 +1,11 @@
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
+import { placeholder } from '../../gfx/placeholders.ts';
 import { LINEAR_REPEAT, sampler } from '../../gfx/samplers.ts';
 import { HDR_FORMAT, type SceneTextures } from '../frame/render-targets.ts';
 import { SkyBinding } from '../sky/atmosphere-luts.ts';
 import atmosphereWgsl from '../sky/atmosphere.wgsl?raw';
 import skyWgsl from '../sky/sky.wgsl?raw';
-import { type TextureBinding, placeholderView } from '../textures/texture-store.ts';
+import type { TextureBinding } from '../textures/texture-store.ts';
 
 import compositeWgsl from './composite.wgsl?raw';
 import { postShaderModule } from './shader-source.ts';
@@ -51,7 +52,7 @@ export class Composite {
 		];
 		this.#repeatSampler = sampler(device, LINEAR_REPEAT);
 		this.#noFlowNoise = {
-			view: placeholderView(device, { label: 'no flow noise', dimension: '3d', format: 'r8unorm' }),
+			view: placeholder(device, 'black', '3d'),
 			sampler: this.#repeatSampler,
 			version: -1,
 		};

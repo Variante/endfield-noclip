@@ -57,6 +57,9 @@
   textures that sample alike share it. named presets cover the common states (bilinear clamp for
   render targets, trilinear repeat for materials, which water and terrain layers take with 4× and 8×
   anisotropy).
+- **placeholders** ([`gfx/placeholders.ts`](../../packages/viewer/src/gfx/placeholders.ts)): 1×1
+  black (all zero) and white textures in each view dimension, one set per device, bound where a
+  texture is missing or hasn't streamed in; passes tell a missing texture by comparing against them.
 - **texture store**
   ([`render/textures/texture-store.ts`](../../packages/viewer/src/render/textures/texture-store.ts)):
   textures arrive as pieces, the mip tail first and then one blob per larger level. the GPU texture
