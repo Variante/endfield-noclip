@@ -6,7 +6,7 @@ import { Camera, type Vec3, boxInFrustum, sweepPlanes } from './camera.ts';
 it('sweeps the frustum towards the sun, so a caster behind the camera reaches the view', () => {
 	// looking along +z with the sun behind and above: light travels along +z and down
 	const camera = new Camera();
-	const planes = camera.frustumPlanes(1);
+	const planes = camera.frustumPlanes(1, []);
 	const light: [number, number, number] = [0, -Math.SQRT1_2, Math.SQRT1_2];
 	const swept = sweepPlanes(planes, light, 100);
 	const inside = (p: readonly number[], set: typeof planes): boolean =>

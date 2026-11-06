@@ -1,7 +1,7 @@
 import { type LightEntry, LightKind } from '@endfield-noclip/package-format/lights';
 
 import { dot } from '../../math/vec3.ts';
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import type { Camera, Plane, Vec3 } from '../../scene/camera.ts';
 
 /** lights the shading takes per frame, as the game's light list does */
 export const MAX_LOCAL_LIGHTS = 256;
@@ -42,6 +42,7 @@ export class LocalLights {
 	/** the entries whose visibility group shows; rebuilt when the groups change */
 	#shown: LightEntry[] | null = null;
 	readonly #candidates: Candidate[] = [];
+	readonly #planes: Plane[] = [];
 
 	/** @param device the device */
 	constructor(device: GPUDevice) {
@@ -174,7 +175,7 @@ export class LocalLights {
 		const candidates = this.#candidates;
 		candidates.length = 0;
 		const eye = camera.position;
-		const planes = camera.frustumPlanes(aspect);
+		const planes = camera.frustumPlanes(aspect, this.#planes);
 		for (const entry of this.#shown) {
 			const rel: Vec3 = [entry.position[0] - eye[0], entry.position[1] - eye[1], entry.position[2] - eye[2]];
 			const distance2 = dot(rel, rel);

@@ -17,6 +17,22 @@ export type Plane = [nx: number, ny: number, nz: number, d: number];
 /** a 3-vector in Unity space */
 export type Vec3 = [x: number, y: number, z: number];
 
+/** the side planes' NDC signs along x and y, in the order {@link Camera.frustumPlanes} writes them */
+const FRUSTUM_SIDES = [
+	[1, 0],
+	[-1, 0],
+	[0, 1],
+	[0, -1],
+] as const;
+
+const setPlane = (out: Plane[], i: number, nx: number, ny: number, nz: number, d: number): void => {
+	const plane = (out[i] ??= [0, 0, 0, 0]);
+	plane[0] = nx;
+	plane[1] = ny;
+	plane[2] = nz;
+	plane[3] = d;
+};
+
 /** position, orientation and lens */
 export class Camera {
 	/** Unity world position, f64 */
@@ -116,24 +132,28 @@ export class Camera {
 	}
 
 	/**
+	 * writes the left, right, bottom, top and near planes, camera-relative (no far plane), into `out`, reusing
+	 * its planes.
+	 *
 	 * @param aspect width / height
-	 * @returns the left, right, bottom, top and near planes, camera-relative (no far plane)
+	 * @param out the planes to overwrite; resized to 5
+	 * @returns `out`
 	 */
-	frustumPlanes(aspect: number): Plane[] {
+	frustumPlanes(aspect: number, out: Plane[]): Plane[] {
 		const f = 1 / Math.tan(this.fovY / 2);
 		const r = this.right();
 		const u = this.up();
 		const fw = this.forward();
-		const plane = (sx: number, sy: number): Plane => {
-			const n: Vec3 = [
-				fw[0] + sx * (f / aspect) * r[0] + sy * f * u[0],
-				fw[1] + sx * (f / aspect) * r[1] + sy * f * u[1],
-				fw[2] + sx * (f / aspect) * r[2] + sy * f * u[2],
-			];
-			const length = Math.hypot(n[0], n[1], n[2]);
-			return [n[0] / length, n[1] / length, n[2] / length, 0];
-		};
-		return [plane(1, 0), plane(-1, 0), plane(0, 1), plane(0, -1), [fw[0], fw[1], fw[2], -this.near]];
+		out.length = 5;
+		for (const [i, [sx, sy]] of FRUSTUM_SIDES.entries()) {
+			const nx = fw[0] + sx * (f / aspect) * r[0] + sy * f * u[0];
+			const ny = fw[1] + sx * (f / aspect) * r[1] + sy * f * u[1];
+			const nz = fw[2] + sx * (f / aspect) * r[2] + sy * f * u[2];
+			const length = Math.hypot(nx, ny, nz);
+			setPlane(out, i, nx / length, ny / length, nz / length, 0);
+		}
+		setPlane(out, 4, fw[0], fw[1], fw[2], -this.near);
+		return out;
 	}
 }
 

@@ -72,7 +72,7 @@ import { type TextureBinding, TextureStore, placeholderView } from './render/tex
 import { WaterRenderer } from './render/water/water-renderer.ts';
 import { volumesForLevel } from './scene-states/listing.ts';
 import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.ts';
-import { Camera, type Vec3 } from './scene/camera.ts';
+import { Camera, type Plane, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
 import { coreBlobs } from './streaming/core-blobs.ts';
@@ -380,6 +380,8 @@ export class Viewer {
 	/** when the current span started */
 	#spanAt = 0;
 	#visited = 0;
+	/** the traversal's frustum planes, rewritten each traversal */
+	#planes: Plane[] = [];
 	#focusCells: Set<string> | null = null;
 	/** the level being shown; `null` when the package has no level with content, which shows everything */
 	#level: LevelInfo | null = null;
@@ -1519,7 +1521,7 @@ export class Viewer {
 		this.#seenVersion = stream.version;
 		// screen-space sizes are measured in output pixels, so the render scale trades shading only, not detail
 		const aspect = this.#targets.outputWidth / this.#targets.outputHeight;
-		const planes = this.camera.frustumPlanes(aspect);
+		const planes = this.camera.frustumPlanes(aspect, this.#planes);
 		const shadows = options.shadows && options.debugView === 'lit';
 		const view = {
 			camera: this.camera,
