@@ -10,7 +10,7 @@
 import type { ColorGradingConfig } from '@endfield-noclip/package-format/environment';
 import type { Vec4 } from '@endfield-noclip/package-format/values';
 
-import { srgbToLinear } from '../math/color.ts';
+import { rec709Luminance, srgbToLinear } from '../math/color.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 /** the parts of the game's colour grading the viewer reads */
@@ -106,8 +106,6 @@ export const NEUTRAL_GRADING: ColorGradingInput = {
 	splitToningHighlights: [0.5, 0.5, 0.5, 1],
 	splitToningBalance: 0,
 };
-
-const rec709Luminance = (c: Vec3): number => c[0] * 0.2126729 + c[1] * 0.7151522 + c[2] * 0.072175;
 
 const linear3 = (c: Readonly<Vec4>, scale: number): Vec3 => [
 	srgbToLinear(c[0]) * scale,

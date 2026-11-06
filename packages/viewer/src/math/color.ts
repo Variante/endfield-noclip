@@ -25,3 +25,10 @@ export const linearRgb = (c: Readonly<Color>): Vec3 => [
 	srgbToLinear(c[1]),
 	srgbToLinear(c[2]),
 ];
+
+/**
+ * @param c a linear rgb colour
+ * @returns its Rec.709 luminance
+ */
+export const rec709Luminance = (c: Readonly<Vec3>): number =>
+	c[0] * 0.2126729 + c[1] * 0.7151522 + c[2] * 0.072175;

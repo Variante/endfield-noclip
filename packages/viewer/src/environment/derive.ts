@@ -6,9 +6,9 @@
  */
 
 import type { LightConfig } from '@endfield-noclip/package-format/environment';
-import type { Color } from '@endfield-noclip/package-format/values';
 
-import { linearRgb, srgbToLinear } from '../math/color.ts';
+import { linearRgb, rec709Luminance, srgbToLinear } from '../math/color.ts';
+import { scale, vec3From } from '../math/vec3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { gradingLook } from './color-grading.ts';
@@ -42,13 +42,13 @@ import { effectPitchYaw, exposedSunIntensity, towardsEffectLight, towardsLight }
  * y²)`
  *
  * @param sh 27 coefficients
- * @param scale multiplies every coefficient
+ * @param factor multiplies every coefficient
  * @returns 28 floats
  */
-const shaderSh = (sh: readonly number[], scale: number): Float32Array => {
+const shaderSh = (sh: readonly number[], factor: number): Float32Array => {
 	const out = new Float32Array(28);
 	for (let c = 0; c < 3; c++) {
-		const u = (i: number): number => (sh[c * 9 + i] ?? 0) * scale;
+		const u = (i: number): number => (sh[c * 9 + i] ?? 0) * factor;
 		out.set([u(3), u(1), u(2), u(0) - u(6)], c * 4);
 		out.set([u(4), u(5), 3 * u(6), u(7)], (3 + c) * 4);
 		out[24 + c] = u(8);
@@ -58,11 +58,6 @@ const shaderSh = (sh: readonly number[], scale: number): Float32Array => {
 
 /** the height fog's density and falloff per profile unit, as the game packs them (its shaders use base 2) */
 const FOG_UNIT = 0.1;
-
-const scaled = (c: Color, scale: number): Vec3 => [c[0] * scale, c[1] * scale, c[2] * scale];
-
-/** @returns the vector of `f` over the three channels */
-const map3 = (f: (i: number) => number): Vec3 => [f(0), f(1), f(2)];
 
 /**
  * what the game multiplies its sky-view LUT (radiance per unit sun illuminance) by
@@ -77,8 +72,7 @@ export const skyViewScale = (
 	light: Pick<LightConfig, 'directLux' | 'directEV100'>,
 	sky: Pick<SkyInput, 'proceduralSkyLuxFactor'>,
 	atmosphere: Pick<AtmosphereInput, 'outerSunIrradianceColor'>,
-): Vec3 =>
-	scaled(atmosphere.outerSunIrradianceColor, exposedSunIntensity(light) * sky.proceduralSkyLuxFactor);
+): Vec3 => scale(atmosphere.outerSunIrradianceColor, exposedSunIntensity(light) * sky.proceduralSkyLuxFactor);
 
 /** the game's march settings unless the volume opts into its own; the exponent always comes from the volume */
 const AO_PRESET = { radius: 4, falloff: 1, distribution: 1, thin: 2 } as const;
@@ -99,7 +93,7 @@ const aoLook = (ao: NonNullable<PostInput['ambientOcclusion']>): NonNullable<Pos
 /** the game's bloom packing (HDRP's, with a linear threshold as URP's) */
 const bloomLook = (bloom: NonNullable<PostInput['bloom']>): NonNullable<PostLook['bloom']> => {
 	const tint = linearRgb(bloom.tint);
-	const luma = tint[0] * 0.2126729 + tint[1] * 0.7151522 + tint[2] * 0.072175;
+	const luma = rec709Luminance(tint);
 	return {
 		threshold: srgbToLinear(bloom.thresholdHighQuality),
 		intensity: 2 ** bloom.intensityHighQuality - 1,
@@ -161,12 +155,12 @@ export const cloudLook = (
 	const brightness = cloud.lightAffectCloud
 		? (cloud.cloudBrightness + exposedSunIntensity(light) / Math.PI) * sky.proceduralSkyLuxFactor
 		: cloud.cloudAbsoluteBrightness;
-	const scale = cloud.cloudFadeAlpha * brightness;
+	const colorScale = cloud.cloudFadeAlpha * brightness;
 	const alphaScale = cloud.cloudFadeAlpha * (cloud.brightnessAffectCloudAlpha ? brightness : 1);
 	const singleChannel = cloud.cloudTextureMode === 0;
 	return {
 		texture: cloud.cloudTexture,
-		tint: [r * scale, g * scale, b * scale, a * alphaScale],
+		tint: [r * colorScale, g * colorScale, b * colorScale, a * alphaScale],
 		contrast: cloud.cloudContrast,
 		opacity: singleChannel ? [cloud.cloudOpacityR, cloud.cloudOpacityG] : [1, 1],
 		singleChannel,
@@ -267,10 +261,10 @@ const volumetricFogLook = (
 		albedo: [fog.volumetricFogAlbedo[0], fog.volumetricFogAlbedo[1], fog.volumetricFogAlbedo[2]],
 		extinctionScale: fog.volumetricFogExtinctionScale,
 		// the game stores the emission per kilometre
-		emissive: scaled(fog.volumetricFogEmissive, 0.001),
+		emissive: scale(fog.volumetricFogEmissive, 0.001),
 		sunDirection: towardsEffectLight(light, 'atmosphere'),
 		// colours go in raw, as for the atmosphere fog
-		sun: scaled(light.directColor, directional),
+		sun: scale(light.directColor, directional),
 		skyIntensity: fog.volumetricFogSkyLightingScatteringIntensity,
 	};
 };
@@ -298,23 +292,23 @@ const atmosphereFogLook = (source: EnvironmentInput, sunIntensity: number): Atmo
 		return null;
 	}
 	// colours go in raw, as the game's C# multiplies them
-	const sun = scaled(light.directColor, sunIntensity);
-	const mie = scaled(fog.mieScattering, fog.mieScatteringScale);
+	const sun = scale(light.directColor, sunIntensity);
+	const mie = scale(fog.mieScattering, fog.mieScatteringScale);
 	// a negative scale defers to the atmosphere's
 	const rayleighScale =
 		fog.rayleighScatteringScale >= 0 ? fog.rayleighScatteringScale : atmosphere.rayleighScatteringScale;
-	const rayleigh = scaled(fog.rayleighScattering, rayleighScale);
-	const absorption = scaled(atmosphere.mieAbsorption, atmosphere.mieAbsorptionScale);
-	const extinction: Vec3 = map3((i) => mie[i] + rayleigh[i] + absorption[i]);
-	const ambient = scaled(fog.inscatterAmbientColor, sunIntensity);
+	const rayleigh = scale(fog.rayleighScattering, rayleighScale);
+	const absorption = scale(atmosphere.mieAbsorption, atmosphere.mieAbsorptionScale);
+	const extinction: Vec3 = vec3From((i) => mie[i] + rayleigh[i] + absorption[i]);
+	const ambient = scale(fog.inscatterAmbientColor, sunIntensity);
 	const over = (c: Vec3, i: number): number => c[i] / Math.max(extinction[i], 1e-9);
 	return {
 		sunDirection: towardsEffectLight(light, 'atmosphere'),
 		extinction,
-		rayleigh: map3((i) => over(rayleigh, i) * sun[i]),
-		mie: map3((i) => over(mie, i) * sun[i]),
+		rayleigh: vec3From((i) => over(rayleigh, i) * sun[i]),
+		mie: vec3From((i) => over(mie, i) * sun[i]),
 		mieAnisotropy: fog.mieAnisotropy,
-		ambient: map3((i) => (ambient[i] * (rayleigh[i] + mie[i])) / Math.max(extinction[i], 1e-9)),
+		ambient: vec3From((i) => (ambient[i] * (rayleigh[i] + mie[i])) / Math.max(extinction[i], 1e-9)),
 		startDistance: fog.startDistance * 0.001,
 		distanceScale: fog.fallOffDistance * 0.001,
 		fallOffHeight: fog.fallOffHeight,
@@ -344,7 +338,7 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 		name: profile === null ? null : source.name,
 		sunDirection,
 		sunIlluminance,
-		sunRaw: scaled(light.directColor, intensity),
+		sunRaw: scale(light.directColor, intensity),
 		sunSpecular: light.directSpecularIntensity,
 		shadow: {
 			strength: source.shadow.csmIntensity,
@@ -363,13 +357,13 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 			topRadius: atmosphere.groundRadius + atmosphere.atmosphereHeight,
 			groundAlbedo: [atmosphere.groundAlbedo[0], atmosphere.groundAlbedo[1], atmosphere.groundAlbedo[2]],
 			multiScattering: atmosphere.multiScatteringFactor,
-			rayleighScattering: scaled(atmosphere.rayleighScattering, atmosphere.rayleighScatteringScale),
+			rayleighScattering: scale(atmosphere.rayleighScattering, atmosphere.rayleighScatteringScale),
 			rayleighDistribution: atmosphere.rayleighExponentialDistribution,
-			mieScattering: scaled(atmosphere.mieScattering, atmosphere.mieScatteringScale),
-			mieAbsorption: scaled(atmosphere.mieAbsorption, atmosphere.mieAbsorptionScale),
+			mieScattering: scale(atmosphere.mieScattering, atmosphere.mieScatteringScale),
+			mieAbsorption: scale(atmosphere.mieAbsorption, atmosphere.mieAbsorptionScale),
 			mieAnisotropy: atmosphere.mieAnisotropy,
 			mieDistribution: atmosphere.mieExponentialDistribution,
-			ozoneAbsorption: scaled(atmosphere.ozoneAbsorption, atmosphere.ozoneAbsorptionScale),
+			ozoneAbsorption: scale(atmosphere.ozoneAbsorption, atmosphere.ozoneAbsorptionScale),
 			ozoneTipAltitude: atmosphere.tentTipAltitude,
 			ozoneTipValue: atmosphere.tentTipValue,
 			ozoneWidth: atmosphere.tentWidth,
