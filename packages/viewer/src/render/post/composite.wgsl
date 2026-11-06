@@ -65,6 +65,20 @@ fn glow(px: vec2i) -> vec3f {
 	return max(textureLoad(glow_texture, px, 0).rgb, vec3f(0.0));
 }
 
+// the reflections' change to the radiance, upsampled bilinearly from their smaller size
+fn reflection_change(px: vec2i) -> vec3f {
+	let size = vec2i(textureDimensions(ssr_texture));
+	let at = (vec2f(px) + 0.5) * vec2f(size) / post.viewport.xy - 0.5;
+	let base = vec2i(floor(at));
+	let f = at - floor(at);
+	let edge = size - 1;
+	let a = textureLoad(ssr_texture, clamp(base, vec2i(0), edge), 0).rgb;
+	let b = textureLoad(ssr_texture, clamp(base + vec2i(1, 0), vec2i(0), edge), 0).rgb;
+	let c = textureLoad(ssr_texture, clamp(base + vec2i(0, 1), vec2i(0), edge), 0).rgb;
+	let d = textureLoad(ssr_texture, clamp(base + vec2i(1, 1), vec2i(0), edge), 0).rgb;
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 @fragment
 fn fs_composite(in: FullscreenOut) -> @location(0) vec4f {
 	let px = vec2i(in.position.xy);
@@ -84,7 +98,7 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4f {
 		return vec4f(over_layers(sky * fog.transmittance + fog.inscatter, layers, in.uv, direction) + glow(px), 1.0);
 	}
 	let radiance = textureLoad(radiance_texture, px, 0);
-	var color = max(radiance.rgb + textureLoad(ssr_texture, px, 0).rgb, vec3f(0.0));
+	var color = max(radiance.rgb + reflection_change(px), vec3f(0.0));
 	// the AO passes don't run while it's off, and the radiance then keeps the material occlusion alone
 	if (post.ao.w > 0.5) {
 		let ambient = textureLoad(ambient_texture, px, 0);

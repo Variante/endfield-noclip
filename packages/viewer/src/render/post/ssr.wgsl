@@ -1,4 +1,5 @@
-// the game's screen-space reflections, as its PC high quality runs them, in fullscreen passes at the render size:
+// the game's screen-space reflections, as its PC high quality runs them, in fullscreen passes at half the render
+// size (`ssr.size`), reading the main pass's full-size targets at the pixel each texel stands for:
 // `fs_march` follows each lit pixel's mirror ray through the depth buffer into last frame's composited scene,
 // `fs_temporal` filters the hit colour and fade over frames, `fs_downsample` builds a depth-aware pyramid of both,
 // and `fs_resolve` blurs by the reflected cone's footprint and writes the change to the radiance (composite adds
@@ -14,6 +15,8 @@ struct Ssr {
 	fade: vec4f,
 	// x = march steps, y = the pyramid's coarsest mip, zw unused
 	march: vec4f,
+	// the passes' size, px (xy), and its reciprocal (zw)
+	size: vec4f,
 }
 
 @group(1) @binding(0) var<uniform> ssr: Ssr;
@@ -46,6 +49,11 @@ const BINOMIAL = array<f32, 4>(0.125, 0.375, 0.375, 0.125);
 
 fn reflection_surface_at(px: vec2i) -> ReflectionSurface {
 	return unpack_reflection_surface(textureLoad(surface_texture, px, 0).xy);
+}
+
+// the main pass's pixel a texel of the passes stands for: the one under its centre
+fn full_px(px: vec2i) -> vec2i {
+	return min(vec2i((vec2f(px) + 0.5) * post.viewport.xy * ssr.size.zw), vec2i(post.viewport.xy) - 1);
 }
 
 // the camera-relative point at a uv and device depth
@@ -104,13 +112,14 @@ fn cone_edge(p: vec3f, v: vec3f, axis: vec3f, theta: f32, reach: f32) -> vec3f {
 fn fs_march(in: FullscreenOut) -> March {
 	var out: March;
 	let px = vec2i(in.position.xy);
-	let depth = textureLoad(depth_texture, px, 0);
+	let full = full_px(px);
+	let depth = textureLoad(depth_texture, full, 0);
 	out.depth = vec4f(select(SKY_DEPTH, view_depth(depth), depth > 0.0));
-	let s = reflection_surface_at(px);
+	let s = reflection_surface_at(full);
 	if (!s.valid || depth <= 0.0) {
 		return out;
 	}
-	let uv = (vec2f(px) + 0.5) * post.viewport.zw;
+	let uv = (vec2f(full) + 0.5) * post.viewport.zw;
 	let eye = view_depth(depth);
 	let p = unproject(uv, depth);
 	let v = normalize(p);
@@ -141,7 +150,7 @@ fn fs_march(in: FullscreenOut) -> March {
 	let step = vec3f(delta.x * 0.5, -delta.y * 0.5, delta.z) / steps;
 	var offset: f32;
 	{
-		let pixels = abs(step.xy * post.viewport.xy);
+		let pixels = abs(step.xy * ssr.size.xy);
 		let longest = max(pixels.x, pixels.y);
 		if (longest < 1.0) {
 			offset = 1.0 / (longest + 0.001);
@@ -190,7 +199,7 @@ fn fs_march(in: FullscreenOut) -> March {
 	out.color = vec4f(compress(textureSampleLevel(previous_scene, linear_sampler, source, 0.0).rgb), 0.0);
 
 	// the temporal filter keeps less where things move on screen, and almost nothing nearer than 50 m
-	let moved = length((motion_at(source) + hit_motion) * post.viewport.xy);
+	let moved = length((motion_at(source) + hit_motion) * ssr.size.xy);
 	out.weight.x = exp(-moved) * clamp(log(0.02 * eye) + 0.01, 0.0, 1.0);
 	if (alpha2 > 1e-4) {
 		// the reflected cone (a Blinn-Phong lobe's angle) seen through the mirror at the hit's distance, in pixels
@@ -199,10 +208,10 @@ fn fs_march(in: FullscreenOut) -> March {
 		let towards_camera = -v;
 		let pick = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(s.normal.z) < 0.999);
 		let t = normalize(cross(pick, s.normal));
-		let center = ssr_project(p - towards_camera * reach).xy * post.viewport.xy;
-		let a = ssr_project(cone_edge(p, towards_camera, cross(t, towards_camera), theta, reach)).xy * post.viewport.xy;
+		let center = ssr_project(p - towards_camera * reach).xy * ssr.size.xy;
+		let a = ssr_project(cone_edge(p, towards_camera, cross(t, towards_camera), theta, reach)).xy * ssr.size.xy;
 		let b = ssr_project(cone_edge(p, towards_camera, cross(cross(s.normal, t), towards_camera), theta, reach)).xy *
-			post.viewport.xy;
+			ssr.size.xy;
 		let footprint = sqrt(dot(center - a, center - a) + dot(center - b, center - b)) * 0.5;
 		out.weight.y = clamp(log2(footprint), 0.0, ssr.march.y) / ssr.march.y;
 	}
@@ -222,7 +231,7 @@ struct Box {
 @fragment
 fn fs_temporal(in: FullscreenOut) -> @location(0) vec4f {
 	let px = vec2i(in.position.xy);
-	let size = vec2i(post.viewport.xy);
+	let size = vec2i(ssr.size.xy);
 	var samples: array<vec4f, 9>;
 	var sum = vec4f(0.0);
 	var squares = vec4f(0.0);
@@ -246,7 +255,7 @@ fn fs_temporal(in: FullscreenOut) -> @location(0) vec4f {
 	if (ssr.eye_delta.w > 0.5) {
 		return vec4f(max(current.rgb, vec3f(0.001)), current.a);
 	}
-	let uv = (vec2f(px) + 0.5) * post.viewport.zw;
+	let uv = (vec2f(px) + 0.5) * ssr.size.zw;
 	let history = textureSampleLevel(history_texture, linear_sampler, uv - motion_at(uv), 0.0);
 	let keep = 0.97 * textureLoad(march_weight, px, 0).x;
 	// the colour and the fade are each moved towards their box's centre until they lie inside
@@ -318,8 +327,8 @@ fn fs_downsample(in: FullscreenOut) -> Downsampled {
 // the pyramid's colour at one mip around a pixel: the binomial over a 4 × 4 grid of that mip's texels, weighted by
 // view depth against the pixel's
 fn pyramid_color(px: vec2f, mip: f32, eye: f32) -> vec3f {
-	let texel = post.viewport.zw * exp2(mip);
-	let corner = px * post.viewport.zw - 1.5 * texel;
+	let texel = ssr.size.zw * exp2(mip);
+	let corner = px * ssr.size.zw - 1.5 * texel;
 	var color = vec3f(0.0);
 	var weight = 0.0;
 	for (var y = 0; y < 4; y++) {
@@ -339,12 +348,13 @@ fn pyramid_color(px: vec2f, mip: f32, eye: f32) -> vec3f {
 @fragment
 fn fs_resolve(in: FullscreenOut) -> @location(0) vec4f {
 	let px = vec2i(in.position.xy);
-	let s = reflection_surface_at(px);
-	let depth = textureLoad(depth_texture, px, 0);
+	let full = full_px(px);
+	let s = reflection_surface_at(full);
+	let depth = textureLoad(depth_texture, full, 0);
 	if (!s.valid || depth <= 0.0) {
 		return vec4f(0.0);
 	}
-	let uv = (vec2f(px) + 0.5) * post.viewport.zw;
+	let uv = (vec2f(px) + 0.5) * ssr.size.zw;
 	let mip = textureLoad(march_weight, px, 0).y * ssr.march.y;
 	var color: vec3f;
 	if (mip < 0.25) {
@@ -356,7 +366,7 @@ fn fs_resolve(in: FullscreenOut) -> @location(0) vec4f {
 		color = mix(pyramid_color(vec2f(px), lower, eye), pyramid_color(vec2f(px), upper, eye), mip - lower);
 	}
 	let fade = textureSampleLevel(pyramid, linear_sampler, uv, floor(mip)).a;
-	let sky = textureLoad(reflection_texture, px, 0).rgb;
+	let sky = textureLoad(reflection_texture, full, 0).rgb;
 	return vec4f((s.weight * expand(color) - sky) * fade, 0.0);
 }
 

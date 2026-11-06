@@ -151,6 +151,10 @@ a hit is found, its colour replaces the sky reflection by a fade:
 sky term carries the normalisation above and the indirect specular scale. where no hit is found, the
 sky reflection stays.
 
+every pass (march, resolve, temporal filter, fade) runs at half the render size on every PC tier;
+only very high quality upsamples to the full size before lighting. low quality marches 16 steps, and
+very low turns the reflections off.
+
 - **march.** the mirror ray is projected to the screen and stretched to its edge, then stepped in
   equal steps of uv and device depth, 4 taps per loop: 32 steps (PC high quality's
   `ssrRayMarchingSampleCount`, which is also the floor distant pixels would otherwise drop below),

@@ -65,6 +65,8 @@
 - **no MSAA.** at 2560×1600 on an Apple M-series GPU, a dense Wuling City view took ~46 ms of GPU
   time with 4× MSAA and ~16 ms with temporal antialiasing (the `taa` pass is under 1 ms), and the
   render targets shrank from ~440 to ~200 MiB. `renderScale` 0.5 brought the same view to ~5 ms.
+- **reflections at half resolution**, as the game runs them at PC high quality
+  ([screen-space reflections](lighting.md#screen-space-reflections)).
 - **AO at half resolution.** `ao depth` reduces the depth once into half-resolution view depth; GTAO
   marches that (keeping its scattered reads in cache) and the blur upsamples with depth weights.
 - **cached work.** the transmittance and multiple-scattering LUTs render once per environment;

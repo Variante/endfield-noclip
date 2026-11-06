@@ -86,8 +86,11 @@ the viewer runs the game's screen-space reflections
 ([screen-space reflections](../game-data/lighting.md#screen-space-reflections)) in
 [`ssr.wgsl`](../../packages/viewer/src/render/post/ssr.wgsl) and
 [`screen-space-reflections.ts`](../../packages/viewer/src/render/post/screen-space-reflections.ts),
-as fullscreen passes rather than compute kernels. it reprojects through the depth buffer and the
-previous camera instead of motion vectors (the scenery is static), and needs no rain-wetness
+as fullscreen passes rather than compute kernels. like the game at PC high quality, every pass
+(march, temporal filter, pyramid, resolve) runs at half the render size, reading the main pass's
+targets at the pixel under each texel's centre, and the composite upsamples the result bilinearly;
+at 2560×1600 this took the reflections from 1.35 to 0.46 ms. it reprojects through the depth buffer
+and the previous camera instead of motion vectors (the scenery is static), and needs no rain-wetness
 variant: the viewer's surfaces already carry the wet roughness
 ([wetness](../game-data/environment.md#wetness)), so only the variant's ripple normals are missing.
 reflection-only effects don't draw into the march's inputs. off the screen the sky reflection stays,

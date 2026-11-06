@@ -20,7 +20,9 @@ import { postShaderModule } from './shader-source.ts';
 import ssrWgsl from './ssr.wgsl?raw';
 
 /** byte size of `Ssr` in ssr.wgsl */
-const UNIFORM_BYTES = 112;
+const UNIFORM_BYTES = 128;
+/** the render size over the passes' size: the game's PC high quality runs every pass at half size */
+const DOWNSCALE = 2;
 /** the game's `ssrRayMarchingSampleCount` at PC high quality */
 const MARCH_STEPS = 32;
 /** the game caps its colour pyramid at this many mips */
@@ -46,7 +48,7 @@ interface Sized {
 	clear: GPUTextureView;
 }
 
-/** render-size reflections; resolve outputs a radiance delta for the composite to add */
+/** half render size reflections; resolve outputs a radiance delta the composite upsamples and adds */
 export class ScreenSpaceReflections {
 	#device: GPUDevice;
 	#postUniforms: GPUBuffer;
@@ -98,7 +100,7 @@ export class ScreenSpaceReflections {
 		return this.#sized;
 	}
 
-	/** @returns what the reflections change in the radiance, at the render size; valid after {@link resize} */
+	/** @returns what the reflections change in the radiance, at half the render size; valid after {@link resize} */
 	get output(): GPUTexture {
 		return this.#ensureSized().output;
 	}
@@ -126,7 +128,9 @@ export class ScreenSpaceReflections {
 		height: number;
 	}): void {
 		this.#release();
-		const { scene, previousScene, width, height } = input;
+		const { scene, previousScene } = input;
+		const width = Math.max(1, Math.ceil(input.width / DOWNSCALE));
+		const height = Math.max(1, Math.ceil(input.height / DOWNSCALE));
 		const device = this.#device;
 		const p = this.#pipelines;
 		const mips = Math.max(
@@ -235,6 +239,7 @@ export class ScreenSpaceReflections {
 		};
 		// `march.y`: the coarsest mip
 		this.#data[25] = mips - 1;
+		this.#data.set([width, height, 1 / width, 1 / height], 28);
 		this.#camera.reset();
 	}
 
