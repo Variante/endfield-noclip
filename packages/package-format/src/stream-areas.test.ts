@@ -1,19 +1,9 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
-import { conditionVisible } from './conditions.ts';
-import {
-	areasShownIn,
-	streamAreaControl,
-	streamAreaValues,
-	type StreamAreasInfo,
-	triggerContains,
-	zonesAround,
-	zonesAt,
-} from './stream-areas.ts';
+import { type StreamAreasInfo, areasShownIn, triggerContains, zonesAround, zonesAt } from './stream-areas.ts';
 
 const info: StreamAreasInfo = {
-	areas: [7, 8],
 	rootVisible: [0, 8],
 	shownInside: [{ zone: 9, areas: [0, 7] }],
 	triggers: [
@@ -46,12 +36,4 @@ it('switches from the root set to the zone list inside a trigger', () => {
 	assert.deepEqual([...zonesAt(info, [2, 6, 2])], []);
 	assert.deepEqual([...zonesAround(info, [2, 6, 2])], [9]);
 	assert.deepEqual([...zonesAround(info, [8, 6, 8])], []);
-});
-
-it('gives every required area a value that gates its content', () => {
-	const inside = streamAreaValues(info, areasShownIn(info, zonesAt(info, [2, 1, 2])));
-	assert.deepEqual(inside, { 'area:7': 1, 'area:8': 0 });
-	const content = { alternatives: [[{ control: streamAreaControl(8), mask: 2 }]] };
-	assert.equal(conditionVisible(content, inside), false);
-	assert.equal(conditionVisible(content, streamAreaValues(info, null)), true);
 });

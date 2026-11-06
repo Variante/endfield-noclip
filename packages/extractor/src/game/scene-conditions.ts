@@ -9,6 +9,7 @@ import {
 	type GameState,
 	type MapVariables,
 } from './game-state.ts';
+import { derivedSource, sceneControl, SWITCH_VALUES } from './scene-control.ts';
 import type { WorldIndex } from './world-index.ts';
 
 // MapConfig scene states and the conditions that switch them; see
@@ -84,41 +85,34 @@ export const sceneStateControls = (
 	game: GameState,
 	intern: (formula: ConditionalSetInfo) => number,
 ): SceneControl[] =>
-	states.map(({ index, name, condition }) => ({
-		kind: 'sceneState',
-		id: sceneStateControl(index),
-		name,
-		rule: condition === null ? null : game.describe(condition),
-		assumption:
-			condition === null
-				? 'no condition: only set by name (dungeons, scripts), so off'
-				: 'follows the quests and variables it reads',
-		followsCamera: false,
-		levelTags: [],
-		values: SWITCH_VALUES,
-		default: Number(condition !== null && game.evaluate(condition)),
-		derived: condition === null ? null : intern({ alternatives: game.requirements(condition) }),
-	}));
+	states.map(({ index, name, condition }) =>
+		sceneControl({
+			kind: 'sceneState',
+			id: sceneStateControl(index),
+			name,
+			values: SWITCH_VALUES,
+			default: Number(condition !== null && game.evaluate(condition)),
+			assumption:
+				condition === null
+					? 'no condition: only set by name (dungeons, scripts), so off'
+					: 'follows the quests and variables it reads',
+			source:
+				condition === null
+					? { kind: 'user' }
+					: derivedSource(intern({ alternatives: game.requirements(condition) }), game.describe(condition)),
+		}),
+	);
 
 /**
  * @param index a scene state index no MapConfig names
  * @returns a control for it, off
  */
-export const unnamedSceneStateControl = (index: number): SceneControl => ({
-	kind: 'sceneState',
-	id: sceneStateControl(index),
-	name: `scene state ${index}`,
-	rule: null,
-	assumption: 'not in the MapConfig, so off',
-	followsCamera: false,
-	levelTags: [],
-	values: SWITCH_VALUES,
-	default: 0,
-	derived: null,
-});
-
-/** the values of an on/off control */
-export const SWITCH_VALUES = [
-	{ value: 0, label: 'off' },
-	{ value: 1, label: 'on' },
-];
+export const unnamedSceneStateControl = (index: number): SceneControl =>
+	sceneControl({
+		kind: 'sceneState',
+		id: sceneStateControl(index),
+		name: `scene state ${index}`,
+		values: SWITCH_VALUES,
+		default: 0,
+		assumption: 'not in the MapConfig, so off',
+	});

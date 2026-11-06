@@ -1,29 +1,17 @@
-import type { RuleText, SceneControl, SceneControlKind } from '@endfield-noclip/package-format/states';
+import type { RuleText, SceneControl } from '@endfield-noclip/package-format/states';
 
 import { definite } from '@mary-ext/array-fns';
 import type { ReactNode } from 'react';
 
 import type { Viewer } from '../../viewer/viewer.ts';
 import { ChoiceRow, ControlValueSelect, SceneToggle } from '../controls.tsx';
-import { followLabel } from '../format.ts';
+import { isToggle, ruleOf } from '../format.ts';
 
 import { Drivers } from './drivers.tsx';
 
-/** kinds whose controls are plain on/off switches */
-const SWITCH_KINDS: ReadonlySet<SceneControlKind> = new Set([
-	'sceneState',
-	'script',
-	'logic',
-	'cabin',
-	'created',
-	'activity',
-	'door',
-	'bridge',
-]);
-
 /**
- * a scene control: a checkbox for an on/off switch only the user sets, otherwise a select. derived controls
- * and stream areas offer to follow the game or the camera
+ * a scene control: a checkbox for an off/on switch only the user sets, otherwise a select. derived and camera
+ * controls offer to follow the game or the camera
  *
  * @param props.describe a rule in words, its references named
  */
@@ -36,9 +24,10 @@ export const ControlRow = ({
 	control: SceneControl;
 	describe: (rule: RuleText) => string;
 }) => {
-	const detail = definite([control.rule && describe(control.rule), control.assumption]).join(' · ');
+	const rule = ruleOf(control);
+	const detail = definite([rule && describe(rule), control.assumption]).join(' · ');
 	let input: ReactNode;
-	if (followLabel(control) === null && SWITCH_KINDS.has(control.kind)) {
+	if (isToggle(control)) {
 		input = (
 			<SceneToggle
 				label={control.name}

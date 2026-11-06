@@ -772,64 +772,67 @@ fails, so a control absent from the manifest hides its content instead of showin
 
 ### controls
 
-a `SceneControl` holds one piece of game state: its `kind`, `id`, `name`, the selectable `values`
-(each below 32, with a label), a `default`, the `assumption` the default rests on, whether it
-`followsCamera` (stream areas and proximity, which a viewer sets from the camera unless the user
-picks a value), and the `levelTags` of the content it gates (directly or through a derived control),
-which a viewer uses to list a control only for the levels it matters to. it's a union on `kind`:
-only quest and mission controls carry a `story` place, and only script and water level controls
-`drivers` (`DrivenControl`). the kinds are listed with `SceneControlKind`. a value is a quest's
-state, a variable's range, a progression's level or form index, a water volume's fill index, or 0/1
-for on/off controls. only controls some group requires, directly or through a derived scene state,
-are listed, plus every water level control, which gates nothing; a derived state passes its level
-tags on to the quests and variables it reads. every derived control comes after the controls it
-reads in `controls`; the packer's
+a `SceneControl` holds one piece of game state, and a viewer treats every control alike: it lists
+the control in its section, offers its values and follows its source unless the user picks a value.
+a control has its `id` (`<namespace>:<key>`), its `kind` (the game mechanism it stands for,
+open-ended and descriptive only, see [scene controls](extraction/scene-controls.md)), a `name`, its
+`category` (the section it lists under, one of `StatesInfo.categories`, which give each section's
+title and note in listing order), the selectable `values` (each below 32, with a label), a
+`default`, the `assumption` the default rests on, its `source`, the `levelTags` of the content it
+gates (directly or through a derived control), which a viewer uses to list a control only for the
+levels it matters to, a `story` place and its `drivers`. a value is a quest's state, a variable's
+range, a progression's level or form index, a water volume's fill index, or 0/1 for on/off controls.
+
+only controls something consumes are listed: a visibility group, a derived control that is listed,
+or other content that follows the control's value (a water volume's surface follows its `waterLevel`
+control). a derived control passes its level tags on to the controls it reads. every derived control
+comes after the controls it reads in `controls`; the packer's
 [control registry](../packages/extractor/src/pack/control-registry.ts) orders, prunes and finishes
 them.
 
-- **derived**: a control with `derived` set is computed: unless the user picks a value it is 1 while
-  `conditionalSets[derived]` holds, and its `rule` gives that condition in words (`RuleText`: text
-  runs and references to the controls it reads, so a viewer names them without parsing; `ruleText`
-  joins them). derived controls require only controls listed before them, so `resolveSceneValues`
-  turns the user's picks into every control's value in one pass (picks, then defaults, then derived
-  controls from their formulas), and a derived control's stored `default` is its value under no
-  picks.
-- **story**: quest and mission controls of a known mission carry a `story` place (mission id,
-  main-flow step), and `StatesInfo.missions` names those missions (`MissionInfo`: name, quest log
-  category, chapter, episode, where it takes place), so a viewer can group them; the names are the
-  install's English text, extracted at pack time
+- **source** (`ControlSource`): `user` controls only change by a pick and otherwise hold their
+  default. a `derived` control is 1 while `conditionalSets[condition]` holds and 0 otherwise, and
+  its `rule` gives that condition in words (`RuleText`: text runs and references to the controls it
+  reads, so a viewer names them without parsing; `ruleText` joins them); its stored `default` is its
+  value under no picks. a `camera` control is set from the camera, which stands in for the player,
+  by its `test` ([stream areas](#stream-areas), [proximity](#proximity)); its stored default only
+  holds without a camera. `resolveSceneValues` turns the picks and the camera's values
+  (`cameraValues` in [camera.ts](../packages/package-format/src/camera.ts)) into every control's
+  value in one pass: a pick, else the camera's value or the default, then derived controls from
+  their formulas in order.
+- **story**: quest and mission controls of a known mission carry a `story` place (whether it holds a
+  quest's or the mission's state, the mission id, the main-flow step); their values are then the
+  game's quest and mission states. `StatesInfo.missions` names those missions (`MissionInfo`: name,
+  quest log category, chapter, episode, where it takes place), so a viewer can group them; the names
+  are the install's English text, extracted at pack time
   ([quest and mission labels](extraction/scene-controls.md#quest-and-mission-labels)).
   `StatesInfo.mainStory` lists the main story's missions in story order, which the extractor reads
   from their ids (`e<episode>m<mission>[d<decimal>]`, compared number by number), not from game
   data. [story.ts](../packages/package-format/src/story.ts) turns a point in an ordered mission list
   into consistent picks for all of them.
-- **drivers**: script and water level controls carry `drivers`, what sets them in game according to
-  the level scripts (`ControlDriver`: quests, a switch, a trigger area, the script's area, another
-  level, the server, another classified game event, or an `unknown` event by its game name), each
-  with the value it sets and a position where it has one
-  ([script groups](extraction/scene-controls.md#script-groups), [water](#water)).
+- **drivers**: what sets a control in game according to the level scripts (`ControlDriver`: quests,
+  a switch, a trigger area, the script's area, another level, the server, another classified game
+  event, or an `unknown` event by its game name), each with the value it sets and a position where
+  it has one ([script groups](extraction/scene-controls.md#script-groups), [water](#water)); empty
+  when nothing found sets it.
 
 ### stream areas
 
 `StatesInfo.streamAreas` (`StreamAreasInfo`, `null` when no packed content lies in a non-default
-area) holds the areas content requires, the root list, each zone's list, and the zones' triggers (XZ
-box, height range, XZ ring). content of an area requires its `area:<id>` control (value 0/1), which
-a viewer sets from the camera unless the user picks a value: `zonesAt` is the game's trigger test,
-`areasShownIn` turns zones into areas, and `streamAreaValues` gives every required area its control
-value ([stream-areas.ts](../packages/package-format/src/stream-areas.ts), the packaged table and the
-trigger test). the stored default of an `area:<id>` control (shown) only holds without a camera. the
-packer gates non-default-area content by its areas and ships the table; the viewer runs the trigger
-test at the camera. which content a stream area gates is in
+area) holds the root list, each zone's list, and the zones' triggers (XZ box, height range, XZ
+ring). content of an area requires its `area:<id>` control (value 0/1), a camera control with an
+`area` test: a viewer runs the game's trigger test at the camera (`zonesAt`), turns the zones into
+the areas shown (`areasShownIn`, [stream-areas.ts](../packages/package-format/src/stream-areas.ts))
+and gives each area control 1 while its area is among them. the packer gates non-default-area
+content by its areas and ships the table. which content a stream area gates is in
 [extraction.md](extraction.md#how-the-packer-files-instances), and the game's areas in
 [stream areas](game-data/world.md#stream-areas).
 
 ### proximity
 
-`StatesInfo.proximities` (`ProximityInfo`) gives each `proximity:<id>` control one or more reaches,
-a position and a radius each. the control is 1 while the player is within the 3D distance of any of
-its reaches and 0 beyond all; a viewer sets it from the camera unless the user picks a value
-(`proximityValues` in [proximity.ts](../packages/package-format/src/proximity.ts)), and its stored
-default (away) only holds without a camera. two kinds exist:
+a `proximity:<id>` control is a camera control with a `near` test: one or more reaches, a position
+and a radius each. it is 1 while the camera, standing in for the player, is within the 3D distance
+of any of its reaches and 0 beyond all. two kinds exist:
 
 - `proximity:<interactive id>`: one reach around an interactive, whose away and near poses require
   its values 0 and 1 ([view-state poses](extraction/prefabs-and-interactives.md#view-state-poses))

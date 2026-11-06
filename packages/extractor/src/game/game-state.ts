@@ -12,6 +12,8 @@ import type {
 	SceneRequirement,
 } from '@endfield-noclip/package-format/states';
 
+import { sceneControl } from './scene-control.ts';
+
 // shares quest, mission and variable controls across MapConfig conditions and dynamic load gates.
 // conditions are disjunctions of conjunctions. defaults: docs/extraction/scene-controls.md#defaults.
 
@@ -399,37 +401,32 @@ export class GameState {
 			const values = STATE_NAMES.map((label, value) => ({ value, label })).filter(
 				({ value }) => kind === 'mission' || value !== 1,
 			);
-			controls.push({
-				kind,
-				id: `${kind}:${id}`,
-				name: id,
-				rule: null,
-				assumption: 'story finished',
-				followsCamera: false,
-				story: null,
-				levelTags: [],
-				values,
-				default: COMPLETED,
-				derived: null,
-			});
+			controls.push(
+				sceneControl({
+					kind,
+					id: `${kind}:${id}`,
+					name: id,
+					values,
+					default: COMPLETED,
+					assumption: 'story finished',
+				}),
+			);
 		}
 		for (const [id, variable] of this.#variables) {
 			if (variable.ranges === null) {
 				continue;
 			}
 			const highest = Math.max(...variable.targets);
-			controls.push({
-				kind: variable.kind,
-				id,
-				name: variable.label,
-				rule: null,
-				assumption: `assumed ${highest}, the highest value the scene compares it against`,
-				followsCamera: false,
-				levelTags: [],
-				values: variable.ranges.map(({ label }, value): SceneControlValue => ({ value, label })),
-				default: variable.ranges.findIndex(({ value }) => value === highest),
-				derived: null,
-			});
+			controls.push(
+				sceneControl({
+					kind: variable.kind,
+					id,
+					name: variable.label,
+					values: variable.ranges.map(({ label }, value): SceneControlValue => ({ value, label })),
+					default: variable.ranges.findIndex(({ value }) => value === highest),
+					assumption: `assumed ${highest}, the highest value the scene compares it against`,
+				}),
+			);
 		}
 		return controls.toSorted((a, b) => a.id.localeCompare(b.id));
 	}

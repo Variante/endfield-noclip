@@ -1,10 +1,5 @@
 import type { MissionInfo, RuleText, SceneControl } from '@endfield-noclip/package-format/states';
-import {
-	storyPlace,
-	storyPointPicks,
-	storyPoints,
-	type StoryPoint,
-} from '@endfield-noclip/package-format/story';
+import { storyPointPicks, storyPoints, type StoryPoint } from '@endfield-noclip/package-format/story';
 
 import { definite } from '@mary-ext/array-fns';
 
@@ -27,8 +22,8 @@ const CATEGORIES: { category: MissionInfo['category']; title: string }[] = [
 const ordered = (entries: readonly SceneControl[]): SceneControl[] =>
 	entries.toSorted(
 		(a, b) =>
-			Number(a.kind !== 'mission') - Number(b.kind !== 'mission') ||
-			(storyPlace(a)?.step ?? Number.MAX_SAFE_INTEGER) - (storyPlace(b)?.step ?? Number.MAX_SAFE_INTEGER) ||
+			Number(a.story?.role !== 'mission') - Number(b.story?.role !== 'mission') ||
+			(a.story?.step ?? Number.MAX_SAFE_INTEGER) - (b.story?.step ?? Number.MAX_SAFE_INTEGER) ||
 			a.id.localeCompare(b.id),
 	);
 
@@ -127,7 +122,7 @@ export const StoryControls = ({
 	describe: (rule: RuleText) => string;
 	levelName: (id: string) => string;
 }) => {
-	const grouped = Map.groupBy(controls, (control) => storyPlace(control)?.mission ?? null);
+	const grouped = Map.groupBy(controls, (control) => control.story?.mission ?? null);
 	const rows = (entries: readonly SceneControl[]) =>
 		ordered(entries).map((entry) => (
 			<ControlRow key={entry.id} viewer={viewer} control={entry} describe={describe} />

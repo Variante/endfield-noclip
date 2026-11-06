@@ -1,9 +1,4 @@
-import type {
-	ControlDriver,
-	DrivenControl,
-	QuestRef,
-	SceneControl,
-} from '@endfield-noclip/package-format/states';
+import type { ControlDriver, QuestRef, SceneControl } from '@endfield-noclip/package-format/states';
 
 import type { Viewer } from '../../viewer/viewer.ts';
 import { FlyButton } from '../controls.tsx';
@@ -20,7 +15,7 @@ const questText = (quest: QuestRef): string => {
 };
 
 /** @returns a driver in words: what it does to the control, and why */
-const driverText = (driver: ControlDriver, control: DrivenControl): string => {
+const driverText = (driver: ControlDriver, control: SceneControl): string => {
 	let verb = 'Set';
 	if (driver.value !== null && control.kind === 'script') {
 		verb = driver.value === 1 ? 'Shown' : 'Hidden';
@@ -77,7 +72,7 @@ const driverText = (driver: ControlDriver, control: DrivenControl): string => {
  * @param control a scene control
  */
 export const Drivers = ({ viewer, control }: { viewer: Viewer; control: SceneControl }) => {
-	if ((control.kind !== 'script' && control.kind !== 'waterLevel') || control.drivers.length === 0) {
+	if (control.drivers.length === 0) {
 		return null;
 	}
 	return (

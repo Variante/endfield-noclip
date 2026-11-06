@@ -1,4 +1,4 @@
-import type { SceneControl } from '@endfield-noclip/package-format/states';
+import type { RuleText, SceneControl } from '@endfield-noclip/package-format/states';
 
 /**
  * @param bytes byte count
@@ -39,15 +39,38 @@ export const describeError = (err: unknown): string => (err instanceof Error ? e
 
 /**
  * @param control a scene control
+ * @returns the game's rule for a derived control, `null` for others
+ */
+export const ruleOf = (control: SceneControl): RuleText | null =>
+	control.source.kind === 'derived' ? control.source.rule : null;
+
+/**
+ * @param control a scene control
+ * @returns whether it's a plain off/on switch only the user sets, shown as a checkbox; controls whose values
+ *   say more (closed/open, standing/felled) keep a select that shows them
+ */
+export const isToggle = (control: SceneControl): boolean =>
+	control.source.kind === 'user' &&
+	control.values.length === 2 &&
+	control.values[0].value === 0 &&
+	control.values[0].label === 'off' &&
+	control.values[1].label === 'on';
+
+/**
+ * @param control a scene control
  * @returns the label of the option that leaves the control to the camera or the game, or `null` if only the
  *   user sets it
  */
 export const followLabel = (control: SceneControl): string | null => {
-	if (control.followsCamera) {
-		return 'Follow camera';
+	switch (control.source.kind) {
+		case 'camera': {
+			return 'Follow camera';
+		}
+		case 'derived': {
+			return 'Follow game';
+		}
+		case 'user': {
+			return null;
+		}
 	}
-	if (control.derived !== null) {
-		return 'Follow game';
-	}
-	return null;
 };

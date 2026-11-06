@@ -40,6 +40,12 @@ the package side of [the selectors](../game-data/scene-states.md#the-selectors-a
 | environment volume         | `environmentVolume:<index>`                        | on, except scripted volumes                                       |
 | water volume fill          | `waterLevel:<id>`                                  | the authored fill                                                 |
 
+the control's kind is the selector's name in its id (`door`, `script`, …). every control is built by
+`sceneControl` in [scene-control.ts](../../packages/extractor/src/game/scene-control.ts), which
+files it under its kind's category (the panel section); a new mechanism adds its kind there, and
+registers its controls with the packer's
+[control registry](../../packages/extractor/src/pack/control-registry.ts) in any order.
+
 the interactive controls' poses come from
 [prefabs, dynamic structures and interactives](prefabs-and-interactives.md#view-state-poses); the
 environment volume and water level controls are described with their tables

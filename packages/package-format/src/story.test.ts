@@ -10,17 +10,17 @@ const control = (
 	mission: string,
 	step: number | null,
 ): SceneControl => ({
-	kind,
 	id: `${kind}:${id}`,
+	kind,
 	name: id,
-	rule: null,
-	assumption: '',
-	followsCamera: false,
-	story: { mission, step },
-	levelTags: [0],
+	category: 'story',
 	values: [],
 	default: 3,
-	derived: null,
+	assumption: '',
+	source: { kind: 'user' },
+	levelTags: [0],
+	story: { role: kind, mission, step },
+	drivers: [],
 });
 
 const CONTROLS = [

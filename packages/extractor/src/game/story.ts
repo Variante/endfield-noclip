@@ -62,11 +62,11 @@ export const labelStory = async (
 		}
 		if (control.kind === 'mission') {
 			control.name = missions.get(missionId)?.name ?? missionId;
-			control.story = { mission: missionId, step: null };
+			control.story = { role: 'mission', mission: missionId, step: null };
 			continue;
 		}
 		const quest = mission.quests.find((entry) => entry.id === id);
-		control.story = { mission: missionId, step: flowStep(mission, id) };
+		control.story = { role: 'quest', mission: missionId, step: flowStep(mission, id) };
 		const label = quest && (plain(quest.objectiveKey) ?? plain(quest.descriptionKey));
 		// hidden steps exist only to drive scenery; their id suffix is the best name they have
 		control.name = label ?? `hidden step ${id.slice(missionId.length + 3)}`;

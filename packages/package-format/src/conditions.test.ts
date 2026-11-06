@@ -2,39 +2,26 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
 import { conditionResults, conditionVisible, groupsShown, resolveSceneValues } from './conditions.ts';
-import type { ConditionalSetInfo, SceneControl, SceneControlBase, StatesInfo } from './states.ts';
+import type { ConditionalSetInfo, SceneControl, StatesInfo } from './states.ts';
 
 const control = (
-	fields: Pick<SceneControlBase, 'kind' | 'id' | 'default'> & Partial<SceneControlBase>,
+	fields: Pick<SceneControl, 'kind' | 'id' | 'default'> & Partial<SceneControl> & { derived?: number },
 ): SceneControl => {
-	const base: SceneControlBase = {
+	const { derived, ...rest } = fields;
+	return {
 		name: fields.id,
-		rule: null,
+		category: 'test',
 		assumption: '',
-		followsCamera: false,
 		levelTags: [0],
 		values: [
 			{ value: 0, label: 'off' },
 			{ value: 1, label: 'on' },
 		],
-		derived: null,
-		...fields,
+		source: derived === undefined ? { kind: 'user' } : { kind: 'derived', condition: derived, rule: [] },
+		story: null,
+		drivers: [],
+		...rest,
 	};
-	switch (base.kind) {
-		case 'quest':
-		case 'mission': {
-			return { ...base, kind: base.kind, story: null };
-		}
-		case 'script': {
-			return { ...base, kind: base.kind, drivers: [] };
-		}
-		case 'waterLevel': {
-			return { ...base, kind: base.kind, drivers: [] };
-		}
-		default: {
-			return { ...base, kind: base.kind };
-		}
-	}
 };
 
 it('selects mutually exclusive upgrades while preserving shared and script-gated resources', () => {
@@ -51,7 +38,7 @@ it('selects mutually exclusive upgrades while preserving shared and script-gated
 		conditionalSets: [],
 		groups: [],
 		streamAreas: null,
-		proximities: [],
+		categories: [],
 		missions: [],
 		mainStory: [],
 	};
@@ -114,7 +101,7 @@ it('derives scene states from the quests they follow, unless the user overrides 
 		],
 		groups: [],
 		streamAreas: null,
-		proximities: [],
+		categories: [],
 		missions: [],
 		mainStory: [],
 	};
@@ -149,7 +136,7 @@ it('shows a group of any level when its condition holds', () => {
 			{ levelTag: 0, condition: 1 },
 		],
 		streamAreas: null,
-		proximities: [],
+		categories: [],
 		missions: [],
 		mainStory: [],
 	};

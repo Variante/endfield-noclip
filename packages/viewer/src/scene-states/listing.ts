@@ -8,7 +8,7 @@
 import type { EnvironmentVolumeInfo } from '@endfield-noclip/package-format/environment';
 import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
-import type { SceneControlBase } from '@endfield-noclip/package-format/states';
+import type { SceneControl } from '@endfield-noclip/package-format/states';
 
 import { volumeLevelTag } from '../environment/blend.ts';
 
@@ -46,7 +46,7 @@ export const groupByLevel = <T>(
  * @returns whether the control gates the level's content: its level tags include 0 or the level's tag. every
  *   control is listed without a level
  */
-export const controlListedFor = (control: SceneControlBase, level: LevelInfo | null): boolean =>
+export const controlListedFor = (control: SceneControl, level: LevelInfo | null): boolean =>
 	level === null || control.levelTags.includes(0) || control.levelTags.includes(level.tag);
 
 /**
@@ -54,7 +54,7 @@ export const controlListedFor = (control: SceneControlBase, level: LevelInfo | n
  * @param level the current level, or `null` for none
  * @returns the controls {@link controlListedFor} the level, in order
  */
-export const controlsForLevel = <T extends SceneControlBase>(
+export const controlsForLevel = <T extends SceneControl>(
 	controls: readonly T[],
 	level: LevelInfo | null,
 ): T[] => controls.filter((control) => controlListedFor(control, level));

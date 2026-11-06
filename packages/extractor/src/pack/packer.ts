@@ -64,7 +64,6 @@ import type {
 	ConditionalSetInfo,
 	ControlDriver,
 	SceneControl,
-	ScriptControl,
 	StatesInfo,
 } from '@endfield-noclip/package-format/states';
 import { streamAreaControl, type StreamAreasInfo } from '@endfield-noclip/package-format/stream-areas';
@@ -112,9 +111,9 @@ import {
 	sceneStateControl,
 	sceneStateControls,
 	type SceneStateDefinition,
-	SWITCH_VALUES,
 	unnamedSceneStateControl,
 } from '../game/scene-conditions.ts';
+import { derivedSource, sceneControl, switchValues, SWITCH_VALUES } from '../game/scene-control.ts';
 import { loadProgressions, progressionControl, progressionId } from '../game/scenery-variants.ts';
 import {
 	activationCondition,
@@ -1137,7 +1136,7 @@ const collectEntities = async (
 	collected.states.add(...dynamic.controls);
 	/** script-controlled dynamic entities' controls by global id */
 	const scripted = new Map(
-		mapDefined(dynamic.controls, (control): [string, ScriptControl] | undefined =>
+		mapDefined(dynamic.controls, (control): [string, SceneControl] | undefined =>
 			control.kind === 'script' ? [control.id.slice('script:'.length), control] : undefined,
 		),
 	);
@@ -1308,7 +1307,7 @@ const collectEntities = async (
 			}
 		}
 		// a group its scripts set by quest checks whenever they run follows those quests; its default is then the
-		// one a finished story gives (see finishControls)
+		// one a finished story gives (see ControlRegistry.finish)
 		counts.scriptGroupsDerived = 0;
 		for (const [id, rule] of found.rules) {
 			const control = scripted.get(id);
@@ -1316,9 +1315,11 @@ const collectEntities = async (
 			if (!control || !condition) {
 				continue;
 			}
-			control.rule = scene.game.describe(condition);
 			control.assumption = 'set by its level scripts’ quest checks when they run';
-			control.derived = collected.states.condition({ alternatives: scene.game.requirements(condition) });
+			control.source = derivedSource(
+				collected.states.condition({ alternatives: scene.game.requirements(condition) }),
+				scene.game.describe(condition),
+			);
 			counts.scriptGroupsDerived++;
 		}
 		// a group one script sets as the player enters and leaves a volume follows the camera through a proximity
@@ -1331,33 +1332,32 @@ const collectEntities = async (
 			}
 			const nearness = `proximity:volume:${rule.volume}`;
 			if (!volumeProximities.some((known) => known.id === nearness)) {
-				volumeProximities.push({
-					kind: 'proximity',
-					id: nearness,
-					name: `Script ${rule.volume.replace(':', ' volume ')}`,
-					rule: null,
-					assumption: 'follows the camera, as the game follows the player',
-					followsCamera: true,
-					levelTags: [],
-					values: [
-						{ value: 0, label: 'outside' },
-						{ value: 1, label: 'inside' },
-					],
-					default: 0,
-					derived: null,
-				});
-				for (const { position, radius } of rule.spheres) {
-					collected.states.proximities.push({ control: nearness, position, radius });
-				}
+				volumeProximities.push(
+					sceneControl({
+						kind: 'proximity',
+						id: nearness,
+						name: `Script ${rule.volume.replace(':', ' volume ')}`,
+						values: switchValues('outside', 'inside'),
+						default: 0,
+						assumption: 'follows the camera, as the game follows the player',
+						source: {
+							kind: 'camera',
+							test: {
+								kind: 'near',
+								reaches: rule.spheres.map(({ position, radius }) => ({ position: [...position], radius })),
+							},
+						},
+					}),
+				);
 			}
-			control.rule = [
-				rule.inside ? 'shown while ' : 'hidden while ',
-				{ control: nearness, text: 'the player is inside its level script’s trigger volume' },
-			];
 			control.assumption = 'follows the camera, as its level script follows the player';
-			control.derived = collected.states.condition({
-				alternatives: [[{ control: nearness, mask: rule.inside ? 2 : 1 }]],
-			});
+			control.source = derivedSource(
+				collected.states.condition({ alternatives: [[{ control: nearness, mask: rule.inside ? 2 : 1 }]] }),
+				[
+					rule.inside ? 'shown while ' : 'hidden while ',
+					{ control: nearness, text: 'the player is inside its level script’s trigger volume' },
+				],
+			);
 			counts.scriptGroupsByVolume++;
 		}
 		counts.levelScripts = found.counts.scripts;
@@ -1420,9 +1420,11 @@ const collectEntities = async (
 		for (const { control } of facilities.doors) {
 			const cabin = linked.get(control.id);
 			if (cabin !== undefined) {
-				control.rule = ['open while ', { control: cabin, text: 'its cabin slot' }, ' is built'];
 				control.assumption = 'follows its Dijiang cabin slot';
-				control.derived = collected.states.condition({ alternatives: [[{ control: cabin, mask: 2 }]] });
+				control.source = derivedSource(
+					collected.states.condition({ alternatives: [[{ control: cabin, mask: 2 }]] }),
+					['open while ', { control: cabin, text: 'its cabin slot' }, ' is built'],
+				);
 			}
 		}
 		counts.doors = facilities.doors.length;
@@ -1438,7 +1440,6 @@ const collectEntities = async (
 		...facilities.proximityControls,
 		...volumeProximities,
 	);
-	collected.states.proximities.push(...facilities.proximities);
 	counts.bridges = facilities.bridges.length;
 	counts.unsupportedInteractiveFiles = facilities.unsupported.length;
 	const resolver = await context.resolver();
@@ -1805,21 +1806,18 @@ const gateByScene = (
  * @returns the control that switches it: on by default, except a scripted (mode 3) volume, whose script isn't
  *   followed
  */
-const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo): SceneControl => ({
-	kind: 'environmentVolume',
-	id: `environmentVolume:${index}`,
-	name: volume.name,
-	rule: null,
-	assumption:
-		volume.blendMode === EnvironmentBlendMode.Manual
-			? 'off: a level script fades it in, which isn’t followed; on previews it at full strength'
-			: 'on: it applies wherever it holds the camera',
-	followsCamera: false,
-	levelTags: [],
-	values: SWITCH_VALUES,
-	default: volume.blendMode === EnvironmentBlendMode.Manual ? 0 : 1,
-	derived: null,
-});
+const environmentVolumeControl = (index: number, volume: EnvironmentVolumeInfo): SceneControl =>
+	sceneControl({
+		kind: 'environmentVolume',
+		id: `environmentVolume:${index}`,
+		name: volume.name,
+		values: SWITCH_VALUES,
+		default: volume.blendMode === EnvironmentBlendMode.Manual ? 0 : 1,
+		assumption:
+			volume.blendMode === EnvironmentBlendMode.Manual
+				? 'off: a level script fades it in, which isn’t followed; on previews it at full strength'
+				: 'on: it applies wherever it holds the camera',
+	});
 
 /**
  * @param volume a water volume's table entry
@@ -1847,15 +1845,10 @@ const waterLevelControlOf = (
 			}
 		}
 	}
-	return {
+	return sceneControl({
 		kind: 'waterLevel',
 		id: volume.control,
 		name: `Water volume ${volume.id}`,
-		rule: null,
-		assumption: 'the authored fill, before any script runs',
-		followsCamera: false,
-		drivers: found,
-		levelTags: [],
 		values: volume.levels.map(({ fraction }, value) => ({
 			value,
 			label: `${Math.round(fraction * 100)}% (${(volume.base + volume.heightMax * fraction).toFixed(1)} m)${
@@ -1863,8 +1856,9 @@ const waterLevelControlOf = (
 			}`,
 		})),
 		default: volume.levels.findIndex(({ fraction }) => fraction === volume.initial),
-		derived: null,
-	};
+		assumption: 'the authored fill, before any script runs',
+		drivers: found,
+	});
 };
 
 /** the top of the 27-bit per-level id space, for ids the game doesn't assign */
@@ -2123,32 +2117,28 @@ const sceneStates = async (
 	);
 	const areas = [...collected.states.areas]
 		.toSorted((a, b) => a - b)
-		.map((area): SceneControl => ({
-			kind: 'area',
-			id: streamAreaControl(area),
-			name: `Stream area ${area}`,
-			rule: null,
-			assumption: 'follows the camera, like the game',
-			followsCamera: true,
-			levelTags: [],
-			values: [
-				{ value: 0, label: 'hidden' },
-				{ value: 1, label: 'shown' },
-			],
-			default: 1,
-			derived: null,
-		}));
+		.map((area) =>
+			sceneControl({
+				kind: 'area',
+				id: streamAreaControl(area),
+				name: `Stream area ${area}`,
+				values: switchValues('hidden', 'shown'),
+				default: 1,
+				assumption: 'follows the camera, like the game',
+				source: { kind: 'camera', test: { kind: 'area', area } },
+			}),
+		);
 	const { states } = collected;
 	states.add(...scene.game.controls(), ...progressions, ...areas);
-	const { controls, proximities } = states.finish();
+	const { controls, categories } = states.finish();
 	const missions = await labelStory(world, controls);
 	return {
 		levels,
+		categories,
 		controls,
 		conditionalSets: states.conditions,
 		groups: states.groups,
 		streamAreas: await streamAreasInfo(world, scene.options.scene, states.areas),
-		proximities,
 		missions,
 		mainStory: mainStoryOrder(missions),
 	};
@@ -2174,8 +2164,6 @@ const streamAreasInfo = async (
 		throw new Error(`${scene} has stream-area content but no stream-area table`);
 	}
 	return {
-		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
-		areas: [...areas].sort((a, b) => a - b),
 		rootVisible: table.rootVisible,
 		shownInside: [...table.visibleWhileInside].map(([zone, shown]) => ({ zone, areas: shown })),
 		triggers: table.triggers.map(({ areaId, bounds, polygon }) => ({
@@ -2283,11 +2271,11 @@ const writePackage = async (
 		irradianceRegions: states.irradianceRegions,
 		heightFogFlowNoise: states.heightFogFlowNoise,
 		states: {
+			categories: states.categories,
 			controls: states.controls,
 			conditionalSets: states.conditionalSets,
 			groups: states.groups,
 			streamAreas: states.streamAreas,
-			proximities: states.proximities,
 			missions: states.missions,
 			mainStory: states.mainStory,
 		},

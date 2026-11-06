@@ -10,12 +10,17 @@ import type { Vec3 } from './values.ts';
  * from the camera unless the user pins them (see {@link StreamAreasInfo})
  */
 export interface StatesInfo {
+	/** the sections controls are listed under, in listing order */
+	categories: ControlCategory[];
 	/**
-	 * every control some visibility group or derived control requires, inputs before the controls derived from
-	 * them
+	 * every control some visibility group, derived control or other consumer (a water volume) needs, each
+	 * derived control after the controls it reads
 	 */
 	controls: SceneControl[];
-	/** visibility expressions; {@link VisibilityGroup.condition} and {@link SceneControl.derived} index this list */
+	/**
+	 * visibility expressions; {@link VisibilityGroup.condition} and a derived {@link ControlSource} index this
+	 * list
+	 */
 	conditionalSets: ConditionalSetInfo[];
 	/**
 	 * who owns placed content and when it loads, deduplicated. every instance block, light, water surface and
@@ -25,8 +30,6 @@ export interface StatesInfo {
 	groups: VisibilityGroup[];
 	/** the scene's stream areas, or `null` when no packed content belongs to a non-default area */
 	streamAreas: StreamAreasInfo | null;
-	/** where each `proximity` control's player counts as near */
-	proximities: ProximityInfo[];
 	/** the missions quest and mission controls belong to, for labels and grouping */
 	missions: MissionInfo[];
 	/**
@@ -54,20 +57,53 @@ export interface MissionInfo {
 	levelId: string | null;
 }
 
-/**
- * a `proximity` control's reach: the control is 1 while the player is within `radius` metres of `position`
- * (3D distance) and 0 beyond. a viewer sets it from the camera unless the user picks a value
- */
-export interface ProximityInfo {
-	/** the {@link SceneControl.id} */
-	control: string;
+/** a section of controls, e.g. "Story" or "Doors and bridges" */
+export interface ControlCategory {
+	/** stable key, e.g. `story` */
+	id: string;
+	title: string;
+	/** what the section's controls have in common that their rows don't say, or `null` */
+	note: string | null;
+}
+
+/** a sphere the player can stand in: within `radius` metres of `position` (3D distance) */
+export interface Reach {
 	/** Unity coordinates */
 	position: Vec3;
 	radius: number;
 }
 
-/** where a quest or mission control sits in the story */
+/**
+ * where a control's value comes from unless the user picks one:
+ *
+ * - `user`: only the user sets it; it holds its `default` otherwise
+ * - `derived`: 1 while `conditionalSets[condition]` holds and 0 otherwise (derived controls are on/off), the
+ *   game's rule in words in `rule`; it reads only controls listed before it
+ * - `camera`: the camera stands in for the player, by a {@link CameraTest}; its `default` holds only without a
+ *   camera
+ */
+export type ControlSource =
+	| { kind: 'user' }
+	| { kind: 'derived'; condition: number; rule: RuleText }
+	| { kind: 'camera'; test: CameraTest };
+
+/**
+ * how the camera sets a control:
+ *
+ * - `area`: 1 while the stream area shows at the camera, by the game's trigger test over
+ *   {@link StatesInfo.streamAreas}, 0 otherwise
+ * - `near`: 1 while the camera is within any of the reaches, 0 beyond all
+ */
+export type CameraTest = { kind: 'area'; area: number } | { kind: 'near'; reaches: Reach[] };
+
+/**
+ * where a quest or mission control sits in the story. its values are then the game's `QuestState` /
+ * `MissionState` values (none 0, available 1 for missions, processing 2, completed 3, failed 4, disabled 5),
+ * which story progress picks set
+ */
 export interface StoryPlace {
+	/** whether the control holds a quest's state or its mission's */
+	role: 'quest' | 'mission';
 	/** a {@link StatesInfo.missions} id */
 	mission: string;
 	/**
@@ -88,124 +124,34 @@ export interface VisibilityGroup {
 }
 
 /**
- * what a control holds:
- *
- * - `quest` / `mission`: a quest's or mission's state (`QuestState` / `MissionState` values)
- * - `mapVar` / `globalVar`: a map or global variable. values are ranges between the values the scene compares
- *   it against, plus "unset" where a load gate treats an unset variable differently from any value
- * - `sceneState`: a MapConfig scene state, on or off; derived from its condition when it has one, else only set
- *   by name (dungeons, scripts)
- * - `script`: whether a script-controlled entity group is shown; level scripts and the server set it
- * - `logic`: a logic-state gate with no recovered controller
- * - `harvest`: one level's harvestable trees, standing (0) or felled (1); each tree's state is the player's, at
- *   runtime
- * - `controlNexus`: Dijiang's Control Nexus level, offered at the levels that unlock a construction area; each
- *   area's region wall shows below its level
- * - `cabin`: a Dijiang cabin slot, empty (0) or built (1); building is the player's choice
- * - `cabinLevel`: a built growth chamber's level, which unlocks its planting boxes
- * - `created`: one level's interactives the game creates during play rather than with the level (by the server
- *   or a level script), shown (1) or not (0)
- * - `activity`: placements of limited-time events (the game's activities), shown (1) or not (0); the server
- *   opens and closes events, so they're off by default
- * - `door`: an interactive door, closed (0) or open (1); derived from its cabin slot for a Dijiang cabin's door
- * - `area`: a stream area, shown (1) or hidden (0). unless the user picks a value, a viewer sets it from the
- *   camera (see {@link StreamAreasInfo}); its `default` is only what holds without a camera
- * - `proximity`: whether the player is near an interactive (1) or not (0), for its view states. unless the user
- *   picks a value, a viewer sets it from the camera (see {@link ProximityInfo}); its `default` is only what
- *   holds without a camera
- * - `settlement` / `poi` / `factoryRegion`: a progression level; `facility`: an interactive's visual form;
- *   `doodadGroups`: one level's resource node group level (1 to 4)
- * - `activation`: whether the player has activated an interactive (a campfire), not activated (0) or activated
- *   (1)
- * - `environmentVolume`: whether an environment volume may apply, off (0) or on (1); see
- *   `EnvironmentVolumeInfo.control`
- * - `waterLevel`: the fill a gameplay water volume is at, as an index into `WaterVolumeEntry.levels`; it gates
- *   no content, so a viewer moves the volume's surface to it
+ * one selectable piece of game state: a quest's state, a variable, a progression level, a door, a script
+ * group's flag. a viewer treats every control alike: it lists it under its category, offers its values, and
+ * follows its {@link ControlSource} unless the user picks a value
  */
-export type SceneControlKind =
-	| 'quest'
-	| 'mission'
-	| 'mapVar'
-	| 'globalVar'
-	| 'sceneState'
-	| 'script'
-	| 'logic'
-	| 'harvest'
-	| 'controlNexus'
-	| 'cabin'
-	| 'cabinLevel'
-	| 'created'
-	| 'activity'
-	| 'door'
-	| 'bridge'
-	| 'area'
-	| 'proximity'
-	| 'settlement'
-	| 'poi'
-	| 'factoryRegion'
-	| 'facility'
-	| 'doodadGroups'
-	| 'activation'
-	| 'environmentVolume'
-	| 'waterLevel';
-
-/**
- * one selectable piece of game state. quest and mission controls also say where they sit in the story, and
- * script and water level controls what sets them in game
- */
-export type SceneControl =
-	| (SceneControlBase & {
-			kind: 'quest' | 'mission';
-			/** where it sits in the story, for a control of a known mission; `null` otherwise */
-			story: StoryPlace | null;
-	  })
-	| (SceneControlBase & {
-			kind: 'script';
-			/** what sets it in game, deduplicated; empty when no client script does */
-			drivers: ControlDriver[];
-	  })
-	| (SceneControlBase & {
-			kind: 'waterLevel';
-			/** what sets each fill in game, deduplicated; empty when no client script does */
-			drivers: ControlDriver[];
-	  })
-	| (SceneControlBase & {
-			kind: Exclude<SceneControlKind, 'quest' | 'mission' | 'script' | 'waterLevel'>;
-	  });
-
-/** a `script` control */
-export type ScriptControl = Extract<SceneControl, { kind: 'script' }>;
-
-/** a control level scripts set, which lists what sets it */
-export type DrivenControl = Extract<SceneControl, { kind: 'script' | 'waterLevel' }>;
-
-/** what every {@link SceneControl} has */
-export interface SceneControlBase {
-	kind: SceneControlKind;
-	/** `<kind>:<key>`, e.g. `quest:e1m8_q#3`, `sceneState:0`, `script:<entity id>`; keys are the game's ids */
+export interface SceneControl {
+	/** `<namespace>:<key>`, e.g. `quest:e1m8_q#3`, `sceneState:0`, `script:<entity id>`; keys are the game's ids */
 	id: string;
-	name: string;
-	/** for derived controls, the game's condition in words; `null` otherwise */
-	rule: RuleText | null;
-	/** what the default assumes, e.g. "story finished" */
-	assumption: string;
 	/**
-	 * whether a viewer sets it from the camera unless the user picks a value, as the game sets it from the
-	 * player (stream areas, proximity); its `default` is then only what holds without a camera
+	 * the game mechanism it stands for (`quest`, `door`, `script`, …), for search and debugging; a viewer
+	 * doesn't branch on it. the mechanisms are listed in docs/extraction/scene-controls.md
 	 */
-	followsCamera: boolean;
-	/** level tags whose content (or derived controls) this control gates; 0 means content every level shows */
-	levelTags: number[];
+	kind: string;
+	name: string;
+	/** a {@link ControlCategory.id} of {@link StatesInfo.categories} */
+	category: string;
 	/** the selectable values, ascending; each below 32 */
 	values: SceneControlValue[];
 	/** the value shown unless the user picks one; for a derived control, its value under the other defaults */
 	default: number;
-	/**
-	 * index into {@link StatesInfo.conditionalSets}: unless the user picks a value, the control is 1 while that
-	 * set holds and 0 otherwise. `null` for controls only the user sets. derived controls require only controls
-	 * listed before them
-	 */
-	derived: number | null;
+	/** what the default assumes, e.g. "story finished" */
+	assumption: string;
+	source: ControlSource;
+	/** level tags whose content (or derived controls) this control gates; 0 means content every level shows */
+	levelTags: number[];
+	/** where it sits in the story, for a quest or mission control of a known mission; `null` otherwise */
+	story: StoryPlace | null;
+	/** what sets it in game according to the level scripts, deduplicated; empty when nothing found does */
+	drivers: ControlDriver[];
 }
 
 /**

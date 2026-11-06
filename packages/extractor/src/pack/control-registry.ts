@@ -1,12 +1,13 @@
 import { resolveSceneValues } from '@endfield-noclip/package-format/conditions';
 import type {
 	ConditionalSetInfo,
-	ProximityInfo,
+	ControlCategory,
 	SceneControl,
 	VisibilityGroup,
 } from '@endfield-noclip/package-format/states';
 
 import { sceneStateControl } from '../game/scene-conditions.ts';
+import { CONTROL_CATEGORIES } from '../game/scene-control.ts';
 import type { ChunkSource } from '../game/world-index.ts';
 
 import { sourceVisibility } from './chunk-sources.ts';
@@ -18,8 +19,8 @@ import { sourceVisibility } from './chunk-sources.ts';
 /** a control's inputs: the controls its formula reads */
 const inputsOf = (control: SceneControl, conditions: readonly ConditionalSetInfo[]): Set<string> => {
 	const inputs = new Set<string>();
-	if (control.derived !== null) {
-		for (const requirements of conditions[control.derived]?.alternatives ?? []) {
+	if (control.source.kind === 'derived') {
+		for (const requirements of conditions[control.source.condition]?.alternatives ?? []) {
 			for (const { control: input } of requirements) {
 				inputs.add(input);
 			}
@@ -32,8 +33,6 @@ const inputsOf = (control: SceneControl, conditions: readonly ConditionalSetInfo
 export class ControlRegistry {
 	readonly conditions: ConditionalSetInfo[] = [];
 	readonly groups: VisibilityGroup[] = [];
-	/** where each `proximity` control counts the player as near */
-	readonly proximities: ProximityInfo[] = [];
 	/** MapConfig scene state indices some visibility expression requires */
 	readonly sceneStates = new Set<number>();
 	/** stream areas some visibility expression requires */
@@ -106,10 +105,10 @@ export class ControlRegistry {
 	 * through a derived control), and fills in the rest's level tags and derived defaults
 	 *
 	 * @returns the kept controls in registration order, each derived control after its inputs, and the
-	 *   proximity reaches of the kept controls
+	 *   categories they list under, in listing order
 	 * @throws {Error} if a requirement names an unregistered control, or derived controls form a cycle
 	 */
-	finish(): { controls: SceneControl[]; proximities: ProximityInfo[] } {
+	finish(): { controls: SceneControl[]; categories: ControlCategory[] } {
 		const ordered = this.#ordered(this.#controls, true);
 		const tags = new Map<string, Set<number>>();
 		const note = (set: number, levelTags: Iterable<number>): void => {
@@ -143,8 +142,8 @@ export class ControlRegistry {
 		// inputs before those are visited
 		for (const control of ordered.toReversed()) {
 			const gated = tags.get(control.id);
-			if (control.derived !== null && gated !== undefined) {
-				note(control.derived, gated);
+			if (control.source.kind === 'derived' && gated !== undefined) {
+				note(control.source.condition, gated);
 			}
 		}
 		const used = ordered.filter((control) => tags.has(control.id));
@@ -153,14 +152,14 @@ export class ControlRegistry {
 		}
 		const values = resolveSceneValues({ controls: used, conditionalSets: this.conditions }, {});
 		for (const control of used) {
-			if (control.derived !== null) {
+			if (control.source.kind === 'derived') {
 				control.default = values[control.id];
 			}
 		}
-		const kept = new Set(used.map(({ id }) => id));
+		const listed = new Set(used.map(({ category }) => category));
 		return {
 			controls: used,
-			proximities: this.proximities.filter(({ control }) => kept.has(control)),
+			categories: CONTROL_CATEGORIES.filter(({ id }) => listed.has(id)),
 		};
 	}
 

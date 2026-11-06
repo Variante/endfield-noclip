@@ -28,20 +28,28 @@ test('scene states follow the quests their conditions read; states without a con
 	const conditionalSets: ConditionalSetInfo[] = [];
 	const controls = sceneStateControls(states, game, (formula) => conditionalSets.push(formula) - 1);
 	assert.deepEqual(
-		controls.map(({ id, name, default: value, derived }) => [id, name, value, derived]),
+		controls.map(({ id, name, default: value, source }) => [
+			id,
+			name,
+			value,
+			source.kind === 'derived' ? source.condition : null,
+		]),
 		[
 			['sceneState:0', '001_normal', 1, 0],
 			['sceneState:1', '001_damaged', 0, 1],
 			['sceneState:2', 'liino', 0, null],
 		],
 	);
-	assert.deepEqual(controls[1].rule, [{ control: 'quest:e1m8_q#3', text: 'quest e1m8_q#3' }, ' ≠ completed']);
+	assert.deepEqual(controls[1].source.kind === 'derived' && controls[1].source.rule, [
+		{ control: 'quest:e1m8_q#3', text: 'quest e1m8_q#3' },
+		' ≠ completed',
+	]);
 	const info = {
 		controls: [...game.controls(), ...controls],
 		conditionalSets,
 		groups: [],
 		streamAreas: null,
-		proximities: [],
+		categories: [],
 		missions: [],
 	};
 	assert.deepEqual(resolveSceneValues(info, { 'quest:e1m8_q#3': 2 }), {

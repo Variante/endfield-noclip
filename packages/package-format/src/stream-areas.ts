@@ -2,12 +2,10 @@
  * the game's stream areas: sets of static scenery that load by where the streaming centre is. entering a
  * trigger zone replaces the areas shown outside every zone (`rootVisible`) with the zone's own list; inside
  * several zones the lists are united ({@link zonesAt}, {@link areasShownIn}). content of a non-default area
- * loads through an {@link streamAreaControl} requirement, whose value a viewer sets from the camera with
- * {@link streamAreaValues}
+ * loads through an {@link streamAreaControl} requirement, a control whose camera test (`area`) a viewer
+ * evaluates with these
  */
 export interface StreamAreasInfo {
-	/** area ids content requires, i.e. the areas a viewer gives a value */
-	areas: number[];
 	/** areas shown while the point is in no trigger */
 	rootVisible: number[];
 	/** zone id and the areas shown while inside its trigger */
@@ -111,16 +109,3 @@ export const areasShownIn = (info: StreamAreasInfo, zones: ReadonlySet<number>):
 	}
 	return visible;
 };
-
-/**
- * @param info the scene's stream areas
- * @param visible areas to show, from {@link areasShownIn}, or `null` to show every area
- * @returns a value per {@link streamAreaControl} of `info.areas`: 1 shown, 0 hidden
- */
-export const streamAreaValues = (
-	info: StreamAreasInfo,
-	visible: ReadonlySet<number> | null,
-): Record<string, number> =>
-	Object.fromEntries(
-		info.areas.map((area) => [streamAreaControl(area), visible === null || visible.has(area) ? 1 : 0]),
-	);

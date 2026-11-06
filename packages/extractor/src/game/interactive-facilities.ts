@@ -23,12 +23,7 @@ import {
 	unityEulerQuaternion,
 } from '@endfield-noclip/formats/unity/transform';
 import { isObject, numberField, objectField, stringField } from '@endfield-noclip/formats/unity/values';
-import type {
-	ConditionalSetInfo,
-	ProximityInfo,
-	SceneControl,
-	ScriptControl,
-} from '@endfield-noclip/package-format/states';
+import type { ConditionalSetInfo, SceneControl } from '@endfield-noclip/package-format/states';
 
 import type { Context } from '../context.ts';
 import { VfsGroup } from '../hg/vfs.ts';
@@ -49,7 +44,7 @@ import type { StructureModel } from './dynamic-structures.ts';
 import { allOf, type Alternatives } from './game-state.ts';
 import { prefabNodeMatrices } from './prefab-nodes.ts';
 import type { PrefabPose } from './prefab.ts';
-import { SWITCH_VALUES } from './scene-conditions.ts';
+import { sceneControl, switchValues, SWITCH_VALUES } from './scene-control.ts';
 import { progressionControl } from './scenery-variants.ts';
 import { readTelescopicPoses, type TelescopicPoses } from './telescopic-bridge.ts';
 import { isOneShotEffect } from './view-state-effects.ts';
@@ -708,18 +703,18 @@ const TELESCOPIC_LOGIC = 8;
 const ACTIVITY_SNAPSHOT_COMPONENT = 2000;
 
 /** the scene's one control for limited-time event placements */
-const ACTIVITY_CONTROL: SceneControl = {
-	kind: 'activity',
-	id: 'activity:snapshot',
-	name: 'Event photo spots',
-	rule: null,
-	assumption: 'hidden: placed for limited-time photo events, which the server opens and closes',
-	followsCamera: false,
-	levelTags: [],
-	values: SWITCH_VALUES,
-	default: 0,
-	derived: null,
-};
+/** the id of {@link activityControl} */
+const ACTIVITY_CONTROL_ID = 'activity:snapshot';
+
+const activityControl = (): SceneControl =>
+	sceneControl({
+		kind: 'activity',
+		id: ACTIVITY_CONTROL_ID,
+		name: 'Event photo spots',
+		values: SWITCH_VALUES,
+		default: 0,
+		assumption: 'hidden: placed for limited-time photo events, which the server opens and closes',
+	});
 
 /** the template and placement property holding a telescopic bridge's piece count */
 const PIECES_KEY = 'pieces';
@@ -860,14 +855,13 @@ export const loadInteractiveFacilities = async (
 	models: StructureModel[];
 	progressions: SceneControl[];
 	/** by logic id, the controls of the rows level scripts show and hide, shown as placed */
-	scriptControls: Map<string, ScriptControl>;
+	scriptControls: Map<string, SceneControl>;
 	/** per level with rows the game creates later (`createState` ≠ 0), the control that shows them, off */
 	created: SceneControl[];
 	/** the control that shows limited-time event placements, off; empty when the scene has none */
 	activities: SceneControl[];
-	/** controls of interactives whose look follows the player's presence, and where each counts as near */
+	/** controls of interactives whose look follows the player's presence */
 	proximityControls: SceneControl[];
-	proximities: ProximityInfo[];
 	doors: InteractiveDoor[];
 	bridges: SceneControl[];
 	unsupported: { path: string; reason: string }[];
@@ -972,21 +966,16 @@ export const loadInteractiveFacilities = async (
 			}
 			seen.add(entry.row.id);
 			placed.push(entry);
-			createdControls.getOrInsertComputed(entry.levelId, () => ({
-				kind: 'created',
-				id: `created:${entry.levelId}`,
-				name: `Created later (${entry.levelId})`,
-				rule: null,
-				assumption: 'hidden: the server or a level script creates these interactives during play',
-				followsCamera: false,
-				levelTags: [],
-				values: [
-					{ value: 0, label: 'not created' },
-					{ value: 1, label: 'created' },
-				],
-				default: 0,
-				derived: null,
-			}));
+			createdControls.getOrInsertComputed(entry.levelId, () =>
+				sceneControl({
+					kind: 'created',
+					id: `created:${entry.levelId}`,
+					name: `Created later (${entry.levelId})`,
+					values: switchValues('not created', 'created'),
+					default: 0,
+					assumption: 'hidden: the server or a level script creates these interactives during play',
+				}),
+			);
 		}
 	}
 
@@ -1395,18 +1384,14 @@ export const loadInteractiveFacilities = async (
 			// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
 			const levels = [...new Set([1, ...unlockOf.values()])].sort((a, b) => a - b);
 			nexus = {
-				control: {
+				control: sceneControl({
 					kind: 'controlNexus',
 					id: `controlNexus:${walls[0].levelId}`,
 					name: 'Control Nexus level',
-					rule: null,
-					assumption: 'level 1, before the player upgrades it',
-					followsCamera: false,
-					levelTags: [],
 					values: levels.map((value) => ({ value, label: `Level ${value}` })),
 					default: 1,
-					derived: null,
-				},
+					assumption: 'level 1, before the player upgrades it',
+				}),
 				unlockOf,
 			};
 		}
@@ -1415,7 +1400,6 @@ export const loadInteractiveFacilities = async (
 	const models: StructureModel[] = [];
 	const progressions: SceneControl[] = nexus === null ? [] : [nexus.control];
 	const proximityControls: SceneControl[] = [];
-	const proximities: ProximityInfo[] = [];
 	const doors: InteractiveDoor[] = [];
 	const bridges: SceneControl[] = [];
 	const doodadLevels = new Map<string, Set<number>>();
@@ -1551,7 +1535,7 @@ export const loadInteractiveFacilities = async (
 		}
 		return { spline, move };
 	};
-	const scriptControls = new Map<string, ScriptControl>();
+	const scriptControls = new Map<string, SceneControl>();
 	// a vertical rope's port finds its other port by id
 	const rowsById = new Map(placed.map(({ row }) => [row.id, row]));
 	// a crane tower starts at its steps and hangs its container from its hook, wherever that was placed
@@ -1621,7 +1605,7 @@ export const loadInteractiveFacilities = async (
 			rotation: quaternionUnityEuler(look.attach.rotation),
 		});
 	}
-	/** whether any placement needs {@link ACTIVITY_CONTROL} */
+	/** whether any placement needs {@link activityControl} */
 	let activity = false;
 	for (const { path, levelId, levelTag, row, created } of placed) {
 		// a row created later also needs its level's `created` control on, and one a level script shows and hides
@@ -1633,7 +1617,7 @@ export const loadInteractiveFacilities = async (
 			switches.push(created);
 		}
 		if (row.componentProperties.has(ACTIVITY_SNAPSHOT_COMPONENT)) {
-			switches.push(ACTIVITY_CONTROL.id);
+			switches.push(ACTIVITY_CONTROL_ID);
 			activity = true;
 		}
 		// an auto-moving platform started with its level rides its spline
@@ -1649,19 +1633,16 @@ export const loadInteractiveFacilities = async (
 		if (scripted.has(logicId)) {
 			const control = `script:${logicId}`;
 			switches.push(control);
-			scriptControls.getOrInsertComputed(logicId, (): ScriptControl => ({
-				kind: 'script',
-				id: control,
-				name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
-				rule: null,
-				assumption: 'shown as placed until a level script hides it',
-				followsCamera: false,
-				drivers: [],
-				levelTags: [],
-				values: SWITCH_VALUES,
-				default: 1,
-				derived: null,
-			}));
+			scriptControls.getOrInsertComputed(logicId, () =>
+				sceneControl({
+					kind: 'script',
+					id: control,
+					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+					values: SWITCH_VALUES,
+					default: 1,
+					assumption: 'shown as placed until a level script hides it',
+				}),
+			);
 		}
 		// a blight core shows while its erosion root or sludge loads, so both go when the core is destroyed
 		const erosion = erosionCores.get(logicId);
@@ -1792,21 +1773,16 @@ export const loadInteractiveFacilities = async (
 			const looks = await telescopicLooks(bridge.prefab, pieces);
 			if (looks !== null) {
 				const control = `bridge:${row.id}`;
-				bridges.push({
-					kind: 'bridge',
-					id: control,
-					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
-					rule: null,
-					assumption: 'retracted: the player or the server extends it',
-					followsCamera: false,
-					levelTags: [],
-					values: [
-						{ value: 0, label: 'retracted' },
-						{ value: 1, label: `extended (${pieces} pieces)` },
-					],
-					default: 0,
-					derived: null,
-				});
+				bridges.push(
+					sceneControl({
+						kind: 'bridge',
+						id: control,
+						name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
+						values: switchValues('retracted', `extended (${pieces} pieces)`),
+						default: 0,
+						assumption: 'retracted: the player or the server extends it',
+					}),
+				);
 				place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, looks.retracted);
 				for (const pose of [looks.extended, ...looks.pieces]) {
 					place(template.forms[0], { alternatives: [[{ control, mask: 2 }]] }, pose);
@@ -1818,21 +1794,14 @@ export const loadInteractiveFacilities = async (
 		if (poses !== undefined) {
 			const control = `door:${row.id}`;
 			doors.push({
-				control: {
+				control: sceneControl({
 					kind: 'door',
 					id: control,
 					name: `${row.template} (${Math.round(row.position[0])}, ${Math.round(row.position[2])})`,
-					rule: null,
-					assumption: 'closed: the player or the server opens it',
-					followsCamera: false,
-					levelTags: [],
-					values: [
-						{ value: 0, label: `closed (${poses.closedState})` },
-						{ value: 1, label: `open (${poses.openState})` },
-					],
+					values: switchValues(`closed (${poses.closedState})`, `open (${poses.openState})`),
 					default: 0,
-					derived: null,
-				},
+					assumption: 'closed: the player or the server opens it',
+				}),
 				position: row.position,
 			});
 			place(template.forms[0], { alternatives: [[{ control, mask: 1 }]] }, poses.closed);
@@ -1853,41 +1822,40 @@ export const loadInteractiveFacilities = async (
 			const where = `(${Math.round(row.position[0])}, ${Math.round(row.position[2])})`;
 			const activation = `activation:${row.id}`;
 			if (campfire) {
-				progressions.push({
-					kind: 'activation',
-					id: activation,
-					name: `Campfire ${where}`,
-					rule: null,
-					assumption: 'activated, as in a finished save: the player activates it, and the server keeps it',
-					followsCamera: false,
-					levelTags: [],
-					values: [
-						{ value: 0, label: `not activated (${looks.away[0].states.join(', ')})` },
-						{ value: 1, label: `activated (${looks.away[1].states.join(', ')})` },
-					],
-					default: 1,
-					derived: null,
-				});
+				progressions.push(
+					sceneControl({
+						kind: 'activation',
+						id: activation,
+						name: `Campfire ${where}`,
+						values: switchValues(
+							`not activated (${looks.away[0].states.join(', ')})`,
+							`activated (${looks.away[1].states.join(', ')})`,
+						),
+						default: 1,
+						assumption: 'activated, as in a finished save: the player activates it, and the server keeps it',
+					}),
+				);
 			}
 			const nearness = `proximity:${row.id}`;
 			if (looks.near !== null && radius !== null) {
 				const states = (side: SettledLook[]) => [...new Set(side.flatMap((look) => look.states))].join(', ');
-				proximityControls.push({
-					kind: 'proximity',
-					id: nearness,
-					name: `${campfire ? 'Campfire' : row.template} ${where}`,
-					rule: null,
-					assumption: 'follows the camera, as the game follows the player',
-					followsCamera: true,
-					levelTags: [],
-					values: [
-						{ value: 0, label: `away (${states(looks.away)})` },
-						{ value: 1, label: `within ${radius} m (${states(looks.near)})` },
-					],
-					default: 0,
-					derived: null,
-				});
-				proximities.push({ control: nearness, position: row.position, radius });
+				proximityControls.push(
+					sceneControl({
+						kind: 'proximity',
+						id: nearness,
+						name: `${campfire ? 'Campfire' : row.template} ${where}`,
+						values: switchValues(
+							`away (${states(looks.away)})`,
+							`within ${radius} m (${states(looks.near)})`,
+						),
+						default: 0,
+						assumption: 'follows the camera, as the game follows the player',
+						source: {
+							kind: 'camera',
+							test: { kind: 'near', reaches: [{ position: [...row.position], radius }] },
+						},
+					}),
+				);
 			}
 			for (const [i, away] of looks.away.entries()) {
 				const requirements = campfire ? [{ control: activation, mask: 1 << i }] : [];
@@ -1920,21 +1888,16 @@ export const loadInteractiveFacilities = async (
 			}
 			const control = `activation:${row.id}`;
 			const { property } = start.saved;
-			progressions.push({
-				kind: 'activation',
-				id: control,
-				name: `${row.template} ${where}`,
-				rule: null,
-				assumption: `${property} set, as in a finished save: the server sets it during play`,
-				followsCamera: false,
-				levelTags: [],
-				values: [
-					{ value: 0, label: `${property} unset` },
-					{ value: 1, label: `${property} set` },
-				],
-				default: 1,
-				derived: null,
-			});
+			progressions.push(
+				sceneControl({
+					kind: 'activation',
+					id: control,
+					name: `${row.template} ${where}`,
+					values: switchValues(`${property} unset`, `${property} set`),
+					default: 1,
+					assumption: `${property} set, as in a finished save: the server sets it during play`,
+				}),
+			);
 			for (const [value, set] of [false, true].entries()) {
 				// oxlint-disable-next-line no-await-in-loop -- as above
 				const pose = await startPose(form.prefab, start, set);
@@ -2091,9 +2054,8 @@ export const loadInteractiveFacilities = async (
 		progressions,
 		scriptControls,
 		created: [...createdControls.values()],
-		activities: activity ? [structuredClone(ACTIVITY_CONTROL)] : [],
+		activities: activity ? [activityControl()] : [],
 		proximityControls,
-		proximities,
 		doors,
 		bridges,
 		unsupported,

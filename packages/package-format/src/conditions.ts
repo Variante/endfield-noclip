@@ -12,23 +12,26 @@ export const ruleText = (
 
 /**
  * @param states exported scene controls
- * @param picks values the user picked, by control id; a pick on a derived control overrides its formula
- * @returns every control's value: picks, then the defaults of controls only the user sets, then derived
- *   controls evaluated in their stored order
+ * @param picks values the user picked, by control id; a pick overrides a control's source
+ * @param automatic values set from outside the package (the camera's, see `cameraValues`), by control id;
+ *   they stand in for a camera control's default
+ * @returns every control's value: a pick, else a derived control's formula (evaluated in stored order) or the
+ *   automatic value, else the default
  */
 export const resolveSceneValues = (
 	states: Pick<StatesInfo, 'controls' | 'conditionalSets'>,
 	picks: Readonly<Record<string, number>>,
+	automatic: Readonly<Record<string, number>> = {},
 ): Record<string, number> => {
 	const values: Record<string, number> = {};
 	for (const control of states.controls) {
-		if (control.derived === null) {
-			values[control.id] = picks[control.id] ?? control.default;
+		if (control.source.kind !== 'derived') {
+			values[control.id] = picks[control.id] ?? automatic[control.id] ?? control.default;
 		}
 	}
 	for (const control of states.controls) {
-		if (control.derived !== null) {
-			const formula = states.conditionalSets[control.derived];
+		if (control.source.kind === 'derived') {
+			const formula = states.conditionalSets[control.source.condition];
 			values[control.id] =
 				picks[control.id] ?? Number(formula !== undefined && conditionVisible(formula, values));
 		}

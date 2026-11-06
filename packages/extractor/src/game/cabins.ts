@@ -18,6 +18,7 @@ import { VfsGroup } from '../hg/vfs.ts';
 import type { AssetResolver } from './assets.ts';
 import type { StructureModel } from './dynamic-structures.ts';
 import { readGrowBoxShutter, readPlantingFieldLevels } from './grow-boxes.ts';
+import { sceneControl, switchValues } from './scene-control.ts';
 
 // Dijiang's cabins: rooms the player builds into fixed slots of the spaceship
 // (docs/game-data/scene-states.md#dijiang-cabins). a built cabin's rows are placed at the slot origin, turned
@@ -200,21 +201,16 @@ export const loadCabins = async (
 		const [x, , z] = slot.position;
 		const cell = cellOf(x, z);
 		const levelTag = (partition && levelOfCell(partition, cell.x, cell.z)?.tag) ?? 0;
-		controls.push({
-			kind: 'cabin',
-			id: control,
-			name: `Cabin slot (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
-			rule: null,
-			assumption: 'empty, as before the player builds a cabin',
-			followsCamera: false,
-			levelTags: [],
-			values: [
-				{ value: 0, label: 'empty' },
-				{ value: 1, label: 'built' },
-			],
-			default: 0,
-			derived: null,
-		});
+		controls.push(
+			sceneControl({
+				kind: 'cabin',
+				id: control,
+				name: `Cabin slot (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
+				values: switchValues('empty', 'built'),
+				default: 0,
+				assumption: 'empty, as before the player builds a cabin',
+			}),
+		);
 		rooms.push({
 			control,
 			levelTag,
@@ -223,18 +219,16 @@ export const loadCabins = async (
 		});
 		const levelControl = `cabinLevel:${id}`;
 		if (cabin.boxes.size > 0) {
-			controls.push({
-				kind: 'cabinLevel',
-				id: levelControl,
-				name: `Cabin level (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
-				rule: null,
-				assumption: 'level 1, before the player upgrades it',
-				followsCamera: false,
-				levelTags: [],
-				values: levels.map((value) => ({ value, label: `Level ${value}` })),
-				default: levels[0],
-				derived: null,
-			});
+			controls.push(
+				sceneControl({
+					kind: 'cabinLevel',
+					id: levelControl,
+					name: `Cabin level (${Math.round(x)}, ${Math.round(z)}): ${cabin.type}`,
+					values: levels.map((value) => ({ value, label: `Level ${value}` })),
+					default: levels[0],
+					assumption: 'level 1, before the player upgrades it',
+				}),
+			);
 		}
 		for (const [index, model] of cabin.models.entries()) {
 			const row = {

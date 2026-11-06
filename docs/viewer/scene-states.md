@@ -15,27 +15,23 @@ lights, the water renderer, the irradiance regions). the resolved values also mo
 and the condition results feed the environment blend, which re-plans only when they change: the
 results array is replaced only when a result differs.
 
-### stream areas
+### camera controls
 
-unless the user picks a value, the viewer sets each `area:<id>` control from the camera: it runs the
-game's trigger test ([stream areas](../game-data/world.md#stream-areas)) at the eye (`zonesAt`,
-`areasShownIn`) and gives the areas shown there 1 and the others 0 (`streamAreaValues`). the
-controls' stored default (shown) only holds without a camera.
-
-### proximity
-
-the camera stands in for the player: unless the user picks a value, each `proximity:<id>` control is
-1 while the eye is within any of its reaches (an interactive's radius, or a trigger volume's
-spheres) and 0 beyond (`proximityValues`; [package format](../package-format.md#proximity)). the
-viewer recomputes them whenever the camera moves, with the stream areas, and re-evaluates visibility
-only when one changes. an interactive swaps between its two settled looks at once, without the
-game's transition clips.
+the camera stands in for the player: unless the user picks a value, the viewer sets every camera
+control from the eye (`cameraValues`; [package format](../package-format.md#controls)). an `area`
+test is 1 while the game's trigger test ([stream areas](../game-data/world.md#stream-areas)) shows
+its area at the eye (`zonesAt`, `areasShownIn`); a `near` test is 1 while the eye is within any of
+its reaches (an interactive's radius, or a trigger volume's spheres). the viewer recomputes them
+whenever the camera moves and re-evaluates visibility only when one changes. an interactive swaps
+between its two settled looks at once, without the game's transition clips.
 
 ## the scene conditions panel
 
 [`ui/scene-controls/`](../../packages/viewer/src/ui/scene-controls/) shows the "Scene conditions"
-panel, a module per section (`story-controls.tsx`, `water-levels.tsx`, `environment-volumes.tsx`)
-and per row (`control-row.tsx`, `drivers.tsx`):
+panel, a section per package category in the package's order, with modules for the sections that
+show more than their controls (`story-controls.tsx`, `water-levels.tsx`, `environment-volumes.tsx`)
+and per row (`control-row.tsx`, `drivers.tsx`). a row is a checkbox for an off/on control only the
+user sets, else a select, with "Follow game" or "Follow camera" for derived and camera controls:
 
 - **scene states**: a select per state, "Follow game (on/off)" for derived states, else on/off
 - **quests and missions**: quests run in order, so progress is picked as a story point rather than

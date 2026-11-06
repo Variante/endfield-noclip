@@ -3,29 +3,20 @@ import { test } from 'node:test';
 
 import type { SceneControl } from '@endfield-noclip/package-format/states';
 
+import { derivedSource, sceneControl, SWITCH_VALUES } from '../game/scene-control.ts';
+
 import { ControlRegistry } from './control-registry.ts';
 
-const toggle = (id: string, value = 0): SceneControl => ({
-	kind: 'script',
-	id,
-	name: id,
-	rule: null,
-	assumption: '',
-	followsCamera: false,
-	drivers: [],
-	levelTags: [],
-	values: [
-		{ value: 0, label: 'off' },
-		{ value: 1, label: 'on' },
-	],
-	default: value,
-	derived: null,
-});
+const toggle = (id: string, value = 0): SceneControl =>
+	sceneControl({ kind: 'script', id, name: id, values: SWITCH_VALUES, default: value, assumption: '' });
 
 /** a toggle on while every input is on */
 const derive = (registry: ControlRegistry, id: string, inputs: string[]): SceneControl => ({
 	...toggle(id),
-	derived: registry.condition({ alternatives: [inputs.map((control) => ({ control, mask: 2 }))] }),
+	source: derivedSource(
+		registry.condition({ alternatives: [inputs.map((control) => ({ control, mask: 2 }))] }),
+		[],
+	),
 });
 
 const shows = (registry: ControlRegistry, levelTag: number, control: string): void => {
@@ -59,11 +50,7 @@ test('controls nothing consumes are dropped, kept ones stay with their levels', 
 	registry.add(toggle('unused'), toggle('water'), toggle('gated'));
 	registry.keep('water', [3]);
 	shows(registry, 2, 'gated');
-	registry.proximities.push(
-		{ control: 'unused', position: [0, 0, 0], radius: 1 },
-		{ control: 'gated', position: [0, 0, 0], radius: 1 },
-	);
-	const { controls, proximities } = registry.finish();
+	const { controls, categories } = registry.finish();
 	assert.deepEqual(
 		controls.map(({ id, levelTags }) => [id, levelTags]),
 		[
@@ -71,9 +58,10 @@ test('controls nothing consumes are dropped, kept ones stay with their levels', 
 			['gated', [2]],
 		],
 	);
+	// only the categories of kept controls are listed
 	assert.deepEqual(
-		proximities.map(({ control }) => control),
-		['gated'],
+		categories.map(({ id }) => id),
+		['scripts'],
 	);
 });
 

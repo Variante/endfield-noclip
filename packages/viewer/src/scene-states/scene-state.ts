@@ -1,16 +1,11 @@
+import { cameraValues } from '@endfield-noclip/package-format/camera';
 import {
 	conditionResults,
 	groupsShown,
 	resolveSceneValues,
 } from '@endfield-noclip/package-format/conditions';
-import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import type { StatesInfo } from '@endfield-noclip/package-format/states';
-import {
-	areasShownIn,
-	streamAreaValues,
-	zonesAround,
-	zonesAt,
-} from '@endfield-noclip/package-format/stream-areas';
+import { areasShownIn, zonesAround, zonesAt } from '@endfield-noclip/package-format/stream-areas';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 /** something that shows content by visibility group */
@@ -35,8 +30,8 @@ const sameResults = (a: readonly boolean[], b: readonly boolean[]): boolean =>
 
 /**
  * the scene controls of the loaded package: the user's picks, the values they resolve to with the camera's
- * stream areas and proximities, the conditional sets those satisfy, and the visibility groups shown, which go
- * to every consumer
+ * stream areas and camera controls, the conditional sets those satisfy, and the visibility groups shown,
+ * which go to every consumer
  */
 export class SceneState {
 	/** values the user picked, by control id */
@@ -49,8 +44,8 @@ export class SceneState {
 	#visibleAreas: ReadonlySet<number> | null = null;
 	/** camera position {@link follow} last tested */
 	#areasEye: Vec3 = [Number.NaN, 0, 0];
-	/** proximity control values the conditions were last evaluated with */
-	#proximity: Record<string, number> = {};
+	/** camera control values the conditions were last evaluated with */
+	#camera: Record<string, number> = {};
 	#states: StatesInfo | null = null;
 	/** the package's consumers of the shown groups, the selector among them */
 	#groups: readonly GroupsConsumer[] = [];
@@ -141,8 +136,8 @@ export class SceneState {
 	}
 
 	/**
-	 * re-evaluates the values, conditions and visibility groups for the picks and the stream areas and
-	 * proximities at the camera, and hands the groups to every consumer
+	 * re-evaluates the values, conditions and visibility groups for the picks and the stream areas and camera
+	 * controls at the camera, and hands the groups to every consumer
 	 *
 	 * @param eye the camera's position, which stands in for the player
 	 */
@@ -150,15 +145,9 @@ export class SceneState {
 		const states = this.#states;
 		this.#visibleAreas = this.#streamAreasAt(eye);
 		this.#areasEye = [...eye];
-		const areas = states?.streamAreas ?? null;
-		this.#proximity = proximityValues(states?.proximities ?? [], eye);
-		// stream areas and proximities follow the camera unless pinned, so the camera's values go under the picks
-		const picks = {
-			...(areas === null ? {} : streamAreaValues(areas, this.#visibleAreas)),
-			...this.#proximity,
-			...this.#picks,
-		};
-		const values = states === null ? {} : resolveSceneValues(states, picks);
+		// camera controls follow the camera unless pinned, so the camera's values go under the picks
+		this.#camera = cameraValues(states?.controls ?? [], eye, this.#visibleAreas);
+		const values = states === null ? {} : resolveSceneValues(states, this.#picks, this.#camera);
 		this.#values = values;
 		// water volumes move to the fill their `waterLevel` control picks, at the game's speed times the rate
 		this.#followers.follow(values);
@@ -173,8 +162,8 @@ export class SceneState {
 	}
 
 	/**
-	 * re-evaluates when the camera moved into a different set of stream areas, or nearer to or further from an
-	 * interactive than its proximity radius
+	 * re-evaluates when the camera moved into a different set of stream areas, or changed a camera control's
+	 * value
 	 *
 	 * @param eye the camera's position
 	 * @returns whether it re-evaluated
@@ -191,9 +180,9 @@ export class SceneState {
 			visible === null || current === null
 				? visible === current
 				: visible.size === current.size && visible.isSubsetOf(current);
-		const proximity = proximityValues(this.#states?.proximities ?? [], eye);
-		const sameProximity = Object.entries(proximity).every(([id, value]) => this.#proximity[id] === value);
-		if (same && sameProximity) {
+		const camera = cameraValues(this.#states?.controls ?? [], eye, visible);
+		const sameCamera = Object.entries(camera).every(([id, value]) => this.#camera[id] === value);
+		if (same && sameCamera) {
 			return false;
 		}
 		this.evaluate(eye);

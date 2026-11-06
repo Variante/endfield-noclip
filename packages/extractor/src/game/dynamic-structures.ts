@@ -34,7 +34,8 @@ import { VfsGroup } from '../hg/vfs.ts';
 
 import { allOf, gateCondition, type Alternatives, type GameState } from './game-state.ts';
 import type { PrefabPose } from './prefab.ts';
-import { sceneStateControl, SWITCH_VALUES } from './scene-conditions.ts';
+import { sceneStateControl } from './scene-conditions.ts';
+import { sceneControl, switchValues, SWITCH_VALUES } from './scene-control.ts';
 import { controllerKey, progressionId } from './scenery-variants.ts';
 
 /** `EDynamicSceneEntityType.Tree`: harvestable trees, whose logic state is standing or felled */
@@ -92,21 +93,18 @@ const blightLink = (entity: DynamicSceneEntity): BlightLink | null => {
  * @param position its core's position
  * @returns the control of one blight and its core: its variable, told apart only as the core destroyed or not
  */
-const blightControl = (id: string, position: readonly [number, number, number]): SceneControl => ({
-	kind: 'mapVar',
-	id,
-	name: `Blight (${Math.round(position[0])}, ${Math.round(position[2])})`,
-	rule: null,
-	assumption: 'cleansed, as in a finished world: its core destroyed',
-	followsCamera: false,
-	levelTags: [],
-	values: [
-		{ value: BLIGHT_PRESENT, label: 'present' },
-		{ value: BLIGHT_CLEANSED, label: 'cleansed' },
-	],
-	default: BLIGHT_CLEANSED,
-	derived: null,
-});
+const blightControl = (id: string, position: readonly [number, number, number]): SceneControl =>
+	sceneControl({
+		kind: 'mapVar',
+		id,
+		name: `Blight (${Math.round(position[0])}, ${Math.round(position[2])})`,
+		values: [
+			{ value: BLIGHT_PRESENT, label: 'present' },
+			{ value: BLIGHT_CLEANSED, label: 'cleansed' },
+		],
+		default: BLIGHT_CLEANSED,
+		assumption: 'cleansed, as in a finished world: its core destroyed',
+	});
 
 // #endregion
 
@@ -232,28 +230,15 @@ export const loadDynamicStructures = async (
 		if (controls.has(id)) {
 			return;
 		}
-		const base = {
-			id,
-			name: id,
-			rule: null,
-			followsCamera: false,
-			levelTags: [],
-			values: SWITCH_VALUES,
-			default: Number(enabled),
-			derived: null,
-		};
+		let assumption = 'no recovered controller, so off';
+		if (kind === 'script') {
+			assumption = enabled
+				? 'authored to load until a script hides it'
+				: 'loads only when a level script shows it';
+		}
 		controls.set(
 			id,
-			kind === 'logic'
-				? { kind, ...base, assumption: 'no recovered controller, so off' }
-				: {
-						kind,
-						...base,
-						assumption: enabled
-							? 'authored to load until a script hides it'
-							: 'loads only when a level script shows it',
-						drivers: [],
-					},
+			sceneControl({ kind, id, name: id, values: SWITCH_VALUES, default: Number(enabled), assumption }),
 		);
 	};
 	for (const owner of owners) {
@@ -303,21 +288,17 @@ export const loadDynamicStructures = async (
 					// level previews them all
 					const id = `harvest:${tag}`;
 					if (!controls.has(id)) {
-						controls.set(id, {
-							kind: 'harvest',
+						controls.set(
 							id,
-							name: 'Harvestable trees',
-							rule: null,
-							assumption: 'standing, as before the player fells them',
-							followsCamera: false,
-							levelTags: [],
-							values: [
-								{ value: 0, label: 'standing' },
-								{ value: 1, label: 'felled' },
-							],
-							default: 0,
-							derived: null,
-						});
+							sceneControl({
+								kind: 'harvest',
+								id,
+								name: 'Harvestable trees',
+								values: switchValues('standing', 'felled'),
+								default: 0,
+								assumption: 'standing, as before the player fells them',
+							}),
+						);
 					}
 					alternatives = allOf(alternatives, [[{ control: id, mask: group.logicState }]]);
 				} else if ((group.logicState & 1) === 0) {

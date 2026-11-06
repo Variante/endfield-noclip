@@ -1,14 +1,7 @@
-import type { SceneControl, StoryPlace } from './states.ts';
+import type { SceneControl } from './states.ts';
 
 // story progress as one choice: a point in an ordered list of missions sets every quest and mission control of
 // those missions consistently, instead of each quest being picked on its own.
-
-/**
- * @param control a scene control
- * @returns where it sits in the story: a quest or mission control's place, `null` for other kinds
- */
-export const storyPlace = (control: SceneControl): StoryPlace | null =>
-	control.kind === 'quest' || control.kind === 'mission' ? control.story : null;
 
 /** a point in a story line: in `missions[mission]`, at `step` (0: just started); `null` once all are done */
 export type StoryPoint = { mission: number; step: number } | null;
@@ -34,7 +27,7 @@ export const storyPointPicks = (
 ): Record<string, number | null> => {
 	const picks: Record<string, number | null> = {};
 	for (const control of controls) {
-		const story = storyPlace(control);
+		const { story } = control;
 		const index = story === null ? -1 : missions.indexOf(story.mission);
 		if (story === null || index === -1) {
 			continue;
@@ -43,7 +36,7 @@ export const storyPointPicks = (
 			picks[control.id] = null;
 		} else if (index !== point.mission) {
 			picks[control.id] = index < point.mission ? COMPLETED : NONE;
-		} else if (control.kind === 'mission') {
+		} else if (story.role === 'mission') {
 			picks[control.id] = PROCESSING;
 		} else if (story.step != null) {
 			const { step } = story;
@@ -69,9 +62,9 @@ export const storyPoints = (
 		const steps = Map.groupBy(
 			controls.filter(
 				(control) =>
-					control.kind === 'quest' && control.story?.mission === mission && control.story.step != null,
+					control.story?.role === 'quest' && control.story.mission === mission && control.story.step != null,
 			),
-			(control) => storyPlace(control)?.step ?? 0,
+			(control) => control.story?.step ?? 0,
 		);
 		for (const [step, quests] of [...steps].toSorted((a, b) => a[0] - b[0])) {
 			points.push({ point: { mission: index, step }, mission, quests });
