@@ -11,6 +11,7 @@ import {
 	readLevelDataPrefix,
 	UnsupportedLevelData,
 } from '@endfield-noclip/formats/endfield/level-interactives';
+import { InteractiveUnlockType, readLevelLocks } from '@endfield-noclip/formats/endfield/level-locks';
 import type { LevelPartition } from '@endfield-noclip/formats/endfield/level-partition';
 import { type LevelSpline, readLevelSplines } from '@endfield-noclip/formats/endfield/level-splines';
 import type { MemoryPackValue } from '@endfield-noclip/formats/endfield/memory-pack';
@@ -1558,6 +1559,26 @@ export const loadInteractiveFacilities = async (
 			}
 			return splines;
 		});
+	/** by level id, the unlock types of its interactives' gameplay locks, by logic id */
+	const levelLocks = new Map<string, Promise<Map<bigint, number[]>>>();
+	const locksOf = (levelId: string): Promise<Map<bigint, number[]>> =>
+		levelLocks.getOrInsertComputed(levelId, async () => {
+			const locks = new Map<bigint, number[]>();
+			for (const path of levelDataPaths.get(levelId) ?? []) {
+				try {
+					// oxlint-disable-next-line no-await-in-loop -- one level's files, each released once read
+					for (const [id, types] of readLevelLocks(reader.decode(await read(path), LEVEL_DATA_ROOT))) {
+						locks.set(id, types);
+					}
+				} catch (error) {
+					if (!(error instanceof FormatError)) {
+						throw error;
+					}
+					unsupported.push({ path, reason: `gameplay locks: ${error.message}` });
+				}
+			}
+			return locks;
+		});
 	/**
 	 * @returns the spline an auto-moving platform rides and how, when it starts moving with its level (its
 	 *   `state` is 1 and it names a spline); otherwise `null`
@@ -1667,6 +1688,13 @@ export const loadInteractiveFacilities = async (
 		// an auto-moving platform started with its level rides its spline
 		// oxlint-disable-next-line no-await-in-loop -- splines are read once per level
 		const ride = await rideOf(row, levelId);
+		// a mini-game or submit lock swaps the model to its locked look until the player opens it
+		// oxlint-disable-next-line no-await-in-loop -- locks are read once per level
+		const locks = spawnedBy === null ? (await locksOf(levelId)).get(row.id) : undefined;
+		const locked =
+			locks?.some(
+				(type) => type === InteractiveUnlockType.MiniGame || type === InteractiveUnlockType.Submit,
+			) ?? false;
 		if (scripted.has(logicId)) {
 			const control = `script:${logicId}`;
 			switches.push(control);
@@ -1750,6 +1778,7 @@ export const loadInteractiveFacilities = async (
 				source,
 				visibility,
 				pose: posed,
+				locked,
 			});
 		};
 		// a settled look's model, and the looping effects its states leave playing on it

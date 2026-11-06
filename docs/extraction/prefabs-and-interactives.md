@@ -22,6 +22,13 @@ UI node's RectTransform as its Transform (as the light, volume and effect walker
   vertices stay inside. a renderer is drawn in its authored pose
   ([skin pose](../extraction.md#asset-classes)) unless a looping clip moves its bones
   ([looping clips](#looping-clips)).
+- **locked looks**: a root `UnlockEffectConfigMono` that swaps models draws its locked model for a
+  placement with a mini-game or submit lock and its unlocked model otherwise
+  ([gameplay locks](../game-data/interactives.md#gameplay-locks)); whichever model the lock leaves
+  off is left out rather than standing in. the lock types come from LevelData's
+  `interactiveLockData` ([level-locks.ts](../../packages/formats/src/endfield/level-locks.ts)),
+  decoded whole, so a level whose LevelData the MemoryPack schema can't decode (Dijiang's) reports
+  `gameplay locks` in `unsupported-interactives.json` and its placements count as unlocked.
 - **resolution**: the packer resolves a prefab from its StringPathHash key, which must name exactly
   one manifest path.
 - **what else a prefab holds**: its environment volumes

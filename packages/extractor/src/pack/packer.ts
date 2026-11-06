@@ -1465,6 +1465,7 @@ const collectEntities = async (
 			continue;
 		}
 		const { pose } = placement;
+		const locked = placement.locked ?? false;
 		/** the rows of an interactive placement that floats on a water volume */
 		let floating: number[] | undefined;
 		if (placement.source.startsWith('Data/Json/LevelData/')) {
@@ -1473,7 +1474,7 @@ const collectEntities = async (
 				floating = floaterRows.getOrInsertComputed(volume, () => []);
 			}
 		}
-		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}`, async () => {
+		const prefab = prefabs.getOrInsertComputed(`${model.pathHash}:${pose?.key ?? ''}:${locked}`, async () => {
 			const paths = unique(
 				resolver.manifest.findAssets(model.pathHash).map((asset) => resolver.manifest.assetPath(asset)),
 			);
@@ -1487,7 +1488,7 @@ const collectEntities = async (
 					{ hash: model.pathHash, path: paths[0] },
 					UnityClass.GameObject,
 				);
-				const renderers = await readPrefabRenderers(resolver, root, pose, particleQuad);
+				const renderers = await readPrefabRenderers(resolver, root, { viewPose: pose, particleQuad, locked });
 				for (const { name, unsupported } of renderers) {
 					if (unsupported !== null) {
 						standIns.push({ path: label, name, reason: unsupported, position: null });

@@ -59,6 +59,27 @@ reading it, and misreading one misframes every later row. polymorphic fields are
 whose tag indexes the subclasses in name order, with each subclass's members also in name order.
 gameplay tags are unmanaged four-byte values.
 
+## gameplay locks
+
+LevelData's `interactiveLockData`, the member after the interactive list, gives interactives their
+gameplay locks: per logic id (`logicIdGlobal`), a list of locks, each with an unlock type
+(`InteractiveUnlockType`: 1 script lock, 2 mini-game, 3 submit, 4 quest, 5 sludge) and its
+mini-game ids, submit id and panel texts. the placement's own `isLocked` flag is separate. across
+the install's decodable LevelData there are 1030 script, 127 mini-game, 19 submit, 57 quest and 58
+sludge locks.
+
+a mini-game or submit lock can swap the model's look. the game looks up an `UnlockEffectConfigMono`
+on the model's root GameObject, and when its `useDifferentModel` is set, switches its `lockedModel`
+on and its `unlockedModel` off while the interactive is locked by gameplay, the other way once
+unlocked, whether or not the component is enabled. other lock types never swap, so such a prefab
+keeps the models as saved. the lock opens when the player solves it, which the server saves; a
+fresh world starts with it locked.
+
+in map01_lv006's Origin Lodespring, the crane controllers (`int_crane_controller_2`) carry this
+component, with a `Broken` model (sparks and smoke, saved off) and a `Fixed` one (saved on).
+3500021687 (near 430, 36, 182) has a mini-game lock (`M01L06_B1_easy_1_1`), so it starts broken;
+3500021688 (near 435, 36, 187) has only a script lock, so it stays fixed.
+
 ## interactive view states
 
 a model's runtime looks are view states:

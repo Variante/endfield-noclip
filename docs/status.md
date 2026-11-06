@@ -381,6 +381,10 @@ packs or renders correctly.
 - [crane towers](game-data/interactives.md#crane-towers) draw their placement's starting steps, with
   the container hung from the hook; the steps the player's operations save on the server aren't
   offered as controls
+- interactives with a mini-game or submit lock draw their model's locked look
+  ([gameplay locks](game-data/interactives.md#gameplay-locks)); the unlocked look the player's
+  repair saves on the server isn't offered as a control, and the effects a lock mounts on the model
+  aren't drawn
 - rows created later (`createState` ≠ 0) draw only with their level's "created during play" toggle,
   off by default; one toggle covers a level's rows, since which of them the server or a script
   creates isn't followed
@@ -388,9 +392,10 @@ packs or renders correctly.
   their own (weapon-wall racks, some doors), templates where zero or several positions frame the
   variant table, door models with an ambiguous open-idle state (not drawn as doors), and LevelData
   with any populated field or condition the reader doesn't implement (the blackbox scenes' blackbox
-  settings; LevelData members after the interactive list aren't decoded) are reported in
-  `out/<map>/debug/unsupported-interactives.json`; those whose template or model wasn't found are
-  [stand-ins](package-format.md#stand-ins), the rest omitted
+  settings; the placement reader decodes no LevelData members after the interactive list, and
+  gameplay locks and splines come from decoding the whole file, which fails for Dijiang's) are
+  reported in `out/<map>/debug/unsupported-interactives.json`; those whose template or model wasn't
+  found are [stand-ins](package-format.md#stand-ins), the rest omitted
 - skeletons the reader can't pose and nonzero blend shapes (meshes with them are stand-ins);
   characters' skeletal animation isn't played. prefab
   [scenery animators](game-data/animation.md#scenery-animators) play their controllers' settled

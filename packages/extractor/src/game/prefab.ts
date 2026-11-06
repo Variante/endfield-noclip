@@ -242,6 +242,12 @@ interface AnimatorScope {
 	path: string;
 }
 
+/** whether a MonoBehaviour is an `UnlockEffectConfigMono`, which swaps a model's locked and unlocked looks */
+const isUnlockEffectConfigType = (ref: ObjectRef): boolean => {
+	const names = new Set(ref.info.type?.nodes.filter((node) => node.level === 1).map((node) => node.name));
+	return names.has('useDifferentModel') && names.has('lockedModel') && names.has('unlockedModel');
+};
+
 const xyz = (value: TypeTreeObject): [number, number, number] => [
 	numberField(value, 'x'),
 	numberField(value, 'y'),
@@ -255,20 +261,23 @@ const xyz = (value: TypeTreeObject): [number, number, number] => [
  *
  * @param resolver bundle reader
  * @param root prefab GameObject
- * @param viewPose a view-state pose to draw instead of the saved one, or `null` to draw what the prefab's own
- *   Animators play ({@link animatorDefaultPose}); the root's own Transform keeps the caller's placement
- * @param particleQuad the unit quad billboard particle systems draw, or `null` to skip them
+ * @param options.viewPose a view-state pose to draw instead of the saved one, or `null` to draw what the
+ *   prefab's own Animators play ({@link animatorDefaultPose}); the root's own Transform keeps the caller's
+ *   placement
+ * @param options.particleQuad the unit quad billboard particle systems draw, or `null` to skip them
+ * @param options.locked whether the placement starts locked by a mini-game or submit lock, which switches a
+ *   root `UnlockEffectConfigMono`'s locked model on and its unlocked model off
  * @returns enabled mesh renderers relative to the prefab root; the caller supplies the root placement. those
  *   under GameObjects switched off as saved are stand-ins ({@link PrefabRenderer.unsupported}); those the
- *   pose switches off are left out
+ *   pose or lock switches off are left out
  * @throws {FormatError} on malformed hierarchy, missing references or unsupported renderer dependencies
  */
 export const readPrefabRenderers = async (
 	resolver: AssetResolver,
 	root: ObjectRef,
-	viewPose: PrefabPose | null,
-	particleQuad: ObjectRef | null,
+	options: { viewPose: PrefabPose | null; particleQuad: ObjectRef | null; locked: boolean },
 ): Promise<PrefabRenderer[]> => {
+	const { viewPose, particleQuad, locked } = options;
 	// view states drive their model's Animators; only a prefab without them plays its controllers' defaults
 	const pose = viewPose ?? (await animatorDefaultPose(resolver, root));
 	const candidates: {
@@ -293,6 +302,9 @@ export const readPrefabRenderers = async (
 	const played = new Set<string>();
 	// GameObjects an EffectSetting's LOD table switches, found before their subtrees are visited
 	const lodSwitched = new Set<string>();
+	// by GameObject, whether the root's `UnlockEffectConfigMono` shows that model of its own, `null` where it
+	// leaves the model as saved; found on the root, before its subtree is visited
+	const lockModels = new Map<string, boolean | null>();
 	// by GameObject, the distances an EffectSetting's distance LOD leaves it on at and that setting's GameObject,
 	// found likewise
 	const distanceSwitched = new Map<string, { ranges: DistanceRange[]; setting: string }>();
@@ -378,7 +390,13 @@ export const readPrefabRenderers = async (
 		// pose switched it off: that pose's other states are placed on their own. skinned meshes can still use its
 		// transforms as bones
 		let off = parentOff;
-		if (off === null) {
+		const lockShown = lockModels.get(key);
+		if (off === null && lockShown !== undefined) {
+			// only the lock switches these models, so one it leaves off never shows
+			if (!(lockShown ?? booleanField(data, 'm_IsActive'))) {
+				off = { standIn: null };
+			}
+		} else if (off === null) {
 			let posed = pose?.active.get(name);
 			// a settled clip that switches GameObjects owns its subtree's activity: what it leaves off stays off
 			let switching = false;
@@ -481,6 +499,20 @@ export const readPrefabRenderers = async (
 						lengthTilings
 							.getOrInsertComputed(objectKey(renderer), () => [])
 							.push({ tiling, ratio: length / adjust.preset });
+					}
+				}
+			} else if (isRoot && ref.info.classId === UnityClass.MonoBehaviour && isUnlockEffectConfigType(ref)) {
+				// the game looks the component up on the model's root and switches its models whether or not it's
+				// enabled, and only for a placement with a mini-game or submit lock
+				const config = await resolver.read(ref);
+				if (booleanField(config, 'useDifferentModel')) {
+					const lockedModel = await resolver.resolve(ref, pptrField(config, 'lockedModel'));
+					const unlockedModel = await resolver.resolve(ref, pptrField(config, 'unlockedModel'));
+					if (unlockedModel !== null) {
+						lockModels.set(objectKey(unlockedModel), locked ? false : null);
+					}
+					if (lockedModel !== null) {
+						lockModels.set(objectKey(lockedModel), locked ? true : null);
 					}
 				}
 			} else if (ref.info.classId === UnityClass.MonoBehaviour && isPositionFollowerType(ref)) {
