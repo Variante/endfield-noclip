@@ -84,7 +84,7 @@ system and its index, so any moment can be evaluated on its own:
 - a speed modifier curve (`modifierAt`) takes the place of `m · a` with its integral over the age,
   and the linear, orbital and radial curves are integrated times it, as the game
   [scales every step](../game-data/effects.md#particle-systems); the fall isn't scaled. systems with
-  such a curve and drag, a speed limit or force fields stand in.
+  such a curve and drag stand in.
 - drag slows the start velocity alone, by `k v` or `k v²` (k the amount, times the cross-section
   `π (size / 2)²` when it scales with size), and gravity falls towards the matching terminal speed;
   the velocity module's own terms and orbits aren't slowed, and the size is the start size.
@@ -94,7 +94,9 @@ system and its index, so any moment can be evaluated on its own:
   from its birth again. each step adds gravity to its own velocity, lets the force fields change it
   (`applyForces`, from its place and age before the step), limits the whole speed, the velocity
   module's terms included, as [the game does](../game-data/effects.md#particle-systems), and moves
-  it by the whole velocity. the fields follow the
+  it by the whole velocity times the speed modifier read at the step's age (the limit sees the
+  velocity without it), so the collectible pieces' rings (`ringMid2`) slow as their modifier falls
+  while held near their limit. the fields follow the
   [game's sphere fields](../game-data/effects.md#particle-systems) term by term, with the viewer's
   own random values; drag by size reads the particle's x size. the module's terms, each read at the
   step's age, are its linear velocity, the orbit's velocity at the particle's current place (`ω × r`

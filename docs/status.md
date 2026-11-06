@@ -283,12 +283,12 @@ packs or renders correctly.
     modules, use the viewer's own random values and move only while frames render (so the fish
     school circles without its noise's wobble); all copies of one flipbook step in phase
   - stand-ins at the emitter: systems that don't play on awake; a start delay, rate or drag curve; a
-    per-axis speed limit or one alongside drag; speed-modifier curves alongside drag, a speed limit
-    or force fields; force fields alongside drag, other than spheres or with a vector field; shapes
-    other than sphere, hemisphere, cone, box, circle, donut and mesh (map02's 16 single-sided edge
-    and 2 box-edge systems); mesh shapes with a shape texture, edge placement in Loop or PingPong,
-    or quads, points or lines mixed with triangles; sprite-mode sheets, sheet time modes other than
-    lifetime or frames per second, sheets over 64 tiles a side
+    per-axis speed limit or one alongside drag; speed-modifier curves alongside drag; force fields
+    alongside drag, other than spheres or with a vector field; shapes other than sphere, hemisphere,
+    cone, box, circle, donut and mesh (map02's 16 single-sided edge and 2 box-edge systems); mesh
+    shapes with a shape texture, edge placement in Loop or PingPong, or quads, points or lines mixed
+    with triangles; sprite-mode sheets, sheet time modes other than lifetime or frames per second,
+    sheets over 64 tiles a side
   - approximations: drag slows only the start velocity and the fall; orbits turn the whole path
     (exact only along the orbit's axis); force fields push only from within the system's own prefab
     (no wind zones or scene fields); a particle replaying a ring buffer's loop range replays its

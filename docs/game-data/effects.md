@@ -465,7 +465,9 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   velocity-over-lifetime part, times that value. a curve thus scales the start speed as much as the
   module's own terms. the floating stones of Valley's Aberrants (`floatstone01` in
   `p_fxmap_map01_lv001_floatstone_*`) rise at 0.5–1.5 m/s under a modifier ramping from 0.39 to 1
-  over their 5–10 s. whether gravity's part of the velocity is scaled too isn't traced.
+  over their 5–10 s. gravity adds into the particle's own velocity, so the modifier scales its share
+  too. the modifier only scales the move: the speed limit, run before it, sees the velocity without
+  it.
 - **ring buffer.** `ringBufferMode` 1 holds a particle's age at its end until a newer one replaces
   it, 2 replays `ringBufferLoopRange`. a held particle isn't frozen: every module goes on moving and
   turning it, reading its curves at their end, and it moves by its velocity as before. emission

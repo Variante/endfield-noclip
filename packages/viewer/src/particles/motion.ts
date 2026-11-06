@@ -86,14 +86,15 @@ export interface SteppedState {
  * {@link PARTICLE_STEP_RATE} from its birth or from an earlier state of the same path, in the game's order:
  * each step adds gravity to the particle's own velocity, lets the forces change it, pulls the whole speed
  * (its own velocity plus the extra velocity) towards the limit, taking the excess from its own velocity, then
- * moves it by the whole velocity
+ * moves it by the whole velocity times the speed modifier
  *
  * @param path the limit (and its random value) or `null`, the particle's start velocity, its acceleration,
  *   the forces (which change its own velocity in place, given the step's age, how far it had moved and the
- *   step's length) or `null`, the extra velocity at an age and a distance moved from the start, its age and
- *   lifetime, in seconds, and the state to continue from (one at or before `age`, else the birth)
- * @returns how far it has moved by `age`, its velocity then, and the state to continue from later, which
- *   holds the same `offset`: neither may be changed
+ *   step's length) or `null`, the extra velocity at an age and a distance moved from the start, the speed
+ *   modifier at an age, its age and lifetime, in seconds, and the state to continue from (one at or before
+ *   `age`, else the birth)
+ * @returns how far it has moved by `age`, the velocity it moves at then (the modifier included), and the
+ *   state to continue from later, which holds the same `offset`: neither may be changed
  */
 export const steppedPath = (path: {
 	limit: { info: ParticleSpeedLimitInfo; r: number } | null;
@@ -102,11 +103,12 @@ export const steppedPath = (path: {
 	push: ((age: number, moved: Readonly<Vec3>, own: Vec3, step: number) => void) | null;
 	/** its result is read before the next call, so it may reuse one array */
 	extra: (age: number, moved: Readonly<Vec3>) => Readonly<Vec3>;
+	modifier: (age: number) => number;
 	age: number;
 	life: number;
 	from?: SteppedState;
 }): { offset: Vec3; velocity: Vec3; state: SteppedState } => {
-	const { limit, acceleration, push, extra, age, life } = path;
+	const { limit, acceleration, push, extra, modifier, age, life } = path;
 	const from = path.from !== undefined && path.from.age <= age ? path.from : null;
 	const fromAge = from?.age ?? 0;
 	const fromOwn = from?.own ?? path.start;
@@ -137,14 +139,16 @@ export const steppedPath = (path: {
 				own[axis] = whole[axis] - added[axis];
 			}
 		}
+		const m = modifier(t);
 		for (let axis = 0; axis < 3; axis++) {
-			offset[axis] += whole[axis] * h;
+			offset[axis] += whole[axis] * m * h;
 		}
 	}
 	const added = extra(age, offset);
+	const m = modifier(age);
 	return {
 		offset,
-		velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]],
+		velocity: [(own[0] + added[0]) * m, (own[1] + added[1]) * m, (own[2] + added[2]) * m],
 		state: { age, own, offset },
 	};
 };

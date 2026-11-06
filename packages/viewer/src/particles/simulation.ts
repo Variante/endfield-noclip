@@ -101,13 +101,13 @@ interface PathStart {
 	id: number;
 	start: Vec3;
 	direction: Vec3;
-	/** m/s along {@link direction} */
+	/** m/s along {@link direction}, the speed modifier left out */
 	speed: number;
 	/** the velocity module's speed modifier, 1 when it's a curve ({@link modifierAt}) */
 	modifier: number;
 	/**
-	 * a speed modifier curve at an age, s, which `speed` leaves out; `null` when it's constant. the packer
-	 * leaves such systems without a speed limit or drag
+	 * a speed modifier curve at an age, s; `null` when it's constant. the packer leaves such systems without
+	 * drag
 	 */
 	modifierAt: ((age: number) => number) | null;
 	/** m/s² down the world's y */
@@ -693,14 +693,14 @@ export class ParticleSimulation {
 		const scaleNow = modifierAt === null ? 1 : modifierAt(age);
 		let launch: number, launchSpeed: number, fall: number, fallSpeed: number;
 		if (drag === null) {
-			launch = speed * scaledAge;
-			launchSpeed = speed * scaleNow;
+			launch = speed * modifier * scaledAge;
+			launchSpeed = speed * modifier * scaleNow;
 			fall = 0.5 * gravity * age * age;
 			fallSpeed = gravity * age;
 		} else {
 			const size = Math.max(startSize[0], startSize[1], startSize[2]);
 			const r = random(seed, id, Channel.Drag);
-			[launch, launchSpeed] = dragged(drag, speed, size, age, r);
+			[launch, launchSpeed] = dragged(drag, speed * modifier, size, age, r);
 			[fall, fallSpeed] = draggedFall(drag, gravity, size, age, r);
 		}
 		for (let axis = 0; axis < 3; axis++) {
@@ -747,8 +747,9 @@ export class ParticleSimulation {
 	/**
 	 * writes where a particle under a speed limit or force fields is at an age and how it moves then, stepped
 	 * ({@link steppedPath}). the velocity module's linear, orbital and radial terms are the extra velocity the
-	 * limit includes; the orbit moves the particle along its circle's tangent at its current place. the packer
-	 * leaves such systems without drag
+	 * limit includes, and the speed modifier scales each step's move, not what the limit sees; the orbit moves
+	 * the particle along its circle's tangent at its current place. the packer leaves such systems without
+	 * drag
 	 */
 	#steppedPath(
 		limit: ParticleSpeedLimitInfo | null,
@@ -760,7 +761,8 @@ export class ParticleSimulation {
 		const seed = this.#seed;
 		const down = this.#down;
 		const worldToLocal = this.#worldToLocal;
-		const { id, start, direction, speed, modifier, gravity, age, life, startSize, growth } = motion;
+		const { id, start, direction, speed, modifier, modifierAt, gravity, age, life, startSize, growth } =
+			motion;
 		const sizeOver = this.info.sizeOverLifetime;
 		const forces = this.#forces;
 		let push: ((age: number, moved: Readonly<Vec3>, own: Vec3, step: number) => void) | null = null;
@@ -799,10 +801,10 @@ export class ParticleSimulation {
 			extra = (t, moved) => {
 				const lived = livedAt(t, life);
 				for (let axis = 0; axis < 3; axis++) {
-					linear[axis] = evaluateMinMax(velocity.linear[axis], lived, linearRandoms[axis]) * modifier;
-					spin[axis] = evaluateMinMax(velocity.orbital[axis], lived, orbitRandoms[axis]) * modifier;
+					linear[axis] = evaluateMinMax(velocity.linear[axis], lived, linearRandoms[axis]);
+					spin[axis] = evaluateMinMax(velocity.orbital[axis], lived, orbitRandoms[axis]);
 				}
-				const radial = evaluateMinMax(velocity.radial, lived, radialRandom) * modifier;
+				const radial = evaluateMinMax(velocity.radial, lived, radialRandom);
 				if (velocity.linearInWorld) {
 					copy(linear, worldToLocal(linear));
 				}
@@ -834,6 +836,7 @@ export class ParticleSimulation {
 			acceleration,
 			push,
 			extra,
+			modifier: modifierAt ?? (() => modifier),
 			age,
 			life,
 			from: this.#stepped.get(id),
@@ -884,7 +887,7 @@ export class ParticleSimulation {
 				}
 			}
 			path.id = id;
-			path.speed = evaluateMinMax(motion.startSpeed, u, random(seed, id, Channel.Speed)) * modifier;
+			path.speed = evaluateMinMax(motion.startSpeed, u, random(seed, id, Channel.Speed));
 			path.modifier = modifier;
 			path.modifierAt = modifierAt;
 			// gravity, which Unity always pulls down the world's y

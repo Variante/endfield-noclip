@@ -689,9 +689,9 @@ export const readCustomData = (
  * @param system the emitter's `ParticleSystem`
  * @param renderer its `ParticleSystemRenderer`
  * @returns the system and the meshes its particles draw, or why the viewer can't play it: a render mode, a
- *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, a speed modifier curve alongside a
- *   speed limit or drag, a per-axis speed limit or one alongside drag, a drag or rate curve, or no mesh.
- *   `null` for a system that doesn't play on awake, which shows nothing until a script starts it
+ *   module, shape, texture sheet or ring buffer mode it doesn't evaluate, a speed modifier curve alongside
+ *   drag, a per-axis speed limit or one alongside drag, a drag or rate curve, or no mesh. `null` for a system
+ *   that doesn't play on awake, which shows nothing until a script starts it
  */
 export const readParticleSystem = (
 	system: TypeTreeObject,
@@ -803,9 +803,9 @@ export const readParticleSystem = (
 			return { reason: 'velocity limit with drag' };
 		}
 		clamp = limit ?? drag;
-		// the viewer's stepped and dragged paths take the speed modifier as a constant
-		if (clamp !== null && velocity !== null && !isConstant(velocity.speedModifier)) {
-			return { reason: 'speed modifier curve with a velocity limit or drag' };
+		// the viewer's dragged path takes the speed modifier as a constant
+		if (drag !== null && velocity !== null && !isConstant(velocity.speedModifier)) {
+			return { reason: 'speed modifier curve with drag' };
 		}
 	}
 
@@ -815,12 +815,9 @@ export const readParticleSystem = (
 		const multiplier = readMinMaxCurve(objectField(module, 'multiplierCurve'));
 		// the engine skips the module unless the multiplier's scalar is above 0
 		if (multiplier.scalar > 0) {
-			// the stepped path the forces need takes no drag and a constant speed modifier
+			// the stepped path the forces need takes no drag
 			if (clamp?.kind === 'drag') {
 				return { reason: 'force fields with drag' };
-			}
-			if (velocity !== null && !isConstant(velocity.speedModifier)) {
-				return { reason: 'speed modifier curve with force fields' };
 			}
 			forces = {
 				multiplier,

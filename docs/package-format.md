@@ -635,8 +635,8 @@ unless the mode is Shape. the entry keeps:
   a shape texture, edge placement stepping by Loop or PingPong, and meshes the engine refuses or
   that mix lines and triangles stand in
 - the velocity module (linear, orbital about an offset, radial and speed modifier, as curves too,
-  though a speed modifier curve not alongside drag or a speed limit), and size and rotation over
-  lifetime (curves too)
+  though a speed modifier curve not alongside drag), and size and rotation over lifetime (curves
+  too)
 - the Limit Velocity module as the free motion's `clamp`: its drag when its `dampen` is 0 (the
   amount and whether it scales with the particle's size and its speed squared), or its speed limit
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
@@ -647,9 +647,8 @@ unless the mode is Shape. the entry keeps:
   scene aren't followed), each with its ranges, gravity focus, swirl tilt, curves and drag flags and
   `fromEmitter`, the emitter's matrix as seen from the field's (the inverse of the field's
   prefab-space matrix times the emitter's). a field of another shape or with a vector field makes
-  the system a stand-in, as do force fields alongside drag or a speed modifier curve; a multiplier
-  scalar of 0 packs no forces, as the engine skips the module. the viewer steps such particles at 30
-  Hz too
+  the system a stand-in, as do force fields alongside drag; a multiplier scalar of 0 packs no
+  forces, as the engine skips the module. the viewer steps such particles at 30 Hz too
 - the render alignment (Facing is kept as View; Velocity too) and pivot, in multiples of the
   particle's size: a mesh particle's pivot is first multiplied by the mesh's size
   ([pivot](game-data/effects.md#particle-systems))

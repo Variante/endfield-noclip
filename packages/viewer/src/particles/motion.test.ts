@@ -76,6 +76,7 @@ describe('motion', () => {
 		acceleration: [0, 0, 0] as Vec3,
 		push: null,
 		extra: (): Vec3 => [0, 1, 0],
+		modifier: () => 1,
 		life: 3,
 	};
 	it('pulls the whole speed, extra velocity included, down to the limit', () => {
@@ -110,5 +111,25 @@ describe('motion', () => {
 		});
 		assert.ok(Math.abs(offset[1] - 2) < 1e-9);
 		assert.deepEqual(velocity, [0, 1, 0]);
+	});
+	it('scales each step by the speed modifier at its age, after the limit', () => {
+		// the collectible pieces' rings: a 4 m/s push limited to 1 m/s, moved at 1.8 times a modifier falling to
+		// 0.24 over their life
+		const rings = {
+			...stones,
+			limit: { info: { ...stones.limit.info, limit: constant(1), dampen: 0.015 }, r: 0 },
+			extra: (): Vec3 => [0, 0, -4],
+			modifier: (age: number) => 1.8 * (1 - (0.76 * age) / 2),
+			life: 2,
+		};
+		const plain = steppedPath({ ...rings, modifier: () => 1, age: 2 });
+		const scaled = steppedPath({ ...rings, age: 2 });
+		// the limit sees the same speed, so only the moves differ
+		assert.deepEqual(scaled.state.own, plain.state.own);
+		assert.ok(Math.abs(scaled.velocity[2] - plain.velocity[2] * 1.8 * 0.24) < 1e-9);
+		assert.ok(scaled.offset[2] < 0 && scaled.offset[2] !== plain.offset[2]);
+		// a constant modifier moves it that many times as far
+		const doubled = steppedPath({ ...rings, modifier: () => 2, age: 2 });
+		assert.ok(Math.abs(doubled.offset[2] - 2 * plain.offset[2]) < 1e-9);
 	});
 });

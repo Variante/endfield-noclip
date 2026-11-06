@@ -337,7 +337,7 @@ export interface ParticleFreeMotionInfo {
 	clamp: ParticleClampInfo | null;
 	/**
 	 * the force fields pushing the particles (Unity's `ExternalForcesModule`); `null` without. the packer
-	 * leaves such systems without drag or a speed modifier curve
+	 * leaves such systems without drag
 	 */
 	forces: ParticleForcesInfo | null;
 }
