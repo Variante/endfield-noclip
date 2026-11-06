@@ -39,6 +39,8 @@ export class Viewer {
 	stateRevision = 0;
 	/** bumped when {@link stats} change */
 	statsRevision = 0;
+	/** bumped when {@link environmentName} or {@link appliedVolumes} change as the camera moves */
+	environmentRevision = 0;
 	scene: LoadedScene | null = null;
 
 	readonly #gfx: GfxDevice;
@@ -59,6 +61,8 @@ export class Viewer {
 	#lastTime = 0;
 	#lastStats = 0;
 	#statsKey = '';
+	/** what the panels show of the blended environment, so a re-blend notifies only when that changes */
+	#environmentKey = '';
 	#lastDraws = 0;
 	#dirty = true;
 	/** compiled pipelines when the last frame began */
@@ -324,7 +328,17 @@ export class Viewer {
 		}
 		this.#renderer.setEnvironment(look, this.camera.near);
 		this.#dirty = true;
-		this.#emitState();
+		// the look changes on most frames while the camera moves through a volume's fade, and the panels that
+		// don't show it (the scene conditions panel takes over 100 ms) mustn't re-render with it
+		let key = look.environment.name ?? '';
+		for (const { id, phase, factor } of this.#environment.applied) {
+			key += '|' + id + ':' + phase + ':' + Math.round(factor * 100);
+		}
+		if (key !== this.#environmentKey) {
+			this.#environmentKey = key;
+			this.environmentRevision++;
+			this.#notify();
+		}
 	}
 
 	/** @returns the name of the environment profile lighting the camera, or `null` for the defaults */
@@ -548,8 +562,8 @@ export class Viewer {
 	}
 
 	/**
-	 * @param listener called when {@link stateRevision} or {@link statsRevision} change (stats at most about
-	 *   four times a second)
+	 * @param listener called when {@link stateRevision}, {@link statsRevision} or {@link environmentRevision}
+	 *   change (stats at most about four times a second)
 	 * @returns unsubscribe
 	 */
 	subscribe(listener: () => void): () => void {

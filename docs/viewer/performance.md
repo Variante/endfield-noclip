@@ -19,7 +19,10 @@
   (`!stream.idle`), and does nothing at all when the view is still and streaming is idle. the
   environment re-blends only when the eye, its settings or a fade changed.
 - **stats** publish every 250 ms and notify subscribers only when the JSON differs, so the React
-  panels don't re-render on a still view.
+  panels don't re-render on a still view. the environment at the camera has its own revision, bumped
+  only when its name or the applied volumes' phases and rounded weights change, which only the
+  settings panel follows: the blend changes on most frames while the camera moves, and each
+  re-render of the scene conditions panel takes over 100 ms on map02.
 - **capped particles replayed in steps of a lifetime.** an emitter whose cap turns emissions away
   replays a few lifetimes of emissions when it first shows. a full system jumps to the moment its
   first particle dies, and the live ones are counted with a heap of end times: some map02 effects

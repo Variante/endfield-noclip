@@ -16,6 +16,19 @@ export const useViewerState = (viewer: Viewer): number => {
 };
 
 /**
+ * re-renders the caller when the environment at the camera changes (its name or applied volumes).
+ *
+ * @param viewer the viewer
+ * @returns the viewer's environment revision (only useful as a dependency)
+ */
+export const useViewerEnvironment = (viewer: Viewer): number => {
+	return useSyncExternalStore(
+		(listener) => viewer.subscribe(listener),
+		() => viewer.environmentRevision,
+	);
+};
+
+/**
  * re-renders the caller when the viewer's stats change.
  *
  * @param viewer the viewer

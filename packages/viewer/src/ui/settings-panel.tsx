@@ -6,7 +6,7 @@ import type { ViewerOptions } from '../viewer/options.ts';
 import type { Viewer } from '../viewer/viewer.ts';
 
 import { Checkbox } from './controls.tsx';
-import { useViewerState } from './use-viewer.ts';
+import { useViewerEnvironment, useViewerState } from './use-viewer.ts';
 
 const HLOD_TIERS = [0, 1, 2] as const;
 
@@ -140,6 +140,8 @@ const EnvironmentControls = ({ viewer }: { viewer: Viewer }) => {
 /** layer toggles and quality sliders */
 export const SettingsPanel = ({ viewer }: { viewer: Viewer }) => {
 	useViewerState(viewer);
+	// the look's name and the applied volumes
+	useViewerEnvironment(viewer);
 	const tiers = viewer.options.hlodTiers;
 	const setTier = (tier: number, on: boolean): void => {
 		const next: [boolean, boolean, boolean] = [...tiers];
