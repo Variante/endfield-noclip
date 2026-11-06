@@ -121,7 +121,8 @@ stack along z in one A and one B texture, each level's slab with a copy of its l
 and its first after it so A filters across the wrap
 ([`irradiance-clipmap.wgsl`](../../packages/viewer/src/render/lighting/irradiance-clipmap.wgsl));
 the update pass writes a level to scratch textures and copies it into its slab, since it samples the
-coarser level from the stacked ones.
+coarser level from the stacked ones. one volume lives for the session: loading a package swaps in
+its cells and a fresh cell buffer, and empties the levels so they refill.
 
 ### region bakes
 

@@ -3,6 +3,7 @@ import {
 	groupsShown,
 	resolveSceneValues,
 } from '@endfield-noclip/package-format/conditions';
+import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
 import type { LevelEnvironment, LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
 import { proximityValues } from '@endfield-noclip/package-format/proximity';
 import {
@@ -449,7 +450,7 @@ export class Viewer {
 		this.#shadowRamp = this.#noShadowRamp;
 		this.#noCloudShadow = placeholderView(device, { label: 'no cloud shadow', dimension: '2d' });
 		this.#cloudShadow = this.#noCloudShadow;
-		this.#irradiance = new IrradianceVolume(device, EMPTY_IRRADIANCE, []);
+		this.#irradiance = new IrradianceVolume(device, this.#pipelines);
 		this.#lights = new LocalLights(device);
 		[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
 		this.#profiler = new GpuProfiler(device, gfx.features.timestampQuery);
@@ -524,8 +525,8 @@ export class Viewer {
 		const textures = new TextureStore(this.#gfx.device, pkg.textures, {
 			bc: this.#gfx.features.textureCompressionBc,
 		});
-		const irradiance = new IrradianceVolume(this.#gfx.device, pkg.irradiance, pkg.manifest.irradianceRegions);
-		this.#setIrradiance(irradiance);
+		this.#setIrradiance(pkg.irradiance, pkg.manifest.irradianceRegions);
+		const irradiance = this.#irradiance;
 		const particles = new ParticleField(pkg.particles, this.#instances);
 		const rowKinds = instanceRowKinds(tree, pkg.manifest.global);
 		const terrain = this.#terrain;
@@ -655,7 +656,7 @@ export class Viewer {
 		this.#sceneValues = {};
 		this.options.environmentPin = null;
 		this.#fades.reset();
-		this.#setIrradiance(new IrradianceVolume(this.#gfx.device, EMPTY_IRRADIANCE, []));
+		this.#setIrradiance(EMPTY_IRRADIANCE, []);
 		this.#water.setTable(null);
 		this.#waterLevels.setVolumes([]);
 		this.#lights.setLights([]);
@@ -698,9 +699,8 @@ export class Viewer {
 	}
 
 	/** swaps in a package's irradiance volume and rebinds the frame groups */
-	#setIrradiance(irradiance: IrradianceVolume): void {
-		this.#irradiance.destroy();
-		this.#irradiance = irradiance;
+	#setIrradiance(table: IrradianceTable, regions: readonly IrradianceRegionInfo[]): void {
+		this.#irradiance.setPackage(table, regions);
 		[this.#frameBindGroup, this.#shadowFrameBindGroup] = this.#frameGroups();
 	}
 
@@ -2031,6 +2031,7 @@ export class Viewer {
 		this.#post.destroy();
 		this.#fog.destroy();
 		this.#lights.destroy();
+		this.#irradiance.destroy();
 		this.#water.destroy();
 		this.#meshes.destroy();
 		this.#instances.destroy();
