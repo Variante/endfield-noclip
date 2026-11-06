@@ -14,12 +14,11 @@ import type {
 	SkyConfig,
 	StarConfig,
 } from '@endfield-noclip/package-format/environment';
-import type { Color, Vec4 } from '@endfield-noclip/package-format/values';
+import type { Color, Vec3, Vec4 } from '@endfield-noclip/package-format/values';
 
 import { linearRgb } from '../math/color.ts';
 import { times3Columns } from '../math/mat3.ts';
 import { normalize } from '../math/vec3.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 import { exposedSunIntensity, type SunDirections, towardsEffectLight, towardsLight } from './sun.ts';
 

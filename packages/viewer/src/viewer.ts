@@ -19,6 +19,7 @@ import {
 	terrainHeight,
 } from '@endfield-noclip/package-format/terrain';
 import { tileAt, tileId } from '@endfield-noclip/package-format/tiles';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
 import { mapDefined } from '@mary-ext/array-fns';
@@ -73,7 +74,7 @@ import { type TextureBinding, TextureStore, placeholderView } from './render/tex
 import { WaterRenderer } from './render/water/water-renderer.ts';
 import { volumesForLevel } from './scene-states/listing.ts';
 import { WaterLevels, type WaterVolumeState } from './scene-states/water-levels.ts';
-import { Camera, type Plane, type Vec3 } from './scene/camera.ts';
+import { Camera, type Plane } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
 import { coreBlobs } from './streaming/core-blobs.ts';

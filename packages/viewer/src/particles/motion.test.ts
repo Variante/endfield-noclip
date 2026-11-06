@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { ParticleShapeKind, type ParticleSplineInfo } from '@endfield-noclip/package-format/particles';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { dragged, draggedFall, splinePoint, steppedPath, travelled } from './motion.ts';
 import { constant, line, run, system } from './test-systems.ts';

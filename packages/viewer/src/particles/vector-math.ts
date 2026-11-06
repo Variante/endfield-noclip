@@ -1,4 +1,4 @@
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 // the `…Into` forms write their result into `out` and return it, so the per-particle hot path needn't
 // allocate. generic vector, matrix and quaternion helpers are in `math/`

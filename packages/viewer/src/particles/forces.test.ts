@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { MinMaxCurveInfo } from '@endfield-noclip/package-format/particles';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { applyForces, type ForceRandoms, prepareField } from './forces.ts';
 import { PARTICLE_FLOATS, ParticleSimulation } from './simulation.ts';

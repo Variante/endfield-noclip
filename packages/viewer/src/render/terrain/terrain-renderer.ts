@@ -7,6 +7,7 @@ import {
 	TERRAIN_SURFACE_TEXELS,
 	type TerrainSplatInfo,
 } from '@endfield-noclip/package-format/terrain';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
@@ -17,7 +18,6 @@ import type {
 	DecodedLayer,
 	DecodedSurface,
 } from '../../package/decode-protocol.ts';
-import type { Vec3 } from '../../scene/camera.ts';
 import type {
 	ResidentSplat,
 	ResidentHeights,

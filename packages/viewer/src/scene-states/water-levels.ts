@@ -6,6 +6,7 @@
  * @module
  */
 
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type {
 	WaterSurfaceEntry,
 	WaterVolumeEntry,
@@ -13,7 +14,6 @@ import type {
 } from '@endfield-noclip/package-format/water';
 
 import { ROW_WORDS } from '../content/instance-rows.ts';
-import type { Vec3 } from '../scene/camera.ts';
 import type { ResidentInstances } from '../streaming/resident.ts';
 
 /** a floating row of a resident block */

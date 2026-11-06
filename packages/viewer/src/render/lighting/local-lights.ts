@@ -1,7 +1,8 @@
 import { type LightEntry, LightKind } from '@endfield-noclip/package-format/lights';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { dot } from '../../math/vec3.ts';
-import type { Camera, Plane, Vec3 } from '../../scene/camera.ts';
+import type { Camera, Plane } from '../../scene/camera.ts';
 import { wgslConst } from '../shaders/wgsl-const.ts';
 
 /** lights the shading takes per frame, as the game's light list does */

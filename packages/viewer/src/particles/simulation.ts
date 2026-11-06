@@ -9,11 +9,11 @@ import {
 	type ParticleSpeedLimitInfo,
 	type ParticleSystemInfo,
 } from '@endfield-noclip/package-format/particles';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { srgbToLinear } from '../math/color.ts';
 import { eulerQuaternion, eulerQuaternionInto, type Quat, rotateByInto, rotateInto } from '../math/quat.ts';
 import { normalizeOrZInto } from '../math/vec3.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 import { evaluateMinMax, evaluateMinMaxGradient, livedAt, meanOf, upperBound } from './curves.ts';
 import { applyForces, type ForceRandoms, type PreparedField, prepareField } from './forces.ts';

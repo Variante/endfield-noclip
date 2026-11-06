@@ -5,10 +5,10 @@
  */
 
 import type { SceneControl } from '@endfield-noclip/package-format/states';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { ReactNode } from 'react';
 
-import type { Vec3 } from '../scene/camera.ts';
 import type { Viewer } from '../viewer.ts';
 
 import { followLabel } from './format.ts';

@@ -4,6 +4,7 @@ import {
 	type ParticleSystemInfo,
 	type ParticlesTable,
 } from '@endfield-noclip/package-format/particles';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import {
 	ROW_WORDS,
@@ -18,7 +19,6 @@ import type { RangeAllocation } from '../gfx/range-allocator.ts';
 import { times3Columns, times3ColumnsInto } from '../math/mat3.ts';
 import { type Quat, rotateInto, turnFromZInto } from '../math/quat.ts';
 import { normalizeOrZ, normalizeOrZInto } from '../math/vec3.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 import { hash2, hashText } from './random.ts';
 import { MAX_PARTICLES, PARTICLE_FLOATS, ParticleFloat, ParticleSimulation } from './simulation.ts';

@@ -1,6 +1,4 @@
-import type { Color } from '@endfield-noclip/package-format/values';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Color, Vec3 } from '@endfield-noclip/package-format/values';
 
 /**
  * converts a sRGB-encoded colour channel (Unity colour fields) to linear

@@ -6,6 +6,8 @@
  * @module
  */
 
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
 import {
 	CELESTIAL_TEXTURE_SLOTS,
 	type CelestialLook,
@@ -13,7 +15,6 @@ import {
 	NO_CELESTIAL,
 } from '../../environment/celestial-look.ts';
 import { autoBindGroup, encodeFullscreen, fullscreenPipeline } from '../../gfx/fullscreen-pass.ts';
-import type { Vec3 } from '../../scene/camera.ts';
 import { HDR_FORMAT } from '../frame/render-targets.ts';
 import { postShaderModule } from '../post/shader-source.ts';
 import colorWgsl from '../shaders/common/color.wgsl?raw';

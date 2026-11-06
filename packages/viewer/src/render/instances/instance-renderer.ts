@@ -15,13 +15,14 @@
  * @module
  */
 
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
 import { BLOCK_SLOTS, ROW_BYTES, ROW_WORDS, assignBlockSlot } from '../../content/instance-rows.ts';
 import { freeSlots } from '../../gfx/free-slots.ts';
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import type { RangeAllocation } from '../../gfx/range-allocator.ts';
 import type { DecodedInstances } from '../../package/decode-protocol.ts';
-import type { Vec3 } from '../../scene/camera.ts';
 import type { ResidentInstances } from '../../streaming/resident.ts';
 import type { InstanceRange } from '../../streaming/selection.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';

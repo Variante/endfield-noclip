@@ -11,8 +11,7 @@ import {
 } from '@endfield-noclip/package-format/environment';
 import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { SUN_EFFECTS } from './sun.ts';
 

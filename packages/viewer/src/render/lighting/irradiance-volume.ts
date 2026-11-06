@@ -1,10 +1,10 @@
 import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/package-format/irradiance';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { vec3From } from '../../math/vec3.ts';
 import type { DecodedIrradiance } from '../../package/decode-protocol.ts';
-import type { Vec3 } from '../../scene/camera.ts';
 import type { ResidentIrradiance } from '../../streaming/resident.ts';
 import type { StreamManager } from '../../streaming/stream-manager.ts';
 

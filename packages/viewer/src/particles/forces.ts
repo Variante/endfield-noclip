@@ -3,9 +3,9 @@ import {
 	type ParticleForceFieldInfo,
 	PARTICLE_STEP_RATE,
 } from '@endfield-noclip/package-format/particles';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { times3Into } from '../math/mat3.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 import { evaluateMinMax } from './curves.ts';
 

@@ -1,4 +1,6 @@
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
+import type { Camera } from '../../scene/camera.ts';
 
 /** floats {@link CameraHistory.write} writes: the previous view-projection, then the eye delta */
 export const CAMERA_HISTORY_FLOATS = 20;

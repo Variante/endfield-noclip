@@ -1,8 +1,10 @@
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
 import type { Environment, VolumetricFog as VolumetricFogLook } from '../../environment/environment.ts';
 import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { halton } from '../../math/sequence.ts';
 import { scale } from '../../math/vec3.ts';
-import type { Camera, Vec3 } from '../../scene/camera.ts';
+import type { Camera } from '../../scene/camera.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 
 import fogWgsl from './volumetric-fog.wgsl?raw';

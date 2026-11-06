@@ -1,4 +1,3 @@
-// curves and systems the particle tests build on
 import {
 	CurveMode,
 	GradientMode,
@@ -11,8 +10,8 @@ import {
 	type ParticleSystemInfo,
 	type ParticleTextureSheetInfo,
 } from '@endfield-noclip/package-format/particles';
-
-import type { Vec3 } from '../scene/camera.ts';
+// curves and systems the particle tests build on
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { PARTICLE_FLOATS, ParticleSimulation } from './simulation.ts';
 

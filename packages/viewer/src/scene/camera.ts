@@ -9,13 +9,12 @@
  * @module
  */
 
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
 import { dot } from '../math/vec3.ts';
 
 /** a plane `n·p + d ≥ 0` (inside), with `p` relative to the camera */
 export type Plane = [nx: number, ny: number, nz: number, d: number];
-
-/** a 3-vector in Unity space */
-export type Vec3 = [x: number, y: number, z: number];
 
 /** the side planes' NDC signs along x and y, in the order {@link Camera.frustumPlanes} writes them */
 const FRUSTUM_SIDES = [

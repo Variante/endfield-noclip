@@ -1,4 +1,4 @@
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 // the `…Into` forms write their result into `out` and return it, so hot paths needn't allocate. each reads
 // all of its inputs before writing, so `out` may be one of them

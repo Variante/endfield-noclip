@@ -6,8 +6,7 @@ import {
 	type ParticleSpeedLimitInfo,
 	type ParticleSplineInfo,
 } from '@endfield-noclip/package-format/particles';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { evaluateMinMax, livedAt } from './curves.ts';
 

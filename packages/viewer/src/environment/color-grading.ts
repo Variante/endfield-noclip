@@ -8,10 +8,9 @@
  */
 
 import type { ColorGradingConfig } from '@endfield-noclip/package-format/environment';
-import type { Vec4 } from '@endfield-noclip/package-format/values';
+import type { Vec3, Vec4 } from '@endfield-noclip/package-format/values';
 
 import { rec709Luminance, srgbToLinear } from '../math/color.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 /** the parts of the game's colour grading the viewer reads */
 export type ColorGradingInput = Omit<

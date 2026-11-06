@@ -10,8 +10,7 @@ import type {
 	EnvironmentVolumeShape,
 } from '@endfield-noclip/package-format/environment';
 import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { applyBlend, type BlendPlan, EnvironmentFades, eyeInLevelVolume, planBlend } from './blend.ts';
 

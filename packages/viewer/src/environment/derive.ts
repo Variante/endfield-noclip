@@ -6,10 +6,10 @@
  */
 
 import type { LightConfig } from '@endfield-noclip/package-format/environment';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { linearRgb, rec709Luminance, srgbToLinear } from '../math/color.ts';
 import { scale, vec3From } from '../math/vec3.ts';
-import type { Vec3 } from '../scene/camera.ts';
 
 import { gradingLook } from './color-grading.ts';
 import { DEFAULT_POST, DEFAULT_PROFILE } from './default-profile.ts';

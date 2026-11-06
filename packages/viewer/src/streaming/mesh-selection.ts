@@ -1,12 +1,13 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { Chain } from '@endfield-noclip/package-format/instances';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { CULL_FLOATS, ROW_WORDS } from '../content/instance-rows.ts';
 import { type MaterialLook, alphaTextureOf } from '../looks/look.ts';
 import type { ParticleField, ParticleView } from '../particles/particle-rows.ts';
 import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow-map.ts';
 import type { TextureStore } from '../render/textures/texture-store.ts';
-import type { Plane, Vec3 } from '../scene/camera.ts';
+import type { Plane } from '../scene/camera.ts';
 
 import { firstRunAt, firstShadowLayer, sphereInPlanes } from './instance-culling.ts';
 import {

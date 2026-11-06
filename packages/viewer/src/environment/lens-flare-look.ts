@@ -11,11 +11,9 @@ import type {
 	LensFlareElement,
 	LightConfig,
 } from '@endfield-noclip/package-format/environment';
-import type { Vec4 } from '@endfield-noclip/package-format/values';
+import type { Vec3, Vec4 } from '@endfield-noclip/package-format/values';
 
 import { mapDefined, unique } from '@mary-ext/array-fns';
-
-import type { Vec3 } from '../scene/camera.ts';
 
 import { type SunDirections, towardsEffectLight } from './sun.ts';
 

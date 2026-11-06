@@ -1,5 +1,7 @@
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
 import { cross, dot, normalize } from '../../math/vec3.ts';
-import { type Camera, type Plane, type Vec3, sweepPlanes } from '../../scene/camera.ts';
+import { type Camera, type Plane, sweepPlanes } from '../../scene/camera.ts';
 import type { CasterVolume } from '../../streaming/selection.ts';
 
 /** shadow map edge, texels */

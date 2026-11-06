@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
-import { Camera, type Vec3, boxInFrustum, sweepPlanes } from './camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
+import { Camera, boxInFrustum, sweepPlanes } from './camera.ts';
 
 it('sweeps the frustum towards the sun, so a caster behind the camera reaches the view', () => {
 	// looking along +z with the sun behind and above: light travels along +z and down

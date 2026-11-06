@@ -5,7 +5,9 @@
  * @module
  */
 
-import type { Camera, Vec3 } from './camera.ts';
+import type { Vec3 } from '@endfield-noclip/package-format/values';
+
+import type { Camera } from './camera.ts';
 
 const LOOK_SENSITIVITY = 0.0022;
 const MAX_PITCH = Math.PI / 2 - 0.001;

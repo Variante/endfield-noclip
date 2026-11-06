@@ -6,9 +6,7 @@
  */
 
 import type { LightConfig } from '@endfield-noclip/package-format/environment';
-import type { Vec2 } from '@endfield-noclip/package-format/values';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec2, Vec3 } from '@endfield-noclip/package-format/values';
 
 /** the effects that draw the sun along a direction of their own (`<effect>PitchYaw`) */
 export const SUN_EFFECTS = [

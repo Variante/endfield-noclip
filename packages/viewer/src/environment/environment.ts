@@ -9,9 +9,7 @@
  * @module
  */
 
-import type { Vec2 } from '@endfield-noclip/package-format/values';
-
-import type { Vec3 } from '../scene/camera.ts';
+import type { Vec2, Vec3 } from '@endfield-noclip/package-format/values';
 
 import type { Grading } from './color-grading.ts';
 import type { AutoExposureSettings } from './exposure.ts';
