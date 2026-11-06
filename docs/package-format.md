@@ -569,16 +569,17 @@ packing rules:
 interned to one entry ([particles.ts](../packages/package-format/src/particles.ts), read as
 [assets.md](game-data/assets.md#prefabs) describes). each `ParticleSystemInfo` keeps only modules a
 viewer can evaluate from its emission time and its own random values: in closed form, or, under a
-speed limit, by stepping the particle from its birth. values are Unity `MinMaxCurve`s (a constant, a
-curve times a scalar, or random between two of either), colours `MinMaxGradient`s (likewise, plus a
-random point of a gradient). a system draws its meshes, or a unit quad (the chain draw's geometry)
-that its render mode turns to the camera, stretches along the particle's velocity, or lays flat. an
-emitter is an ordinary instance row: its transform is the system's frame and its bounds cover
-everywhere a particle reaches, so the row culls like any other. a ring-buffered system's particles
-outlive their lifetime until replaced, held at their end or looping part of it; a texture sheet
-names the flipbook tile each particle's mesh UVs are remapped into. a system's `motion` is `free`
-(start speed, gravity, the velocity module and the Limit Velocity module's drag or speed limit) or a
-`spline` its particles follow at its speed instead.
+speed limit or force fields, by stepping the particle from its birth. values are Unity
+`MinMaxCurve`s (a constant, a curve times a scalar, or random between two of either), colours
+`MinMaxGradient`s (likewise, plus a random point of a gradient). a system draws its meshes, or a
+unit quad (the chain draw's geometry) that its render mode turns to the camera, stretches along the
+particle's velocity, or lays flat. an emitter is an ordinary instance row: its transform is the
+system's frame and its bounds cover everywhere a particle reaches, so the row culls like any other.
+a ring-buffered system's particles outlive their lifetime until replaced, their age held at its end
+(while they move on) or looping part of it; a texture sheet names the flipbook tile each particle's
+mesh UVs are remapped into. a system's `motion` is `free` (start speed, gravity, the velocity module
+and the Limit Velocity module's drag or speed limit) or a `spline` its particles follow at its speed
+instead.
 
 a [spline mover](game-data/assets.md#spline-movers) packs as such a system
 ([spline-movers.ts](../packages/extractor/src/game/spline-movers.ts)): one entry per renderer of
@@ -634,6 +635,14 @@ unless the mode is Shape. the entry keeps:
   when the dampen is above 0 (the `magnitude` curve and the dampen), when it limits the whole speed
   rather than each axis and the system has no drag. the viewer steps such particles at 30 Hz,
   applying the limit as [the game does](game-data/assets.md#particle-systems)
+- the External Forces module as the free motion's `forces`: its multiplier and the sphere fields it
+  feels within the same prefab (by list, by layer or both; wind zones and fields elsewhere in the
+  scene aren't followed), each with its ranges, gravity focus, swirl tilt, curves and drag flags and
+  `fromEmitter`, the emitter's matrix as seen from the field's (the inverse of the field's
+  prefab-space matrix times the emitter's). a field of another shape or with a vector field makes
+  the system a stand-in, as do force fields alongside drag or a speed modifier curve; a multiplier
+  scalar of 0 packs no forces, as the engine skips the module. the viewer steps such particles at 30
+  Hz too
 - the render alignment (Facing is kept as View; Velocity too) and pivot, in multiples of the
   particle's size: a mesh particle's pivot is first multiplied by the mesh's size
   ([pivot](game-data/assets.md#particle-systems))

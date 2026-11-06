@@ -167,8 +167,32 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   module's own terms. the floating stones of Valley's Aberrants (`floatstone01` in
   `p_fxmap_map01_lv001_floatstone_*`) rise at 0.5–1.5 m/s under a modifier ramping from 0.39 to 1
   over their 5–10 s. whether gravity's part of the velocity is scaled too isn't traced.
-- **ring buffer.** `ringBufferMode` 1 holds a particle at its end until a newer one replaces it, 2
-  replays `ringBufferLoopRange`.
+- **ring buffer.** `ringBufferMode` 1 holds a particle's age at its end until a newer one replaces
+  it, 2 replays `ringBufferLoopRange`. a held particle isn't frozen: every module goes on moving and
+  turning it, reading its curves at their end, and it moves by its velocity as before. emission
+  isn't capped; an emission past the cap replaces the particles in slot order, oldest first, and
+  only then fires their death sub-emitters. Jingyu Valley's fish school relies on this: its one
+  burst lives 5–10 s, then swims on in its force field for good.
+- **external forces.** `ExternalForcesModule` pushes particles with `ParticleSystemForceField`s:
+  those in `influenceList` (`influenceFilter` 1), those on the layers of `influenceMask` along with
+  wind zones (0), or both (2), when active and enabled. the module does nothing unless its
+  multiplier's scalar is above 0. each step, after gravity and before velocity over lifetime, noise
+  and the speed limit, each field changes the particle's own velocity in turn. a sphere field
+  measures the particle's distance from its centre in its own frame, scale included, so a field
+  squashed up its y reaches less far vertically; outside `m_StartRange`…`m_EndRange` it does
+  nothing, and its curves are read at the distance's place between the two. two constants pick one
+  value per particle, the same for every field; the multiplier is read at the particle's age. in
+  order: the direction curves add `direction · m · dt` along the field's axes; gravity adds
+  `−n · gravity · m · dt · 30` (`n` from the centre to the particle, reversed within
+  `m_GravityFocus` of the range); the swirl, only when both its speed and attraction scalars are
+  nonzero, pulls the velocity `v` towards `t · speed` by `attraction · m · dt · 30` of the way, `t`
+  the unit tangent about the field's +y tilted per particle by up to ± half a turn times
+  `m_RotationRandomness` (about x, then z); drag takes `drag · m · dt` off the speed, times
+  `π (size / 2)²` and the speed squared when its flags say so, to no less than 0. the ×30 makes the
+  pulls frame-rate independent against 30 fps. the fish school's field (start 3 m, end 15 m,
+  squashed to 0.2 up its y) swirls its fish at ±4 m/s with a 2–5% pull per 1/30 s, pulls them in at
+  3–7.5 m/s² and drags them by their speed squared; the large fish's field has no swirl attraction,
+  so it only holds them in and slows them.
 - **texture sheet.** `UVModule` in grid mode plays the whole sheet or one row (fixed, random or by
   mesh), timed over the lifetime by `frameOverTime` and `cycles` or by `fps`, offset by
   `startFrame`, on the UV sets of `uvChannelMask`.
@@ -179,7 +203,14 @@ stretched 1, horizontal 2, vertical 3. the fields its systems use, as the game's
   (`dajiantou02`/`03` in `int_acceleratemushroom_postmodel`) are flat arrow meshes pointing along
   their +z, launched straight up a cone of angle 0 and lifted by a slightly negative gravity, so
   Velocity alignment stands them upright as they rise, spun about the vertical by their rotation
-  over lifetime. how Unity rolls a velocity-aligned particle about its motion isn't traced.
+  over lifetime. for meshes, the velocity is turned into the world (through the emitter's whole
+  matrix, scale included) and the particle takes a look rotation along it, rolled level by the
+  world's +y: forward along the velocity, right `(F.z, 0, −F.x)` normalized (the world's +x when
+  moving straight up or down), up their cross product; a still particle faces the world's +z. the
+  mesh is offset by its pivot, sized, turned by the particle's own rotation, scaled by the emitter's
+  scale (Hierarchy the lossy scale, Local the system's own, Shape none) along that rotation's axes,
+  then turned into it. the fish (`p_fxmap_map02_lv001_fish_2101`) are modelled along their y and
+  turned −90° about x, so they swim level along their path.
 - **stretched quads.** with `m_FreeformStretching` off, a stretched particle is a streak from the
   particle back along its velocity, `size.y · m_LengthScale` (times the emitter's x scale) plus
   `speed · m_VelocityScale` long, with the camera's velocity times `m_CameraVelocityScale` taken off

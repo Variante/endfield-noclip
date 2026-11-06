@@ -9,7 +9,12 @@ import type {
 } from '@endfield-noclip/formats/unity/animation-clip';
 import { parseMaterial } from '@endfield-noclip/formats/unity/material';
 import { isTransformClass, UnityClass } from '@endfield-noclip/formats/unity/serialized-file';
-import { multiplyMatrices, trsMatrix, transformBounds } from '@endfield-noclip/formats/unity/transform';
+import {
+	inverseAffine,
+	multiplyMatrices,
+	trsMatrix,
+	transformBounds,
+} from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
 	aabbField,
@@ -19,13 +24,18 @@ import {
 	isObject,
 	numberField,
 	objectField,
+	optionalNumberField,
 	pptrField,
 	stringField,
 	type Aabb,
 } from '@endfield-noclip/formats/unity/values';
 import type { SkinAnimation } from '@endfield-noclip/package-format/geometry';
 import { ChainFlags } from '@endfield-noclip/package-format/instances';
-import { ParticleRenderMode, type ParticleSystemInfo } from '@endfield-noclip/package-format/particles';
+import {
+	type ParticleForceFieldInfo,
+	ParticleRenderMode,
+	type ParticleSystemInfo,
+} from '@endfield-noclip/package-format/particles';
 
 import { animatorDefaultPose } from './animator-defaults.ts';
 import { objectKey, type AssetResolver, type ObjectRef } from './assets.ts';
@@ -38,7 +48,14 @@ import {
 	particleEmitterMatrix,
 	particleStandInMatrix,
 } from './particle-mesh.ts';
-import { ScalingMode, particleReach, readParticleSystem } from './particle-system.ts';
+import {
+	type ExternalForcesRead,
+	InfluenceFilter,
+	ScalingMode,
+	particleReach,
+	readForceField,
+	readParticleSystem,
+} from './particle-system.ts';
 import { isSplineMoverType, splineMoverRenderers } from './spline-movers.ts';
 import {
 	animatorHiddenNodes,
@@ -272,6 +289,13 @@ export const readPrefabRenderers = async (
 	const nodes: PosedNode[] = [];
 	// by mesh renderer, its GameObject's Transform: what moves it when a looping clip turns that Transform
 	const rendererTransforms = new Map<string, string>();
+	// by component, the active and enabled force fields: their GameObject's layer and their prefab-space matrix
+	const forceFields = new Map<string, { data: TypeTreeObject; layer: number; matrix: Float32Array }>();
+	// played systems whose force fields are resolved once every field's place is known, by candidate
+	const pendingForces = new Map<
+		(typeof candidates)[number],
+		{ system: ObjectRef; forces: ExternalForcesRead; emitter: Float32Array; standIn: Float32Array }
+	>();
 	const visit = async (
 		go: ObjectRef,
 		parent: Float32Array,
@@ -376,6 +400,7 @@ export const readPrefabRenderers = async (
 			: [UnityClass.Transform, UnityClass.RectTransform];
 		const components: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		const movers: { ref: ObjectRef; data: TypeTreeObject }[] = [];
+		const fields: { ref: ObjectRef; data: TypeTreeObject }[] = [];
 		let board: TypeTreeObject | null = null;
 		let hasDistanceLod = false;
 		for (const item of arrayField(data, 'm_Component')) {
@@ -388,6 +413,11 @@ export const readPrefabRenderers = async (
 			}
 			if (wanted.includes(ref.info.classId)) {
 				components.push({ ref, data: await resolver.read(ref) });
+			} else if (off === null && ref.info.classId === UnityClass.ParticleSystemForceField) {
+				const fieldData = await resolver.read(ref);
+				if (booleanField(fieldData, 'm_Enabled')) {
+					fields.push({ ref, data: fieldData });
+				}
 			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isBillboardType(ref)) {
 				board = await resolver.read(ref);
 			} else if (drawn && ref.info.classId === UnityClass.MonoBehaviour && isSplineMoverType(ref)) {
@@ -460,6 +490,13 @@ export const readPrefabRenderers = async (
 			? parent
 			: multiplyMatrices(parent, trsMatrix(local.position, local.rotation, local.scale));
 		transforms.set(objectKey(transform.ref), matrix);
+		for (const field of fields) {
+			forceFields.set(objectKey(field.ref), {
+				data: field.data,
+				layer: optionalNumberField(data, 'm_Layer') ?? 0,
+				matrix,
+			});
+		}
 		if (hasDistanceLod) {
 			settingOrigins.set(key, [matrix[12], matrix[13], matrix[14]]);
 		}
@@ -648,7 +685,7 @@ export const readPrefabRenderers = async (
 								const bounds = aabbField(await resolver.read(mesh), 'm_LocalAABB');
 								pivot = meshParticlePivot(pivot, particleMeshSize(bounds));
 							}
-							candidates.push({
+							const candidate = {
 								...particles,
 								matrix: emitter,
 								name,
@@ -659,7 +696,16 @@ export const readPrefabRenderers = async (
 								billboard: null,
 								posedMaterials,
 								distances,
-							});
+							};
+							candidates.push(candidate);
+							if (read.forces !== null) {
+								pendingForces.set(candidate, {
+									system: system.ref,
+									forces: read.forces,
+									emitter,
+									standIn: particleStandInMatrix(parent, local, scalingMode),
+								});
+							}
 						}
 					}
 				}
@@ -701,6 +747,53 @@ export const readPrefabRenderers = async (
 		}
 	};
 	await visit(root, trsMatrix([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), null, true, null, null, [], [], null);
+	// the fields a played system feels: those it lists, or those on its layers, within this prefab (wind zones
+	// and fields elsewhere in the scene aren't followed)
+	for (const [candidate, { system, forces, emitter, standIn }] of pendingForces) {
+		const felt = new Set<string>();
+		if (forces.filter !== InfluenceFilter.LayerMask) {
+			for (const pointer of forces.list) {
+				// oxlint-disable-next-line no-await-in-loop -- references are cached by the resolver
+				const ref = await resolver.resolve(system, pointer);
+				if (ref !== null && forceFields.has(objectKey(ref))) {
+					felt.add(objectKey(ref));
+				}
+			}
+		}
+		if (forces.filter !== InfluenceFilter.List) {
+			for (const [key, field] of forceFields) {
+				if (((forces.mask >>> field.layer) & 1) !== 0) {
+					felt.add(key);
+				}
+			}
+		}
+		const infos: ParticleForceFieldInfo[] = [];
+		let reason: string | null = null;
+		for (const key of felt) {
+			const field = forceFields.get(key);
+			if (field === undefined) {
+				continue;
+			}
+			const read = readForceField(field.data, multiplyMatrices(inverseAffine(field.matrix), emitter));
+			if (typeof read === 'string') {
+				reason = read;
+				break;
+			}
+			infos.push(read);
+		}
+		const particles = candidate.particles;
+		if (reason !== null) {
+			// a field the viewer can't step makes the system a stand-in
+			candidate.particles = null;
+			candidate.unsupported = reason;
+			candidate.matrix = standIn;
+		} else if (infos.length > 0 && particles?.motion.kind === 'free') {
+			candidate.particles = {
+				...particles,
+				motion: { ...particles.motion, forces: { multiplier: forces.multiplier, fields: infos } },
+			};
+		}
+	}
 	const frames = pose === null ? null : poseFrames(nodes, pose);
 	const result: PrefabRenderer[] = [];
 	for (const candidate of candidates) {

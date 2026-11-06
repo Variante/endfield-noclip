@@ -7,6 +7,9 @@ import {
 	type MinMaxGradientInfo,
 	ParticleAlignment,
 	type ParticleDragInfo,
+	type ParticleForceFieldInfo,
+	type ParticleForcesInfo,
+	PARTICLE_STEP_RATE,
 	type ParticleVelocityInfo,
 	ParticleRenderMode,
 	ParticleShapeKind,
@@ -99,6 +102,16 @@ const Channel = {
 	SpeedLimit: 35,
 	SplineSpeed: 36,
 	StartDelay: 37,
+	ForceMultiplier: 38,
+	ForceTiltX: 39,
+	ForceTiltZ: 40,
+	ForceDirectionX: 41,
+	ForceDirectionY: 42,
+	ForceDirectionZ: 43,
+	ForceGravity: 44,
+	ForceSpin: 45,
+	ForceAttraction: 46,
+	ForceDrag: 47,
 } as const;
 
 /**
@@ -265,60 +278,64 @@ interface PathStart {
 	worldToLocal: (direction: Vec3) => Vec3;
 }
 
-/** steps per second {@link limitedPath} takes: the 30 fps Unity's speed limit is stated against */
-const LIMIT_STEP_RATE = 30;
-/** the most steps {@link limitedPath} takes; longer ages take longer steps */
-const LIMIT_MAX_STEPS = 600;
+/** the most steps {@link steppedPath} takes; longer ages take longer steps */
+const MAX_STEPS = 600;
 
 /** where a stepped particle had got to: its age, its own velocity and how far it had moved */
-export interface LimitedState {
+export interface SteppedState {
 	age: number;
 	own: Vec3;
 	offset: Vec3;
 }
 
 /**
- * a particle's path under a speed limit, stepped from its birth or from an earlier state of the same path:
- * each step adds gravity to the particle's own velocity, pulls the whole speed (its own velocity plus the
- * extra velocity) towards the limit, taking the excess from its own velocity, then moves it by the whole
- * velocity
+ * a particle's path where it has no closed form (a speed limit or force fields), stepped at
+ * {@link PARTICLE_STEP_RATE} from its birth or from an earlier state of the same path, in the game's order:
+ * each step adds gravity to the particle's own velocity, lets the forces change it, pulls the whole speed
+ * (its own velocity plus the extra velocity) towards the limit, taking the excess from its own velocity, then
+ * moves it by the whole velocity
  *
- * @param path the limit (and its random value), the particle's start velocity, its acceleration, the extra
- *   velocity at an age and a distance moved from the start, its age and lifetime, in seconds, and the state
- *   to continue from (one at or before `age`, else the birth)
+ * @param path the limit (and its random value) or `null`, the particle's start velocity, its acceleration,
+ *   the forces (which change its own velocity in place, given the step's age, how far it had moved and the
+ *   step's length) or `null`, the extra velocity at an age and a distance moved from the start, its age and
+ *   lifetime, in seconds, and the state to continue from (one at or before `age`, else the birth)
  * @returns how far it has moved by `age`, its velocity then, and the state to continue from later
  */
-export const limitedPath = (path: {
-	limit: ParticleSpeedLimitInfo;
-	r: number;
+export const steppedPath = (path: {
+	limit: { info: ParticleSpeedLimitInfo; r: number } | null;
 	start: Vec3;
 	acceleration: Vec3;
+	push: ((age: number, moved: Vec3, own: Vec3, step: number) => void) | null;
 	extra: (age: number, moved: Vec3) => Vec3;
 	age: number;
 	life: number;
-	from?: LimitedState;
-}): { offset: Vec3; velocity: Vec3; state: LimitedState } => {
-	const { limit, r, acceleration, extra, age, life } = path;
+	from?: SteppedState;
+}): { offset: Vec3; velocity: Vec3; state: SteppedState } => {
+	const { limit, acceleration, push, extra, age, life } = path;
 	const from =
 		path.from !== undefined && path.from.age <= age
 			? path.from
 			: { age: 0, own: path.start, offset: [0, 0, 0] as Vec3 };
 	const span = age - from.age;
-	const steps = span > 0 ? Math.min(Math.ceil(span * LIMIT_STEP_RATE), LIMIT_MAX_STEPS) : 0;
+	const steps = span > 0 ? Math.min(Math.ceil(span * PARTICLE_STEP_RATE), MAX_STEPS) : 0;
 	const h = steps > 0 ? span / steps : 0;
-	const pull = 1 - (1 - limit.dampen) ** (h * LIMIT_STEP_RATE);
+	const pull = limit === null ? 0 : 1 - (1 - limit.info.dampen) ** (h * PARTICLE_STEP_RATE);
 	const own: Vec3 = [...from.own];
 	const offset: Vec3 = [...from.offset];
 	for (let i = 1; i <= steps; i++) {
 		const t = from.age + i * h;
-		const added = extra(t, offset);
-		const whole: Vec3 = [0, 0, 0];
 		for (let axis = 0; axis < 3; axis++) {
 			own[axis] += acceleration[axis] * h;
-			whole[axis] = own[axis] + added[axis];
 		}
+		// the forces see the age and place from before this step
+		push?.(t - h, offset, own, h);
+		const added = extra(t, offset);
+		const whole: Vec3 = [own[0] + added[0], own[1] + added[1], own[2] + added[2]];
 		const speed = Math.hypot(...whole);
-		const cap = evaluateMinMax(limit.limit, life > 0 ? t / life : 0, r);
+		const cap =
+			limit === null
+				? Infinity
+				: evaluateMinMax(limit.info.limit, life > 0 ? Math.min(t / life, 1) : 0, limit.r);
 		if (speed > cap) {
 			const scale = (speed + (cap - speed) * pull) / speed;
 			for (let axis = 0; axis < 3; axis++) {
@@ -336,6 +353,154 @@ export const limitedPath = (path: {
 		velocity: [own[0] + added[0], own[1] + added[1], own[2] + added[2]],
 		state: { age, own: [...own], offset: [...offset] },
 	};
+};
+
+/** a force field ready to step: its matrices as 3×3 rows plus a translation */
+export interface PreparedField {
+	info: ParticleForceFieldInfo;
+	/** the emitter's frame to the field's: `p_field = toField · p + toFieldOffset` */
+	toField: number[];
+	toFieldOffset: Vec3;
+	/** the field's vectors in the emitter's frame (the inverse of {@link toField}) */
+	fromField: number[];
+}
+
+/**
+ * @param info a force field
+ * @returns it with its matrices as rows, from its column-major `fromEmitter`
+ */
+export const prepareField = (info: ParticleForceFieldInfo): PreparedField => {
+	const m = info.fromEmitter;
+	// row r, column c of a column-major 4×4 is m[c * 4 + r]
+	const a = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
+	const cofactor = [
+		a[4] * a[8] - a[5] * a[7],
+		a[2] * a[7] - a[1] * a[8],
+		a[1] * a[5] - a[2] * a[4],
+		a[5] * a[6] - a[3] * a[8],
+		a[0] * a[8] - a[2] * a[6],
+		a[2] * a[3] - a[0] * a[5],
+		a[3] * a[7] - a[4] * a[6],
+		a[1] * a[6] - a[0] * a[7],
+		a[0] * a[4] - a[1] * a[3],
+	];
+	const det = a[0] * cofactor[0] + a[1] * cofactor[3] + a[2] * cofactor[6];
+	const inverse = Math.abs(det) > 1e-20 ? cofactor.map((value) => value / det) : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+	return { info, toField: a, toFieldOffset: [m[12], m[13], m[14]], fromField: inverse };
+};
+
+/** @returns the 3×3 rows `a` times `v` */
+const times3 = (a: readonly number[], v: ArrayLike<number>): Vec3 => [
+	a[0] * v[0] + a[1] * v[1] + a[2] * v[2],
+	a[3] * v[0] + a[4] * v[1] + a[5] * v[2],
+	a[6] * v[0] + a[7] * v[1] + a[8] * v[2],
+];
+
+/** one particle's random values for the force fields, the same for every field as in the game */
+export interface ForceRandoms {
+	multiplier: number;
+	tiltX: number;
+	tiltZ: number;
+	direction: [number, number, number];
+	gravity: number;
+	spin: number;
+	attraction: number;
+	drag: number;
+}
+
+/**
+ * changes a particle's own velocity by the force fields for one step, as the game's sphere fields do ({@link
+ * ParticleForceFieldInfo})
+ *
+ * @param forces the system's forces, their fields prepared
+ * @param position the particle's place in the emitter's frame, before the step
+ * @param own its own velocity, changed in place
+ * @param lived its age over its lifetime, 0–1, where the multiplier is read
+ * @param size its size, which drag can scale by
+ * @param r its random values
+ * @param dt the step, s
+ */
+export const applyForces = (
+	forces: { multiplier: MinMaxCurveInfo; fields: readonly PreparedField[] },
+	position: Vec3,
+	own: Vec3,
+	lived: number,
+	size: number,
+	r: ForceRandoms,
+	dt: number,
+): void => {
+	const m = evaluateMinMax(forces.multiplier, lived, r.multiplier);
+	for (const field of forces.fields) {
+		const { info, toField, toFieldOffset, fromField } = field;
+		const local = times3(toField, position);
+		const p: Vec3 = [local[0] + toFieldOffset[0], local[1] + toFieldOffset[1], local[2] + toFieldOffset[2]];
+		const d = Math.hypot(...p);
+		const { startRange: start, endRange: end } = info;
+		if (d < start || d > end) {
+			continue;
+		}
+		const tf = end > start ? Math.max((d - start) / (end - start), 0) : 0;
+		if (info.direction.some((curve) => curve.scalar !== 0)) {
+			const push = times3(
+				fromField,
+				info.direction.map((curve, axis) => evaluateMinMax(curve, tf, r.direction[axis])),
+			);
+			for (let axis = 0; axis < 3; axis++) {
+				own[axis] += push[axis] * m * dt;
+			}
+		}
+		if (info.gravity.scalar !== 0) {
+			let n = times3(fromField, p);
+			const length = Math.hypot(...n);
+			n = length > 1e-15 ? [n[0] / length, n[1] / length, n[2] / length] : [0, 0, 0];
+			const sign = d < start + info.gravityFocus * (end - start) ? -1 : 1;
+			const pull = -evaluateMinMax(info.gravity, tf, r.gravity) * m * dt * PARTICLE_STEP_RATE * sign;
+			for (let axis = 0; axis < 3; axis++) {
+				own[axis] += n[axis] * pull;
+			}
+		}
+		if (info.rotationSpeed.scalar !== 0 && info.rotationAttraction.scalar !== 0) {
+			const speed = evaluateMinMax(info.rotationSpeed, tf, r.spin) * m;
+			const attraction = evaluateMinMax(info.rotationAttraction, tf, r.attraction) * m;
+			// the swirl's axis, the field's +y, tilted by a fixed random turn about x then z per particle
+			const ax = (r.tiltX - 0.5) * 2 * Math.PI * info.rotationRandomness[0];
+			const az = (r.tiltZ - 0.5) * 2 * Math.PI * info.rotationRandomness[1];
+			const tilt = Math.abs(ax) > 1e-6 || Math.abs(az) > 1e-6;
+			const cx = Math.cos(ax),
+				sx = Math.sin(ax),
+				cz = Math.cos(az),
+				sz = Math.sin(az);
+			// rows of Rx(ax) · Rz(az)
+			const turn = tilt
+				? [cz, -sz, 0, cx * sz, cx * cz, -sx, sx * sz, sx * cz, cx]
+				: [1, 0, 0, 0, 1, 0, 0, 0, 1];
+			const q = times3(turn, p);
+			// ŷ × q, turned back by the tilt's transpose
+			const c: Vec3 = [q[2], 0, -q[0]];
+			const back: Vec3 = [
+				turn[0] * c[0] + turn[3] * c[1] + turn[6] * c[2],
+				turn[1] * c[0] + turn[4] * c[1] + turn[7] * c[2],
+				turn[2] * c[0] + turn[5] * c[1] + turn[8] * c[2],
+			];
+			let tangent = times3(fromField, back);
+			const length = Math.hypot(...tangent);
+			tangent = length > 1e-15 ? [tangent[0] / length, tangent[1] / length, tangent[2] / length] : [0, 0, 0];
+			const k = attraction * dt * PARTICLE_STEP_RATE;
+			for (let axis = 0; axis < 3; axis++) {
+				own[axis] += (tangent[axis] * speed - own[axis]) * k;
+			}
+		}
+		if (info.drag.scalar !== 0) {
+			const amount = evaluateMinMax(info.drag, tf, r.drag);
+			const s = Math.hypot(...own);
+			const k =
+				(info.dragBySize ? Math.PI * (size / 2) ** 2 : 1) * amount * (info.dragByVelocity ? s * s : 1);
+			const kept = s > 1e-15 ? Math.max(0, s - k * m * dt) / s : 0;
+			for (let axis = 0; axis < 3; axis++) {
+				own[axis] *= kept;
+			}
+		}
+	}
 };
 
 /** sample pairs {@link integrateAge} takes */
@@ -567,6 +732,32 @@ export const turnFromZ = (to: ArrayLike<number>): [number, number, number, numbe
 	return [x / n, y / n, 0, w / n];
 };
 
+/**
+ * @param velocity a mesh particle's world velocity
+ * @returns the right, up and forward axes the game turns a velocity-aligned mesh particle into: forward along
+ *   the velocity (the world's +z when still), right level (the world's +x when moving straight up or down)
+ */
+export const velocityBasis = (velocity: ArrayLike<number>): [Vec3, Vec3, Vec3] => {
+	const length = Math.hypot(velocity[0], velocity[1], velocity[2]);
+	const forward: Vec3 =
+		length > 1e-15 ? [velocity[0] / length, velocity[1] / length, velocity[2] / length] : [0, 0, 1];
+	const level = Math.hypot(forward[2], forward[0]);
+	const right: Vec3 = level > 1e-15 ? [forward[2] / level, 0, -forward[0] / level] : [1, 0, 0];
+	const up: Vec3 = [
+		forward[1] * right[2] - forward[2] * right[1],
+		forward[2] * right[0] - forward[0] * right[2],
+		forward[0] * right[1] - forward[1] * right[0],
+	];
+	return [right, up, forward];
+};
+
+/** @returns the matrix whose columns are `columns`, times `v` */
+const times3Columns = (columns: readonly Vec3[], v: ArrayLike<number>): Vec3 => [
+	columns[0][0] * v[0] + columns[1][0] * v[1] + columns[2][0] * v[2],
+	columns[0][1] * v[0] + columns[1][1] * v[1] + columns[2][1] * v[2],
+	columns[0][2] * v[0] + columns[1][2] * v[1] + columns[2][2] * v[2],
+];
+
 const normalize = (v: Vec3): Vec3 => {
 	const length = Math.hypot(v[0], v[1], v[2]);
 	return length > 1e-12 ? [v[0] / length, v[1] / length, v[2] / length] : [0, 0, 1];
@@ -616,13 +807,15 @@ export class ParticleSimulation {
 	#admitted: AdmittedEmission[] = [];
 	/** the system time {@link #admitted} has been played to */
 	#admittedUntil = -Infinity;
+	/** the force fields, prepared; `null` without */
+	readonly #forces: { multiplier: MinMaxCurveInfo; fields: PreparedField[] } | null;
 	/**
-	 * where each speed-limited particle drawn last frame had stepped to, so the next frame steps on from there
-	 * rather than from its birth
+	 * where each stepped particle drawn last frame had got to, so the next frame steps on from there rather
+	 * than from its birth
 	 */
-	#limited = new Map<number, LimitedState>();
-	/** the speed-limited particles placed during the current {@link evaluate} */
-	#limitedNow = new Map<number, LimitedState>();
+	#stepped = new Map<number, SteppedState>();
+	/** the stepped particles placed during the current {@link evaluate} */
+	#steppedNow = new Map<number, SteppedState>();
 
 	/**
 	 * @param info the system
@@ -651,6 +844,9 @@ export class ParticleSimulation {
 		}
 		this.#capped = info.ringBuffer === null && info.emissionBound > info.maxParticles;
 		this.#meshTotal = info.meshWeights.reduce((sum, weight) => sum + weight, 0);
+		const forces: ParticleForcesInfo | null = info.motion.kind === 'free' ? info.motion.forces : null;
+		this.#forces =
+			forces === null ? null : { multiplier: forces.multiplier, fields: forces.fields.map(prepareField) };
 		const rotation = info.shape?.rotation ?? [0, 0, 0];
 		this.#shapeRotation = eulerQuaternion(
 			(rotation[0] * Math.PI) / 180,
@@ -685,7 +881,7 @@ export class ParticleSimulation {
 	 */
 	evaluate(time: number, down: Vec3, worldToLocal: (direction: Vec3) => Vec3, out: Float32Array): number {
 		const emissions = this.#capped ? this.#admit(time) : this.#emitted(time - this.#lookback, time);
-		this.#limitedNow.clear();
+		this.#steppedNow.clear();
 		const capacity = Math.floor(out.length / PARTICLE_FLOATS);
 		const ringBuffer = this.info.ringBuffer;
 		let count = 0;
@@ -698,8 +894,14 @@ export class ParticleSimulation {
 			if (age < 0 || (ringBuffer === null && age >= life)) {
 				continue;
 			}
+			// a paused particle holds its age but keeps moving, as the game goes on stepping it; a looping one
+			// replays its path with its age
+			let moved = age;
 			if (ringBuffer !== null && life > 0) {
 				age = life * ringBufferAge(age / life, ringBuffer.loop ? ringBuffer.loopRange : null);
+				if (ringBuffer.loop) {
+					moved = age;
+				}
 			}
 			// a particle that runs off its path's end is gone
 			if (this.#splineAt(id, age, life) === null) {
@@ -707,12 +909,12 @@ export class ParticleSimulation {
 			}
 			alive++;
 			if (this.#drawsMesh(id)) {
-				this.#place(id, born, age, down, worldToLocal, out, count * PARTICLE_FLOATS);
+				this.#place(id, born, { age, moved }, down, worldToLocal, out, count * PARTICLE_FLOATS);
 				count++;
 			}
 		}
 		// keep only the particles still drawn
-		[this.#limited, this.#limitedNow] = [this.#limitedNow, this.#limited];
+		[this.#stepped, this.#steppedNow] = [this.#steppedNow, this.#stepped];
 		return count;
 	}
 
@@ -1008,7 +1210,8 @@ export class ParticleSimulation {
 			down,
 			worldToLocal,
 		} = motion;
-		const lived = life > 0 ? age / life : 0;
+		// a ring buffer's paused particle moves on past its lifetime with its curves at their end
+		const lived = life > 0 ? Math.min(age / life, 1) : 0;
 		// the game moves a particle by its whole velocity times the speed modifier: `scaledAge` is the modifier's
 		// integral over the age, which a constant velocity moves by, and `scaleNow` its value now
 		const scaledAge = modifierAt === null ? age : integrateAge(modifierAt, age);
@@ -1077,18 +1280,37 @@ export class ParticleSimulation {
 	}
 
 	/**
-	 * where a particle under a speed limit is at an age and how it moves then, stepped ({@link limitedPath}).
-	 * the velocity module's linear, orbital and radial terms are the extra velocity the limit includes; the
-	 * orbit moves the particle along its circle's tangent at its current place. the packer leaves such systems
-	 * without drag
+	 * where a particle under a speed limit or force fields is at an age and how it moves then, stepped ({@link
+	 * steppedPath}). the velocity module's linear, orbital and radial terms are the extra velocity the limit
+	 * includes; the orbit moves the particle along its circle's tangent at its current place. the packer leaves
+	 * such systems without drag
 	 */
-	#limitedPath(
-		limit: ParticleSpeedLimitInfo,
+	#steppedPath(
+		limit: ParticleSpeedLimitInfo | null,
 		velocity: ParticleVelocityInfo | null,
-		motion: PathStart,
+		motion: PathStart & { sizeAt: (age: number) => number },
 	): { position: Vec3; moving: Vec3 } {
 		const seed = this.#seed;
-		const { id, start, direction, speed, modifier, gravity, age, life, down, worldToLocal } = motion;
+		const { id, start, direction, speed, modifier, gravity, age, life, down, worldToLocal, sizeAt } = motion;
+		const forces = this.#forces;
+		let push: ((age: number, moved: Vec3, own: Vec3, step: number) => void) | null = null;
+		if (forces !== null) {
+			const r = (channel: number) => random(seed, id, channel);
+			const randoms: ForceRandoms = {
+				multiplier: r(Channel.ForceMultiplier),
+				tiltX: r(Channel.ForceTiltX),
+				tiltZ: r(Channel.ForceTiltZ),
+				direction: [r(Channel.ForceDirectionX), r(Channel.ForceDirectionY), r(Channel.ForceDirectionZ)],
+				gravity: r(Channel.ForceGravity),
+				spin: r(Channel.ForceSpin),
+				attraction: r(Channel.ForceAttraction),
+				drag: r(Channel.ForceDrag),
+			};
+			push = (t, moved, own, step) => {
+				const at: Vec3 = [start[0] + moved[0], start[1] + moved[1], start[2] + moved[2]];
+				applyForces(forces, at, own, life > 0 ? Math.min(t / life, 1) : 0, sizeAt(t), randoms, step);
+			};
+		}
 		const linearChannels = [Channel.VelocityX, Channel.VelocityY, Channel.VelocityZ];
 		const linearRandoms = linearChannels.map((channel) => random(seed, id, channel));
 		const orbitChannels = [Channel.OrbitalX, Channel.OrbitalY, Channel.OrbitalZ];
@@ -1098,7 +1320,7 @@ export class ParticleSimulation {
 			if (velocity === null) {
 				return [0, 0, 0];
 			}
-			const lived = life > 0 ? t / life : 0;
+			const lived = life > 0 ? Math.min(t / life, 1) : 0;
 			let linear: Vec3 = [0, 0, 0];
 			const spin: Vec3 = [0, 0, 0];
 			for (let axis = 0; axis < 3; axis++) {
@@ -1127,25 +1349,31 @@ export class ParticleSimulation {
 			offset,
 			velocity: moving,
 			state,
-		} = limitedPath({
-			limit,
-			r: random(seed, id, Channel.SpeedLimit),
+		} = steppedPath({
+			limit: limit === null ? null : { info: limit, r: random(seed, id, Channel.SpeedLimit) },
 			start: [direction[0] * speed, direction[1] * speed, direction[2] * speed],
 			acceleration: [down[0] * gravity, down[1] * gravity, down[2] * gravity],
+			push,
 			extra,
 			age,
 			life,
-			from: this.#limited.get(id),
+			from: this.#stepped.get(id),
 		});
-		this.#limitedNow.set(id, state);
+		this.#steppedNow.set(id, state);
 		return { position: [start[0] + offset[0], start[1] + offset[1], start[2] + offset[2]], moving };
 	}
 
 	/** writes one live particle */
+	/**
+	 * writes one live particle
+	 *
+	 * @param ages the age its curves read and the age it has moved for, s: they differ for a ring buffer's
+	 *   paused particle, which holds its age and moves on
+	 */
 	#place(
 		id: number,
 		born: number,
-		age: number,
+		ages: { age: number; moved: number },
 		down: Vec3,
 		worldToLocal: (direction: Vec3) => Vec3,
 		out: Float32Array,
@@ -1153,6 +1381,7 @@ export class ParticleSimulation {
 	): void {
 		const info = this.info;
 		const seed = this.#seed;
+		const { age, moved } = ages;
 		const u = this.#loopFraction(born);
 		const life = evaluateMinMax(info.startLifetime, u, random(seed, id, Channel.Lifetime));
 		const { position: start, direction } = this.#start(id);
@@ -1160,6 +1389,14 @@ export class ParticleSimulation {
 		const sizeRandom = random(seed, id, Channel.Size);
 		const growth = random(seed, id, Channel.SizeOverLifetime);
 		const startSize = info.startSize.map((curve) => evaluateMinMax(curve, u, sizeRandom));
+		const sizeAt = (a: number): number[] =>
+			startSize.map((value, axis) => {
+				const over = info.sizeOverLifetime;
+				return (
+					value *
+					(over === null ? 1 : evaluateMinMax(over[axis], life > 0 ? Math.min(a / life, 1) : 0, growth))
+				);
+			});
 		let path: { position: Vec3; moving: Vec3 };
 		const motion = info.motion;
 		if (motion.kind === 'spline') {
@@ -1192,30 +1429,33 @@ export class ParticleSimulation {
 				modifierAt,
 				// gravity, which Unity always pulls down the world's y
 				gravity: GRAVITY * evaluateMinMax(motion.gravityModifier, u, random(seed, id, Channel.Gravity)),
-				age,
+				age: moved,
 				life,
 				down,
 				worldToLocal,
 			};
-			path =
-				clamp?.kind === 'limit'
-					? this.#limitedPath(clamp, velocity, begin)
-					: this.#freePath(clamp, velocity, { ...begin, startSize });
+			if (clamp?.kind === 'limit' || motion.forces !== null) {
+				// drag by size reads the first axis' size
+				path = this.#steppedPath(clamp?.kind === 'limit' ? clamp : null, velocity, {
+					...begin,
+					sizeAt: (a) => sizeAt(a)[0],
+				});
+			} else {
+				path = this.#freePath(clamp, velocity, { ...begin, startSize });
+			}
 		}
 		const { position, moving } = path;
 
-		const size = startSize.map((value, axis) => {
-			const over = info.sizeOverLifetime;
-			return value * (over === null ? 1 : evaluateMinMax(over[axis], lived, growth));
-		});
+		const size = sizeAt(age);
 
 		const angles = info.startRotation.map((curve, axis) =>
 			evaluateMinMax(curve, u, random(seed, id, Channel.RotationX + axis)),
 		);
 		const spin = info.rotationOverLifetime;
 		if (spin !== null) {
+			// a paused particle keeps spinning at its last rate
 			for (let axis = 0; axis < 3; axis++) {
-				angles[axis] += travelled(spin[axis], age, life, random(seed, id, Channel.SpinX + axis));
+				angles[axis] += travelled(spin[axis], moved, life, random(seed, id, Channel.SpinX + axis));
 			}
 		}
 		const rotation = eulerQuaternion(angles[0], angles[1], angles[2]);
@@ -1519,7 +1759,7 @@ export class ParticleField {
 			// the rotation's axes, then the frame they turn in: the emitter's (local, or turned onto the velocity),
 			// the world's, or the camera's
 			let axes: Vec3[] = [rotate(q, [1, 0, 0]), rotate(q, [0, 1, 0]), rotate(q, [0, 0, 1])];
-			if (info.alignment === ParticleAlignment.Velocity) {
+			if (info.alignment === ParticleAlignment.Velocity && info.renderMode !== ParticleRenderMode.Mesh) {
 				const onto = turnFromZ(scratch.subarray(base + At.velocity, base + At.velocity + 3));
 				axes = axes.map((axis) => rotate(onto, axis));
 			}
@@ -1586,12 +1826,23 @@ export class ParticleField {
 				}
 			} else {
 				switch (info.alignment) {
-					case ParticleAlignment.Local:
-					case ParticleAlignment.Velocity: {
+					case ParticleAlignment.Local: {
 						axes = axes.map(toWorld);
 						sizes = info.sizedByScale
 							? [s[0], s[1], s[2]]
 							: [s[0] / scales[0], s[1] / scales[1], s[2] / scales[2]];
+						break;
+					}
+					case ParticleAlignment.Velocity: {
+						// the game's look rotation along the world velocity, rolled level by the world's up, with the
+						// emitter's scale applied along its axes
+						const basis = velocityBasis(
+							toWorld(scratch.subarray(base + At.velocity, base + At.velocity + 3)),
+						);
+						axes = axes.map((axis) =>
+							times3Columns(basis, [axis[0] * sizing[0], axis[1] * sizing[1], axis[2] * sizing[2]]),
+						);
+						sizes = [s[0], s[1], s[2]];
 						break;
 					}
 					case ParticleAlignment.View: {
@@ -1621,7 +1872,7 @@ export class ParticleField {
 				out[o + r * 4 + 2] = axes[2][r] * sizes[2];
 				out[o + r * 4 + 3] = center[r];
 			}
-			const extent = Math.max(sizes[0], sizes[1], sizes[2]);
+			const extent = Math.max(...axes.map((axis, k) => Math.hypot(...axis) * sizes[k]));
 			out.set(center, o + 12);
 			words[o + 15] = block;
 			out[o + 16] = extent;

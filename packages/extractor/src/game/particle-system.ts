@@ -1,7 +1,9 @@
 import { FormatError } from '@endfield-noclip/formats/binary/binary-reader';
+import { inverseAffine } from '@endfield-noclip/formats/unity/transform';
 import type { TypeTreeObject } from '@endfield-noclip/formats/unity/type-tree';
 import {
 	arrayField,
+	asPPtr,
 	booleanField,
 	isObject,
 	numberField,
@@ -23,6 +25,7 @@ import {
 	type ParticleBurstInfo,
 	type ParticleClampInfo,
 	type ParticleDragInfo,
+	type ParticleForceFieldInfo,
 	type ParticleSpeedLimitInfo,
 	ParticleRenderMode,
 	type ParticleRingBufferInfo,
@@ -63,6 +66,25 @@ export const ScalingMode = {
 const SHAPES = new Set<number>(Object.values(ParticleShapeKind));
 const isShapeKind = (kind: number): kind is ParticleShapeKind => SHAPES.has(kind);
 
+/** `ExternalForcesModule.influenceFilter` values */
+export const InfluenceFilter = {
+	/** the fields whose layer is in `influenceMask` */
+	LayerMask: 0,
+	/** the fields in `influenceList` */
+	List: 1,
+	/** both */
+	LayerMaskAndList: 2,
+} as const;
+
+/** a system's External Forces module, its fields still unresolved */
+export interface ExternalForcesRead {
+	multiplier: MinMaxCurveInfo;
+	filter: number;
+	/** layer bits, for {@link InfluenceFilter.LayerMask} */
+	mask: number;
+	list: PPtr[];
+}
+
 /** what {@link readParticleSystem} found */
 export type ParticleSystemRead =
 	| {
@@ -73,6 +95,11 @@ export type ParticleSystemRead =
 			 * quads, which the caller supplies
 			 */
 			meshes: PPtr[];
+			/**
+			 * the force fields the particles feel, for the caller to resolve into
+			 * {@link ParticleFreeMotionInfo.forces}; `null` without
+			 */
+			forces: ExternalForcesRead | null;
 	  }
 	| { reason: string };
 
@@ -524,6 +551,28 @@ export const readParticleSystem = (
 		}
 	}
 
+	let forces: ExternalForcesRead | null = null;
+	if (enabled(system, 'ExternalForcesModule')) {
+		const module = objectField(system, 'ExternalForcesModule');
+		const multiplier = readMinMaxCurve(objectField(module, 'multiplierCurve'));
+		// the engine skips the module unless the multiplier's scalar is above 0
+		if (multiplier.scalar > 0) {
+			// the stepped path the forces need takes no drag and a constant speed modifier
+			if (clamp?.kind === 'drag') {
+				return { reason: 'force fields with drag' };
+			}
+			if (velocity !== null && !isConstant(velocity.speedModifier)) {
+				return { reason: 'speed modifier curve with force fields' };
+			}
+			forces = {
+				multiplier,
+				filter: numberField(module, 'influenceFilter'),
+				mask: numberField(objectField(module, 'influenceMask'), 'm_Bits'),
+				list: arrayField(module, 'influenceList').map(asPPtr),
+			};
+		}
+	}
+
 	const curve = (parent: TypeTreeObject, name: string) => readMinMaxCurve(objectField(parent, name));
 	const { startSize, startRotation } = readStartPose(initial);
 	const zero: MinMaxCurveInfo = { mode: CurveMode.Constant, scalar: 0, min: 0, curve: null, minCurve: null };
@@ -608,6 +657,8 @@ export const readParticleSystem = (
 				gravityModifier: curve(initial, 'gravityModifier'),
 				velocity,
 				clamp,
+				// the caller resolves the fields
+				forces: null,
 			},
 			sizeOverLifetime,
 			rotationOverLifetime,
@@ -619,6 +670,7 @@ export const readParticleSystem = (
 			textureSheet,
 		},
 		meshes,
+		forces,
 	};
 };
 
@@ -660,6 +712,45 @@ export const readStartPose = (
 		startRotation: booleanField(initial, 'rotation3D')
 			? [curve('startRotationX'), curve('startRotationY'), curve('startRotation')]
 			: [zero, zero, curve('startRotation')],
+	};
+};
+
+/** `ParticleSystemForceField` shapes, of which the viewer steps the sphere */
+const FORCE_FIELD_SPHERE = 0;
+
+/**
+ * @param field a `ParticleSystemForceField`
+ * @param fromEmitter the emitter's frame as seen from the field's
+ *   ({@link ParticleForceFieldInfo.fromEmitter})
+ * @returns the field, or why the viewer can't step it: a shape other than a sphere, or a vector field
+ */
+export const readForceField = (
+	field: TypeTreeObject,
+	fromEmitter: Float32Array,
+): ParticleForceFieldInfo | string => {
+	const parameters = objectField(field, 'm_Parameters');
+	const shape = numberField(parameters, 'm_Shape');
+	if (shape !== FORCE_FIELD_SPHERE) {
+		return `force field shape ${shape}`;
+	}
+	if (pptrField(parameters, 'm_VectorField').pathId !== 0n) {
+		return 'force field vector field';
+	}
+	const curve = (name: string) => readMinMaxCurve(objectField(parameters, name));
+	const randomness = objectField(parameters, 'm_RotationRandomness');
+	return {
+		fromEmitter: [...fromEmitter],
+		startRange: numberField(parameters, 'm_StartRange'),
+		endRange: numberField(parameters, 'm_EndRange'),
+		gravityFocus: numberField(parameters, 'm_GravityFocus'),
+		rotationRandomness: [numberField(randomness, 'x'), numberField(randomness, 'y')],
+		direction: [curve('m_DirectionCurveX'), curve('m_DirectionCurveY'), curve('m_DirectionCurveZ')],
+		gravity: curve('m_GravityCurve'),
+		rotationSpeed: curve('m_RotationSpeedCurve'),
+		rotationAttraction: curve('m_RotationAttractionCurve'),
+		drag: curve('m_DragCurve'),
+		dragBySize: booleanField(parameters, 'm_MultiplyDragByParticleSize'),
+		dragByVelocity: booleanField(parameters, 'm_MultiplyDragByParticleVelocity'),
 	};
 };
 
@@ -744,6 +835,19 @@ export const particleReach = (info: ParticleSystemInfo, meshRadius: number): Aab
 			size * Math.max(1, Math.abs(info.stretch.lengthScale)) + Math.abs(info.stretch.velocityScale) * fastest;
 	}
 	// orbits keep a particle's distance from their centre, which lies `offset` from the emitter
-	const half = 2 * offset + shape + speed * speedScale * life + gravity + size;
+	let half = 2 * offset + shape + speed * speedScale * life + gravity + size;
+	// a field holds its particles within its range around it, but they can coast out of it as well
+	let fieldReach = 0;
+	for (const field of motion.forces?.fields ?? []) {
+		const toEmitter = inverseAffine(new Float32Array(field.fromEmitter));
+		const stretch = Math.max(
+			...[0, 4, 8].map((c) => Math.hypot(toEmitter[c], toEmitter[c + 1], toEmitter[c + 2])),
+		);
+		fieldReach = Math.max(
+			fieldReach,
+			Math.hypot(toEmitter[12], toEmitter[13], toEmitter[14]) + field.endRange * stretch,
+		);
+	}
+	half += fieldReach;
 	return { center: [0, 0, 0], extents: [half, half, half] };
 };

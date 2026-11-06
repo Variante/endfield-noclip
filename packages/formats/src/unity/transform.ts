@@ -161,6 +161,34 @@ export const inverseTransformPoint = (
 };
 
 /**
+ * @param matrix affine column-major matrix
+ * @returns its inverse
+ * @throws {RangeError} if the matrix's linear part is singular
+ */
+export const inverseAffine = (matrix: Float32Array): Float32Array => {
+	const out = new Float32Array(16);
+	const origin = inverseTransformPoint(matrix, [0, 0, 0]);
+	for (let c = 0; c < 3; c++) {
+		const unit = [0, 0, 0];
+		unit[c] = 1;
+		// the point the matrix takes to its own translation plus `unit` is the inverse's column
+		const p = inverseTransformPoint(matrix, [
+			matrix[12] + unit[0],
+			matrix[13] + unit[1],
+			matrix[14] + unit[2],
+		]);
+		for (let r = 0; r < 3; r++) {
+			out[c * 4 + r] = p[r];
+		}
+	}
+	out[12] = origin[0];
+	out[13] = origin[1];
+	out[14] = origin[2];
+	out[15] = 1;
+	return out;
+};
+
+/**
  * @param bounds local axis-aligned bounds
  * @param matrix affine column-major matrix
  * @returns enclosing world bounds, including rotated and nonuniformly scaled extents

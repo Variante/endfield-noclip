@@ -23,6 +23,10 @@ import { ROW_WORDS, RowBillboard, RowKind, packRowColor, rowInfo } from './insta
 import {
 	PARTICLE_FLOATS,
 	ParticleField,
+	applyForces,
+	type ForceRandoms,
+	prepareField,
+	velocityBasis,
 	type ParticleRowStore,
 	ParticleSimulation,
 	type ParticleView,
@@ -30,7 +34,7 @@ import {
 	draggedFall,
 	evaluateMinMax,
 	evaluateMinMaxGradient,
-	limitedPath,
+	steppedPath,
 	ringBufferAge,
 	sheetTile,
 	splinePoint,
@@ -150,6 +154,7 @@ const system = ({
 	gravityModifier = constant(-0.01),
 	velocity = null,
 	clamp = null,
+	forces = null,
 	spline,
 	...overrides
 }: Partial<ParticleSystemInfo & FreeMotion> & { spline?: ParticleSplineInfo } = {}): ParticleSystemInfo => {
@@ -158,7 +163,14 @@ const system = ({
 		motion:
 			overrides.motion ??
 			spline ??
-			({ kind: 'free', startSpeed, gravityModifier, velocity, clamp } satisfies ParticleFreeMotionInfo),
+			({
+				kind: 'free',
+				startSpeed,
+				gravityModifier,
+				velocity,
+				clamp,
+				forces,
+			} satisfies ParticleFreeMotionInfo),
 	};
 	const life = info.startLifetime.scalar;
 	const perLoop = info.bursts.reduce((sum, burst) => sum + burst.count.scalar * burst.cycles, 0);
@@ -283,41 +295,41 @@ describe('motion', () => {
 	// the challenge start point's rising stones: 1 m/s up from velocity over lifetime, limited to 0.1 m/s with
 	// a dampen of 0.1
 	const stones = {
-		limit: { kind: 'limit' as const, limit: constant(0.1), dampen: 0.1 },
-		r: 0,
+		limit: { info: { kind: 'limit' as const, limit: constant(0.1), dampen: 0.1 }, r: 0 },
 		start: [0, 0, 0] as Vec3,
 		acceleration: [0, 0, 0] as Vec3,
+		push: null,
 		extra: (): Vec3 => [0, 1, 0],
 		life: 3,
 	};
 	it('pulls the whole speed, extra velocity included, down to the limit', () => {
-		const { velocity } = limitedPath({ ...stones, age: 3 });
+		const { velocity } = steppedPath({ ...stones, age: 3 });
 		// 90 steps at 0.1 of the excess each leave 0.9^90 of it
 		assert.ok(Math.abs(velocity[1] - (0.1 + 0.9 * 0.9 ** 90)) < 1e-9);
-		const { offset } = limitedPath({ ...stones, age: 0.5 });
+		const { offset } = steppedPath({ ...stones, age: 0.5 });
 		assert.ok(offset[1] > 0.05 && offset[1] < 0.5);
 	});
 	it('gives the same path whatever the age it is read at', () => {
-		const once = limitedPath({ ...stones, age: 2 }).offset[1];
-		const again = limitedPath({ ...stones, age: 2 }).offset[1];
+		const once = steppedPath({ ...stones, age: 2 }).offset[1];
+		const again = steppedPath({ ...stones, age: 2 }).offset[1];
 		assert.equal(once, again);
 	});
 	it('steps on from an earlier state to where stepping from birth gets', () => {
-		const fresh = limitedPath({ ...stones, age: 2 });
-		let state = limitedPath({ ...stones, age: 0.5 }).state;
+		const fresh = steppedPath({ ...stones, age: 2 });
+		let state = steppedPath({ ...stones, age: 0.5 }).state;
 		for (let age = 0.5 + 1 / 60; age <= 2 + 1e-9; age += 1 / 60) {
-			state = limitedPath({ ...stones, age, from: state }).state;
+			state = steppedPath({ ...stones, age, from: state }).state;
 		}
 		// frame-sized steps rather than 1/30 s ones differ by a little
 		assert.ok(Math.abs(state.offset[1] - fresh.offset[1]) < 5e-3);
 		// a state past the age is ignored, so a path read earlier starts again from birth
-		const back = limitedPath({ ...stones, age: 0.5, from: fresh.state });
-		assert.equal(back.offset[1], limitedPath({ ...stones, age: 0.5 }).offset[1]);
+		const back = steppedPath({ ...stones, age: 0.5, from: fresh.state });
+		assert.equal(back.offset[1], steppedPath({ ...stones, age: 0.5 }).offset[1]);
 	});
 	it('leaves a particle under the limit alone', () => {
-		const { offset, velocity } = limitedPath({
+		const { offset, velocity } = steppedPath({
 			...stones,
-			limit: { ...stones.limit, limit: constant(5) },
+			limit: { info: { ...stones.limit.info, limit: constant(5) }, r: 0 },
 			age: 2,
 		});
 		assert.ok(Math.abs(offset[1] - 2) < 1e-9);
@@ -795,6 +807,133 @@ describe('turnFromZ', () => {
 		assert.deepEqual(
 			turnFromZ([0, 0, 2]).map((value) => value + 0),
 			[0, 0, 0, 1],
+		);
+	});
+});
+
+describe('force fields', () => {
+	// Jingyu Valley's fish school: a sphere field 3–15 m out, centred on the emitter, whose +y is the emitter's
+	const fish = {
+		fromEmitter: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+		startRange: 3,
+		endRange: 15,
+		gravityFocus: 0,
+		rotationRandomness: [0, 0] as [number, number],
+		direction: [constant(0), constant(0), constant(0)] as [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo],
+		gravity: constant(0.1),
+		rotationSpeed: constant(4),
+		rotationAttraction: constant(0.05),
+		drag: constant(0),
+		dragBySize: false,
+		dragByVelocity: true,
+	};
+	const randoms: ForceRandoms = {
+		multiplier: 0,
+		tiltX: 0.5,
+		tiltZ: 0.5,
+		direction: [0, 0, 0],
+		gravity: 0,
+		spin: 0,
+		attraction: 0,
+		drag: 0,
+	};
+	const forces = (info: typeof fish) => ({ multiplier: constant(1), fields: [prepareField(info)] });
+	it('pulls a particle in by 30 times its gravity per second', () => {
+		const own: Vec3 = [0, 0, 0];
+		applyForces(forces({ ...fish, rotationSpeed: constant(0) }), [5, 0, 0], own, 0, 1, randoms, 0.1);
+		assert.ok(Math.abs(own[0] - -0.1 * 30 * 0.1) < 1e-9);
+		assert.equal(own[1], 0);
+	});
+	it('pulls the velocity towards a swirl about the field’s +y', () => {
+		const own: Vec3 = [0, 0, 0];
+		applyForces(forces({ ...fish, gravity: constant(0) }), [5, 0, 0], own, 0, 1, randoms, 1 / 30);
+		// ŷ × x̂ = −ẑ, 5% of the way to 4 m/s
+		assert.ok(Math.abs(own[2] - -0.2) < 1e-9);
+		assert.ok(Math.abs(own[0]) < 1e-9);
+	});
+	it('leaves a particle within the start range or beyond the end alone', () => {
+		for (const at of [[1, 0, 0] as Vec3, [20, 0, 0] as Vec3]) {
+			const own: Vec3 = [1, 2, 3];
+			applyForces(forces(fish), at, own, 0, 1, randoms, 0.1);
+			assert.deepEqual(own, [1, 2, 3]);
+		}
+	});
+	it('measures the range in the field’s own frame, its scale included', () => {
+		// a field squashed to 0.2 up its y, as the fish's is: 2 m above it is 10 field units
+		const squashed = { ...fish, fromEmitter: [1, 0, 0, 0, 0, 5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
+		const own: Vec3 = [0, 0, 0];
+		applyForces(forces({ ...squashed, rotationSpeed: constant(0) }), [0, 2, 0], own, 0, 1, randoms, 0.1);
+		assert.ok(own[1] < 0);
+	});
+	it('slows a particle by its speed squared under drag', () => {
+		const own: Vec3 = [2, 0, 0];
+		const dragging = { ...fish, gravity: constant(0), rotationSpeed: constant(0), drag: constant(0.3) };
+		applyForces(forces(dragging), [5, 0, 0], own, 0, 1, randoms, 0.1);
+		assert.ok(Math.abs(own[0] - (2 - 0.3 * 4 * 0.1)) < 1e-9);
+	});
+	it('keep a school launched outwards circling within the field', () => {
+		// the fish burst from a 3 m ring at 1 m/s outwards, in the emitter's xz plane, held past their lifetime
+		const school = system({
+			looping: false,
+			startLifetime: between(5, 10),
+			rate: constant(0),
+			bursts: [{ time: 0, count: constant(20), cycles: 1, interval: 0.01, probability: 1 }],
+			maxParticles: 50,
+			ringBuffer: { loop: false, loopRange: [0, 1] },
+			startSpeed: constant(1),
+			gravityModifier: constant(0),
+			shape: { ...system().shape!, radius: 3, radiusThickness: 0, angle: 90, rotation: [90, 0, 0] },
+			forces: {
+				multiplier: constant(1),
+				fields: [{ ...fish, rotationSpeed: between(-4, 4), drag: constant(0.3) }],
+			},
+		});
+		const simulation = new ParticleSimulation(school, 3);
+		const out = new Float32Array(64 * PARTICLE_FLOATS);
+		let count = 0;
+		for (let time = 0; time <= 60; time += 1 / 30) {
+			count = simulation.evaluate(time, DOWN, same, out);
+		}
+		assert.equal(count, 20);
+		for (let i = 0; i < count; i++) {
+			const p = out.subarray(i * PARTICLE_FLOATS, i * PARTICLE_FLOATS + 3);
+			assert.ok(Math.hypot(p[0], p[1], p[2]) < 15, `fish ${i} left the field`);
+		}
+	});
+});
+
+describe('ring buffers', () => {
+	it('move a paused particle on past its lifetime', () => {
+		const info = system({
+			looping: false,
+			startLifetime: constant(1),
+			rate: constant(0),
+			bursts: [{ time: 0, count: constant(1), cycles: 1, interval: 0.01, probability: 1 }],
+			ringBuffer: { loop: false, loopRange: [0, 1] },
+			startSpeed: constant(1),
+			gravityModifier: constant(0),
+			shape: null,
+		});
+		const [particle] = run(info, 5);
+		assert.ok(Math.abs(particle.position[2] - 5) < 1e-6);
+	});
+});
+
+describe('velocityBasis', () => {
+	it('points forward along the velocity with its right level', () => {
+		const [right, up, forward] = velocityBasis([3, 4, 0]);
+		assert.deepEqual(forward, [0.6, 0.8, 0]);
+		assert.ok(Math.abs(right[1]) < 1e-12);
+		assert.ok(up[1] > 0);
+		// straight up, right falls back to the world's +x; a still particle faces +z
+		assert.deepEqual(velocityBasis([0, 2, 0])[0], [1, 0, 0]);
+		assert.deepEqual(
+			velocityBasis([0, 0, 0]).map((axis) => axis.map((value) => value + 0)),
+			[
+				[1, 0, 0],
+				[0, 1, 0],
+				[0, 0, 1],
+			],
 		);
 	});
 });

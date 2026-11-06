@@ -11,7 +11,7 @@ import {
 	SheetRow,
 } from '@endfield-noclip/package-format/particles';
 
-import { particleReach, readParticleSystem } from './particle-system.ts';
+import { InfluenceFilter, particleReach, readForceField, readParticleSystem } from './particle-system.ts';
 
 const constant = (value: number) => ({ minMaxState: 0, scalar: value, minScalar: 0 });
 const between = (min: number, max: number) => ({ minMaxState: 3, scalar: max, minScalar: min });
@@ -457,4 +457,84 @@ test('the reach covers the cone, the rise under gravity and the largest mesh', (
 	assert.ok(reach.extents[1] >= 65 + rise + 5);
 	assert.ok(reach.extents[1] < 65 + rise + 5 + 1);
 	assert.deepEqual(reach.center, [0, 0, 0]);
+});
+
+// Jingyu Valley's fish school (`p_fxmap_map02_lv001_fish_2101`): a sphere field swirling the fish about its
+// +y, pulling them in and slowing them
+const fishField = (overrides: Record<string, unknown> = {}): TypeTreeObject => ({
+	m_Enabled: 1,
+	m_Parameters: {
+		m_Shape: 0,
+		m_StartRange: 3,
+		m_EndRange: 15,
+		m_Length: 1,
+		m_GravityFocus: 0,
+		m_RotationRandomness: { x: 0.01, y: 0.25 },
+		m_DirectionCurveX: constant(0),
+		m_DirectionCurveY: constant(0),
+		m_DirectionCurveZ: constant(0),
+		m_GravityCurve: between(0.25, 0.1),
+		m_RotationSpeedCurve: between(4, -4),
+		m_RotationAttractionCurve: between(0.02, 0.05),
+		m_DragCurve: between(0.3, 0.3),
+		m_VectorField: pointer(0n),
+		m_MultiplyDragByParticleSize: false,
+		m_MultiplyDragByParticleVelocity: true,
+		...overrides,
+	},
+});
+
+const externalForces = (multiplier: number) => ({
+	ExternalForcesModule: {
+		enabled: true,
+		multiplierCurve: constant(multiplier),
+		influenceFilter: 1,
+		influenceMask: { m_Bits: 0xffff_ffff },
+		influenceList: [pointer(-5n)],
+	},
+});
+
+test('a sphere force field keeps its ranges, curves and the emitter seen from it', () => {
+	const fromEmitter = new Float32Array([1, 0, 0, 0, 0, 0, -5, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
+	const field = readForceField(fishField(), fromEmitter);
+	assert.ok(typeof field !== 'string');
+	assert.equal(field.startRange, 3);
+	assert.equal(field.endRange, 15);
+	assert.deepEqual(field.rotationRandomness, [0.01, 0.25]);
+	assert.equal(field.rotationSpeed.min, 4);
+	assert.equal(field.dragByVelocity, true);
+	assert.deepEqual(field.fromEmitter, [...fromEmitter]);
+	// the viewer steps spheres alone
+	assert.equal(readForceField(fishField({ m_Shape: 3 }), fromEmitter), 'force field shape 3');
+});
+
+test('a system lists the force fields it feels for the packer to resolve, unless the multiplier is 0', () => {
+	const read = readParticleSystem(system(externalForces(1)), renderer({ m_RenderAlignment: 4 }));
+	assert.ok(read !== null && 'info' in read);
+	assert.equal(read.forces?.filter, InfluenceFilter.List);
+	assert.deepEqual(
+		read.forces?.list.map((field) => field.pathId),
+		[-5n],
+	);
+	assert.equal(read.info.alignment, ParticleAlignment.Velocity);
+	const off = readParticleSystem(system(externalForces(0)), renderer());
+	assert.ok(off !== null && 'info' in off);
+	assert.equal(off.forces, null);
+	// the stepped path takes no drag
+	const dragged = readParticleSystem(
+		system({
+			...externalForces(1),
+			ClampVelocityModule: {
+				enabled: true,
+				dampen: 0,
+				separateAxis: false,
+				magnitude: constant(1),
+				drag: constant(1),
+				multiplyDragByParticleSize: false,
+				multiplyDragByParticleVelocity: false,
+			},
+		}),
+		renderer(),
+	);
+	assert.deepEqual(dragged, { reason: 'force fields with drag' });
 });

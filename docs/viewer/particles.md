@@ -43,7 +43,9 @@ system and its index, so any moment can be evaluated on its own:
   lifetime reaches back; non-looping systems stop emitting after one duration. with a ring buffer a
   particle stays until newer ones replace it, so the window reaches back far enough for that many
   emissions; past its lifetime it shows its end (or replays its loop range), and the newest live
-  ones that fit the rows are kept.
+  ones that fit the rows are kept. a particle held at its end keeps moving and spinning by its age,
+  its curves read at their end, as the game goes on stepping it; one replaying its loop range
+  replays its path too, where the game's moves on.
 - without a ring buffer, a system whose emissions can outnumber its cap
   ([assets](../game-data/assets.md#particle-systems)) skips the emissions that come while it's full,
   so which particles live depends on every earlier emission: the emitter plays them forward from
@@ -76,24 +78,29 @@ system and its index, so any moment can be evaluated on its own:
 - size is the start size times the size over lifetime at `a / lifetime`; rotation is the start Euler
   angles (Unity's Z, X, Y order) plus the angular velocity integrated over the age (as linear
   velocity curves are), applied in the emitter's frame (Local), the world's (World), the camera's
-  (View, so the meshes turn with the camera, as the game's do) or the emitter's turned the shortest
-  way from its +z onto the particle's velocity (Velocity; `turnFromZ`). that turn is the viewer's
-  choice of roll about the motion, which the game's isn't known to match.
+  (View, so the meshes turn with the camera, as the game's do) or, for meshes, the game's look
+  rotation along the particle's world velocity, rolled level (Velocity; `velocityBasis`), with the
+  emitter's scale applied along the particle's rotated axes as the game does. velocity-aligned
+  billboards take the emitter's frame turned the shortest way from its +z onto the velocity
+  (`turnFromZ`), the viewer's choice, not traced to the game's.
 - a renderer with several meshes is several emitters at one place; they share their random values,
   so each draws the particles that picked its mesh.
 - a linear velocity curve is integrated over the age (Simpson's rule). drag slows the start velocity
   alone, by `k v` or `k v²` (k the amount, times the cross-section `π (size / 2)²` when it scales
   with size), and gravity falls towards the matching terminal speed; the velocity module's own terms
   and orbits aren't slowed, and the size is the start size.
-- under a speed limit (`limitedPath`) there is no closed form, so the particle is stepped to its age
-  at 30 Hz (at most 600 steps, longer ones beyond), from its birth the first time it's drawn and
-  from where the previous frame left it after that; a step back in time starts it from its birth
-  again: each step adds gravity to its own velocity, limits the whole speed, the velocity module's
-  terms included, as [the game does](../game-data/assets.md#particle-systems), and moves it by the
-  whole velocity. the module's terms, each read at the step's age, are its linear velocity, the
-  orbit's velocity at the particle's current place (`ω × r` about the orbit's centre, rather than
-  the closed form's turn of the whole path) and the radial push away from that centre. the limit's
-  random value is the particle's own, not the game's.
+- under a speed limit or force fields (`steppedPath`) there is no closed form, so the particle is
+  stepped to its age at 30 Hz (at most 600 steps, longer ones beyond), from its birth the first time
+  it's drawn and from where the previous frame left it after that; a step back in time starts it
+  from its birth again: each step adds gravity to its own velocity, lets the force fields change it
+  (`applyForces`, from its place and age before the step), limits the whole speed, the velocity
+  module's terms included, as [the game does](../game-data/assets.md#particle-systems), and moves it
+  by the whole velocity. the fields follow the
+  [game's sphere fields](../game-data/assets.md#particle-systems) term by term, with the viewer's
+  own random values; drag by size reads the particle's x size. the module's terms, each read at the
+  step's age, are its linear velocity, the orbit's velocity at the particle's current place (`ω × r`
+  about the orbit's centre, rather than the closed form's turn of the whole path) and the radial
+  push away from that centre. the limit's random value is the particle's own, not the game's.
 - a system with a spline ([spline movers](../game-data/assets.md#spline-movers)) ignores the above:
   a particle lies at the path's point its travelled distance reaches (the speed curve integrated
   over its age, as linear velocities are), plus its start position in the shape, and leaves once
@@ -113,9 +120,9 @@ system and its index, so any moment can be evaluated on its own:
   their own rotation and set the [billboard](#billboards) bits, so `row_basis` turns them on the GPU
   as it does billboard chains; the others are turned on the CPU.
 
-modules not listed above (forces, noise, collision, sub-emitters, trails, lights, custom data and
-the by-speed modules) are ignored, so systems that enable them play without their effect rather than
-not at all. systems the packer can't make playable at all arrive as stand-ins
+modules not listed above (noise, collision, sub-emitters, trails, lights, custom data and the
+by-speed modules) are ignored, so systems that enable them play without their effect rather than not
+at all. systems the packer can't make playable at all arrive as stand-ins
 ([package format](../package-format.md#stand-ins)): one mesh or camera-facing quad at the emitter in
 the [unsupported](materials.md#unsupported-materials) checker, shown with "missing content".
 

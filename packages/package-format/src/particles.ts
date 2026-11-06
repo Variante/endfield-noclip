@@ -274,6 +274,63 @@ export interface ParticleFreeMotionInfo {
 	velocity: ParticleVelocityInfo | null;
 	/** what Unity's `ClampVelocityModule` does to the particles' speed; `null` without */
 	clamp: ParticleClampInfo | null;
+	/**
+	 * the force fields pushing the particles (Unity's `ExternalForcesModule`); `null` without. the packer
+	 * leaves such systems without drag or a speed modifier curve
+	 */
+	forces: ParticleForcesInfo | null;
+}
+
+/** the force fields a system's particles feel, stepped at {@link PARTICLE_STEP_RATE} */
+export interface ParticleForcesInfo {
+	/** scales every field's push, read at the particle's age over its lifetime */
+	multiplier: MinMaxCurveInfo;
+	fields: ParticleForceFieldInfo[];
+}
+
+/** the rate a viewer steps particles whose motion has no closed form (force fields, speed limits), per second */
+export const PARTICLE_STEP_RATE = 30;
+
+/**
+ * one Unity `ParticleSystemForceField` with a sphere shape. a particle feels it only while its distance from
+ * the field's centre, measured in the field's own frame (scale included), lies between {@link startRange} and
+ * {@link endRange}. every curve but the multiplier is read at that distance's place between the two, 0–1; two
+ * constants pick one value per particle, the same for every field. each step applies, in order, to the
+ * particle's own velocity `v` (after gravity, before the velocity module), with `m` the multiplier and `dt`
+ * the step:
+ *
+ * - `v += direction · m · dt`, the direction in the field's axes
+ * - `v -= n · gravity · m · dt · 30`, `n` the unit direction from the centre to the particle (reversed within
+ *   {@link gravityFocus} of the range), so a positive gravity pulls inwards
+ * - `v += (t · rotationSpeed · m − v) · rotationAttraction · m · dt · 30`, `t` the unit tangent about the
+ *   field's +y (tilted per particle by {@link rotationRandomness}), pulling the whole velocity towards a
+ *   swirl of that speed
+ * - the speed `s` drops by `drag · m · dt`, times `π (size / 2)²` with {@link dragBySize} and `s²` with
+ *   {@link dragByVelocity}, to no less than 0
+ */
+export interface ParticleForceFieldInfo {
+	/**
+	 * the emitter's frame as seen from the field's, a 4×4 column-major matrix: it takes a particle's position
+	 * to the field's frame, and its inverse's 3×3 part takes the field's vectors back
+	 */
+	fromEmitter: number[];
+	/** in the field's units */
+	startRange: number;
+	endRange: number;
+	/** the part of the range, 0–1, within which gravity pushes outwards rather than pulling in */
+	gravityFocus: number;
+	/** each particle's swirl axis tilts by up to ± half a turn times these, about x and about z */
+	rotationRandomness: [x: number, z: number];
+	/** m/s² along the field's x, y and z */
+	direction: [MinMaxCurveInfo, MinMaxCurveInfo, MinMaxCurveInfo];
+	gravity: MinMaxCurveInfo;
+	/** m/s about the field's +y */
+	rotationSpeed: MinMaxCurveInfo;
+	/** 0–1 */
+	rotationAttraction: MinMaxCurveInfo;
+	drag: MinMaxCurveInfo;
+	dragBySize: boolean;
+	dragByVelocity: boolean;
 }
 
 /**

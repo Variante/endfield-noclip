@@ -127,6 +127,7 @@ export const UnityClass = {
 	ParticleSystem: 198,
 	ParticleSystemRenderer: 199,
 	RectTransform: 224,
+	ParticleSystemForceField: 330,
 } as const;
 
 /**
