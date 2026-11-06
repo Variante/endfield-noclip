@@ -13,7 +13,7 @@ import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package
 
 import type { Vec3 } from '../scene/camera.ts';
 
-import { blendEnvironment, EnvironmentFades, eyeInLevelVolume } from './blend.ts';
+import { applyBlend, type BlendPlan, EnvironmentFades, eyeInLevelVolume, planBlend } from './blend.ts';
 
 // only the fields the blend reads; sections are opaque records to it
 const phase = (name: string, density: number): EnvironmentPhaseInfo =>
@@ -120,16 +120,24 @@ const baseOf = (m: PackageManifest): LevelEnvironment => ({
 	post: null,
 });
 
+/** blends at `eye`; without `time`, a fresh fade state whose first frame (a jump) takes time fades fully in */
+const blendAt = (
+	m: PackageManifest,
+	eye: Vec3,
+	options: Parameters<typeof planBlend>[3],
+	time: Parameters<typeof planBlend>[4] = { fades: new EnvironmentFades(), dt: 1 },
+): { plan: BlendPlan; profile: EnvironmentProfile } => {
+	const plan = planBlend(m, baseOf(m), eye, options, time);
+	assert.ok(plan !== null);
+	return { plan, profile: applyBlend(plan) };
+};
+
 const blended = (
 	m: PackageManifest,
 	eye: Vec3,
-	options: Parameters<typeof blendEnvironment>[3],
-	time?: Parameters<typeof blendEnvironment>[4],
-): EnvironmentProfile => {
-	const result = blendEnvironment(m, baseOf(m), eye, options, time);
-	assert.ok(result !== null);
-	return result.profile;
-};
+	options: Parameters<typeof planBlend>[3],
+	time?: Parameters<typeof planBlend>[4],
+): EnvironmentProfile => blendAt(m, eye, options, time).profile;
 
 const density = (profile: EnvironmentProfile): number =>
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the stand-in's field
@@ -154,21 +162,27 @@ describe('environment blend', () => {
 			[phase('global', 1), phase('cave', 3)],
 			[volume({ priority: 300, phase: 1, shape: square, blendMode: 0 }), volume({ phase: 0 })],
 		);
-		const inside = blendEnvironment(m, baseOf(m), [50, 25, 50], options);
-		assert.ok(inside !== null);
+		const inside = blendAt(m, [50, 25, 50], options);
 		assert.equal(density(inside.profile), 3);
 		assert.deepEqual(
-			inside.applied.map(({ phase: name }) => name),
+			inside.plan.applied.map(({ phase: name }) => name),
 			['global', 'cave'],
 		);
 	});
 
 	it('starts from every section of the base phase, inactive ones included', () => {
 		const m = manifest([], [], { heightFog: { heightFogDensity: 7, enable: true } });
-		const result = blendEnvironment(m, baseOf(m), [0, 0, 0], options);
-		assert.ok(result !== null);
-		assert.equal(density(result.profile), 7);
-		assert.equal(result.profile.name, 'base');
+		const { profile } = blendAt(m, [0, 0, 0], options);
+		assert.equal(density(profile), 7);
+		assert.equal(profile.name, 'base');
+	});
+
+	it('shares nothing with the manifest', () => {
+		const m = manifest([phase('cave', 3)], [volume({ shape: square, blendMode: 0 })]);
+		const { profile } = blendAt(m, [50, 25, 50], options);
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the stand-in's field
+		(profile.heightFog as unknown as { heightFogDensity: number }).heightFogDensity = 0;
+		assert.equal(density(blended(m, [50, 25, 50], options)), 3);
 	});
 
 	it('leaves a prism outside its height band', () => {

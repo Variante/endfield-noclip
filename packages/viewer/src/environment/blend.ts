@@ -6,6 +6,7 @@ import type {
 	EnvironmentSections,
 	EnvironmentVolumeInfo,
 	FieldBlend,
+	PostProfile,
 } from '@endfield-noclip/package-format/environment';
 import { compareVolumes, distanceInsideVolume } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelEnvironment, PackageManifest } from '@endfield-noclip/package-format/manifest';
@@ -21,13 +22,19 @@ export interface AppliedVolume {
 	factor: number;
 }
 
-/** the environment at a point */
-export interface BlendedEnvironment {
-	profile: EnvironmentProfile;
-	/** the volumes that applied, in order */
+/** what applies at a point, worked out before any section is blended ({@link applyBlend} blends them) */
+export interface BlendPlan {
+	/** the volumes that apply, in order */
 	applied: AppliedVolume[];
-	/** changes whenever the result does (volumes and rounded factors) */
+	/** changes whenever the blended profile would (volumes and rounded factors) */
 	key: string;
+	/** the base phase, whose every section the blend starts from, inactive ones included */
+	base: EnvironmentPhaseInfo;
+	/** the level's post profile */
+	post: PostProfile | null;
+	/** the phase each of {@link applied} applies */
+	phases: EnvironmentPhaseInfo[];
+	schema: EnvironmentSchema;
 }
 
 /** what the blend may use */
@@ -152,60 +159,43 @@ export class EnvironmentFades {
 }
 
 /** a frame of time fading: the fade state and the frame's duration */
-export interface BlendTime {
+interface BlendTime {
 	fades: EnvironmentFades;
 	/** seconds since the last frame */
 	dt: number;
 }
 
 /**
- * @param manifest the loaded package's manifest
- * @param environment a level's base environment
- * @returns the profile its blend starts from: every section of the base volume's phase, inactive ones
- *   included, and the level's post profile; `null` if the package lacks them
- */
-export const seedProfile = (
-	manifest: PackageManifest,
-	environment: LevelEnvironment,
-): EnvironmentProfile | null => {
-	const index = manifest.environmentVolumes[environment.volume]?.phase ?? null;
-	const phase = index === null ? undefined : manifest.environmentPhases[index];
-	if (phase === undefined) {
-		return null;
-	}
-	const post = environment.post === null ? null : (manifest.environmentPosts[environment.post] ?? null);
-	return { name: phase.name, ...structuredClone(phase.sections), post: structuredClone(post) };
-};
-
-/**
- * blends the environment at the camera, starting from the level's {@link seedProfile}. with volumes off (or a
- * phase pinned), the scene-wide global volumes and the level's base volume apply fully wherever the camera
- * is: the level's own look, which a pinned phase then goes over
+ * works out which volumes apply at the camera, and how strongly, starting from the level's base phase and
+ * post profile. with volumes off (or a phase pinned), the scene-wide global volumes and the level's base
+ * volume apply fully wherever the camera is: the level's own look, which a pinned phase then goes over
  *
  * @param manifest the loaded package's manifest
  * @param environment the shown level's base environment
  * @param eye the camera's world position
  * @param options which volumes may apply
- * @param time the fade state, advanced by this call; without it, time-faded volumes are fully in or out
- * @returns the profile in effect at the camera, or `null` if the package lacks the base phase
+ * @param time the fade state, which this call advances, and the frame's duration
+ * @returns what applies at the camera, or `null` if the package lacks the base phase
  */
-export const blendEnvironment = (
+export const planBlend = (
 	manifest: PackageManifest,
 	environment: LevelEnvironment,
 	eye: Vec3,
 	options: BlendOptions,
-	time?: BlendTime,
-): BlendedEnvironment | null => {
-	const profile = seedProfile(manifest, environment);
-	if (profile === null) {
+	time: BlendTime,
+): BlendPlan | null => {
+	const baseIndex = manifest.environmentVolumes[environment.volume]?.phase ?? null;
+	const base = baseIndex === null ? undefined : manifest.environmentPhases[baseIndex];
+	if (base === undefined) {
 		return null;
 	}
 	const applied: AppliedVolume[] = [];
+	const phases: EnvironmentPhaseInfo[] = [];
 	const apply = (id: number, name: string, index: number, factor: number): void => {
 		const phase = manifest.environmentPhases[index];
 		if (phase !== undefined && factor > 1e-4) {
-			applyPhase(profile, phase, factor, manifest.environmentSchema);
 			applied.push({ id, name, phase: phase.name, factor });
+			phases.push(phase);
 		}
 	};
 	if (options.pinnedPhase !== null || !options.volumes) {
@@ -219,7 +209,7 @@ export const blendEnvironment = (
 			apply(-1, 'pinned', options.pinnedPhase, 1);
 		}
 	} else {
-		const speed = time?.fades.step(eye) ?? JUMP_SPEED;
+		const speed = time.fades.step(eye);
 		for (const { id, volume } of volumesOf(manifest)) {
 			if (volumeApplies(manifest, volume, options)) {
 				apply(
@@ -231,12 +221,31 @@ export const blendEnvironment = (
 			}
 		}
 	}
-	profile.name = applied.at(-1)?.phase ?? profile.name;
+	const post = environment.post === null ? null : (manifest.environmentPosts[environment.post] ?? null);
 	return {
-		profile,
 		applied,
 		key: applied.map(({ name, phase, factor }) => `${name}/${phase}@${factor.toFixed(2)}`).join('|'),
+		base,
+		post,
+		phases,
+		schema: manifest.environmentSchema,
 	};
+};
+
+/**
+ * @param plan what applies, from {@link planBlend}
+ * @returns the profile in effect: the base phase's sections and the post profile with the plan's phases
+ *   blended over them, sharing nothing with the manifest
+ */
+export const applyBlend = (plan: BlendPlan): EnvironmentProfile => {
+	// the blend replaces sections rather than changing them in place, so it reads the manifest's own until the
+	// copy at the end
+	const profile: EnvironmentProfile = { name: plan.base.name, ...plan.base.sections, post: plan.post };
+	for (const [i, { factor }] of plan.applied.entries()) {
+		applyPhase(profile, plan.phases[i], factor, plan.schema);
+	}
+	profile.name = plan.applied.at(-1)?.phase ?? profile.name;
+	return structuredClone(profile);
 };
 
 /**
@@ -248,7 +257,7 @@ const volumeFactor = (
 	volume: EnvironmentVolumeInfo,
 	distance: number,
 	speed: number,
-	time: BlendTime | undefined,
+	time: BlendTime,
 ): number => {
 	const inside = distance > 0;
 	switch (volume.blendMode) {
@@ -264,9 +273,6 @@ const volumeFactor = (
 		}
 		case 2: {
 			// fades in over fadeInDuration seconds while inside, out over fadeOutDuration after leaving
-			if (time === undefined) {
-				return inside ? 1 : 0;
-			}
 			const duration = inside ? volume.fadeInDuration : volume.fadeOutDuration;
 			const change = (time.dt * speed) / duration;
 			return time.fades.fade(id, inside, Number.isNaN(change) ? 1 : change);
@@ -335,7 +341,10 @@ export const eyeInLevelVolume = (
 
 type Sections = Record<keyof EnvironmentSections, Record<string, unknown>>;
 
-/** blends a phase's active sections into the profile, in place */
+/**
+ * blends a phase's active sections into the profile, replacing them. the new sections may share values with
+ * both sides', which are never changed in place
+ */
 const applyPhase = (
 	profile: EnvironmentProfile,
 	phase: EnvironmentPhaseInfo,
@@ -354,7 +363,7 @@ const applyPhase = (
 	for (const name of phase.active) {
 		const fields = schema[name] ?? {};
 		if (t >= 1 - 1e-4) {
-			target[name] = structuredClone(source[name]);
+			target[name] = source[name];
 		} else if (name === 'light') {
 			target[name] = lerpLight(target[name], source[name], t, fields);
 		} else if (name === 'fog') {
@@ -388,8 +397,7 @@ const lerpObject = (
 };
 
 /** @returns `a` before ½, else `b` (or `b` when `a` is missing) */
-const switchValue = (a: unknown, b: unknown, t: number): unknown =>
-	t < 0.5 && a !== undefined ? structuredClone(a) : structuredClone(b);
+const switchValue = (a: unknown, b: unknown, t: number): unknown => (t < 0.5 && a !== undefined ? a : b);
 
 const lerpValue = (
 	blend: FieldBlend | BlendSchema | undefined,
@@ -573,7 +581,7 @@ const lerpFlowNoise = (
 	const bOn = b.enableFlowNoise === true;
 	const keep = (from: Record<string, unknown>): void => {
 		for (const key of ['flowNoiseSpeed', 'flowNoiseTilling', 'flowNoiseDir']) {
-			out[key] = structuredClone(from[key]);
+			out[key] = from[key];
 		}
 	};
 	if (aOn && bOn) {
@@ -608,15 +616,15 @@ const lerpFlowNoise = (
 			'flowNoiseTilling',
 			'flowNoiseDir',
 		]) {
-			out[key] = structuredClone(a[key]);
+			out[key] = a[key];
 		}
 	}
 	return out;
 };
 
-/** @returns a copy of an enabled lens flare section with its intensity scaled by `weight` */
+/** @returns an enabled lens flare section with its intensity scaled by `weight` */
 const faded = (from: Record<string, unknown>, weight: number): Record<string, unknown> => ({
-	...structuredClone(from),
+	...from,
 	enable: true,
 	intensity: number(from.intensity) * weight,
 });
@@ -641,7 +649,7 @@ const lerpLensFlare = (
 	if (bOn) {
 		return faded(b, t);
 	}
-	return structuredClone(a ?? b);
+	return a ?? b;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

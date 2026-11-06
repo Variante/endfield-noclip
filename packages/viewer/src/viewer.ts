@@ -34,9 +34,10 @@ import {
 } from './content/instance-rows.ts';
 import {
 	type AppliedVolume,
-	blendEnvironment,
+	applyBlend,
 	EnvironmentFades,
 	eyeInLevelVolume,
+	planBlend,
 	volumeLevelTag,
 } from './environment/blend.ts';
 import { deriveEnvironment } from './environment/derive.ts';
@@ -885,10 +886,10 @@ export class Viewer {
 		this.#blendSettings = settings;
 		const manifest = this.scene?.pkg.manifest;
 		const base = this.#baseEnvironment;
-		const blended =
+		const plan =
 			manifest === undefined || base === null
 				? null
-				: blendEnvironment(
+				: planBlend(
 						manifest,
 						base,
 						eye,
@@ -899,13 +900,13 @@ export class Viewer {
 						},
 						{ fades: this.#fades, dt },
 					);
-		const profile = blended?.profile ?? null;
-		const key = blended?.key ?? '';
-		this.#appliedVolumes = blended?.applied ?? [];
+		const key = plan?.key ?? '';
+		this.#appliedVolumes = plan?.applied ?? [];
 		if (key === this.#blendKey) {
 			return;
 		}
 		this.#blendKey = key;
+		const profile = plan === null ? null : applyBlend(plan);
 		this.#environment = deriveEnvironment(profile);
 		this.#celestial = celestialLook(profile);
 		this.#wetness = wetnessParams(profile?.rain);

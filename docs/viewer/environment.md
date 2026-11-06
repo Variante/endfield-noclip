@@ -36,8 +36,10 @@ satisfy.
 the post profile, not a Unity `VolumeProfile`.
 
 - start from every section of the shown level's base phase, inactive ones included, plus its post
-  profile (`seedProfile`). the scene's global volume and the level's base volume then apply as
-  volumes like any other.
+  profile. the scene's global volume and the level's base volume then apply as volumes like any
+  other.
+- `planBlend` works out the volumes and factors at the camera, and a key of them; the viewer blends
+  the sections (`applyBlend`) only when the key changes.
 - visit volumes in ascending priority, then shape kind (global, box, prism). the game's order among
   equal priorities isn't known, so this tie-break is an assumption. the order and the shape tests
   are
