@@ -1,12 +1,15 @@
 import type { GeometryEntry } from '@endfield-noclip/package-format/geometry';
 import type { WaterConfig, WaterTable } from '@endfield-noclip/package-format/water';
 
+import type { PipelineCache } from '../../gfx/pipeline-cache.ts';
 import { type Plane, type Vec3, boxInFrustum } from '../../scene/camera.ts';
 import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { StreamManager } from '../../streaming/stream-manager.ts';
 import { streamWholeTexture } from '../../streaming/texture-requests.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import {
+	DEPTH_CLEAR,
+	DEPTH_COMPARE,
 	HDR_FORMAT,
 	type SceneTextures,
 	WATER_DEPTH_FORMAT,
@@ -30,6 +33,10 @@ const PARAM_FLOATS = 12;
 const MAX_SURFACES = 4096;
 /** priority of the surfaces' geometry at 1 m, and of their textures */
 const PRIORITY = 1e5;
+/** the pipeline that shades the surfaces */
+const SHADE_KEY = 'water';
+/** the pipeline that lays down the nearest surface's depth (`SceneTextures.waterDepth`) */
+const DEPTH_KEY = 'water/depth';
 
 /** the layouts of the groups the water pass shares with other passes */
 export interface WaterLayouts {
@@ -113,9 +120,8 @@ const packConfig = (c: WaterConfig, out: Float32Array, at: number): void => {
 export class WaterRenderer {
 	#device: GPUDevice;
 	#layout: GPUBindGroupLayout;
-	#pipeline: GPURenderPipeline;
-	/** lays down the nearest water surface's depth (`SceneTextures.waterDepth`) */
-	#depthPipeline: GPURenderPipeline;
+	/** compiles {@link SHADE_KEY} and {@link DEPTH_KEY} */
+	#pipelines: PipelineCache;
 	/** the foam the boxes leave on the surface, at the main pass's size */
 	#foamTargets: FoamTargets | null = null;
 	/** bound in place of the water's depth while the depth pass draws into it */
@@ -142,11 +148,13 @@ export class WaterRenderer {
 
 	/**
 	 * @param device the device
+	 * @param pipelines the pipeline cache, which compiles the water's pipelines
 	 * @param layouts the shared groups' layouts
 	 */
-	constructor(device: GPUDevice, layouts: WaterLayouts) {
+	constructor(device: GPUDevice, pipelines: PipelineCache, layouts: WaterLayouts) {
 		this.#device = device;
-		const module = device.createShaderModule({ label: 'water', code: waterShaderSource() });
+		this.#pipelines = pipelines;
+		const module = pipelines.module('water', waterShaderSource());
 		const fragment = GPUShaderStage.FRAGMENT;
 		const texture = (
 			binding: number,
@@ -188,21 +196,19 @@ export class WaterRenderer {
 		};
 		// seen from below too
 		const primitive: GPUPrimitiveState = { topology: 'triangle-list', cullMode: 'none' };
-		this.#pipeline = device.createRenderPipeline({
-			label: 'water',
+		void pipelines.prepare(SHADE_KEY, () => ({
 			layout,
 			vertex,
 			fragment: { module, entryPoint: 'fs_water', targets: [{ format: HDR_FORMAT }] },
 			primitive,
-		});
-		this.#depthPipeline = device.createRenderPipeline({
-			label: 'water depth',
+		}));
+		void pipelines.prepare(DEPTH_KEY, () => ({
 			layout,
 			vertex,
 			fragment: { module, entryPoint: 'fs_water_depth', targets: [] },
 			primitive,
-			depthStencil: { format: WATER_DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
-		});
+			depthStencil: { format: WATER_DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: DEPTH_COMPARE },
+		}));
 		this.#surfaces = device.createBuffer({
 			label: 'water surfaces',
 			size: this.#surfaceData.byteLength,
@@ -389,24 +395,30 @@ export class WaterRenderer {
 		return group;
 	}
 
-	/** @returns whether there's anything to draw this frame */
+	/** @returns whether there's anything to draw this frame, with both pipelines compiled */
 	get active(): boolean {
-		return this.#draws.length > 0 && this.#configs !== null;
+		return (
+			this.#draws.length > 0 &&
+			this.#configs !== null &&
+			this.#pipelines.get(SHADE_KEY) !== undefined &&
+			this.#pipelines.get(DEPTH_KEY) !== undefined
+		);
 	}
 
 	/**
 	 * clears the nearest water surface's depth (`SceneTextures.waterDepth`) and, when there's water to draw,
 	 * draws it. call before the composite, which reads it, whenever {@link encode} follows; otherwise
-	 * {@link clearDepth}.
+	 * {@link clearDepth}. both draw only while {@link active}.
 	 *
 	 * @param encoder this frame's encoder
 	 * @param context what the pass reads
 	 */
 	encodeDepth(encoder: GPUCommandEncoder, context: WaterContext): void {
 		const pass = WaterRenderer.#beginDepthPass(encoder, context.scene.waterDepth);
-		const group = this.#draws.length > 0 ? this.#bindGroup(context, this.#noWaterDepthView) : null;
-		if (group !== null) {
-			this.#drawSurfaces(pass, this.#depthPipeline, group, context);
+		const pipeline = this.#pipelines.get(DEPTH_KEY);
+		const group = this.active ? this.#bindGroup(context, this.#noWaterDepthView) : null;
+		if (pipeline !== undefined && group !== null) {
+			this.#drawSurfaces(pass, pipeline, group, context);
 		}
 		pass.end();
 	}
@@ -425,7 +437,12 @@ export class WaterRenderer {
 		return encoder.beginRenderPass({
 			label: 'water depth',
 			colorAttachments: [],
-			depthStencilAttachment: { view, depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+			depthStencilAttachment: {
+				view,
+				depthClearValue: DEPTH_CLEAR,
+				depthLoadOp: 'clear',
+				depthStoreOp: 'store',
+			},
 		});
 	}
 
@@ -438,7 +455,8 @@ export class WaterRenderer {
 	 * @param context what the pass reads
 	 */
 	encode(encoder: GPUCommandEncoder, target: GPUTextureView, context: WaterContext): void {
-		if (this.#configs === null || this.#draws.length === 0) {
+		const pipeline = this.#pipelines.get(SHADE_KEY);
+		if (pipeline === undefined || !this.active) {
 			return;
 		}
 		// the foam boxes project onto the water's own depth
@@ -459,7 +477,7 @@ export class WaterRenderer {
 			label: 'water',
 			colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
 		});
-		this.#drawSurfaces(pass, this.#pipeline, group, context);
+		this.#drawSurfaces(pass, pipeline, group, context);
 		pass.end();
 	}
 

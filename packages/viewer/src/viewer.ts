@@ -470,7 +470,10 @@ export class Viewer {
 			this.#environment,
 			this.#fog,
 		);
-		this.#water = new WaterRenderer(device, { frame: this.#layouts.frame, ...this.#post.skyLayouts });
+		this.#water = new WaterRenderer(device, this.#pipelines, {
+			frame: this.#layouts.frame,
+			...this.#post.skyLayouts,
+		});
 		this.#pool = new DecodePool(Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) >> 1)));
 		this.controls = new NoclipControls(this.camera, canvas);
 		this.stats = this.#emptyStats();
