@@ -378,6 +378,15 @@ export class Viewer {
 	#lastStats = 0;
 	#statsKey = '';
 	#dirty = true;
+	/**
+	 * redraws when the page is shown again: Firefox re-shows a hidden tab's last frame with red and blue
+	 * swapped, and an idle view would otherwise never present a new one
+	 */
+	readonly #onVisibilityChange = (): void => {
+		if (document.visibilityState === 'visible') {
+			this.#dirty = true;
+		}
+	};
 	/** the stream version the last traversal saw */
 	#seenVersion = -1;
 	/** compiled pipelines when the last frame began */
@@ -499,6 +508,7 @@ export class Viewer {
 		}
 		const viewer = new Viewer(gfx, canvas);
 		viewer.#raf = requestAnimationFrame((time) => viewer.#tick(time));
+		document.addEventListener('visibilitychange', viewer.#onVisibilityChange);
 		return viewer;
 	}
 
@@ -2034,6 +2044,7 @@ export class Viewer {
 	/** stops the loop and frees everything */
 	destroy(): void {
 		cancelAnimationFrame(this.#raf);
+		document.removeEventListener('visibilitychange', this.#onVisibilityChange);
 		this.unload();
 		this.controls.destroy();
 		this.#post.destroy();
