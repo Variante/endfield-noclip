@@ -8,7 +8,7 @@
 import type { EnvironmentVolumeInfo } from '@endfield-noclip/package-format/environment';
 import { volumeReaches } from '@endfield-noclip/package-format/environment-volumes';
 import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format/manifest';
-import type { ControlPlace, SceneControl } from '@endfield-noclip/package-format/states';
+import type { ControlPlace, SceneControl, StatesInfo } from '@endfield-noclip/package-format/states';
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 
 import { volumeLevelTag } from '../environment/blend.ts';
@@ -59,6 +59,31 @@ export const controlsForLevel = <T extends SceneControl>(
 	controls: readonly T[],
 	level: LevelInfo | null,
 ): T[] => controls.filter((control) => controlListedFor(control, level));
+
+const followerCache = new WeakMap<StatesInfo, Map<string, SceneControl[]>>();
+
+/**
+ * @param states a package's controls
+ * @returns by control id, the derived controls that read it, in package order: what follows it
+ */
+export const followersOf = (states: StatesInfo): ReadonlyMap<string, readonly SceneControl[]> =>
+	followerCache.getOrInsertComputed(states, () => {
+		const followers = new Map<string, SceneControl[]>();
+		for (const control of states.controls) {
+			if (control.source.kind !== 'derived') {
+				continue;
+			}
+			const inputs = new Set(
+				states.conditionalSets[control.source.condition]?.alternatives.flatMap((requirements) =>
+					requirements.map(({ control: input }) => input),
+				),
+			);
+			for (const input of inputs) {
+				followers.getOrInsertComputed(input, () => []).push(control);
+			}
+		}
+		return followers;
+	});
 
 /** how far from the camera a control's content still counts as nearby, in metres */
 export const NEARBY_RADIUS = 200;

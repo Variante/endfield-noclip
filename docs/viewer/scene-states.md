@@ -76,8 +76,9 @@ user sets, else a select, with "Follow game" or "Follow camera" for derived and 
   [environment.md](../game-data/environment.md#activation))
 
 every row shows where the control's content is (its [place](../package-format.md#controls) label,
-with "Go" flying there), the control's rule and the assumption behind its default. "Show" picks
-which controls the sections list
+with "Go" flying there), the control's rule (what it follows) and the assumption behind its default,
+and "Drives …" naming the derived controls that read it (`followersOf`), so a cabin slot names its
+door and a quest the scene states it switches. "Show" picks which controls the sections list
 ([`scene-states/listing.ts`](../../packages/viewer/src/scene-states/listing.ts), which also decides
 the volumes listed):
 
