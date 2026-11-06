@@ -3,19 +3,16 @@ import type { LevelInfo, PackageManifest } from '@endfield-noclip/package-format
 import type { Vec3 } from '@endfield-noclip/package-format/values';
 import type { WaterSurfaceEntry } from '@endfield-noclip/package-format/water';
 
-import { markBillboardRows, ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
-import { instanceRowKinds } from '../content/row-kinds.ts';
+import { ROW_BYTES, ROW_WORDS, turnRows } from '../content/instance-rows.ts';
 import type { AppliedVolume } from '../environment/blend.ts';
 import { windClockRate } from '../environment/environment.ts';
 import { type GfxDevice, createGfxDevice } from '../gfx/device.ts';
 import { GpuProfiler } from '../gfx/gpu-profiler.ts';
 import { PipelineCache } from '../gfx/pipeline-cache.ts';
 import { UniformRing } from '../gfx/uniform-ring.ts';
-import { materialLooks } from '../looks/material-looks.ts';
 import { DecodePool } from '../package/decode-pool.ts';
 import type { PackageSource } from '../package/package-source.ts';
-import { type ViewerPackage, openViewerPackage } from '../package/viewer-package.ts';
-import { ParticleField } from '../particles/particle-rows.ts';
+import { openViewerPackage } from '../package/viewer-package.ts';
 import { type BindLayouts, createBindLayouts } from '../render/frame/bind-layouts.ts';
 import { FrameBindings } from '../render/frame/frame-bindings.ts';
 import {
@@ -34,33 +31,22 @@ import { SETTLE_FRAMES } from '../render/post/temporal-aa.ts';
 import { SHADOW_LAYERS, ShadowMap, offscreenCasters } from '../render/shadows/shadow-map.ts';
 import { VolumetricFog } from '../render/sky/volumetric-fog.ts';
 import { TerrainRenderer } from '../render/terrain/terrain-renderer.ts';
-import { TextureStore } from '../render/textures/texture-store.ts';
 import { WaterRenderer } from '../render/water/water-renderer.ts';
 import { volumesForLevel } from '../scene-states/listing.ts';
 import { type GroupsConsumer, SceneState } from '../scene-states/scene-state.ts';
 import { WaterLevels, type WaterVolumeState } from '../scene-states/water-levels.ts';
 import { Camera, type Plane } from '../scene/camera.ts';
-import type { GroundSource } from '../scene/ground.ts';
 import { levelCellIds, levelPose, overviewPose } from '../scene/level-pose.ts';
 import { type CameraPose, NoclipControls } from '../scene/noclip-controls.ts';
-import { type TileTree, buildTileTree } from '../scene/tile-tree.ts';
-import { coreBlobs } from '../streaming/core-blobs.ts';
-import { type MeshSelection, MeshSelector } from '../streaming/mesh-selection.ts';
+import type { MeshSelection } from '../streaming/mesh-selection.ts';
 import type { ResidentInstances } from '../streaming/resident.ts';
-import { type InstanceRange, Selector } from '../streaming/selection.ts';
-import { StreamManager } from '../streaming/stream-manager.ts';
+import type { InstanceRange } from '../streaming/selection.ts';
 
 import { EnvironmentState } from './environment-state.ts';
 import { DEFAULT_OPTIONS, type ViewerOptions } from './options.ts';
+import { type LevelEntry, type LoadedScene, openScene } from './scene-loader.ts';
 import { updateSkyTextures } from './sky-textures.ts';
 import { type ViewerStats, FrameTimes, STATS_INTERVAL, collectStats, emptyStats } from './stats.ts';
-
-/** what the level list needs */
-export interface LevelEntry {
-	id: string;
-	name: string;
-	instances: number;
-}
 
 const TERRAIN_SLOTS = 4096;
 const INSTANCE_ROWS = 1_500_000;
@@ -68,21 +54,6 @@ const INSTANCE_ROWS = 1_500_000;
 const EMPTY_IRRADIANCE = { keys: new Uint32Array(), blobs: new Uint32Array(), groups: new Uint32Array() };
 /** the frame uniforms' local lights while they're off */
 const NO_LOCAL_LIGHTS: LocalLightFrame = { count: 0, tilesX: 1, tilesY: 1 };
-
-interface LoadedScene {
-	pkg: ViewerPackage;
-	tree: TileTree;
-	stream: StreamManager;
-	/** ground height queries over the resident coarse terrain */
-	ground: GroundSource & { manifest: PackageManifest };
-	selector: Selector;
-	/** per-instance LOD selection, when the package has converted geometry */
-	meshes: MeshSelector | null;
-	textures: TextureStore;
-	/** the package's converted geometries, and how many of them converted */
-	geometries: { ready: number; total: number };
-	levels: LevelEntry[];
-}
 
 /** the running viewer */
 export class Viewer {
@@ -282,110 +253,21 @@ export class Viewer {
 	): Promise<void> {
 		this.unload();
 		const pkg = await openViewerPackage(source, onProgress);
-		const tree = buildTileTree(pkg.manifest, pkg.tree);
-
-		const textures = new TextureStore(this.#gfx.device, pkg.textures, {
-			bc: this.#gfx.features.textureCompressionBc,
-		});
-		this.#setIrradiance(pkg.irradiance, pkg.manifest.irradianceRegions);
-		const irradiance = this.#irradiance;
-		const particles = new ParticleField(pkg.particles, this.#instances);
-		const rowKinds = instanceRowKinds(tree, pkg.manifest.global);
-		const terrain = this.#terrain;
-		const stream = new StreamManager(
-			pkg,
-			this.#pool,
-			{
-				heights: {
-					upload: (_blob, decoded, { pinned }) => terrain.upload(decoded, { keepSamples: pinned }),
-					release: (_blob, resident) => terrain.release(resident),
-				},
-				surface: {
-					upload: (_blob, decoded) => terrain.uploadSurface(decoded),
-					release: (_blob, resident) => terrain.releaseSurface(resident),
-				},
-				splat: {
-					upload: (_blob, decoded) => terrain.uploadSplat(decoded),
-					release: (_blob, resident) => terrain.releaseSplat(resident),
-				},
-				layer: {
-					upload: (blob, decoded) => terrain.uploadLayer(blob, decoded),
-					// pinned for the package's lifetime; its array goes with the next `setSplat`
-					release: () => {},
-				},
-				instances: {
-					job: (blob, stored) => ({ kind: 'instances', ...stored, rowKinds: rowKinds.get(blob) ?? [] }),
-					upload: (blob, decoded) => {
-						// the decode worker doesn't hold the chains
-						markBillboardRows(decoded, pkg.chains);
-						const resident = this.#instances.upload(decoded);
-						if (resident !== null) {
-							this.#waterLevels.track(resident, blob);
-						}
-						return resident;
-					},
-					release: (_blob, resident) => {
-						particles.release(resident);
-						this.#waterLevels.untrack(resident);
-						this.#instances.release(resident);
-					},
-				},
-				geometry: {
-					upload: (blob, decoded) => this.#meshes.upload(blob, decoded),
-					release: (_blob, resident) => this.#meshes.release(resident),
-				},
-				texture: {
-					upload: (blob, decoded) => textures.upload(blob, decoded),
-					release: (blob) => textures.release(blob),
-				},
-				irradiance: {
-					upload: (_blob, decoded) => irradiance.upload(decoded),
-					release: (_blob, resident) => irradiance.release(resident),
-				},
-			},
-			{ budgetBytes: this.options.budgetMiB * 2 ** 20, maxRequests: 32, uploadBytesPerFrame: 24 * 2 ** 20 },
-		);
-		this.#terrain.setSplat(pkg.manifest.terrain?.splat ?? null);
-		stream.pin(coreBlobs(pkg, { surfaces: this.#terrain.surfaces }));
-
 		const manifest = pkg.manifest;
-		const selector = new Selector(tree, stream, manifest.global, manifest.tree.rootSize);
-		const geometries = pkg.geometries.entries;
-		const geometriesReady = geometries.reduce((sum, entry) => sum + (entry.status === 'ready' ? 1 : 0), 0);
-		const scene: LoadedScene = {
-			pkg,
-			tree,
-			stream,
-			ground: {
-				manifest,
-				tree,
-				heights: (blob) => {
-					const resident = stream.get(blob)?.resident;
-					return resident?.kind === 'heights' ? resident.samples : null;
-				},
-			},
-			selector,
-			meshes:
-				geometriesReady > 0
-					? new MeshSelector({
-							chains: pkg.chains,
-							geometries,
-							looks: materialLooks(pkg.materials),
-							stream,
-							textures,
-							particles,
-						})
-					: null,
-			textures,
-			geometries: { ready: geometriesReady, total: geometries.length },
-			levels: manifest.levels.map((level) => ({
-				id: level.id,
-				name: level.name ?? level.id,
-				instances: level.instances,
-			})),
-		};
+		this.#setIrradiance(pkg.irradiance, manifest.irradianceRegions);
+		const scene = openScene(pkg, {
+			device: this.#gfx.device,
+			bc: this.#gfx.features.textureCompressionBc,
+			pool: this.#pool,
+			terrain: this.#terrain,
+			instances: this.#instances,
+			meshes: this.#meshes,
+			irradiance: this.#irradiance,
+			waterLevels: this.#waterLevels,
+			budgetBytes: this.options.budgetMiB * 2 ** 20,
+		});
 		this.scene = scene;
-		this.#sceneState.setPackage(manifest.states, [selector, ...this.#groupsConsumers]);
+		this.#sceneState.setPackage(manifest.states, [scene.selector, ...this.#groupsConsumers]);
 		const showable = manifest.levels.filter((level) => level.instances > 0);
 		const level = showable.find((candidate) => candidate.id === initialLevel) ?? showable[0] ?? null;
 		this.#level = level;

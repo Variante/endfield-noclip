@@ -50,11 +50,13 @@ guessing at fields), and decodes its tables (tree, blob table, LOD chains, geome
 texture, water, light, particle and irradiance tables). shard JSON headers are never fetched: the
 blob table gives each shard blob's absolute byte range, so a blob costs one range read.
 
-`load` then builds the linked tile tree, the texture store, the irradiance volume and the stream
-manager, pins the coarse layer (see [residency](streaming.md#residency-and-budgets)), picks the
-initial level, and poses the camera over it. the `MeshSelector` exists only when at least one
-geometry converted; without it instances draw as boxes. terrain page sizes are `package-format`
-constants; the terrain renderer throws on a page of any other size, which fails that blob.
+`load` then sets the irradiance volume to the package's and `openScene`
+([`viewer/scene-loader.ts`](../../packages/viewer/src/viewer/scene-loader.ts)) builds the linked
+tile tree, the texture store, the stream manager and the selectors, and pins the coarse layer (see
+[residency](streaming.md#residency-and-budgets)); `load` then picks the initial level and poses the
+camera over it. the `MeshSelector` exists only when at least one geometry converted; without it
+instances draw as boxes. terrain page sizes are `package-format` constants; the terrain renderer
+throws on a page of any other size, which fails that blob.
 
 ## decode workers and zstd
 
