@@ -81,6 +81,20 @@ const CASTER_PRIORITY = 0.1;
 /** shadow casters outside the view smaller than this are culled, px (as if on screen) */
 const CASTER_MIN_PIXELS = 16;
 
+/** what a resident block's selection reuses from frame to frame */
+interface SelectedBlock {
+	/** its row groups' bounds, from `buildRowGroups` */
+	groups: Float32Array;
+	/** 1 per mirrored row */
+	mirrored: Uint8Array;
+	/** per chain run: its chain's drawn slots */
+	slots: ChainSlot[][];
+	/** per chain run: 1 when its instances draw their box while no LOD is resident */
+	boxes: Uint8Array;
+	/** per chain run: its chain's distance origin, for `CameraDistance` chains */
+	origins: (Vec3 | null)[];
+}
+
 /** selects LODs and buckets instances */
 export class MeshSelector {
 	readonly selection: MeshSelection = { buckets: [], boxes: [], particles: false };
@@ -111,8 +125,8 @@ export class MeshSelector {
 	#ox = 0;
 	#oy = 0;
 	#oz = 0;
-	/** each resident block's row groups and mirrored rows, built on its first selection */
-	readonly #groups = new WeakMap<ResidentInstances, { bounds: Float32Array; mirrored: Uint8Array }>();
+	/** what each resident block's selection reuses, built on its first selection */
+	readonly #blocks = new WeakMap<ResidentInstances, SelectedBlock>();
 	/** per chain, its reach per metre of size ({@link chainReach}), `NaN` until first asked */
 	readonly #reaches: Float64Array;
 
@@ -170,7 +184,8 @@ export class MeshSelector {
 			const ox = (this.#ox = instances.origin[0] - eye[0]);
 			const oy = (this.#oy = instances.origin[1] - eye[1]);
 			const oz = (this.#oz = instances.origin[2] - eye[2]);
-			const { bounds: groups, mirrored } = this.#groupsOf(instances);
+			const block = this.#blockOf(instances);
+			const groups = block.groups;
 			const end = first + count;
 			for (let g = Math.floor(first / GROUP_ROWS); g * GROUP_ROWS < end; g++) {
 				// each of #selectRows' rejections, tested on the group's bounds: a group that fails one holds no row
@@ -200,7 +215,7 @@ export class MeshSelector {
 				const inside = sphereInsidePlanes(planes, planeFloats, gx, gy, gz, radius);
 				this.#selectRows(instances, Math.max(first, g * GROUP_ROWS), Math.min(end, (g + 1) * GROUP_ROWS), {
 					inside,
-					mirrored,
+					block,
 				});
 			}
 		}
@@ -235,20 +250,36 @@ export class MeshSelector {
 		return selection;
 	}
 
-	/** @returns the block's row groups and mirrored rows, built on first use */
-	#groupsOf(instances: ResidentInstances): { bounds: Float32Array; mirrored: Uint8Array } {
-		return this.#groups.getOrInsertComputed(instances, () => ({
-			bounds: buildRowGroups(
-				{
-					rowsF32: instances.rowsF32,
-					cull: instances.cull,
-					runs: instances.runs,
-					moving: instances.spins?.rows ?? null,
-				},
-				(chain) => this.#reach(chain),
-			),
-			mirrored: mirroredRows(instances.rowsF32, instances.cull.length / CULL_FLOATS),
-		}));
+	/** @returns what the block's selection reuses, built on first use */
+	#blockOf(instances: ResidentInstances): SelectedBlock {
+		return this.#blocks.getOrInsertComputed(instances, () => {
+			const runs = instances.runs;
+			const runCount = runs.length / 3;
+			const slots: ChainSlot[][] = [];
+			const boxes = new Uint8Array(runCount);
+			const origins: (Vec3 | null)[] = [];
+			for (let r = 0; r < runCount; r++) {
+				const chain = runs[r * 3];
+				slots.push(this.#buckets.slots(chain));
+				boxes[r] = this.#buckets.drawsBox(chain) ? 1 : 0;
+				origins.push(this.#chains[chain].distanceOrigin);
+			}
+			return {
+				groups: buildRowGroups(
+					{
+						rowsF32: instances.rowsF32,
+						cull: instances.cull,
+						runs: instances.runs,
+						moving: instances.spins?.rows ?? null,
+					},
+					(chain) => this.#reach(chain),
+				),
+				mirrored: mirroredRows(instances.rowsF32, instances.cull.length / CULL_FLOATS),
+				slots,
+				boxes,
+				origins,
+			};
+		});
 	}
 
 	/** @returns the chain's reach per metre of size, over every slot it may draw */
@@ -269,14 +300,14 @@ export class MeshSelector {
 	 * culls, LOD-selects and buckets a block's rows `[first, end)` for this frame's view, the block's origin
 	 * relative to the eye being {@link #ox}, {@link #oy}, {@link #oz}
 	 *
-	 * @param group `inside` when the rows' group is wholly in view, so no row needs the frustum test, and the
-	 *   block's mirrored rows
+	 * @param group `inside` when the rows' group is wholly in view, so no row needs the frustum test, and what
+	 *   the block's selection reuses
 	 */
 	#selectRows(
 		instances: ResidentInstances,
 		first: number,
 		end: number,
-		{ inside, mirrored: mirroredRow }: { inside: boolean; mirrored: Uint8Array },
+		{ inside, block }: { inside: boolean; block: SelectedBlock },
 	): void {
 		const view = this.#view;
 		if (view === null) {
@@ -297,6 +328,7 @@ export class MeshSelector {
 		const f32 = instances.rowsF32;
 		const cull = instances.cull;
 		const runs = instances.runs;
+		const mirroredRow = block.mirrored;
 		for (let r = firstRunAt(runs, first); r < runs.length; r += 3) {
 			const runFirst = runs[r + 1];
 			const runEnd = runFirst + runs[r + 2];
@@ -306,10 +338,10 @@ export class MeshSelector {
 			if (runEnd <= first) {
 				continue;
 			}
-			const slots = this.#buckets.slots(runs[r]);
-			const box = this.#buckets.drawsBox(runs[r]);
+			const slots = block.slots[r / 3];
+			const box = block.boxes[r / 3] === 1;
 			// effect distance bands measure from the effect's origin, in the instance's frame
-			const origin = this.#chains[runs[r]].distanceOrigin;
+			const origin = block.origins[r / 3];
 			const last = Math.min(end, runEnd);
 			for (let i = Math.max(first, runFirst); i < last; i++) {
 				const at = i * ROW_WORDS;
