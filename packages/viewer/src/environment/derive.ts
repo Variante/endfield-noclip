@@ -12,7 +12,7 @@ import { scale, vec3From } from '../math/vec3.ts';
 import type { Vec3 } from '../scene/camera.ts';
 
 import { gradingLook } from './color-grading.ts';
-import { DEFAULT_PROFILE } from './default-profile.ts';
+import { DEFAULT_POST, DEFAULT_PROFILE } from './default-profile.ts';
 import type {
 	AtmosphereFog,
 	Environment,
@@ -104,11 +104,8 @@ const bloomLook = (bloom: NonNullable<PostInput['bloom']>): NonNullable<PostLook
 	};
 };
 
-const postLook = (post: PostInput | null): PostLook => {
-	const bloom = post?.bloom ?? null;
-	const ao = post?.ambientOcclusion ?? null;
-	const vignette = post?.vignette ?? null;
-	const ssr = post?.screenSpaceReflection ?? null;
+const postLook = (post: PostInput): PostLook => {
+	const { bloom, ambientOcclusion: ao, vignette, screenSpaceReflection: ssr } = post;
 	return {
 		bloom: bloom === null ? null : bloomLook(bloom),
 		ao: ao === null || !ao.enable ? null : aoLook(ao),
@@ -376,7 +373,7 @@ export const deriveEnvironment = (profile: EnvironmentInput | null): Environment
 		},
 		volumetricFog: volumetricFog.enable ? volumetricFogLook(volumetricFog, light, intensity) : null,
 		skyDistance: sky.skyDistance,
-		post: postLook(source.post ?? DEFAULT_PROFILE.post),
+		post: postLook(source.post ?? DEFAULT_POST),
 		grading: gradingLook(source.colorGrading),
 		cloud: cloudLook(source.cloud, light, sky),
 		cloudShadow: cloudShadowLook(source.cloud, light),
