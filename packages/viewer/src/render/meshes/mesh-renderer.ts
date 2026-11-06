@@ -4,7 +4,6 @@ import {
 	GeometryFlags,
 	LOOK_FLOATS,
 	LookFlags,
-	type LookQueue,
 	type LookStencil,
 	type MaterialLook,
 	SLOTS,
@@ -26,6 +25,20 @@ import { LIST_CAPACITY } from '../instances/instance-renderer.ts';
 import { SHADOW_DEPTH_STATE } from '../shadows/shadow-map.ts';
 import { placeholderView, type TextureBinding, type TextureStore } from '../textures/texture-store.ts';
 
+import {
+	DRAW_RANGES,
+	type DrawPhase,
+	type DrawRange,
+	type DrawRangeInfo,
+	type EffectPass,
+	type MeshPass,
+	PAIRED_PASSES,
+	PASS_PHASES,
+	PHASES,
+	type RangeOrder,
+	type SurfacePass,
+	type VertexStreams,
+} from './draw-ranges.ts';
 import effectWgsl from './effect.wgsl?raw';
 import meshWgsl from './mesh.wgsl?raw';
 import { type ResidentSkin, SkinAnimator } from './skin-animation.ts';
@@ -102,9 +115,6 @@ const withStencil = (
 	};
 };
 
-/** the draws a phase runs over: the draws of a look queue */
-type DrawRange = LookQueue;
-
 /**
  * @param look a bucket's look
  * @param context whether the bucket only casts shadows, whether the depth buffer has a stencil, and its
@@ -159,77 +169,6 @@ const drawRangeOf = (
 	}
 };
 
-/**
- * the vertex streams a phase's pipelines read, in buffer slot order: every stream, positions alone (opaque
- * shadow casters), or positions and the UV sets (alpha-tested ones)
- */
-type VertexStreams = 'all' | 'position' | 'uv';
-
-/** one run over one of a pass's draw ranges, with a pipeline per face culling and UV format */
-interface DrawPhase {
-	key: string;
-	range: DrawRange;
-	/** whether the pipeline reads the material's textures; if not, any material group will do */
-	textured: boolean;
-	/** over only the draws whose materials cast shadows */
-	shadow: boolean;
-	streams: VertexStreams;
-}
-
-/**
- * the opaque meshes' depth, laid down before the terrain and the shading so each pixel is shaded once: the
- * opaque phase then shades only where its depth equals this
- */
-const PREPASS_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/prepass', range: 'opaque', textured: false, shadow: false, streams: 'position' },
-];
-
-const MAIN_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/opaque', range: 'opaque', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/cutout-depth', range: 'cutout', textured: true, shadow: false, streams: 'uv' },
-	{ key: 'mesh/cutout-shade', range: 'cutout', textured: true, shadow: false, streams: 'all' },
-	// after the surfaces the masks are tested against
-	{ key: 'mesh/stencil-mask', range: 'stencilMask', textured: false, shadow: false, streams: 'position' },
-];
-
-const TRANSPARENT_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/transparent', range: 'transparent', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/effect', range: 'effect', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/effect-decal', range: 'effectDecal', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/mist', range: 'mist', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/mist-volume', range: 'mistVolume', textured: true, shadow: false, streams: 'all' },
-];
-
-/**
- * lit decals that change only the surface's normal, roughness or occlusion, run between the main and the
- * transparent pass: they add the change in the surface's light to the radiance
- */
-const RELIGHT_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/decal-relight', range: 'decalRelight', textured: true, shadow: false, streams: 'all' },
-];
-
-/** effects that multiply the composited scene (`MaterialLook.queue`), drawn over it */
-const MULTIPLY_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/effect-multiply', range: 'screenMultiply', textured: true, shadow: false, streams: 'all' },
-];
-
-/**
- * effects that sample a copy of the composited scene (`MaterialLook.queue`), drawn over it after the
- * multiplies
- */
-const REFRACT_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/refract', range: 'refract', textured: true, shadow: false, streams: 'all' },
-];
-
-/**
- * WaterDecal boxes (`MaterialLook.queue`), drawn into the water's foam before the water draws: those the game
- * depth-tests in front of the scene, then those it tests behind it
- */
-const WATER_FOAM_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/water-foam', range: 'waterFoam', textured: true, shadow: false, streams: 'all' },
-	{ key: 'mesh/water-foam-behind', range: 'waterFoamBehind', textured: true, shadow: false, streams: 'all' },
-];
-
 /** the shader stages that read an effect texture slot */
 const stagesOfSlot = (slot: number): GPUShaderStageFlags =>
 	slot === OFFSET_SLOT ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : GPUShaderStage.FRAGMENT;
@@ -244,11 +183,6 @@ export interface EffectInputs {
 	background?: GPUTextureView;
 	version: number;
 }
-
-const SHADOW_PHASES: readonly DrawPhase[] = [
-	{ key: 'mesh/shadow/opaque', range: 'opaque', textured: false, shadow: true, streams: 'position' },
-	{ key: 'mesh/shadow/cutout', range: 'cutout', textured: true, shadow: true, streams: 'uv' },
-];
 
 /** the vertex buffers bound in a pass, so binding the same buffer at the same offset again is skipped */
 class VertexBindings {
@@ -377,6 +311,27 @@ const PIPELINE_KEY = 2 ** 45;
 const byPipelineThenNearest = (a: MeshBucket, b: MeshBucket): number =>
 	Math.floor(sortKeyOf(a) / PIPELINE_KEY) - Math.floor(sortKeyOf(b) / PIPELINE_KEY) || a.nearest - b.nearest;
 
+/** the comparator of each {@link RangeOrder} */
+const COMPARATORS: Record<RangeOrder, (a: MeshBucket, b: MeshBucket) => number> = {
+	pipelineThenNearest: byPipelineThenNearest,
+	bindings: byBindings,
+	stencilWritesThenBindings: byStencilWritesThenBindings,
+};
+
+/** a range's buckets and where its draws landed this frame */
+interface PreparedRange {
+	info: DrawRangeInfo;
+	/** this frame's buckets in the range, in draw order */
+	buckets: MeshBucket[];
+	/** the range's draws, [start, end) of the prepared draws */
+	start: number;
+	end: number;
+	/** the end of the cast-only draws, sorted first, where the passes over draws in view start */
+	castOnlyEnd: number;
+	/** the end of the shadow-casting draws, sorted before the rest, where the shadow passes stop */
+	castersEnd: number;
+}
+
 /** owns geometry buffers, material bind groups and the mesh pipelines */
 export class MeshRenderer {
 	/** mesh instances last frame */
@@ -411,19 +366,16 @@ export class MeshRenderer {
 	/** by material id */
 	#materialStates = new Map<number, MaterialState>();
 	#versions: number[] = SLOTS.map(() => -1);
-	#opaqueOrder: MeshBucket[] = [];
-	#cutoutOrder: MeshBucket[] = [];
-	#stencilMaskOrder: MeshBucket[] = [];
-	#transparentOrder: MeshBucket[] = [];
-	#effectOrder: MeshBucket[] = [];
-	#decalOrder: MeshBucket[] = [];
-	#mistOrder: MeshBucket[] = [];
-	#mistVolumeOrder: MeshBucket[] = [];
-	#relightOrder: MeshBucket[] = [];
-	#multiplyOrder: MeshBucket[] = [];
-	#refractOrder: MeshBucket[] = [];
-	#foamOrder: MeshBucket[] = [];
-	#foamBehindOrder: MeshBucket[] = [];
+	/** every range, in {@link DRAW_RANGES} order */
+	#ranges: PreparedRange[] = DRAW_RANGES.map((info) => ({
+		info,
+		buckets: [],
+		start: 0,
+		end: 0,
+		castOnlyEnd: 0,
+		castersEnd: 0,
+	}));
+	#rangeOf = new Map(this.#ranges.map((range) => [range.info.range, range]));
 	/**
 	 * group 3 of the effect pipelines: seven textures, their samplers, the main pass's depth, surfaces and
 	 * diffuse ambient, a 3D texture, and the composited scene's copy
@@ -431,32 +383,13 @@ export class MeshRenderer {
 	#effectLayout: GPUBindGroupLayout;
 	/** effect bind groups by material id */
 	#effectBindings = new Map<number, MaterialBinding & { inputs: number }>();
-	#effectStart = 0;
-	#decalStart = 0;
-	#mistStart = 0;
-	#mistVolumeStart = 0;
-	#relightStart = 0;
-	#multiplyStart = 0;
-	#refractStart = 0;
-	#foamStart = 0;
-	#foamBehindStart = 0;
-	/** prepared draws in {@link DrawRange} order; entries past {@link #drawCount} are reused next frame */
+	/** prepared draws in {@link DRAW_RANGES} order; entries past {@link #drawCount} are reused next frame */
 	#draws: PreparedDraw[] = [];
 	#drawCount = 0;
-	/** indices of the first alpha-tested draw, the first stencil mask and the first alpha-blended draw */
-	#cutoutStart = 0;
-	#stencilMaskStart = 0;
-	#transparentStart = 0;
 	/** whether the depth buffer has a stencil; without one, draws that use it are skipped */
 	#stencil: boolean;
 	/** each phase's pipeline descriptor by face culling and UV format, for its stencil variants */
 	#describers = new Map<string, (cull: FaceCull, uvFormat: UvFormat) => GPURenderPipelineDescriptor>();
-	/** ends of the shadow-casting opaque and alpha-tested draws */
-	#opaqueCastersEnd = 0;
-	#cutoutCastersEnd = 0;
-	/** ends of the cast-only opaque and alpha-tested draws, where the main pass starts */
-	#opaqueCastOnlyEnd = 0;
-	#cutoutCastOnlyEnd = 0;
 	#skins: SkinAnimator;
 	/** the resident geometries' animations */
 	#animated = new Set<ResidentSkin>();
@@ -591,7 +524,7 @@ export class MeshRenderer {
 			depthCompare: DEPTH_COMPARE,
 		};
 		const shade: GPUFragmentState = { module, entryPoint: 'fs_opaque', targets: format.targets };
-		const [opaque, cutoutDepth, cutoutShade, stencilMask] = MAIN_PHASES;
+		const { opaque, cutoutDepth, cutoutShade, stencilMask } = PHASES;
 		const depthEqual: GPUDepthStencilState = {
 			format: format.depth,
 			depthWriteEnabled: false,
@@ -602,7 +535,7 @@ export class MeshRenderer {
 			entryPoint: 'fs_depth',
 			targets: format.targets.map((target) => ({ ...target, writeMask: 0 })),
 		};
-		prepare(PREPASS_PHASES[0], { fragment: depthOnly, depthStencil: depthWrite });
+		prepare(PHASES.prepass, { fragment: depthOnly, depthStencil: depthWrite });
 		// each mask draws through a stencil variant; this one only completes the phase
 		prepare(stencilMask, {
 			fragment: depthOnly,
@@ -621,11 +554,11 @@ export class MeshRenderer {
 			fragment: shade,
 			depthStencil: depthEqual,
 		});
-		prepare(TRANSPARENT_PHASES[0], {
+		prepare(PHASES.transparent, {
 			fragment: { module, entryPoint: 'fs_transparent', targets: TRANSPARENT_TARGETS },
 			depthStencil: { format: format.depth, depthWriteEnabled: false, depthCompare: DEPTH_COMPARE },
 		});
-		const [shadowOpaque, shadowCutout] = SHADOW_PHASES;
+		const { shadowOpaque, shadowCutout } = PHASES;
 		prepare(shadowOpaque, { depthStencil: SHADOW_DEPTH_STATE });
 		prepare(shadowCutout, {
 			fragment: { module, entryPoint: 'fs_cutout_depth', targets: [] },
@@ -666,7 +599,7 @@ export class MeshRenderer {
 				bindGroupLayouts: [layouts.frame, layouts.instances, layouts.draw, this.#effectLayout],
 			});
 			const effectModule = pipelines.module('mesh-effect', FRAME_WGSL + effectWgsl);
-			const [, effect, decal, mist, mistVolume] = TRANSPARENT_PHASES;
+			const { effect, effectDecal: decal, mist, mistVolume } = PHASES;
 			for (const [phase, entryPoint, depthCompare] of [
 				[effect, 'fs_effect', DEPTH_COMPARE],
 				// decals find their surface through the depth buffer, so their back faces draw wherever they are
@@ -686,7 +619,7 @@ export class MeshRenderer {
 			// effects over the composited scene: multiplying it, then blending a refracted copy of it over
 			for (const [phase, entryPoint, blend] of [
 				[
-					MULTIPLY_PHASES[0],
+					PHASES.screenMultiply,
 					'fs_effect_multiply',
 					{
 						color: { srcFactor: 'dst', dstFactor: 'zero', operation: 'add' },
@@ -694,7 +627,7 @@ export class MeshRenderer {
 					},
 				],
 				[
-					REFRACT_PHASES[0],
+					PHASES.refract,
 					'fs_refract',
 					{
 						color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
@@ -715,8 +648,8 @@ export class MeshRenderer {
 			// pass can apply them over its own foam. the main pass's depth, attached read-only, tests them as the
 			// game's `_ZTest` does under reversed-Z
 			for (const [phase, depthCompare] of [
-				[WATER_FOAM_PHASES[0], 'greater-equal'],
-				[WATER_FOAM_PHASES[1], 'less'],
+				[PHASES.waterFoam, 'greater-equal'],
+				[PHASES.waterFoamBehind, 'less'],
 			] as const) {
 				describe(phase.key, (cullMode, uvFormat) => ({
 					layout,
@@ -740,7 +673,7 @@ export class MeshRenderer {
 			}
 			// relit decals add the change in the surface's light to the radiance, leaving its alpha (the albedo's
 			// luminance) alone. they read the depth as a texture, so the pass has no depth attachment
-			describe(RELIGHT_PHASES[0].key, (cullMode, uvFormat) => ({
+			describe(PHASES.decalRelight.key, (cullMode, uvFormat) => ({
 				layout,
 				vertex: { ...vertex(uvFormat), module: effectModule, entryPoint: 'vs_effect' },
 				primitive: { topology: 'triangle-list', frontFace: FRONT_FACE, cullMode },
@@ -994,39 +927,9 @@ export class MeshRenderer {
 	 */
 	prepare(buckets: readonly MeshBucket[], textures: TextureStore): void {
 		this.clear();
-		const orders = {
-			opaque: this.#opaqueOrder,
-			cutout: this.#cutoutOrder,
-			stencilMask: this.#stencilMaskOrder,
-			transparent: this.#transparentOrder,
-			effect: this.#effectOrder,
-			effectDecal: this.#decalOrder,
-			mist: this.#mistOrder,
-			mistVolume: this.#mistVolumeOrder,
-			decalRelight: this.#relightOrder,
-			screenMultiply: this.#multiplyOrder,
-			refract: this.#refractOrder,
-			waterFoam: this.#foamOrder,
-			waterFoamBehind: this.#foamBehindOrder,
-		} satisfies Record<DrawRange, MeshBucket[]>;
-		for (const order of Object.values(orders)) {
-			order.length = 0;
+		for (const range of this.#ranges) {
+			range.buckets.length = 0;
 		}
-		const {
-			opaque,
-			cutout,
-			stencilMask: stencilMasks,
-			transparent,
-			effect: effects,
-			effectDecal: decals,
-			mist: mists,
-			mistVolume: mistVolumes,
-			decalRelight: relit,
-			screenMultiply: multiplies,
-			refract: refracts,
-			waterFoam: foams,
-			waterFoamBehind: foamsBehind,
-		} = orders;
 		for (const bucket of buckets) {
 			if (bucket.count === 0 || bucket.geometry.resident?.kind !== 'geometry') {
 				continue;
@@ -1035,303 +938,205 @@ export class MeshRenderer {
 			const state = this.#materialState(bucket.material, look, textures);
 			const range = drawRangeOf(look, { castOnly: bucket.castOnly, stencil: this.#stencil, state });
 			if (range !== null) {
-				orders[range].push(bucket);
+				this.#range(range).buckets.push(bucket);
 			}
 		}
-		opaque.sort(byPipelineThenNearest);
-		cutout.sort(byPipelineThenNearest);
-		stencilMasks.sort(byBindings);
-		transparent.sort(byBindings);
-		effects.sort(byStencilWritesThenBindings);
-		decals.sort(byBindings);
-		mists.sort(byBindings);
-		mistVolumes.sort(byBindings);
-		relit.sort(byBindings);
-		multiplies.sort(byBindings);
-		refracts.sort(byBindings);
-		foams.sort(byBindings);
-		foamsBehind.sort(byBindings);
-		const cutoutFrom = opaque.length;
-		const stencilMaskFrom = cutoutFrom + cutout.length;
-		const transparentFrom = stencilMaskFrom + stencilMasks.length;
-		const effectFrom = transparentFrom + transparent.length;
-		const decalFrom = effectFrom + effects.length;
-		const mistFrom = decalFrom + decals.length;
-		const mistVolumeFrom = mistFrom + mists.length;
-		const relightFrom = mistVolumeFrom + mistVolumes.length;
-		const multiplyFrom = relightFrom + relit.length;
-		const refractFrom = multiplyFrom + multiplies.length;
-		const foamFrom = refractFrom + refracts.length;
-		const foamBehindFrom = foamFrom + foams.length;
-		const bucketCount = foamBehindFrom + foamsBehind.length;
-		const bucketAt = (b: number): MeshBucket => {
-			if (b < cutoutFrom) {
-				return opaque[b];
-			}
-			if (b < stencilMaskFrom) {
-				return cutout[b - cutoutFrom];
-			}
-			if (b < transparentFrom) {
-				return stencilMasks[b - stencilMaskFrom];
-			}
-			if (b < effectFrom) {
-				return transparent[b - transparentFrom];
-			}
-			if (b < decalFrom) {
-				return effects[b - effectFrom];
-			}
-			if (b < mistFrom) {
-				return decals[b - decalFrom];
-			}
-			if (b < mistVolumeFrom) {
-				return mists[b - mistFrom];
-			}
-			if (b < relightFrom) {
-				return mistVolumes[b - mistVolumeFrom];
-			}
-			if (b < multiplyFrom) {
-				return relit[b - relightFrom];
-			}
-			if (b < refractFrom) {
-				return multiplies[b - multiplyFrom];
-			}
-			if (b < foamFrom) {
-				return refracts[b - refractFrom];
-			}
-			if (b < foamBehindFrom) {
-				return foams[b - foamFrom];
-			}
-			return foamsBehind[b - foamBehindFrom];
-		};
 
-		const params = this.#paramData;
-		const words = this.#paramWords;
-		const ids = this.#drawIdData;
 		let listStart = LIST_CAPACITY;
 		let listEnd = 0;
 		let d = 0;
-		this.#opaqueCastersEnd = 0;
-		this.#cutoutCastersEnd = 0;
-		this.#opaqueCastOnlyEnd = 0;
-		this.#cutoutCastOnlyEnd = 0;
-		this.#cutoutStart = 0;
-		this.#stencilMaskStart = 0;
-		this.#transparentStart = 0;
-		this.#effectStart = 0;
-		this.#decalStart = 0;
-		this.#mistStart = 0;
-		this.#mistVolumeStart = 0;
-		this.#relightStart = 0;
-		this.#multiplyStart = 0;
-		this.#refractStart = 0;
-		this.#foamStart = 0;
-		this.#foamBehindStart = 0;
-		for (let b = 0; b < bucketCount; b++) {
-			if (b === cutoutFrom) {
-				this.#cutoutStart = d;
-			}
-			if (b === stencilMaskFrom) {
-				this.#stencilMaskStart = d;
-			}
-			if (b === transparentFrom) {
-				this.#transparentStart = d;
-			}
-			if (b === effectFrom) {
-				this.#effectStart = d;
-			}
-			if (b === decalFrom) {
-				this.#decalStart = d;
-			}
-			if (b === mistFrom) {
-				this.#mistStart = d;
-			}
-			if (b === mistVolumeFrom) {
-				this.#mistVolumeStart = d;
-			}
-			if (b === relightFrom) {
-				this.#relightStart = d;
-			}
-			if (b === multiplyFrom) {
-				this.#multiplyStart = d;
-			}
-			if (b === refractFrom) {
-				this.#refractStart = d;
-			}
-			if (b === foamFrom) {
-				this.#foamStart = d;
-			}
-			if (b === foamBehindFrom) {
-				this.#foamBehindStart = d;
-			}
-			const bucket = bucketAt(b);
-			const resident = bucket.geometry.resident;
-			const range = resident?.kind === 'geometry' ? resident.submeshes[bucket.submesh] : undefined;
-			if (resident?.kind !== 'geometry' || range === undefined || d >= MAX_DRAWS) {
-				continue;
-			}
-			const look = bucket.look;
-			const state = this.#materialState(bucket.material, look, textures);
-			this.#drawsAnimated ||= resident.skin !== null;
-			const at = d * DRAW_FLOATS;
-			// element by element: `set` from a small plain array costs more than the copy
-			const [ox, oy, oz] = resident.positionOffset;
-			const [sx, sy, sz] = resident.positionScale;
-			params[at] = ox;
-			params[at + 1] = oy;
-			params[at + 2] = oz;
-			words[at + 3] =
-				state.flags |
-				(resident.normalOffset === null ? 0 : GeometryFlags.HasNormals) |
-				(resident.tangentOffset === null ? 0 : GeometryFlags.HasTangents) |
-				(resident.colorOffset === null ? 0 : GeometryFlags.HasColors);
-			params[at + 4] = sx;
-			params[at + 5] = sy;
-			params[at + 6] = sz;
-			params[at + 7] = 0;
-			for (let set = 0; set < 2; set++) {
-				const transform = resident.uvTransforms[set];
-				const to = at + 8 + set * 4;
-				params[to] = transform[0];
-				params[to + 1] = transform[1];
-				params[to + 2] = transform[2];
-				params[to + 3] = transform[3];
-			}
-			params.set(look.params, at + 16);
-			ids.fill(d, bucket.first, bucket.first + bucket.count);
-			listStart = Math.min(listStart, bucket.first);
-			listEnd = Math.max(listEnd, bucket.first + bucket.count);
-
-			// an effect's group also binds the main pass's outputs, so it's built when the transparent pass encodes
-			const isEffect = b >= effectFrom;
-			const material = isEffect ? null : state.group;
-			const effect = isEffect
-				? { material: bucket.material, slots: state.slots, volume: state.volume }
-				: null;
-			const cull = faceCullOf(bucket);
-			const draw = this.#draws[d];
-			if (draw === undefined) {
-				this.#draws[d] = {
-					geometry: resident,
-					indexCount: range.indexCount,
-					firstIndex: range.firstIndex,
-					baseVertex: range.baseVertex,
-					first: bucket.first,
-					count: bucket.count,
-					layerCounts: bucket.layerCounts,
-					material,
-					cull,
-					uvFormat: resident.uvFormat,
-					effect,
-					stencil: look.stencil,
-				};
-			} else {
-				draw.geometry = resident;
-				draw.indexCount = range.indexCount;
-				draw.firstIndex = range.firstIndex;
-				draw.baseVertex = range.baseVertex;
-				draw.first = bucket.first;
-				draw.count = bucket.count;
-				draw.layerCounts = bucket.layerCounts;
-				draw.material = material;
-				draw.cull = cull;
-				draw.uvFormat = resident.uvFormat;
-				draw.effect = effect;
-				draw.stencil = look.stencil;
-			}
-			d++;
-			if (look.castsShadows) {
-				if (b < cutoutFrom) {
-					this.#opaqueCastersEnd = d;
-				} else if (b < stencilMaskFrom) {
-					this.#cutoutCastersEnd = d;
+		for (const range of this.#ranges) {
+			range.buckets.sort(COMPARATORS[range.info.order]);
+			range.start = d;
+			range.castOnlyEnd = d;
+			range.castersEnd = d;
+			for (const bucket of range.buckets) {
+				if (d >= MAX_DRAWS || !this.#prepareDraw(d, bucket, range.info, textures)) {
+					continue;
+				}
+				listStart = Math.min(listStart, bucket.first);
+				listEnd = Math.max(listEnd, bucket.first + bucket.count);
+				d++;
+				if (bucket.look.castsShadows) {
+					range.castersEnd = d;
+				}
+				if (bucket.castOnly) {
+					range.castOnlyEnd = d;
 				}
 			}
-			if (bucket.castOnly) {
-				if (b < cutoutFrom) {
-					this.#opaqueCastOnlyEnd = d;
-				} else {
-					this.#cutoutCastOnlyEnd = d;
-				}
-				continue;
-			}
+			range.end = d;
+		}
+		this.#drawCount = d;
+		if (d > 0) {
+			const queue = this.#device.queue;
+			queue.writeBuffer(this.#params, 0, this.#paramData, 0, d * DRAW_FLOATS);
+			queue.writeBuffer(this.#drawIds, listStart * 4, this.#drawIdData, listStart, listEnd - listStart);
+		}
+	}
 
+	/** @returns the prepared range of a draw range */
+	#range(range: DrawRange): PreparedRange {
+		const prepared = this.#rangeOf.get(range);
+		if (prepared === undefined) {
+			throw new Error(`draw range ${range} isn't in DRAW_RANGES`);
+		}
+		return prepared;
+	}
+
+	/**
+	 * writes the parameters of a bucket's draw and counts its instances in the stats
+	 *
+	 * @returns whether it draws (its submesh is resident)
+	 */
+	#prepareDraw(d: number, bucket: MeshBucket, info: DrawRangeInfo, textures: TextureStore): boolean {
+		const resident = bucket.geometry.resident;
+		const range = resident?.kind === 'geometry' ? resident.submeshes[bucket.submesh] : undefined;
+		if (resident?.kind !== 'geometry' || range === undefined) {
+			return false;
+		}
+		const look = bucket.look;
+		const state = this.#materialState(bucket.material, look, textures);
+		this.#drawsAnimated ||= resident.skin !== null;
+		const params = this.#paramData;
+		const words = this.#paramWords;
+		const at = d * DRAW_FLOATS;
+		// element by element: `set` from a small plain array costs more than the copy
+		const [ox, oy, oz] = resident.positionOffset;
+		const [sx, sy, sz] = resident.positionScale;
+		params[at] = ox;
+		params[at + 1] = oy;
+		params[at + 2] = oz;
+		words[at + 3] =
+			state.flags |
+			(resident.normalOffset === null ? 0 : GeometryFlags.HasNormals) |
+			(resident.tangentOffset === null ? 0 : GeometryFlags.HasTangents) |
+			(resident.colorOffset === null ? 0 : GeometryFlags.HasColors);
+		params[at + 4] = sx;
+		params[at + 5] = sy;
+		params[at + 6] = sz;
+		params[at + 7] = 0;
+		for (let set = 0; set < 2; set++) {
+			const transform = resident.uvTransforms[set];
+			const to = at + 8 + set * 4;
+			params[to] = transform[0];
+			params[to + 1] = transform[1];
+			params[to + 2] = transform[2];
+			params[to + 3] = transform[3];
+		}
+		params.set(look.params, at + 16);
+		this.#drawIdData.fill(d, bucket.first, bucket.first + bucket.count);
+
+		// an effect's group also binds the main pass's outputs, so it's built when its pass encodes
+		const material = info.effect ? null : state.group;
+		const effect = info.effect
+			? { material: bucket.material, slots: state.slots, volume: state.volume }
+			: null;
+		const cull = faceCullOf(bucket);
+		const draw = this.#draws[d];
+		if (draw === undefined) {
+			this.#draws[d] = {
+				geometry: resident,
+				indexCount: range.indexCount,
+				firstIndex: range.firstIndex,
+				baseVertex: range.baseVertex,
+				first: bucket.first,
+				count: bucket.count,
+				layerCounts: bucket.layerCounts,
+				material,
+				cull,
+				uvFormat: resident.uvFormat,
+				effect,
+				stencil: look.stencil,
+			};
+		} else {
+			draw.geometry = resident;
+			draw.indexCount = range.indexCount;
+			draw.firstIndex = range.firstIndex;
+			draw.baseVertex = range.baseVertex;
+			draw.first = bucket.first;
+			draw.count = bucket.count;
+			draw.layerCounts = bucket.layerCounts;
+			draw.material = material;
+			draw.cull = cull;
+			draw.uvFormat = resident.uvFormat;
+			draw.effect = effect;
+			draw.stencil = look.stencil;
+		}
+		if (!bucket.castOnly) {
 			this.instanceCount += bucket.count;
 			this.triangles += (bucket.count * range.indexCount) / 3;
 			if (state.slots[0] !== null) {
 				this.texturedDraws++;
 			}
 		}
-		this.#drawCount = d;
-		// ranges that start at or past the last bucket (empty ones, or draws past the cap) start at the end
-		if (cutoutFrom === bucketCount) {
-			this.#cutoutStart = d;
-		}
-		if (stencilMaskFrom === bucketCount) {
-			this.#stencilMaskStart = d;
-		}
-		if (transparentFrom === bucketCount) {
-			this.#transparentStart = d;
-		}
-		if (effectFrom === bucketCount) {
-			this.#effectStart = d;
-		}
-		if (decalFrom === bucketCount) {
-			this.#decalStart = d;
-		}
-		if (mistFrom === bucketCount) {
-			this.#mistStart = d;
-		}
-		if (mistVolumeFrom === bucketCount) {
-			this.#mistVolumeStart = d;
-		}
-		if (relightFrom === bucketCount) {
-			this.#relightStart = d;
-		}
-		if (multiplyFrom === bucketCount) {
-			this.#multiplyStart = d;
-		}
-		if (refractFrom === bucketCount) {
-			this.#refractStart = d;
-		}
-		if (foamFrom === bucketCount) {
-			this.#foamStart = d;
-		}
-		if (foamBehindFrom === bucketCount) {
-			this.#foamBehindStart = d;
-		}
-		this.#cutoutCastersEnd = Math.max(this.#cutoutCastersEnd, this.#cutoutStart);
-		this.#cutoutCastOnlyEnd = Math.max(this.#cutoutCastOnlyEnd, this.#cutoutStart);
-		if (d > 0) {
-			const queue = this.#device.queue;
-			queue.writeBuffer(this.#params, 0, params, 0, d * DRAW_FLOATS);
-			queue.writeBuffer(this.#drawIds, listStart * 4, ids, listStart, listEnd - listStart);
-		}
+		return true;
 	}
 
 	/**
-	 * @param pass the main pass, with group 0 bound
-	 * @returns draw calls issued
+	 * @param which the pass
+	 * @returns whether this frame has draws in the pass, so it needs to be run
 	 */
-	encode(pass: GPURenderPassEncoder): number {
-		if (!this.#ready(PREPASS_PHASES)) {
-			return 0;
-		}
-		return this.#encode(pass, MAIN_PHASES);
+	has(which: MeshPass): boolean {
+		return PASS_PHASES[which].some((phase) => {
+			const range = this.#range(phase.range);
+			return range.end > range.start;
+		});
 	}
 
 	/**
-	 * lays down the opaque meshes' depth; call before anything else draws into the main pass, then
-	 * {@link encode}.
+	 * encodes a pass over the main pass's targets, with group 0 bound: `prepass` lays down the opaque meshes'
+	 * depth, so call it before anything else draws into the main pass, then `main`
 	 *
-	 * @param pass the main pass, with group 0 bound
+	 * @param which the pass
+	 * @param pass the main pass
 	 * @returns draw calls issued
 	 */
-	encodePrepass(pass: GPURenderPassEncoder): number {
-		// the shading only shows where the prepass drew, so neither draws until both can
-		if (!this.#ready(MAIN_PHASES)) {
-			return 0;
+	encodePass(which: SurfacePass, pass: GPURenderPassEncoder): number {
+		return this.#encode(which, pass, -1);
+	}
+
+	/**
+	 * encodes a pass of scene effects, with group 0 bound. in frame order:
+	 *
+	 * - `relight` adds the light that relit decals change to the main pass's radiance, into a pass whose only
+	 *   attachment is that radiance, kept (`load`)
+	 * - `transparent` into the transparent pass, with the main pass's depth attached read-only
+	 * - `waterFoam` draws the WaterDecal boxes into a pass whose only colour attachment is the foam target
+	 *   (`WATER_FOAM_FORMAT`), cleared to (0, 0, 0, 1), with the main pass's depth attached read-only; `inputs`
+	 *   hold the water surface's depth in place of the scene's
+	 * - `multiply` multiplies the composited scene, into a pass whose only colour attachment is the composited
+	 *   scene, kept (`load`), with the main pass's depth attached read-only
+	 * - `refract` blends refracting effects over the composited scene, into a pass as `multiply`'s; `inputs` must
+	 *   have the composited scene's copy as their `background`
+	 *
+	 * @param which the pass
+	 * @param pass the pass
+	 * @param inputs the main pass's outputs, which the effects read
+	 * @returns draw calls issued
+	 */
+	encodeEffectPass(which: EffectPass, pass: GPURenderPassEncoder, inputs: EffectInputs): number {
+		// effect groups also bind the main pass's outputs
+		for (const phase of PASS_PHASES[which]) {
+			const range = this.#range(phase.range);
+			for (let i = range.start; i < range.end; i++) {
+				const draw = this.#draws[i];
+				if (draw.effect !== null) {
+					draw.material = this.#effectGroup(draw.effect, inputs);
+				}
+			}
 		}
-		return this.#encode(pass, PREPASS_PHASES);
+		return this.#encode(which, pass, -1);
+	}
+
+	/**
+	 * draws this frame's meshes into a shadow cascade.
+	 *
+	 * @param pass a shadow pass, with group 0 bound
+	 * @param layer the shadow layer, which draws only the instances that can cast into it
+	 * @returns draw calls issued
+	 */
+	encodeShadow(pass: GPURenderPassEncoder, layer: number): number {
+		return this.#encode('shadow', pass, layer);
 	}
 
 	/** @returns whether every pipeline of the phases is compiled */
@@ -1349,113 +1154,18 @@ export class MeshRenderer {
 	}
 
 	/**
-	 * @param pass the transparent pass, with group 0 bound and the main pass's depth attached read-only
-	 * @param inputs the main pass's outputs, which scene effects read
-	 * @returns draw calls issued
+	 * encodes a pass's phases in order; nothing if any of its or its paired pass's pipelines isn't ready.
+	 * `layer` limits each draw to the rows that shadow layer draws, or is -1 for all of them
 	 */
-	encodeTransparent(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		this.#bindEffects(this.#effectStart, this.#relightStart, inputs);
-		return this.#encode(pass, TRANSPARENT_PHASES);
-	}
-
-	/**
-	 * adds the light that relit decals change to the main pass's radiance. call between the main pass and
-	 * {@link encodeTransparent}.
-	 *
-	 * @param pass a pass whose only attachment is the main pass's radiance, kept (`load`), with group 0 bound
-	 * @param inputs the main pass's outputs, which the decals read
-	 * @returns draw calls issued
-	 */
-	encodeRelight(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		this.#bindEffects(this.#relightStart, this.#multiplyStart, inputs);
-		return this.#encode(pass, RELIGHT_PHASES);
-	}
-
-	/** whether this frame has effects that multiply the composited scene ({@link encodeMultiply}) */
-	get hasMultiply(): boolean {
-		return this.#refractStart > this.#multiplyStart;
-	}
-
-	/** whether this frame has effects that refract the composited scene ({@link encodeRefract}) */
-	get hasRefract(): boolean {
-		return this.#foamStart > this.#refractStart;
-	}
-
-	/** whether this frame has WaterDecal boxes ({@link encodeWaterFoam}) */
-	get hasWaterFoam(): boolean {
-		return this.#drawCount > this.#foamStart;
-	}
-
-	/**
-	 * multiplies the composited scene by the effects that do so. call after compositing.
-	 *
-	 * @param pass a pass whose only colour attachment is the composited scene, kept (`load`), with the main
-	 *   pass's depth attached read-only and group 0 bound
-	 * @param inputs the main pass's outputs
-	 * @returns draw calls issued
-	 */
-	encodeMultiply(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		this.#bindEffects(this.#multiplyStart, this.#refractStart, inputs);
-		return this.#encode(pass, MULTIPLY_PHASES);
-	}
-
-	/**
-	 * blends the refracting effects over the composited scene. call after {@link encodeMultiply}.
-	 *
-	 * @param pass as for {@link encodeMultiply}
-	 * @param inputs the main pass's outputs, with a copy of the composited scene as the background
-	 * @returns draw calls issued
-	 */
-	encodeRefract(pass: GPURenderPassEncoder, inputs: EffectInputs & { background: GPUTextureView }): number {
-		this.#bindEffects(this.#refractStart, this.#foamStart, inputs);
-		return this.#encode(pass, REFRACT_PHASES);
-	}
-
-	/**
-	 * draws the WaterDecal boxes into the water's foam.
-	 *
-	 * @param pass a pass whose only colour attachment is the foam target (`WATER_FOAM_FORMAT`), cleared to (0,
-	 *   0, 0, 1), with the main pass's depth attached read-only and group 0 bound
-	 * @param inputs the main pass's outputs, with the water surface's depth in place of the scene's
-	 * @returns draw calls issued
-	 */
-	encodeWaterFoam(pass: GPURenderPassEncoder, inputs: EffectInputs): number {
-		this.#bindEffects(this.#foamStart, this.#drawCount, inputs);
-		return this.#encode(pass, WATER_FOAM_PHASES);
-	}
-
-	/** builds the effect groups of the draws in [from, to), which bind the main pass's outputs */
-	#bindEffects(from: number, to: number, inputs: EffectInputs): void {
-		for (let i = from; i < to; i++) {
-			const draw = this.#draws[i];
-			if (draw.effect !== null) {
-				draw.material = this.#effectGroup(draw.effect, inputs);
-			}
-		}
-	}
-
-	/**
-	 * draws this frame's meshes into a shadow cascade.
-	 *
-	 * @param pass a shadow pass, with group 0 bound
-	 * @param layer the shadow layer, which draws only the instances that can cast into it
-	 * @returns draw calls issued
-	 */
-	encodeShadow(pass: GPURenderPassEncoder, layer: number): number {
-		return this.#encode(pass, SHADOW_PHASES, layer);
-	}
-
-	/**
-	 * encodes the phases in order; nothing if any phase's pipeline isn't ready. `layer` limits each draw to the
-	 * rows that shadow layer draws, or is -1 for all of them
-	 */
-	#encode(pass: GPURenderPassEncoder, phases: readonly DrawPhase[], layer = -1): number {
+	#encode(which: MeshPass, pass: GPURenderPassEncoder, layer: number): number {
 		if (this.#drawCount === 0) {
 			return 0;
 		}
 		// cutout depth and depth-equal shading must rasterize identically, so nothing draws until every variant
 		// is ready
-		if (!this.#ready(phases)) {
+		const phases = PASS_PHASES[which];
+		const paired = PAIRED_PASSES[which];
+		if (!this.#ready(phases) || (paired !== undefined && !this.#ready(PASS_PHASES[paired]))) {
 			return 0;
 		}
 		pass.setBindGroup(1, this.#instances.bindGroup);
@@ -1464,75 +1174,10 @@ export class MeshRenderer {
 		bindings.reset();
 		let draws = 0;
 		for (const phase of phases) {
-			let from: number;
-			let to: number;
-			switch (phase.range) {
-				case 'opaque': {
-					from = phase.shadow ? 0 : this.#opaqueCastOnlyEnd;
-					to = phase.shadow ? this.#opaqueCastersEnd : this.#cutoutStart;
-					break;
-				}
-				case 'cutout': {
-					from = phase.shadow ? this.#cutoutStart : this.#cutoutCastOnlyEnd;
-					to = phase.shadow ? this.#cutoutCastersEnd : this.#stencilMaskStart;
-					break;
-				}
-				case 'stencilMask': {
-					from = this.#stencilMaskStart;
-					to = this.#transparentStart;
-					break;
-				}
-				case 'transparent': {
-					from = this.#transparentStart;
-					to = this.#effectStart;
-					break;
-				}
-				case 'effect': {
-					from = this.#effectStart;
-					to = this.#decalStart;
-					break;
-				}
-				case 'effectDecal': {
-					from = this.#decalStart;
-					to = this.#mistStart;
-					break;
-				}
-				case 'mist': {
-					from = this.#mistStart;
-					to = this.#mistVolumeStart;
-					break;
-				}
-				case 'mistVolume': {
-					from = this.#mistVolumeStart;
-					to = this.#relightStart;
-					break;
-				}
-				case 'decalRelight': {
-					from = this.#relightStart;
-					to = this.#multiplyStart;
-					break;
-				}
-				case 'screenMultiply': {
-					from = this.#multiplyStart;
-					to = this.#refractStart;
-					break;
-				}
-				case 'refract': {
-					from = this.#refractStart;
-					to = this.#foamStart;
-					break;
-				}
-				case 'waterFoam': {
-					from = this.#foamStart;
-					to = this.#foamBehindStart;
-					break;
-				}
-				case 'waterFoamBehind': {
-					from = this.#foamBehindStart;
-					to = this.#drawCount;
-					break;
-				}
-			}
+			const range = this.#range(phase.range);
+			// shadow passes draw the casters, cast-only ones first; the rest skip those
+			const from = phase.shadow ? range.start : range.castOnlyEnd;
+			const to = phase.shadow ? range.castersEnd : range.end;
 			if (from === to) {
 				continue;
 			}

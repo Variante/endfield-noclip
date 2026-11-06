@@ -1696,9 +1696,9 @@ export class Viewer {
 		if (hasScene) {
 			pass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
 			// the meshes' depth first, so the terrain and the meshes shade only what stays visible
-			draws += this.#meshes.encodePrepass(pass);
+			draws += this.#meshes.encodePass('prepass', pass);
 			draws += this.#terrain.encode(pass);
-			draws += this.#meshes.encode(pass);
+			draws += this.#meshes.encodePass('main', pass);
 			draws += this.#instances.encode(pass);
 			draws += this.#instances.encodeOutlines(pass);
 			if (this.options.wireframe) {
@@ -1712,7 +1712,7 @@ export class Viewer {
 				colorAttachments: [{ view: this.#targets.scene.radiance, loadOp: 'load', storeOp: 'store' }],
 			});
 			relight.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
-			draws += this.#meshes.encodeRelight(relight, this.#targets.scene);
+			draws += this.#meshes.encodeEffectPass('relight', relight, this.#targets.scene);
 			relight.end();
 		}
 		// always run, so the composite reads cleared targets when nothing is transparent
@@ -1725,7 +1725,7 @@ export class Viewer {
 			});
 			if (hasScene) {
 				transparent.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
-				draws += this.#meshes.encodeTransparent(transparent, this.#targets.scene);
+				draws += this.#meshes.encodeEffectPass('transparent', transparent, this.#targets.scene);
 			}
 			transparent.end();
 		}
@@ -1743,7 +1743,7 @@ export class Viewer {
 			froxels,
 			water: this.#water,
 			waterFoam:
-				hasScene && this.#meshes.hasWaterFoam
+				hasScene && this.#meshes.has('waterFoam')
 					? (foamEncoder, { waterDepth, target }) => {
 							const foamPass = foamEncoder.beginRenderPass({
 								label: 'water foam',
@@ -1753,7 +1753,10 @@ export class Viewer {
 								depthStencilAttachment: this.#targets.readOnlyDepthAttachment(),
 							});
 							foamPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
-							draws += this.#meshes.encodeWaterFoam(foamPass, { ...this.#targets.scene, depth: waterDepth });
+							draws += this.#meshes.encodeEffectPass('waterFoam', foamPass, {
+								...this.#targets.scene,
+								depth: waterDepth,
+							});
 							foamPass.end();
 						}
 					: null,
@@ -1772,16 +1775,16 @@ export class Viewer {
 					screenPass.setBindGroup(0, this.#frameBindGroup, [uniforms.offset]);
 					return screenPass;
 				};
-				if (meshes.hasMultiply) {
+				if (meshes.has('multiply')) {
 					const multiply = begin('effect multiply');
-					draws += meshes.encodeMultiply(multiply, scene);
+					draws += meshes.encodeEffectPass('multiply', multiply, scene);
 					multiply.end();
 				}
-				if (meshes.hasRefract) {
+				if (meshes.has('refract')) {
 					// refraction samples the scene as the multiplies left it
 					copy();
 					const refract = begin('effect refract');
-					draws += meshes.encodeRefract(refract, { ...scene, background: scene.radiance });
+					draws += meshes.encodeEffectPass('refract', refract, { ...scene, background: scene.radiance });
 					refract.end();
 				}
 			},
