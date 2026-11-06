@@ -43,11 +43,15 @@ what's left out is in [status](../status.md).
   below −1000 are taken as under every level.
 - [soft-body animations](../game-data/effects.md#soft-body-animation) also take the vertex offset's
   slot for their position texture, its UV and scroll rows holding the UV1 scales and the playback's
-  cycles per second and phase (a held frame is a still phase), and the offset rows the bounds, frame
-  count and camera pull (`VertexMotion` in
-  [`stack.ts`](../../packages/viewer/src/looks/effects/stack.ts)). the rotation texture isn't read:
-  materials with lighting or a Fresnel term, which would read the turned normals, stay unsupported,
-  as do those with a vertex offset, a sixth sample texture or particle-driven playback.
+  cycles per second and phase (a held frame is a still phase), and the offset rows the bounds and
+  frame count (`VertexMotion` in [`stack.ts`](../../packages/viewer/src/looks/effects/stack.ts)).
+  the rotation texture isn't read: materials with lighting or a Fresnel term, which would read the
+  turned normals, stay unsupported, as do those with a vertex offset, a sixth sample texture or
+  particle-driven playback.
+- the [pull towards the camera](../game-data/effects.md#vertex-offset-and-brightening) is packed per
+  surface (`EffectStackSurface.cameraPull`, `null` in particle mode and for VFXDitherAlpha and
+  VFXDecal) and added in `vs_effect` for meshes and particles alike, measured from the position
+  before the vertex offset (`EffectRow.cameraPull`).
 - the [edge colour](../game-data/effects.md#edge-colour) compares the fragment's view depth with the
   main pass's depth, as the soft blend does (`EffectRow.edgeColor`, `edge`, `edgeAlpha`).
 - VFXDecal boxes draw their back faces without a depth test, so they still show with the camera
@@ -110,9 +114,8 @@ exponent 3) to streaks. unlike the game's, they don't write depth, so they don't
 them. the stack's mask scales the colour as well as the alpha, so a mask draws only as its red
 (`_UseMaskTexAsAlpha`, the default), where its colour is white; other masks, lit variants, other
 dither modes and object-relative screen UVs stay unsupported. their vertex offset fills the same
-rows as VFXBaseV2's, leaving out VFXBaseV2's vertex-alpha weight and camera pull; `vs_effect` still
-adds that pull's 1 mm. a vertex offset alone doesn't bring a material onto the stack, and those stay
-unsupported.
+rows as VFXBaseV2's, leaving out VFXBaseV2's vertex-alpha weight and camera pull. a vertex offset
+alone doesn't bring a material onto the stack, and those stay unsupported.
 
 ## waterfalls
 

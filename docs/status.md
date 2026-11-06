@@ -140,9 +140,7 @@ packs or renders correctly.
   steady ones glow), so `_EMISSIVE_NOMAP` emits nothing; flicker and the emissive map's scroll
   (`_EmissiveSpeed`; Dijiang's shaft cargo rings) are drawn still, the pulse stops on looks with a
   parallax glow or layer, and the emission Fresnel term is left out. per-draw emission overrides set
-  at runtime aren't known, so the white lamp cubes on Wuling's and Marker Stone's towers
-  (`M_module_tylight+1_001_03`) glow white where the game shows green and red (always, per level);
-  what sets them for static scenery is untraced
+  at runtime aren't read
 - glass ([glass](game-data/materials.md#glass)): refraction, Fresnel opacity, planar reflections and
   subsurface scattering aren't drawn; overlapping layers share one fog distance; premultiplied glass
   is read from the blend state, and whether the game lets glass cast shadows is unchecked

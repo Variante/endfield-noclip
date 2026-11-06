@@ -102,10 +102,18 @@ without the keyword.
 `_USE_VERTOFFSET` moves each vertex along `_OffsetDir` (`_OffsetSwitchDir` 0: object space, 1: world
 space, 2: the vertex normal) by `_OffsetIntensity · (r · (1 + _Bi_Offset) − _Bi_Offset)`, where r is
 `_OffsetTex`'s red channel at UV set 0 (set 1 with `_OffsetUVSet`), after its `_ST`, scrolled by
-`_OffsetSpeed` per second. `_UseVertexColorAlphaAsVertOffsetWeight` weights it by the vertex alpha,
-and every vertex is also pulled towards the camera by up to `_VertCameraOffset` metres (plus 1 mm).
-the whole offset is scaled by `1 − _InParticle`, so it never moves particles, and a mesh material
-left at the default `_InParticle` of 1 doesn't move either.
+`_OffsetSpeed` per second. `_UseVertexColorAlphaAsVertOffsetWeight` weights it by the vertex alpha.
+the offset is scaled by `1 − _InParticle`, so it never moves particles, and a mesh material left at
+the default `_InParticle` of 1 doesn't move either.
+
+every VFXBaseV2 variant, with or without the keyword, also pulls each vertex towards the camera by
+`min(max(0, d − 1), _VertCameraOffset) + 0.001` metres, d its distance from the camera, scaled by
+the same `1 − _InParticle`. VFXDitherAlpha and VFXDecal don't pull. a pull lets a glow sit inside
+the object it lights without that object hiding it: Marker Stone's tower lamps
+(`P_fxmap_map_lv004_lamp_light_01`, one prefab for the whole tower) draw red streaks across the
+white lamp cubes from a mesh (`M_fxmap_map_lv004_lamp_light_01`, `_TintColor` red times 100) pulled
+1 m, and red stars from particle systems emitting from mesh shapes, pulled 3 m and, for the far
+stars that fade in past 200 m, 50 m; all three leave `_InParticle` at 0.
 
 `_USE_VERTOFFSETMASK` scales the offset, but not the pull towards the camera, by `1 − p·(1 − m)`,
 where `p = _OffsetMaskPower / 5` and m is `_OffsetMaskTex`'s red at the offset texture's UVs, after

@@ -67,6 +67,7 @@ const stack = (overrides: Partial<EffectStackSurface> = {}): EffectStackSurface 
 	alphaPower: 1,
 	offset: null,
 	softBody: null,
+	cameraPull: null,
 	waterBlendBelow: null,
 	lighting: null,
 	unfogged: true,
@@ -238,7 +239,6 @@ test('a stack’s vertex offset takes the offset slot and rows, and its stencil 
 						intensity: 0.5,
 						bias: 0,
 						vertexAlphaWeight: 0,
-						cameraPull: 0,
 						// the collectible pieces' glow (`M_fx_interactive_collection_2102`) masks its offset
 						mask: { texture: texture(4, { scale: [2, 2] }), slot: 5, strength: 0.6 },
 					},
@@ -310,7 +310,6 @@ test('a soft body takes the offset slot for its position texture, with its playb
 		fixedFrame: null,
 		uScale: 1,
 		vScale: 1,
-		cameraPull: 0,
 	} satisfies EffectSoftBody;
 	const [playing, still] = materialLooks({
 		entries: [
@@ -334,4 +333,13 @@ test('a soft body takes the offset slot for its position texture, with its playb
 	);
 	// a fixed frame stands still in the middle of its row
 	assert.deepEqual([...still.params.subarray(anim, anim + 2)], [0, Math.fround(0.495)]);
+});
+
+test('a pull towards the camera sets its most and its switch, and no pull leaves both at 0', () => {
+	// Marker Stone's tower lamp stars (`M_fxmap_map_lv004_lamp_light_05`) pull up to 50 m
+	const [pulled, still] = materialLooks({
+		entries: [described(0, stack({ cameraPull: 50 })), described(1, stack({}))],
+	});
+	assert.deepEqual([...pulled.params.subarray(EffectRow.cameraPull, EffectRow.cameraPull + 2)], [50, 1]);
+	assert.deepEqual([...still.params.subarray(EffectRow.cameraPull, EffectRow.cameraPull + 2)], [0, 0]);
 });

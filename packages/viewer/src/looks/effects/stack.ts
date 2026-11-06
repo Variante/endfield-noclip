@@ -78,7 +78,7 @@ const setVertexOffset = (look: EffectLook, offset: EffectVertexOffset): void => 
 	const params = look.params;
 	setSlot(look, OFFSET_SLOT, offset.texture, ROLE_NONE);
 	params.set([...offset.direction, offset.space], EffectRow.offsetDir);
-	params.set([offset.intensity, offset.bias, offset.vertexAlphaWeight, offset.cameraPull], EffectRow.offset);
+	params.set([offset.intensity, offset.bias, offset.vertexAlphaWeight], EffectRow.offset);
 	params.set([VertexMotion.Offset, offset.uv1 ? 1 : 0], EffectRow.offsetMode);
 	if (offset.mask !== null) {
 		// the fragment stage skips the slot, which has no role
@@ -108,7 +108,7 @@ const setSoftBody = (look: EffectLook, body: EffectSoftBody): void => {
 		ROLE_NONE,
 	);
 	params.set([...body.min, body.frameCount], EffectRow.offsetDir);
-	params.set([...body.range, body.cameraPull], EffectRow.offset);
+	params.set(body.range, EffectRow.offset);
 	params[EffectRow.offsetMode] = VertexMotion.SoftBody;
 };
 
@@ -174,6 +174,9 @@ export const stackLook = (stack: EffectStackSurface): EffectLook => {
 	}
 	if (stack.softBody !== null) {
 		setSoftBody(look, stack.softBody);
+	}
+	if (stack.cameraPull !== null) {
+		params.set([stack.cameraPull, 1], EffectRow.cameraPull);
 	}
 	if (stack.lighting !== null) {
 		params.set([1, stack.lighting.worldUp ? 1 : 0], EffectRow.offsetMode + 2);

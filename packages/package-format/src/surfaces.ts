@@ -629,8 +629,6 @@ export interface EffectVertexOffset {
 	bias: number;
 	/** how much the vertex alpha weighs it (VFXBaseV2) */
 	vertexAlphaWeight: number;
-	/** the most it pulls vertices towards the camera, in metres (VFXBaseV2) */
-	cameraPull: number;
 	/** VFXBaseV2's `_USE_VERTOFFSETMASK`; `null` without */
 	mask: EffectVertexOffsetMask | null;
 }
@@ -670,8 +668,6 @@ export interface EffectSoftBody {
 	/** UV1's u is scaled by `uScale`, and the frame rows by `vScale` (the padding the bounds' digits encode) */
 	uScale: number;
 	vScale: number;
-	/** the most it pulls vertices towards the camera, in metres (`_VertCameraOffset`) */
-	cameraPull: number;
 }
 
 /** the fades by view depth every effect shader shares */
@@ -753,6 +749,11 @@ export interface EffectStackSurface {
 	offset: EffectVertexOffset | null;
 	/** VFXBaseV2's soft-body animation, which takes the vertex offset's slot */
 	softBody: EffectSoftBody | null;
+	/**
+	 * the most VFXBaseV2 pulls every vertex towards the camera, in metres (`_VertCameraOffset`): by up to this
+	 * much past the first metre, plus 1 mm. `null` when it doesn't pull (`_InParticle` not 0, other shaders)
+	 */
+	cameraPull: number | null;
 	/**
 	 * VFXBaseV2's `_USE_WATER_BLEND` height (world y): the blend changes only what lies below it, which isn't
 	 * drawn, so the viewer shows those fragments as unsupported. `null` without the blend or below every level

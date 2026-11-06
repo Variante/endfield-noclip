@@ -64,6 +64,8 @@ const FX_EDGE_COLOR = 32u;
 const FX_EDGE = 33u;
 // z, w: the vertex offset mask's slot and strength (`EffectRow.offsetMask`)
 const FX_EDGE_ALPHA = 34u;
+// the pull towards the camera's most (m), 1 when it pulls (`EffectRow.cameraPull`)
+const FX_CAMERA_PULL = 35u;
 // the texture stack's per-slot custom data shifts (u, v), from row 36 on (`EffectRow.customScroll` in
 // effect-look.ts)
 const FX_CUSTOM_SCROLL = 36u;
@@ -152,8 +154,8 @@ fn inverse3(m: mat3x3f) -> mat3x3f {
 
 // the vertex offset of VFXBaseV2 and VFXDitherAlpha: along a direction (object or world space, or the
 // normal), by the offset texture's red channel remapped by `_Bi_Offset`; VFXBaseV2's is optionally weighted by
-// the vertex alpha, plus a pull towards the camera of up to `_VertCameraOffset` metres. `rel` is the vertex's camera-relative position, the camera at the origin
-fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, rel: vec3f, uv: vec4f, vertex_alpha: f32) -> vec3f {
+// the vertex alpha
+fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, uv: vec4f, vertex_alpha: f32) -> vec3f {
 	let dir_row = fx_row(id, FX_OFFSET_DIR);
 	let params = fx_row(id, FX_OFFSET);
 	var dir = m * dir_row.xyz;
@@ -176,7 +178,7 @@ fn fx_vertex_offset(id: u32, m: mat3x3f, normal: vec3f, rel: vec3f, uv: vec4f, v
 		let r = fx_sample_level(slot, base * mask_st.xy + mask_st.zw + mask_speed * frame.eye.w).r;
 		weight *= 1.0 - mask.y * (1.0 - r);
 	}
-	return dir * params.x * (t * (1.0 + params.y) - params.y) * weight + fx_camera_pull(rel, params.w);
+	return dir * params.x * (t * (1.0 + params.y) - params.y) * weight;
 }
 
 // a stack slot sampled at its top mip, for the vertex stage
@@ -206,7 +208,8 @@ fn fx_sample_level(slot: u32, uv: vec2f) -> vec4f {
 	}
 }
 
-// VFXBaseV2's pull towards the camera: up to `pull` metres past the first, plus 1 mm
+// VFXBaseV2's pull towards the camera: up to `pull` metres past the first, plus 1 mm. `rel` is the vertex's
+// camera-relative position, the camera at the origin
 fn fx_camera_pull(rel: vec3f, pull: f32) -> vec3f {
 	let camera_distance = length(rel);
 	return -rel / max(camera_distance, 1e-6) * (min(max(0.0, camera_distance - 1.0), pull) + 0.001);
@@ -251,11 +254,13 @@ fn vs_effect(v: EffectIn, @builtin(instance_index) ii: u32) -> EffectOut {
 		p = fx_soft_body(draw_id, p, v.uv1 * uv1.xy + uv1.zw);
 	}
 	var rel = m * p + origin;
+	let pull = fx_row(draw_id, FX_CAMERA_PULL).xy;
+	// the pull is measured from the position before the offset, and added beside it
+	let pulled = select(vec3f(0.0), fx_camera_pull(rel, pull.x), pull.y != 0.0);
 	if (motion == FX_MOTION_OFFSET) {
-		rel += fx_vertex_offset(draw_id, m, normal, rel, uv, color.a);
-	} else if (motion == FX_MOTION_SOFT_BODY) {
-		rel += fx_camera_pull(rel, fx_row(draw_id, FX_OFFSET).w);
+		rel += fx_vertex_offset(draw_id, m, normal, uv, color.a);
 	}
+	rel += pulled;
 	var out: EffectOut;
 	out.position = frame.view_proj * vec4f(rel, 1.0);
 	out.rel = rel;

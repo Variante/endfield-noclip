@@ -44,7 +44,7 @@ export const EffectKind = {
 
 /**
  * float offsets of an effect look's parameters (`MaterialLook.params`), `LOOK_FLOATS` of them; the shader
- * reads them as vec4 rows. the last row is free past {@link EffectRow.customScroll}, as are floats 138–143
+ * reads them as vec4 rows. the last row is free past {@link EffectRow.customScroll}, as are floats 142–143
  */
 export const EffectRow = {
 	/** tint rgb (times its intensity), alpha */
@@ -100,8 +100,7 @@ export const EffectRow = {
 	offsetDir: 112,
 	/**
 	 * vertex offset (VFXBaseV2, VFXDitherAlpha): `_OffsetIntensity`, `_Bi_Offset`, how much the vertex alpha
-	 * weighs the offset, the most it pulls vertices towards the camera (`_VertCameraOffset`, m; VFXBaseV2
-	 * only)
+	 * weighs the offset
 	 */
 	offset: 116,
 	/**
@@ -129,6 +128,11 @@ export const EffectRow = {
 	 * leaves the offset whole)
 	 */
 	offsetMask: 138,
+	/**
+	 * the texture stack's pull towards the camera (`EffectStackSurface.cameraPull`): its most in metres, then 1
+	 * when it pulls
+	 */
+	cameraPull: 140,
 	/**
 	 * the texture stack, per slot: its UVs' shift (u, v) per unit of the particle's custom data
 	 * (`StackLayer.customScroll`), 14 floats over rows 36–39

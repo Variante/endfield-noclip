@@ -531,7 +531,6 @@ describe('VFXBaseV2', () => {
 				// ten times the bounds land on whole numbers in f32, so neither pads
 				uScale: 1,
 				vScale: 1,
-				cameraPull: 0,
 			},
 		);
 		// 8-bit textures store a fraction of the bounds; `_displayFrame` is 1-based
@@ -629,6 +628,20 @@ describe('VFXBaseV2', () => {
 		assert.equal(noMain.layers[0], null);
 	});
 
+	it('pulls towards the camera outside particle mode, with or without a vertex offset', () => {
+		// Marker Stone's tower lamp stars (`M_fxmap_map_lv004_lamp_light_05`): particles left out of particle mode
+		const pull = (floats: Record<string, number>) =>
+			ofKind(stackOf({ keywords: ['_SAMPLE_TEX0', '_USE_SOFTBLEND'], floats }), 'effectStack').cameraPull;
+		assert.deepEqual(
+			[
+				pull({ _InParticle: 0, _VertCameraOffset: 50 }),
+				pull({ _InParticle: 0 }),
+				pull({ _VertCameraOffset: 50 }),
+			],
+			[50, 0, null],
+		);
+	});
+
 	it('draws with a vertex offset cancelled by particle mode, and moves vertices outside it', () => {
 		const cancelled = ofKind(
 			stackOf({
@@ -662,7 +675,6 @@ describe('VFXBaseV2', () => {
 			intensity: 0.5,
 			bias: 0,
 			vertexAlphaWeight: 0,
-			cameraPull: 0,
 			mask: null,
 		});
 	});
@@ -897,8 +909,9 @@ describe('VFXDitherAlpha effect variants', () => {
 			[4, [0.005, -0.05], 2, -0.5],
 		);
 		assert.deepEqual(
-			[moved.offset?.vertexAlphaWeight, moved.offset?.cameraPull, moved.offset?.uv1],
-			[0, 0, false],
+			// VFXDitherAlpha doesn't pull towards the camera
+			[moved.offset?.vertexAlphaWeight, moved.cameraPull, moved.offset?.uv1],
+			[0, null, false],
 		);
 		assert.equal(ofKind(trail({ _InParticle: 1 }), 'effectStack').offset, null);
 		// a vertex offset alone doesn't make it an effect variant, and the dithered surface doesn't draw it

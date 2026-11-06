@@ -318,7 +318,6 @@ const vertexOffsetOf = (reader: MaterialReader): EffectVertexOffset | null => {
 		intensity: float('_OffsetIntensity', 0),
 		bias: float('_Bi_Offset', 0),
 		vertexAlphaWeight: 0,
-		cameraPull: 0,
 		mask: null,
 	};
 };
@@ -452,7 +451,6 @@ const softBodyOf = (reader: MaterialReader): EffectSoftBody | UnsupportedSurface
 		fixedFrame,
 		uScale: vatPadding(min[2]),
 		vScale: vatPadding(max[0]),
-		cameraPull: float('_VertCameraOffset', 0),
 	};
 };
 
@@ -721,10 +719,11 @@ export const describeVfxBase = (
 				: {
 						...offset,
 						vertexAlphaWeight: float('_UseVertexColorAlphaAsVertOffsetWeight', 0),
-						cameraPull: float('_VertCameraOffset', 0),
 						mask,
 					},
 		softBody,
+		// every variant pulls by `1 − _InParticle`, with or without a vertex offset
+		cameraPull: float('_InParticle', 1) === 0 ? float('_VertCameraOffset', 0) : null,
 		waterBlendBelow: waterBlendOf(reader),
 		lighting: has('_USE_LIGHTING') ? { worldUp: float('_RotateNormalToWorldUp', 0) !== 0 } : null,
 		unfogged: !has('_USE_FOG'),
@@ -886,6 +885,7 @@ export const describeDitherEffect = (reader: MaterialReader): EffectStackSurface
 		alphaPower: float('_DitherAlphaExp', 1),
 		offset: vertexOffsetOf(reader),
 		softBody: null,
+		cameraPull: null,
 		waterBlendBelow: null,
 		lighting: null,
 		// a G-buffer surface, so the deferred fog covers it
@@ -1110,6 +1110,7 @@ export const describeVfxDecal = (reader: MaterialReader): EffectStackSurface | U
 		alphaPower: 1,
 		offset: null,
 		softBody: null,
+		cameraPull: null,
 		waterBlendBelow: null,
 		lighting: null,
 		unfogged: !has('_USE_FOG'),
