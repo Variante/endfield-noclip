@@ -32,6 +32,12 @@ export const formatCount = (n: number): string => {
 };
 
 /**
+ * @param err something thrown
+ * @returns its message
+ */
+export const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
  * @param control a scene control
  * @returns the label of the option that leaves the control to the camera or the game, or `null` if only the
  *   user sets it

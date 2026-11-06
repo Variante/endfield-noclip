@@ -22,7 +22,8 @@ when an old archive is removed.
 the package panel ([`ui/package-panel.tsx`](../../packages/viewer/src/ui/package-panel.tsx)) offers
 all three. where both `showDirectoryPicker` and OPFS exist, "copy into browser storage" imports the
 picked folder into OPFS (skipping `debug/`, which the viewer never reads) so it can be reopened
-without picking it again.
+without picking it again. a failed copy, or a stored package that can't be reopened, is reported in
+the panel.
 
 ## dev package server
 

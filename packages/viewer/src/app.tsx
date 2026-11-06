@@ -3,6 +3,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { sourceFromParam } from './package/package-param.ts';
 import type { PackageSource } from './package/package-source.ts';
 import { CameraReadout } from './ui/camera-readout.tsx';
+import { describeError } from './ui/format.ts';
 import { LevelsPanel } from './ui/levels-panel.tsx';
 import { type OpenPackage, PackagePanel } from './ui/package-panel.tsx';
 import { SceneControls } from './ui/scene-controls/scene-controls.tsx';
@@ -12,8 +13,6 @@ import { Viewer } from './viewer.ts';
 
 const PACKAGE_PARAM = 'package';
 const LEVEL_PARAM = 'level';
-
-const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** sets or clears a search parameter of the page URL without a navigation */
 const setParam = (name: string, value: string | null): void => {
