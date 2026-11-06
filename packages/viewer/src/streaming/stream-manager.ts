@@ -1,9 +1,9 @@
 import type { DecodePool } from '../package/decode-pool.ts';
 import type { Decoded } from '../package/decode-protocol.ts';
 import { PackageChangedError } from '../package/package-source.ts';
-import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
+import { CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
 
-import { coalesceRanges } from './coalesce.ts';
+import { type QueuedRange, coalesceRanges } from './coalesce.ts';
 import type { ContentItem } from './content-item.ts';
 import {
 	RESIDENT_KINDS,
@@ -44,11 +44,11 @@ export interface StreamOptions {
 
 // #endregion
 
-/** a blob of a range read and its absolute byte range */
-interface FetchMember {
-	item: ContentItem;
-	start: number;
-	end: number;
+/** a shard blob's byte range, with what reading its archive needs */
+interface ShardRange extends QueuedRange {
+	path: string;
+	/** the archive's size, which a read checks to notice a re-packed package */
+	archiveSize: number;
 }
 
 /** owns every {@link ContentItem} and drives fetch → decode → upload → evict */
@@ -75,13 +75,20 @@ export class StreamManager {
 	#handlers: ResidencyHandlers;
 	/** by blob index */
 	#items: (ContentItem | undefined)[];
-	/** every item in {@link #items}, for sweeps */
-	#known: ContentItem[] = [];
+	/** by blob index: the order its item was made in, which breaks eviction ties */
+	#created: Int32Array;
+	#createdCount = 0;
+	/** by blob index: a queued shard blob's byte range, made when it's first queued */
+	#ranges: (ShardRange | undefined)[];
+	/** the ready, unpinned items: what eviction picks from */
+	#evictable = new Set<ContentItem>();
 	/** queued shard blobs */
 	#queued = new Set<ContentItem>();
 	/** queued core blobs, read from memory without a request slot */
 	#queuedCore = new Set<ContentItem>();
 	#uploads: ContentItem[] = [];
+	/** the uploads a frame deferred, reused */
+	#deferred: ContentItem[] = [];
 	#inFlight = new Set<{ items: ContentItem[]; abort: AbortController }>();
 	/** core reads and decodes under way */
 	#working = 0;
@@ -105,6 +112,8 @@ export class StreamManager {
 		this.#handlers = handlers;
 		this.options = options;
 		this.#items = Array.from({ length: pkg.blobs.length });
+		this.#created = new Int32Array(pkg.blobs.length);
+		this.#ranges = Array.from({ length: pkg.blobs.length });
 	}
 
 	// #region per-frame API
@@ -192,6 +201,7 @@ export class StreamManager {
 		for (const blob of blobs) {
 			const item = this.#item(blob);
 			item.pinned = true;
+			this.#evictable.delete(item);
 			item.priority = Infinity;
 			item.wantedFrame = Infinity;
 			if (item.state === 'idle') {
@@ -242,14 +252,15 @@ export class StreamManager {
 		for (const request of this.#inFlight) {
 			request.abort.abort();
 		}
-		for (const item of this.#known) {
-			if (item.resident !== null) {
+		for (const item of this.#items) {
+			if (item !== undefined && item.resident !== null) {
 				releaseResident(this.#handlers, item.resident.kind, item.blob, item.resident);
 				item.resident = null;
 			}
 		}
 		this.#items = [];
-		this.#known = [];
+		this.#ranges = [];
+		this.#evictable.clear();
 	}
 
 	// #endregion
@@ -273,7 +284,7 @@ export class StreamManager {
 				resident: null,
 			};
 			this.#items[blob] = item;
-			this.#known.push(item);
+			this.#created[blob] = this.#createdCount++;
 		}
 		return item;
 	}
@@ -332,51 +343,60 @@ export class StreamManager {
 
 		const queued = [...this.#queued];
 		const ranges = queued.map((item) => {
-			const range = this.#package.blobRange(item.blob);
-			return {
-				archive: range.archive,
-				start: range.start,
-				end: range.start + range.length,
-				priority: item.priority,
-			};
+			const range = this.#shardRange(item.blob);
+			range.priority = item.priority;
+			return range;
 		});
 		for (const read of coalesceRanges(ranges, this.options.maxRequests - this.#inFlight.size)) {
-			const members = read.members.map((i) => ({
-				item: queued[i],
-				start: ranges[i].start,
-				end: ranges[i].end,
-			}));
-			for (const { item } of members) {
+			const members = read.members.map((i) => queued[i]);
+			for (const item of members) {
 				item.state = 'fetching';
 				this.#queued.delete(item);
 			}
-			this.#fetch(this.#package.blobRange(members[0].item.blob), read.start, read.end, members);
+			this.#fetch(ranges[read.members[0]], read.start, read.end, members);
 		}
 	}
 
-	#fetch(range: BlobRange, start: number, end: number, members: FetchMember[]): void {
-		const request = { items: members.map((member) => member.item), abort: new AbortController() };
+	/** @returns a shard blob's byte range, made once */
+	#shardRange(blob: number): ShardRange {
+		let range = this.#ranges[blob];
+		if (range === undefined) {
+			const { archive, path, start, length, archiveSize } = this.#package.blobRange(blob);
+			range = { archive, start, end: start + length, priority: 0, path, archiveSize };
+			this.#ranges[blob] = range;
+		}
+		return range;
+	}
+
+	/**
+	 * @param shard the range of a blob in the archive to read
+	 * @param start the read's byte range, `[start, end)`
+	 * @param members the blobs it covers
+	 */
+	#fetch(shard: ShardRange, start: number, end: number, members: ContentItem[]): void {
+		const request = { items: members, abort: new AbortController() };
 		this.#inFlight.add(request);
 		this.stats.requests++;
 		this.#package.source
 			.readRange(
-				range.path,
-				{ offset: start, length: end - start, fileSize: range.archiveSize },
+				shard.path,
+				{ offset: start, length: end - start, fileSize: shard.archiveSize },
 				request.abort.signal,
 			)
 			.then((bytes) => {
 				this.stats.downloadedBytes += bytes.byteLength;
 				const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
-				for (const member of members) {
-					if (member.item.state !== 'fetching') {
+				for (const item of members) {
+					if (item.state !== 'fetching') {
 						continue;
 					}
+					const member = this.#shardRange(item.blob);
 					// each member is transferred to a worker on its own, so it needs a buffer of its own
 					const data =
 						whole && member.start === start && member.end === end
 							? bytes.buffer
 							: bytes.slice(member.start - start, member.end - start).buffer;
-					this.#decode(member.item, data);
+					this.#decode(item, data);
 				}
 			})
 			.catch((err: unknown) => {
@@ -386,7 +406,7 @@ export class StreamManager {
 					this.stats.packageChanged = true;
 					console.warn(String(err));
 				}
-				for (const { item } of members) {
+				for (const item of members) {
 					if (item.state !== 'fetching') {
 						continue;
 					}
@@ -456,7 +476,7 @@ export class StreamManager {
 			return;
 		}
 		uploads.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority);
-		const deferred: ContentItem[] = [];
+		const deferred = this.#deferred;
 		let uploaded = 0;
 		let next = 0;
 		for (; next < uploads.length && uploaded < this.options.uploadBytesPerFrame; next++) {
@@ -484,11 +504,20 @@ export class StreamManager {
 			item.state = 'ready';
 			// fresh content counts as used, so the budget pass can't evict it before its first draw
 			item.usedFrame = this.#frame;
+			if (!item.pinned) {
+				this.#evictable.add(item);
+			}
 			this.#count(item, resident.bytes);
 			uploaded += resident.bytes;
 			this.version++;
 		}
-		this.#uploads = [...uploads.slice(next), ...deferred];
+		// the ones not reached, then the deferred ones
+		uploads.copyWithin(0, next);
+		uploads.length -= next;
+		for (const item of deferred) {
+			uploads.push(item);
+		}
+		deferred.length = 0;
 	}
 
 	#tryUpload(item: ContentItem, decoded: Decoded): Resident | null {
@@ -505,21 +534,22 @@ export class StreamManager {
 
 	/** evicts unpinned content of the same kind not used this frame, oldest first, to make room for `item` */
 	#evictForSpace(item: ContentItem): boolean {
-		const candidates = this.#known
-			.filter(
-				(other) =>
-					other.state === 'ready' &&
-					!other.pinned &&
-					other.kind === item.kind &&
-					other.usedFrame < this.#frame &&
-					other.priority <= item.priority,
-			)
-			.toSorted((a, b) => a.usedFrame - b.usedFrame)
-			.slice(0, 16);
-		for (const other of candidates) {
-			this.#release(other);
+		const candidates: ContentItem[] = [];
+		for (const other of this.#evictable) {
+			if (other.kind === item.kind && other.usedFrame < this.#frame && other.priority <= item.priority) {
+				candidates.push(other);
+			}
 		}
-		return candidates.length > 0;
+		if (candidates.length === 0) {
+			return false;
+		}
+		const created = this.#created;
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh array
+		candidates.sort((a, b) => a.usedFrame - b.usedFrame || created[a.blob] - created[b.blob]);
+		for (let i = 0; i < Math.min(candidates.length, 16); i++) {
+			this.#release(candidates[i]);
+		}
+		return true;
 	}
 
 	#evict(budget: number): void {
@@ -527,9 +557,17 @@ export class StreamManager {
 			this.#saturated = false;
 			return;
 		}
-		const candidates = this.#known
-			.filter((item) => item.state === 'ready' && !item.pinned && item.usedFrame < this.#frame)
-			.toSorted((a, b) => a.usedFrame - b.usedFrame || a.priority - b.priority);
+		const candidates: ContentItem[] = [];
+		for (const item of this.#evictable) {
+			if (item.usedFrame < this.#frame) {
+				candidates.push(item);
+			}
+		}
+		const created = this.#created;
+		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh array
+		candidates.sort(
+			(a, b) => a.usedFrame - b.usedFrame || a.priority - b.priority || created[a.blob] - created[b.blob],
+		);
 		for (const item of candidates) {
 			if (this.stats.residentBytes <= budget) {
 				break;
@@ -546,6 +584,7 @@ export class StreamManager {
 		}
 		releaseResident(this.#handlers, resident.kind, item.blob, resident);
 		this.#count(item, -resident.bytes);
+		this.#evictable.delete(item);
 		item.resident = null;
 		item.state = 'idle';
 		this.stats.evictions++;
