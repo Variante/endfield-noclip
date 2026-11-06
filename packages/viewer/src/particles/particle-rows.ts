@@ -178,6 +178,12 @@ const FLAT: readonly Vec3[] = [
 ];
 const NO_ROWS: readonly number[] = [];
 
+/**
+ * frames an emitter may go undrawn before it's forgotten, as the mesh selector drops unused buckets: long
+ * enough to outlast a glance away, after which a non-looping system plays from its start again
+ */
+const EMITTER_LIFETIME = 600;
+
 // every particle row is rebuilt each frame, so the steps work in these rather than allocating. each is written
 // by the one step named beside it; frames don't nest
 const scratch = {
@@ -468,6 +474,8 @@ export class ParticleField {
 	readonly #particle: ParticleInput = { size: vec3(), velocity: vec3(), length: 0 };
 	readonly #color = new Float32Array(4);
 	readonly #custom = new Float32Array(4);
+	/** the frame {@link #prune} last ran */
+	#prunedAt = 0;
 
 	/**
 	 * turns a world direction into the emitter's frame: the inverse of a rotation times a scale, so it projects
@@ -512,6 +520,10 @@ export class ParticleField {
 		frame: number,
 		view: ParticleView,
 	): readonly number[] {
+		if (frame < this.#prunedAt || frame - this.#prunedAt >= EMITTER_LIFETIME) {
+			this.#prunedAt = frame;
+			this.#prune(frame);
+		}
 		const emitters = this.#emitters.getOrInsertComputed(block, () => new Map());
 		// one emitter per row and system: a renderer's meshes are separate rows
 		const key = row * this.#systems.length + system;
@@ -559,6 +571,24 @@ export class ParticleField {
 			this.#store.freeRows(emitter.rows);
 		}
 		this.#emitters.delete(block);
+	}
+
+	/**
+	 * forgets the emitters not drawn for {@link EMITTER_LIFETIME} frames and frees their rows: pinned blocks
+	 * (HLOD, global scenery) are never released, so without this every emitter ever drawn would keep its rows
+	 */
+	#prune(frame: number): void {
+		for (const [block, emitters] of this.#emitters) {
+			for (const [key, emitter] of emitters) {
+				if (emitter.frame < frame - EMITTER_LIFETIME) {
+					this.#store.freeRows(emitter.rows);
+					emitters.delete(key);
+				}
+			}
+			if (emitters.size === 0) {
+				this.#emitters.delete(block);
+			}
+		}
 	}
 
 	/** reads an emitter's transform from its row into {@link #m}, {@link #columns} and {@link #scales} */

@@ -27,9 +27,10 @@ bucket takes the rows of its live particles instead of its own
 forces and texture sheet in modules of their own, and `particle-rows.ts` writes the rows).
 `ParticleField` keeps as many rows per emitter as the package's emission bound, up to
 `min(maxParticles, 1024)`, in the instance buffer, using the emitter's block origin, and rewrites
-them once per frame the emitter is selected. so every mesh shader draws particles unchanged, and
-shadow and effect passes need nothing of their own. each particle's colour goes into its row's
-colour word (`RowWord.color` in
+them once per frame the emitter is selected. an emitter not selected for 600 frames is forgotten and
+its rows freed, as are a block's emitters when it's released (pinned HLOD and global blocks never
+are). so every mesh shader draws particles unchanged, and shadow and effect passes need nothing of
+their own. each particle's colour goes into its row's colour word (`RowWord.color` in
 [`content/instance-rows.ts`](../../packages/viewer/src/content/instance-rows.ts), RGBA8, white for
 other rows), where it multiplies the mesh's vertex colours in the mesh and effect shaders. a
 renderer with several meshes is several emitters at one place; they share their random values, so
@@ -151,7 +152,7 @@ and a `particleDisturb` stack scales its distortion by w.
 
 the game's random sequence can't be reproduced, so particles start elsewhere than in the game with
 the same distributions. looping systems are evaluated as if they had played since long before the
-package opened; others start when their emitter is first selected. particles move by the viewer's
-animation clock, like the effects' scrolling textures: they keep moving while the view settles and
-pause once the viewer idles ([performance](performance.md); `continuous` keeps them moving, and
-`animate` off freezes them).
+package opened; others start when their emitter is first selected, and again when it's selected
+after being [forgotten](#particles). particles move by the viewer's animation clock, like the
+effects' scrolling textures: they keep moving while the view settles and pause once the viewer idles
+([performance](performance.md); `continuous` keeps them moving, and `animate` off freezes them).

@@ -182,6 +182,47 @@ describe('ParticleField', () => {
 		);
 		assert.deepEqual(world, [0, 1, 0]);
 	});
+
+	it('frees the rows of emitters left undrawn, though their block stays resident', () => {
+		const allocated = new Set<number>();
+		let next = 0;
+		const store: ParticleRowStore = {
+			allocateRows: (count) => {
+				allocated.add(next);
+				const alloc = { start: next, count };
+				next += count;
+				return alloc;
+			},
+			freeRows: (alloc) => {
+				allocated.delete(alloc.start);
+			},
+			writeRows: () => {},
+		};
+		const rowsF32 = new Float32Array(ROW_WORDS * 2);
+		rowsF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+		rowsF32.set([1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0], ROW_WORDS);
+		// a pinned block, never released
+		const block = { rowsF32, origin: [0, 0, 0], blockSlot: 0 } satisfies EmitterBlock;
+		const field = new ParticleField({ systems: [system()] }, store);
+		const view = {
+			eye,
+			widthPerDepth: 2,
+			right: [1, 0, 0],
+			up: [0, 1, 0],
+			forward: [0, 0, 1],
+		} satisfies Omit<ParticleView, 'time'>;
+		field.rows(block, 0, 0, 1, { time: 0, ...view });
+		field.rows(block, 1, 0, 1, { time: 0, ...view });
+		assert.equal(allocated.size, 2);
+		// only the first stays in view
+		for (let frame = 2; frame <= 1300; frame++) {
+			field.rows(block, 0, 0, frame, { time: frame / 60, ...view });
+		}
+		assert.equal(allocated.size, 1);
+		// the other comes back with rows of its own
+		assert.ok(field.rows(block, 1, 0, 1301, { time: 1301 / 60, ...view }).length > 0);
+		assert.equal(allocated.size, 2);
+	});
 });
 
 describe('turnedByBillboard', () => {
