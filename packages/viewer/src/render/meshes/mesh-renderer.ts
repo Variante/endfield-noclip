@@ -11,7 +11,7 @@ import {
 } from '../../looks/look.ts';
 import type { DecodedGeometry } from '../../package/decode-protocol.ts';
 import type { MeshBucket } from '../../streaming/mesh-selection.ts';
-import type { ResidentGeometry } from '../../streaming/stream-manager.ts';
+import type { ResidentGeometry } from '../../streaming/resident.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import {

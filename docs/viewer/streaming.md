@@ -133,9 +133,10 @@ isn't retried).
   on Wuling's first views: 32 takes 3–4 s where 8 took 9–12 s; 64, dispatching freed slots between
   frames, and wider coalescing (up to 75% more bytes fetched) gain little or nothing. queued blobs
   are sorted by priority, and each seed coalesces neighbours in the same archive (gaps ≤ 64 KiB,
-  span ≤ 2 MiB, ≤ 96 blobs) into one range read. core blobs are read from memory without a request
-  slot. requests whose blobs nobody wanted for more than 2 frames are aborted; queued blobs not
-  wanted this frame return to idle.
+  span ≤ 2 MiB, ≤ 96 blobs) into one range read
+  ([`streaming/coalesce.ts`](../../packages/viewer/src/streaming/coalesce.ts)). core blobs are read
+  from memory without a request slot. requests whose blobs nobody wanted for more than 2 frames are
+  aborted; queued blobs not wanted this frame return to idle.
 - **uploading.** pinned first, then by priority, until the frame has uploaded 24 MiB. decoded
   content nobody has wanted for 30 frames is dropped instead. a full pool evicts up to 16 resident,
   unpinned blobs of the same kind that weren't used this frame and have no higher priority, oldest

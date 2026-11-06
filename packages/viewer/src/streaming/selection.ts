@@ -4,7 +4,8 @@ import type { ContentRef } from '@endfield-noclip/package-format/tree';
 import { type Camera, type Plane, boxInFrustum, distanceToBox } from '../scene/camera.ts';
 import { type TileNode, type TileTree, isLeaf } from '../scene/tile-tree.ts';
 
-import type { ContentItem, StreamManager } from './stream-manager.ts';
+import type { ContentItem } from './content-item.ts';
+import type { StreamManager } from './stream-manager.ts';
 
 // #region types
 

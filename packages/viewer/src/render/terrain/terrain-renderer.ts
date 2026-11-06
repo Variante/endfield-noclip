@@ -17,13 +17,13 @@ import type {
 	DecodedSurface,
 } from '../../package/decode-protocol.ts';
 import type { Vec3 } from '../../scene/camera.ts';
-import type { TerrainPatch } from '../../streaming/selection.ts';
 import type {
 	ResidentDetail,
 	ResidentHeights,
 	ResidentLayer,
 	ResidentSurface,
-} from '../../streaming/stream-manager.ts';
+} from '../../streaming/resident.ts';
+import type { TerrainPatch } from '../../streaming/selection.ts';
 import type { BindLayouts } from '../frame/bind-layouts.ts';
 import { FRAME_WGSL } from '../frame/frame-uniforms.ts';
 import { DEPTH_COMPARE, type MainPassFormat } from '../frame/render-targets.ts';

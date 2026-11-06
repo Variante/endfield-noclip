@@ -83,8 +83,9 @@ import { Camera, type Vec3 } from './scene/camera.ts';
 import { type CameraPose, NoclipControls } from './scene/noclip-controls.ts';
 import { type TileTree, buildTileTree } from './scene/tile-tree.ts';
 import { type MeshSelection, MeshSelector, streamWholeTexture } from './streaming/mesh-selection.ts';
+import type { ResidentInstances } from './streaming/resident.ts';
 import { type InstanceRange, Selector } from './streaming/selection.ts';
-import { type ResidentInstances, StreamManager } from './streaming/stream-manager.ts';
+import { StreamManager } from './streaming/stream-manager.ts';
 
 // #region options and stats
 

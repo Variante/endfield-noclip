@@ -6,7 +6,7 @@ import {
 } from '@endfield-noclip/package-format/textures';
 
 import type { DecodedTexture } from '../../package/decode-protocol.ts';
-import type { ResidentTexture } from '../../streaming/stream-manager.ts';
+import type { ResidentTexture } from '../../streaming/resident.ts';
 
 interface PieceRef {
 	texture: number;

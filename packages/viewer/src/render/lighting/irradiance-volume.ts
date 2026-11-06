@@ -3,7 +3,8 @@ import type { IrradianceRegionInfo, IrradianceTable } from '@endfield-noclip/pac
 import { GrowableBuffer } from '../../gfx/growable-buffer.ts';
 import type { DecodedIrradiance } from '../../package/decode-protocol.ts';
 import type { Vec3 } from '../../scene/camera.ts';
-import type { ResidentIrradiance, StreamManager } from '../../streaming/stream-manager.ts';
+import type { ResidentIrradiance } from '../../streaming/resident.ts';
+import type { StreamManager } from '../../streaming/stream-manager.ts';
 
 import clipmapWgsl from './irradiance-clipmap.wgsl?raw';
 import updateWgsl from './irradiance-update.wgsl?raw';

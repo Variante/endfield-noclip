@@ -1,7 +1,6 @@
 import { BlobKind } from '@endfield-noclip/package-format/blobs';
 
-import type { RowKinds, RowSpins } from '../content/instance-rows.ts';
-import type { RangeAllocation } from '../gfx/range-allocator.ts';
+import type { RowKinds } from '../content/instance-rows.ts';
 import type { DecodePool } from '../package/decode-pool.ts';
 import type {
 	Decoded,
@@ -13,149 +12,25 @@ import type {
 	DecodedIrradiance,
 	DecodedSurface,
 	DecodedTexture,
-	UvTransform,
 } from '../package/decode-protocol.ts';
 import { PackageChangedError } from '../package/package-source.ts';
 import { type BlobRange, CORE_ARCHIVE_INDEX, type ViewerPackage } from '../package/viewer-package.ts';
-import type { ResidentSkin } from '../render/meshes/skin-animation.ts';
+
+import { coalesceRanges } from './coalesce.ts';
+import type { ContentItem } from './content-item.ts';
+import type {
+	Resident,
+	ResidentDetail,
+	ResidentGeometry,
+	ResidentHeights,
+	ResidentInstances,
+	ResidentIrradiance,
+	ResidentLayer,
+	ResidentSurface,
+	ResidentTexture,
+} from './resident.ts';
 
 // #region types
-
-/** lifecycle of a blob */
-export type ItemState = 'idle' | 'queued' | 'fetching' | 'decoding' | 'uploading' | 'ready' | 'failed';
-
-/** GPU residency of a height page */
-export interface ResidentHeights {
-	kind: 'heights';
-	/** GPU bytes */
-	bytes: number;
-	/** height pool slot */
-	slot: number;
-	/** the samples kept on the CPU for ground-height queries (pinned pages only) */
-	samples: Uint16Array | null;
-}
-
-/** GPU residency of a terrain surface page */
-export interface ResidentSurface {
-	kind: 'surface';
-	/** GPU bytes */
-	bytes: number;
-	/** layer of the surface texture arrays */
-	slot: number;
-}
-
-/** GPU residency of a terrain splat page */
-export interface ResidentDetail {
-	kind: 'splat';
-	/** GPU bytes */
-	bytes: number;
-	/** layer of the detail texture arrays */
-	slot: number;
-}
-
-/** GPU residency of a terrain layer texture (the terrain renderer owns the array) */
-export interface ResidentLayer {
-	kind: 'layer';
-	/** GPU bytes */
-	bytes: number;
-}
-
-/** GPU residency of an instance block */
-export interface ResidentInstances {
-	kind: 'instances';
-	/** GPU bytes */
-	bytes: number;
-	alloc: RangeAllocation;
-	/** its rect decal placements' range of the placement buffer */
-	placements: RangeAllocation;
-	blockSlot: number;
-	count: number;
-	/** world origin of the rows, f64 */
-	origin: [x: number, y: number, z: number];
-	/** (chain, first, count) runs */
-	runs: Uint32Array;
-	/** the rows as uploaded, kept for CPU-side LOD selection */
-	rowsF32: Float32Array<ArrayBuffer>;
-	/** per-row cull data, see {@link InstanceRows.cull} */
-	cull: Float32Array;
-	/** the spinning rows, which turn {@link rowsF32} in place by the clock; `null` when every row holds still */
-	spins: RowSpins | null;
-}
-
-/** GPU residency of a geometry */
-export interface ResidentGeometry {
-	kind: 'geometry';
-	/** GPU bytes */
-	bytes: number;
-	/** positions, then normals, UV sets 0 and 1, tangents and colours where present, in one buffer */
-	vertices: GPUBuffer;
-	positionBytes: number;
-	normalOffset: number | null;
-	uv0Offset: number | null;
-	/** UV set 1, or set 0 for meshes without it: the game reads a missing UV set as set 0 */
-	uv1Offset: number | null;
-	/** the UV streams' vertex format */
-	uvFormat: 'unorm16x2' | 'float32x2';
-	/** each UV set's dequantization */
-	uvTransforms: [uv0: UvTransform, uv1: UvTransform];
-	tangentOffset: number | null;
-	/** `unorm8x4` vertex colours */
-	colorOffset: number | null;
-	indices: GPUBuffer;
-	indexFormat: GPUIndexFormat;
-	positionOffset: [x: number, y: number, z: number];
-	positionScale: [x: number, y: number, z: number];
-	submeshes: { firstIndex: number; indexCount: number; baseVertex: number }[];
-	/** the skeletal animation skinned into {@link vertices} each frame, or `null` for a still geometry */
-	skin: ResidentSkin | null;
-}
-
-/** GPU residency of a texture piece (the texture store owns the texture) */
-export interface ResidentTexture {
-	kind: 'texture';
-	/** GPU bytes */
-	bytes: number;
-}
-
-/** GPU residency of an irradiance cell in the volume's cell buffer */
-export interface ResidentIrradiance {
-	kind: 'irradiance';
-	/** GPU bytes */
-	bytes: number;
-	/** u32 words of the cell buffer */
-	alloc: RangeAllocation;
-}
-
-/** what a ready blob holds on the GPU */
-export type Resident =
-	| ResidentHeights
-	| ResidentSurface
-	| ResidentDetail
-	| ResidentLayer
-	| ResidentInstances
-	| ResidentGeometry
-	| ResidentTexture
-	| ResidentIrradiance;
-
-/** a blob the viewer has asked for at some point */
-export interface ContentItem {
-	blob: number;
-	kind: BlobKind;
-	/** index of the archive holding the blob */
-	archive: number;
-	state: ItemState;
-	/** part of the always-resident coarse layer */
-	pinned: boolean;
-	/** highest priority requested in {@link wantedFrame} */
-	priority: number;
-	wantedFrame: number;
-	/** last frame it was used: wanted or marked used while resident, or uploaded */
-	usedFrame: number;
-	decoded: Decoded | null;
-	/** set exactly while the item is `ready` */
-	resident: Resident | null;
-	error: string | null;
-}
 
 /** GPU-side owners of uploaded content (the renderers) */
 export interface ContentStores {
@@ -209,14 +84,8 @@ export interface StreamOptions {
 
 // #endregion
 
-/** coalesce blobs whose ranges are at most this far apart, bytes */
-const COALESCE_GAP = 64 * 1024;
-/** largest coalesced request, bytes */
-const COALESCE_SPAN = 2 * 1024 * 1024;
-/** most blobs in one coalesced request */
-const COALESCE_COUNT = 96;
-
-interface QueuedRange {
+/** a blob of a range read and its absolute byte range */
+interface FetchMember {
 	item: ContentItem;
 	start: number;
 	end: number;
@@ -521,61 +390,31 @@ export class StreamManager {
 			return;
 		}
 
-		// oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy
-		const queued = [...this.#queued].sort((a, b) => b.priority - a.priority);
-		// per-archive lists by byte position, for coalescing neighbours
-		const byArchive = new Map<number, QueuedRange[]>();
-		for (const item of queued) {
+		const queued = [...this.#queued];
+		const ranges = queued.map((item) => {
 			const range = this.#package.blobRange(item.blob);
-			byArchive
-				.getOrInsertComputed(range.archive, () => [])
-				.push({ item, start: range.start, end: range.start + range.length });
-		}
-		const positions = new Map<ContentItem, number>();
-		for (const list of byArchive.values()) {
-			list.sort((a, b) => a.start - b.start);
-			for (let i = 0; i < list.length; i++) {
-				positions.set(list[i].item, i);
-			}
-		}
-
-		for (const seed of queued) {
-			if (this.#inFlight.size >= this.options.maxRequests) {
-				break;
-			}
-			const list = byArchive.get(seed.archive);
-			const at = positions.get(seed);
-			if (seed.state !== 'queued' || list === undefined || at === undefined) {
-				continue;
-			}
-			let lo = at;
-			let hi = at;
-			let start = list[at].start;
-			let end = list[at].end;
-			const usable = (i: number): boolean => i >= 0 && i < list.length && list[i].item.state === 'queued';
-			while (hi - lo + 1 < COALESCE_COUNT) {
-				const right = usable(hi + 1) && list[hi + 1].start - end <= COALESCE_GAP;
-				const left = usable(lo - 1) && start - list[lo - 1].end <= COALESCE_GAP;
-				if (right && Math.max(end, list[hi + 1].end) - start <= COALESCE_SPAN) {
-					hi++;
-					end = Math.max(end, list[hi].end);
-				} else if (left && end - list[lo - 1].start <= COALESCE_SPAN) {
-					lo--;
-					start = list[lo].start;
-				} else {
-					break;
-				}
-			}
-			const members = list.slice(lo, hi + 1).filter((entry) => entry.item.state === 'queued');
+			return {
+				archive: range.archive,
+				start: range.start,
+				end: range.start + range.length,
+				priority: item.priority,
+			};
+		});
+		for (const read of coalesceRanges(ranges, this.options.maxRequests - this.#inFlight.size)) {
+			const members = read.members.map((i) => ({
+				item: queued[i],
+				start: ranges[i].start,
+				end: ranges[i].end,
+			}));
 			for (const { item } of members) {
 				item.state = 'fetching';
 				this.#queued.delete(item);
 			}
-			this.#fetch(this.#package.blobRange(seed.blob), start, end, members);
+			this.#fetch(this.#package.blobRange(members[0].item.blob), read.start, read.end, members);
 		}
 	}
 
-	#fetch(range: BlobRange, start: number, end: number, members: QueuedRange[]): void {
+	#fetch(range: BlobRange, start: number, end: number, members: FetchMember[]): void {
 		const request = { items: members.map((member) => member.item), abort: new AbortController() };
 		this.#inFlight.add(request);
 		this.stats.requests++;

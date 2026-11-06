@@ -6,8 +6,8 @@ import { ContentKind, type ContentRef } from '@endfield-noclip/package-format/tr
 import { Camera } from '../scene/camera.ts';
 import type { TileNode, TileTree } from '../scene/tile-tree.ts';
 
+import type { ContentItem } from './content-item.ts';
 import { Selector, type SelectionOptions } from './selection.ts';
-import type { ContentItem } from './stream-manager.ts';
 
 it('streams conditional scenery independently of coarse HLOD and never requests hidden variants', () => {
 	// groups: 0 level 1 with condition 0, 1 level 1 with condition 1, 2 level 2 with condition 0, 3 level 1

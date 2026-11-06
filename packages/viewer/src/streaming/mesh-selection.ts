@@ -10,8 +10,9 @@ import { SHADOW_LAYERS, type ShadowLayerVolumes } from '../render/shadows/shadow
 import type { TextureBinding, TextureStore } from '../render/textures/texture-store.ts';
 import type { Plane, Vec3 } from '../scene/camera.ts';
 
+import type { ContentItem } from './content-item.ts';
 import type { CasterVolume, InstanceRange } from './selection.ts';
-import type { ContentItem, StreamManager } from './stream-manager.ts';
+import type { StreamManager } from './stream-manager.ts';
 
 /** instances sharing one geometry submesh, material and handedness */
 export interface MeshBucket {
