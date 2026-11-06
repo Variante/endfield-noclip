@@ -112,14 +112,12 @@ export class WaterLevels {
 	}
 
 	/**
-	 * starts moving each volume towards the level its `waterLevel` control picks, at that level's speed
+	 * starts moving each volume towards the level its `waterLevel` control picks, at that level's speed, from
+	 * the next {@link update}
 	 *
 	 * @param values every scene control's value
-	 * @param instant whether to jump there
-	 * @returns whether any volume's target changed
 	 */
-	follow(values: Readonly<Record<string, number>>, instant: boolean): boolean {
-		let changed = false;
+	follow(values: Readonly<Record<string, number>>): void {
 		for (const [i, volume] of this.#volumes.entries()) {
 			const level = volume.control === null ? undefined : volume.levels[values[volume.control] ?? -1];
 			if (level === undefined || level.fraction === this.#target[i]) {
@@ -127,12 +125,7 @@ export class WaterLevels {
 			}
 			this.#target[i] = level.fraction;
 			this.#speed[i] = level.speed;
-			if (instant) {
-				this.#current[i] = level.fraction;
-			}
-			changed = true;
 		}
-		return changed;
 	}
 
 	/** puts every volume back at its authored fill */
@@ -147,7 +140,7 @@ export class WaterLevels {
 	 * moves the volumes by a frame, linearly at their speed (the game eases the last metres in)
 	 *
 	 * @param dt seconds
-	 * @param rate how many times faster than the game to move
+	 * @param rate how many times faster than the game to move; `Infinity` jumps to the targets
 	 * @returns whether any surface moved
 	 */
 	update(dt: number, rate: number): boolean {
@@ -157,7 +150,9 @@ export class WaterLevels {
 			const current = this.#current[i];
 			const target = this.#target[i];
 			if (current !== target) {
-				const step = volume.heightMax > 0 ? (this.#speed[i] * dt * rate) / volume.heightMax : 1;
+				// a whole fill's step jumps (and keeps `0 · Infinity` from making it NaN)
+				const step =
+					volume.heightMax > 0 && rate !== Infinity ? (this.#speed[i] * dt * rate) / volume.heightMax : 1;
 				this.#current[i] =
 					target > current ? Math.min(target, current + step) : Math.max(target, current - step);
 			}

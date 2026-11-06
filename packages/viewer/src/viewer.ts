@@ -1308,7 +1308,7 @@ export class Viewer {
 		this.#sceneValues = states === undefined ? {} : resolveSceneValues(states, picks);
 		const values = this.#sceneValues;
 		// water volumes move to the fill their `waterLevel` control picks, at the game's speed times the rate
-		this.#waterLevels.follow(values, !Number.isFinite(this.options.waterLevelRate));
+		this.#waterLevels.follow(values);
 		this.#conditionResults = states === undefined ? [] : conditionResults(states, values);
 		const shown =
 			states === undefined ? [] : groupsShown(states, this.#level?.tag ?? null, this.#conditionResults);
