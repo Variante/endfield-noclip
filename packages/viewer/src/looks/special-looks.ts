@@ -13,7 +13,15 @@ import type {
 	TiledTexture,
 } from '@endfield-noclip/package-format/surfaces';
 
-import { emptyLook, LookFlags, LookRow, type MaterialLook, setTexture, setTiledTexture } from './look.ts';
+import {
+	emptyLook,
+	LookFlags,
+	LookRow,
+	type MaterialLook,
+	setTexture,
+	setTiledTexture,
+	Slot,
+} from './look.ts';
 
 // #region erosion
 
@@ -60,12 +68,12 @@ export const erosionLook = (surface: ErosionSurface, cull: MaterialCull): Materi
 	const params = look.params;
 	const { textures, noise, flow } = surface;
 	const slots: [number, TiledTexture | null][] = [
-		[1, textures.baseNormal],
-		[2, textures.metalMix],
-		[3, textures.flowRamp === null ? null : { texture: textures.flowRamp, tiling: 1 }],
-		[4, textures.detailNormal],
-		[5, textures.noisePattern],
-		[6, textures.noisePattern === null ? null : { ...textures.noisePattern, tiling: 1 }],
+		[Slot.Normal, textures.baseNormal],
+		[Slot.Mask, textures.metalMix],
+		[Slot.Emissive, textures.flowRamp === null ? null : { texture: textures.flowRamp, tiling: 1 }],
+		[Slot.Detail, textures.detailNormal],
+		[Slot.Parallax, textures.noisePattern],
+		[Slot.ParallaxNoise, textures.noisePattern === null ? null : { ...textures.noisePattern, tiling: 1 }],
 	];
 	for (const [i, texture] of slots) {
 		if (texture !== null) {
@@ -74,7 +82,7 @@ export const erosionLook = (surface: ErosionSurface, cull: MaterialCull): Materi
 	}
 	// the ramp is sampled at its finest level whatever its size on screen
 	if (textures.flowRamp !== null) {
-		look.uvScales[3] = 0;
+		look.uvScales[Slot.Emissive] = 0;
 	}
 	params.set([...surface.baseColor, -1], ErosionRow.base);
 	params.set(
@@ -128,16 +136,16 @@ export const ditheredLook = (surface: DitheredSurface, cull: MaterialCull): Mate
 	look.castsShadows = false;
 	const params = look.params;
 	if (surface.baseMap !== null) {
-		setTexture(look, 0, surface.baseMap);
+		setTexture(look, Slot.Base, surface.baseMap);
 	}
 	if (surface.normalMap !== null) {
-		setTexture(look, 1, surface.normalMap);
+		setTexture(look, Slot.Normal, surface.normalMap);
 	}
 	const { dither } = surface;
 	if (dither !== null) {
 		// an unlit look can borrow the normal slot to test the main texture's red as the alpha alone
 		if (dither.redAlpha) {
-			setTexture(look, 1, dither.texture);
+			setTexture(look, Slot.Normal, dither.texture);
 			look.flags |= LookFlags.AlphaNormal;
 		}
 		params.set(
@@ -156,7 +164,7 @@ export const ditheredLook = (surface: DitheredSurface, cull: MaterialCull): Mate
 	}
 	look.flags |= LookFlags.NormalRag;
 	// untextured, the tint is the albedo, which the G-buffer saturates
-	const untextured = look.textures[0] < 0;
+	const untextured = look.textures[Slot.Base] < 0;
 	params.set([...(untextured ? color.map((c) => Math.min(c, 1)) : color), -1], LookRow.tint);
 	params.set(
 		[lighting.roughness, lighting.roughness, lighting.metallic, lighting.normalScale],
@@ -185,11 +193,11 @@ export const mattePaintingLook = (surface: MattePaintingSurface, cull: MaterialC
 	look.flags |= LookFlags.Unlit;
 	const params = look.params;
 	if (surface.texture !== null) {
-		setTexture(look, 0, surface.texture);
+		setTexture(look, Slot.Base, surface.texture);
 	}
 	const threshold = surface.alphaClip ?? -1;
 	params.set([...surface.color, threshold], LookRow.tint);
-	look.cutout = threshold >= 0 && look.textures[0] >= 0;
+	look.cutout = threshold >= 0 && look.textures[Slot.Base] >= 0;
 	params[LookRow.surface] = surface.highlight.threshold;
 	params[LookRow.surface + 1] = surface.highlight.intensity;
 	params[LookRow.emissive2 + 2] = surface.ignorePostExposure;

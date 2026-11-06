@@ -5,6 +5,8 @@
  * @module
  */
 
+import { SLOTS, Slot } from '../../looks/look.ts';
+
 const VERTEX = GPUShaderStage.VERTEX;
 const FRAGMENT = GPUShaderStage.FRAGMENT;
 
@@ -104,12 +106,14 @@ export const createBindLayouts = (device: GPUDevice): BindLayouts => {
 	});
 	const materials = device.createBindGroupLayout({
 		label: 'materials',
-		// the slots of `SLOTS` in looks/look.ts, then the base, detail and parallax samplers
+		// the texture slots, then the samplers of the base, detail and parallax slots
 		entries: [
-			...[0, 1, 2, 3, 4, 5, 6].map(texture),
-			{ binding: 7, visibility: FRAGMENT, sampler: { type: 'filtering' } },
-			{ binding: 8, visibility: FRAGMENT, sampler: { type: 'filtering' } },
-			{ binding: 9, visibility: FRAGMENT, sampler: { type: 'filtering' } },
+			...SLOTS.map((_, slot) => texture(slot)),
+			...[Slot.Base, Slot.Detail, Slot.Parallax].map((_, i): GPUBindGroupLayoutEntry => ({
+				binding: SLOTS.length + i,
+				visibility: FRAGMENT,
+				sampler: { type: 'filtering' },
+			})),
 		],
 	});
 	return {

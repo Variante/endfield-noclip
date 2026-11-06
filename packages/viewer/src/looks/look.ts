@@ -17,6 +17,18 @@ export const SLOTS = [
 	'_ParallaxNoiseMap',
 ] as const;
 
+/** each {@link SLOTS} entry's index, its binding in the mesh families' material group */
+export const Slot = {
+	Base: 0,
+	Normal: 1,
+	/** `_MROMap`, or the tri-channel `_MaskMap` */
+	Mask: 2,
+	Emissive: 3,
+	Detail: 4,
+	Parallax: 5,
+	ParallaxNoise: 6,
+} as const;
+
 /** a slot samples UV set 1 when bit `UV1_SHIFT + slot` of {@link MaterialLook.flags} is set, else UV set 0 */
 export const UV1_SHIFT = 18;
 
@@ -258,7 +270,7 @@ export const LookRow = {
  * @returns the texture id whose alpha an alpha-tested look tests, or -1 when it has none
  */
 export const alphaTextureOf = (look: MaterialLook): number =>
-	look.textures[(look.flags & LookFlags.AlphaNormal) !== 0 ? 1 : 0];
+	look.textures[(look.flags & LookFlags.AlphaNormal) !== 0 ? Slot.Normal : Slot.Base];
 
 /** the part of a look that holds its textures and draw parameters, all an effect's own builder fills */
 export type LookSlots = Pick<MaterialLook, 'textures' | 'uvScales' | 'volumeTexture' | 'params'>;

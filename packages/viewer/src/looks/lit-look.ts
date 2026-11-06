@@ -18,6 +18,7 @@ import {
 	type MaterialLook,
 	setTexture,
 	setTiledTexture,
+	Slot,
 } from './look.ts';
 
 /**
@@ -37,20 +38,20 @@ export const litLook = (surface: LitSurface, cull: MaterialCull): MaterialLook =
 	const { textures, emission } = surface;
 	const triChannel = surface.layout === 'mro' ? null : surface.triChannel;
 	if (textures.base !== null) {
-		setTexture(look, 0, textures.base);
+		setTexture(look, Slot.Base, textures.base);
 	}
 	if (textures.normal !== null) {
-		setTexture(look, 1, textures.normal);
+		setTexture(look, Slot.Normal, textures.normal);
 	}
 	const mask = textures.mro ?? triChannel?.mask ?? null;
 	if (mask !== null) {
-		setTexture(look, 2, mask);
+		setTexture(look, Slot.Mask, mask);
 	}
 	if (textures.emissive !== null) {
-		setTexture(look, 3, textures.emissive);
+		setTexture(look, Slot.Emissive, textures.emissive);
 	}
 	if (surface.detail !== null) {
-		setTexture(look, 4, surface.detail.texture);
+		setTexture(look, Slot.Detail, surface.detail.texture);
 	}
 
 	switch (surface.layout) {
@@ -271,9 +272,9 @@ const grassParams = (look: MaterialLook, grass: GrassInputs): void => {
 const parallaxParams = (look: MaterialLook, glow: ParallaxGlow): void => {
 	const params = look.params;
 	// the noise follows the pattern's UV set. without one the noise flag stays clear, and the march reads height 0
-	setTiledTexture(look, 5, glow.pattern.texture, glow.patternTiling, glow.pattern.uv);
+	setTiledTexture(look, Slot.Parallax, glow.pattern.texture, glow.patternTiling, glow.pattern.uv);
 	if (glow.noise !== null) {
-		setTiledTexture(look, 6, glow.noise, glow.noiseTiling, glow.pattern.uv);
+		setTiledTexture(look, Slot.ParallaxNoise, glow.noise, glow.noiseTiling, glow.pattern.uv);
 	}
 	// the pulse runs between the minimum brightness and 1
 	const minimum = glow.pulseMinimum;
@@ -357,11 +358,11 @@ const layerBlendParams = (look: MaterialLook, layer: LitLayer, source: LayerSour
 	const params = look.params;
 	look.flags |= LookFlags.LayerBlend;
 	if (layer.coverage.kind === 'maskMap') {
-		setTiledTexture(look, 3, layer.coverage.texture, 1, layer.coverage.uv);
+		setTiledTexture(look, Slot.Emissive, layer.coverage.texture, 1, layer.coverage.uv);
 	}
 	for (const [slot, texture] of [
-		[5, layer.base],
-		[6, layer.bump],
+		[Slot.Parallax, layer.base],
+		[Slot.ParallaxNoise, layer.bump],
 	] as const) {
 		setTiledTexture(look, slot, texture, layer.tiling, 0);
 		params.set(layer.offset, LookRow.uv + slot * 4 + 2);
