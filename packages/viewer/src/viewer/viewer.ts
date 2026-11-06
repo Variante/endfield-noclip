@@ -107,6 +107,8 @@ interface LoadedScene {
 	/** per-instance LOD selection, when the package has converted geometry */
 	meshes: MeshSelector | null;
 	textures: TextureStore;
+	/** the package's converted geometries, and how many of them converted */
+	geometries: { ready: number; total: number };
 	levels: LevelEntry[];
 }
 
@@ -432,6 +434,7 @@ export class Viewer {
 						})
 					: null,
 			textures,
+			geometries: { ready: geometriesReady, total: geometries.length },
 			levels: manifest.levels.map((level) => ({
 				id: level.id,
 				name: level.name ?? level.id,
@@ -460,8 +463,6 @@ export class Viewer {
 			this.#setPose(pose);
 			this.#unsettledPose = settled ? null : pose;
 		}
-		this.stats.geometriesTotal = geometries.length;
-		this.stats.geometriesReady = geometriesReady;
 		this.#dirty = true;
 		this.#emitState();
 		onProgress('streaming');

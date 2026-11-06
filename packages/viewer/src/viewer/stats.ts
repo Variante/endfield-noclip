@@ -169,8 +169,12 @@ export interface StatsSources {
 	draws: number;
 	/** tree nodes the last traversal visited */
 	visited: number;
-	/** the loaded package's streaming and textures, `null` without one */
-	scene: { stream: StreamManager; textures: TextureStore } | null;
+	/** the loaded package's streaming, textures and geometry counts, `null` without one */
+	scene: {
+		stream: StreamManager;
+		textures: TextureStore;
+		geometries: { ready: number; total: number };
+	} | null;
 	/** every system holding GPU pools or targets, which {@link ViewerStats.poolBytes} sums */
 	pools: readonly { readonly bytes: number }[];
 	camera: Camera;
@@ -221,6 +225,8 @@ export const collectStats = (previous: ViewerStats, sources: StatsSources): View
 		evictions: stream?.evictions ?? 0,
 		failed: stream?.failed ?? 0,
 		packageChanged: stream?.packageChanged ?? false,
+		geometriesReady: scene?.geometries.ready ?? 0,
+		geometriesTotal: scene?.geometries.total ?? 0,
 		camera: {
 			position: [...camera.position],
 			yaw: camera.yaw,
